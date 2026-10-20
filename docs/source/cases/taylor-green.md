@@ -33,7 +33,7 @@ the incompressible limit. The boundaries are periodic on all four sides.
   location, so the solution must be exactly translation-invariant.
 
 ```powershell
-cpp\build\fvsolver.exe --case "Taylor-Green Vortex"
+cpp\build\fenice.exe --case "Taylor-Green Vortex"
 python validation\validationTaylorGreen.py
 ```
 
@@ -50,7 +50,7 @@ python validation\validationTaylorGreen.py
 0.02 (0.3 %). Right: velocity L2 error at t = 1; the observed orders are 1.8, 2.9 and 2.4.</figcaption>
 </figure>
 
-The automated checks in `fv_tests` run smaller versions:
+The automated checks in `fenice_tests` run smaller versions:
 
 * `taylor_green_viscous_decay`: the recovered physical ν must be within 2 % at 32²
   (measured 0.4 %).

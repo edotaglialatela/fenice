@@ -2,7 +2,7 @@
 
     python validation/validationIsentropicVortex.py
 
-Runs the C++ solver (cpp/build/fvsolver) on the periodic isentropic vortex for one
+Runs the C++ solver (cpp/build/fenice) on the periodic isentropic vortex for one
 full period (t = 10, the vortex returns to its start) at N = 20, 40, 80, 160, and
 compares the density with the exact solution.  Also compares the four TVD limiters at
 N = 80.  Writes results/isentropic_vortex_validation.png.
@@ -15,7 +15,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.path.join(ROOT, "cpp", "build", "fvsolver.exe" if os.name == "nt" else "fvsolver")
+EXE = os.path.join(ROOT, "cpp", "build", "fenice.exe" if os.name == "nt" else "fenice")
 L, GAMMA, BETA, T_END = 10.0, 1.4, 5.0, 10.0
 
 

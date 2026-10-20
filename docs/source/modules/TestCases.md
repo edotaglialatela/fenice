@@ -25,10 +25,10 @@ defaults override the baseline defaults, and anything set in a config file or wi
 
 The 2-D cases also run on a 3-D mesh (`--set nz=...`). Their initial field is then
 extruded unchanged along z. With periodic (default) front/back sides, every z-layer
-reproduces the 2-D solution, which `fv_tests` checks.
+reproduces the 2-D solution, which `fenice_tests` checks.
 
-`fvsolver --list-cases` prints the registry, and
-`fvsolver --case NAME --print-case-defaults` prints a case's own defaults. The tables on
+`fenice --list-cases` prints the registry, and
+`fenice --case NAME --print-case-defaults` prints a case's own defaults. The tables on
 the case pages are generated from that output.
 
 **Adding a case.** Write a function returning a `TestCase` (key, defaults,

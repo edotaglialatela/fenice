@@ -23,7 +23,7 @@ the **order of accuracy** of the spatial and temporal schemes. Unlike Sod or Shu
 has no shocks, so the limiters should only clip at the smooth extrema.
 
 ```powershell
-cpp\build\fvsolver.exe --case "Isentropic Vortex"
+cpp\build\fenice.exe --case "Isentropic Vortex"
 python validation\validationIsentropicVortex.py
 ```
 
@@ -40,7 +40,7 @@ exact profile. Right: L1 density error (MC limiter) with observed orders 1.8, 2.
 other limiters at N = 80. MC is the most accurate, followed by Van Leer, Koren and Minmod.</figcaption>
 </figure>
 
-The automated check `isentropic_vortex_convergence` in `fv_tests` runs N = 20, 40, 80 to
+The automated check `isentropic_vortex_convergence` in `fenice_tests` runs N = 20, 40, 80 to
 t = 1 and requires an order above 1.7 (measured 2.2). The regression suite also runs the
 vortex under MPI in both decomposition directions, including a thin 64×6 mesh that forces
 column strips with periodic wrap-around.

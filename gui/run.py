@@ -1,9 +1,9 @@
-"""FV-Solver entry point: setup dialog, then the native C++ solver.
+"""Fenice entry point: setup dialog, then the native C++ solver.
 
     python gui/run.py
 
 Shows :class:`gui.setup_dialog.SetupDialog`, writes the validated parameters to a
-temporary config file and runs ``fvsolver --config <file>`` in this terminal.
+temporary config file and runs ``fenice --config <file>`` in this terminal.
 The solver re-launches itself under ``mpiexec`` when MPI is enabled; Ctrl+C
 reaches it and it saves a checkpoint and the ``.pvd`` index before stopping.
 """
@@ -31,7 +31,7 @@ def main() -> int:
     try:
         available_cases()
     except SolverNotFound as exc:
-        QMessageBox.critical(None, "FV-Solver", str(exc))
+        QMessageBox.critical(None, "Fenice", str(exc))
         return 1
 
     dialog = SetupDialog()
@@ -40,7 +40,7 @@ def main() -> int:
     params = dialog.sim_params
     app.quit()
 
-    fd, cfg = tempfile.mkstemp(prefix="fvsolver_", suffix=".cfg")
+    fd, cfg = tempfile.mkstemp(prefix="fenice_", suffix=".cfg")
     os.close(fd)
     write_config(params, cfg)
     print(f"[GUI] Parameters written to {cfg}")

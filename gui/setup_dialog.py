@@ -68,7 +68,7 @@ class SetupDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("FV-Solver — Simulation Setup")
+        self.setWindowTitle("Fenice — Simulation Setup")
         self.setMinimumWidth(960)
         self.setMinimumHeight(660)
 
@@ -149,7 +149,7 @@ class SetupDialog(QDialog):
         h = QVBoxLayout(header)
         h.setContentsMargins(2, 0, 2, 2)
         h.setSpacing(2)
-        title = QLabel("FV-Solver")
+        title = QLabel("Fenice")
         title.setObjectName("appTitle")
         subtitle = QLabel("Compressible finite-volume simulation — run configuration")
         subtitle.setObjectName("appSubtitle")
@@ -179,7 +179,7 @@ class SetupDialog(QDialog):
         self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         v.addWidget(self.image_label, stretch=1)
 
-        caption = QLabel("FV-Solver")
+        caption = QLabel("Fenice")
         caption.setObjectName("logoCaption")
         caption_sub = QLabel("Euler · Navier–Stokes · MUSCL · HLLC · IBM · AMR")
         caption_sub.setObjectName("logoCaptionSub")

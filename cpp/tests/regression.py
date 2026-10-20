@@ -7,7 +7,7 @@ with mixed levels.  The first 16 are states of the original Python solver (the
 reference implementation, retired on 2026-10-20), which the C++ solver reproduced
 bit for bit (BDF2 / mass-flow cases to ~1e-14).  Later cases (Taylor-Green,
 isentropic vortex) were created from the C++ solver after validation against
-their exact solutions (see the fv_tests checks of the same names).
+their exact solutions (see the fenice_tests checks of the same names).
 
     python cpp/tests/regression.py             # serial C++ vs references
     python cpp/tests/regression.py --mpi 4     # also C++ MPI (4 ranks) vs references
@@ -29,7 +29,7 @@ import numpy as np
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 REF = os.path.join(HERE, "reference")
-EXE = os.path.join(os.path.dirname(HERE), "build", "fvsolver.exe" if os.name == "nt" else "fvsolver")
+EXE = os.path.join(os.path.dirname(HERE), "build", "fenice.exe" if os.name == "nt" else "fenice")
 
 # name: (test case, overrides on top of the case defaults)
 CASES = {
@@ -65,7 +65,7 @@ CASES = {
     "taylor_green_visc":   ("Taylor-Green Vortex", dict(nx=32, ny=32, t_end=0.5, mu=0.05)),
     "isentropic_vortex":   ("Isentropic Vortex", dict(nx=40, ny=40, t_end=1.0)),
     "vortex_thin_xdecomp": ("Isentropic Vortex", dict(nx=64, ny=6, t_end=0.5)),
-    # 3-D (added 2026-10-20; C++ references validated by the fv_tests 3-D checks)
+    # 3-D (added 2026-10-20; C++ references validated by the fenice_tests 3-D checks)
     "tgv3d_16":            ("Taylor-Green Vortex 3D", dict(nx=16, ny=16, nz=16, t_end=0.5, mu=0.01)),
     "tgv3d_xdecomp":       ("Taylor-Green Vortex 3D", dict(nx=16, ny=6, nz=8, t_end=0.3)),
     "cavity3d_noslip_z":   ("Lid Driven Cavity", dict(nx=10, ny=10, nz=6, Lz=1.0, t_end=0.1, bc_front="no_slip",
@@ -96,7 +96,7 @@ def run_cpp(name, tmp, n_mpi=0):
     t0 = time.perf_counter()
     res = subprocess.run(cmd, capture_output=True, text=True)
     if res.returncode != 0:
-        raise RuntimeError(f"{name}: fvsolver failed ({res.returncode})\n{res.stdout[-1500:]}\n{res.stderr[-1500:]}")
+        raise RuntimeError(f"{name}: fenice failed ({res.returncode})\n{res.stdout[-1500:]}\n{res.stderr[-1500:]}")
     d = np.load(dump)
     return d["U"], (d["leaf_meta"] if "leaf_meta" in d else None), int(d["step"]), time.perf_counter() - t0
 

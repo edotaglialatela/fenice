@@ -2,7 +2,7 @@
 
     python validation/validationTaylorGreen.py
 
-Runs the C++ solver (cpp/build/fvsolver) on the periodic Taylor-Green vortex:
+Runs the C++ solver (cpp/build/fenice) on the periodic Taylor-Green vortex:
 
 1. 64x64 to t = 5 with snapshots, to compare the kinetic-energy decay KE(t)/KE(0)
    with the exact exp(-4 nu k^2 t), with and without viscous fluxes (the inviscid run
@@ -21,7 +21,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.path.join(ROOT, "cpp", "build", "fvsolver.exe" if os.name == "nt" else "fvsolver")
+EXE = os.path.join(ROOT, "cpp", "build", "fenice.exe" if os.name == "nt" else "fenice")
 MU, L = 0.02, 2.0 * np.pi
 K = 2.0 * np.pi / L
 

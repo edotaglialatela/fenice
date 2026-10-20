@@ -39,8 +39,8 @@ if ($MpiSdk -and -not (Select-String -Path (Join-Path $build "build.ninja") -Pat
 }
 
 if ($Test) {
-    & (Join-Path $build "fv_tests.exe")
+    & (Join-Path $build "fenice_tests.exe")
     if ($LASTEXITCODE -ne 0) { throw "Unit tests failed" }
 }
-Write-Host "Built: $(Join-Path $build 'fvsolver.exe')"
+Write-Host "Built: $(Join-Path $build 'fenice.exe')"
 

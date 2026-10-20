@@ -1,13 +1,13 @@
-// fvsolver - command-line driver for the C++ FV solver.
+// fenice - command-line driver for the C++ FV solver.
 //
 // Parameters resolve in this order (later wins):
 //   baseline defaults -> test-case DEFAULTS -> --config file -> --set overrides
 //
 // Examples
-//   fvsolver --case "Sod Shock Tube"
-//   fvsolver --case "Shu-Osher Test" --set nx=2000 --set use_muscl=true
-//   fvsolver --config run.cfg               (as written by the GUI launcher)
-//   mpiexec -n 8 fvsolver --case "IBM Supersonic Flow over Cylinder"
+//   fenice --case "Sod Shock Tube"
+//   fenice --case "Shu-Osher Test" --set nx=2000 --set use_muscl=true
+//   fenice --config run.cfg               (as written by the GUI launcher)
+//   mpiexec -n 8 fenice --case "IBM Supersonic Flow over Cylinder"
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -40,7 +40,7 @@ void on_sigint(int) {
 
 void usage() {
     std::printf(
-        "Usage: fvsolver [options]\n"
+        "Usage: fenice [options]\n"
         "  --case NAME        test case (see --list-cases)\n"
         "  --config FILE      'key = value' parameter file\n"
         "  --set KEY=VALUE    override one parameter (repeatable)\n"

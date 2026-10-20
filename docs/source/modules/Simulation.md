@@ -16,7 +16,7 @@ initialize_field()   test-case initializer or hot start -> IBM forcing -> case B
 solve()              serial / AMR time loop          run_mpi(comm)   MPI time loop
 ```
 
-`fvsolver` (`cpp/apps/main.cpp`) resolves the parameters and calls these in order.
+`fenice` (`cpp/apps/main.cpp`) resolves the parameters and calls these in order.
 `initial_field()` runs the case initializer. On a 3-D mesh, a 2-D case is extruded
 unchanged along z; the 3-D Taylor-Green case requires `nz > 1`. If MPI
 is requested it first re-launches itself under `mpiexec`; every rank then calls `run_mpi`.

@@ -1,12 +1,12 @@
 ---
-title: FV-Solver
+title: Fenice
 nav: Overview
 section: Guide
 order: 0
 ---
 
-A structured-Cartesian compressible finite-volume solver for the **Euler and
-Navier-Stokes equations** in 2-D and 3-D, written in C++17 with OpenMP threading and MPI
+**Fenice** (Italian for *phoenix*) is a structured-Cartesian compressible finite-volume
+solver for the **Euler and Navier-Stokes equations** in 2-D and 3-D, written in C++17 with OpenMP threading and MPI
 domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz > 1`.
 2-D runs give exactly the same results as before the 3-D extension.
 
@@ -31,7 +31,7 @@ domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz 
 
 ```powershell
 .\cpp\build.ps1 -Test                                   # build + unit tests
-cpp\build\fvsolver.exe --case "Sod Shock Tube"          # run a benchmark
+cpp\build\fenice.exe --case "Sod Shock Tube"          # run a benchmark
 python gui\run.py                                       # or configure it in the GUI
 ```
 
@@ -97,8 +97,8 @@ The orchestration lives in [Simulation]({{root}}modules/Simulation.html).
 | Path | Content |
 |---|---|
 | `cpp/include/fv/`, `cpp/src/` | Solver library (one header per module page) |
-| `cpp/apps/main.cpp` | `fvsolver` command-line driver |
-| `cpp/tests/` | Unit tests (`fv_tests`), regression references and `regression.py` |
+| `cpp/apps/main.cpp` | `fenice` command-line driver |
+| `cpp/tests/` | Unit tests (`fenice_tests`), regression references and `regression.py` |
 | `gui/` | PyQt6 setup dialog and launcher |
 | `validation/` | Post-processing / validation scripts (read the VTK output) |
 | `docs/` | This documentation (`python docs/build.py`) |

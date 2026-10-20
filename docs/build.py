@@ -1,4 +1,4 @@
-"""Build the FV-Solver HTML documentation.
+"""Build the Fenice HTML documentation.
 
     python docs/build.py            # build into docs/
     python docs/build.py --open     # build and open index.html
@@ -20,7 +20,7 @@ Directives inside a page:
                        the end when the directive is absent)
 * ``{{root}}``         relative path to the docs root (for images and links)
 * ``{{defaults:CASE}}`` table of a test case's default parameters, read from the
-                       built solver (``fvsolver --case CASE --print-case-defaults``)
+                       built solver (``fenice --case CASE --print-case-defaults``)
 
 Math is written as ``$...$`` / ``$$...$$`` and rendered by MathJax.  The API
 reference is parsed from the ``//`` comments above each declaration in
@@ -47,7 +47,7 @@ DOCS = Path(__file__).resolve().parent
 ROOT = DOCS.parent
 SOURCE = DOCS / "source"
 HEADERS = ROOT / "cpp" / "include" / "fv"
-SOLVER = ROOT / "cpp" / "build" / ("fvsolver.exe" if __import__("os").name == "nt" else "fvsolver")
+SOLVER = ROOT / "cpp" / "build" / ("fenice.exe" if __import__("os").name == "nt" else "fenice")
 TEMPLATES = DOCS / "_templates"
 SECTIONS = ["Guide", "Modules", "Test cases"]
 
@@ -351,7 +351,7 @@ PAGE = """<!doctype html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} - FV-Solver</title>
+<title>{title} - Fenice</title>
 <style>{base_css}</style>
 <style>{custom_css}</style>
 <style>
@@ -468,7 +468,7 @@ def build(open_browser: bool = False) -> None:
             html_body = re.sub(rf"(<p>)?\x00WIDGET{k}\x00(</p>)?", lambda _: f'<div class="fv-widget">\n{widget}\n</div>', html_body)
         p.html, p.toc, p.api = html_body, toc, nav
         back = "" if p.out == DOCS / "index.html" else (
-            f'<a class="pdoc-button module-list-button" href="{p.rel_root}index.html">&#8592;&nbsp;FV-Solver</a>')
+            f'<a class="pdoc-button module-list-button" href="{p.rel_root}index.html">&#8592;&nbsp;Fenice</a>')
         contents = f"<h2>Contents</h2>{toc}" if toc else ""
         p.out.parent.mkdir(parents=True, exist_ok=True)
         p.out.write_text(PAGE.format(title=html.escape(p.title), heading=html.escape(p.title), base_css=base_css,
@@ -493,6 +493,6 @@ def build(open_browser: bool = False) -> None:
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(description="Build the FV-Solver documentation.")
+    ap = argparse.ArgumentParser(description="Build the Fenice documentation.")
     ap.add_argument("--open", action="store_true", help="open index.html after building")
     build(ap.parse_args().open)

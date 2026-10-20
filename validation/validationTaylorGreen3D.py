@@ -3,7 +3,7 @@
     python validation/validationTaylorGreen3D.py            # 32^3 and 64^3 (the 64^3 run takes minutes)
     python validation/validationTaylorGreen3D.py --skip-64  # 32^3 only
 
-Runs the C++ solver (cpp/build/fvsolver) on the "Taylor-Green Vortex 3D" case to t = 20:
+Runs the C++ solver (cpp/build/fenice) on the "Taylor-Green Vortex 3D" case to t = 20:
 
 1. 32^3 (the case default) with snapshots every 100 steps and the volume-average monitor
    (``monitor_interval``), and 64^3 with the monitor only;
@@ -28,7 +28,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.path.join(ROOT, "cpp", "build", "fvsolver.exe" if os.name == "nt" else "fvsolver")
+EXE = os.path.join(ROOT, "cpp", "build", "fenice.exe" if os.name == "nt" else "fenice")
 CASE, PREFIX = "Taylor-Green Vortex 3D", "taylor-green_vortex_3d"
 NU = 1.0 / 1600.0
 L = 2.0 * np.pi

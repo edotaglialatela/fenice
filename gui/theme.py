@@ -1,4 +1,4 @@
-"""Application theme for the FV-Solver PyQt6 GUI.
+"""Application theme for the Fenice PyQt6 GUI.
 
 A single, reusable Qt theme: a named colour palette, a Qt Style Sheet (QSS)
 built from it, and :func:`apply_theme` to install both on a ``QApplication``.

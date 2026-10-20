@@ -22,8 +22,8 @@ defaults, $\mathrm{Re} = \rho_0 u_{\rm in} L_y/\mu = 0.5$. The flow is very low-
 which makes it a good target for `HLLC (Low-Mach Thornber)` and `BDF2 Dual Time`.
 
 ```powershell
-cpp\build\fvsolver.exe --case "Poiseuille Flow"
-cpp\build\fvsolver.exe --case "Poiseuille Flow" --set time_scheme=bdf2
+cpp\build\fenice.exe --case "Poiseuille Flow"
+cpp\build\fenice.exe --case "Poiseuille Flow" --set time_scheme=bdf2
 python validation\validationPoiseuille.py
 python validation\mpiComparison.py      # serial vs MPI (results/poiseuille_flow[_mpi])
 ```

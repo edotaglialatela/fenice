@@ -191,7 +191,7 @@ void print_logo() {
     std::stringstream ss;
     ss << in.rdbuf();
     std::fwrite(ss.str().data(), 1, ss.str().size(), stdout);
-    std::printf("\n");
+    std::printf("\n%54s\n%67s\n\n", "F E N I C E", "compressible finite-volume solver");
 }
 
 // ---------------------------------------------------------------------------

@@ -24,7 +24,7 @@ The cylinder has radius $r = 0.25$ and is centred at $(1, 2)$ in a $4\times4$ do
 * **MPI:** 16 ranks by default (Y-direction strips).
 
 ```powershell
-cpp\build\fvsolver.exe --case "IBM Supersonic Flow over Cylinder"
+cpp\build\fenice.exe --case "IBM Supersonic Flow over Cylinder"
 ```
 
 ## Default parameters

@@ -13,12 +13,12 @@ Requirements: Visual Studio 2022 or newer with the *Desktop development with C++
 workload (it provides `cl`, CMake and Ninja).
 
 ```powershell
-.\cpp\build.ps1 -Test     # Release build + unit tests -> cpp\build\fvsolver.exe
+.\cpp\build.ps1 -Test     # Release build + unit tests -> cpp\build\fenice.exe
 .\cpp\build.ps1 -NoMpi    # build without MPI
 ```
 
 `build.ps1` loads the Visual Studio x64 environment, configures CMake with Ninja
-and builds two targets: `fvsolver` and the unit-test runner `fv_tests`.
+and builds two targets: `fenice` and the unit-test runner `fenice_tests`.
 
 **MPI** needs the MS-MPI runtime (`mpiexec`) and the MS-MPI **SDK** (headers and
 `msmpi.lib`):
@@ -48,7 +48,7 @@ OpenMP and MPI (OpenMPI or MPICH) are used automatically when CMake finds them.
 |---|---|---|
 | `FV_USE_OPENMP` | `ON` | Multi-threaded kernels |
 | `FV_USE_MPI` | `ON` | MPI domain decomposition (if an MPI SDK is found) |
-| `FV_BUILD_TESTS` | `ON` | Build `fv_tests` |
+| `FV_BUILD_TESTS` | `ON` | Build `fenice_tests` |
 
 The code is compiled with `/fp:precise` (`-fno-fast-math -ffp-contract=off` on
 GCC/Clang). This keeps the floating-point results bit-reproducible against the
@@ -57,11 +57,11 @@ regression references.
 ## Run
 
 ```powershell
-cpp\build\fvsolver.exe --list-cases
-cpp\build\fvsolver.exe --case "Sod Shock Tube"
-cpp\build\fvsolver.exe --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
-cpp\build\fvsolver.exe --config run.cfg --threads 8
-cpp\build\fvsolver.exe --case "Lid Driven Cavity" --print-config
+cpp\build\fenice.exe --list-cases
+cpp\build\fenice.exe --case "Sod Shock Tube"
+cpp\build\fenice.exe --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
+cpp\build\fenice.exe --config run.cfg --threads 8
+cpp\build\fenice.exe --case "Lid Driven Cavity" --print-config
 ```
 
 | Option | Meaning |
@@ -86,11 +86,11 @@ checkpoint and the `.pvd` index are written. A second Ctrl+C aborts immediately.
 
 ### MPI
 
-With `use_mpi = true` and `n_cpus > 1`, `fvsolver` re-launches itself under
+With `use_mpi = true` and `n_cpus > 1`, `fenice` re-launches itself under
 `mpiexec -n n_cpus`. You can also start it directly:
 
 ```powershell
-mpiexec -n 8 cpp\build\fvsolver.exe --case "IBM Supersonic Flow over Cylinder"
+mpiexec -n 8 cpp\build\fenice.exe --case "IBM Supersonic Flow over Cylinder"
 ```
 
 Each rank owns a strip of rows or columns; see

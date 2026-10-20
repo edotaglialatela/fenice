@@ -10,13 +10,13 @@ python gui\run.py
 ```
 
 The PyQt6 setup dialog collects every parameter of a run, validates it, writes a
-temporary config file and runs `fvsolver --config <file>` in the same terminal. The
+temporary config file and runs `fenice --config <file>` in the same terminal. The
 solver output streams there. Ctrl+C reaches the solver, which writes its checkpoint and
 `.pvd` before exiting.
 
 **Requirements:** Python 3.9+, `PyQt6` and `numpy` (`python prerequisites.py`), plus a
-built solver (`.\cpp\build.ps1`). Set `FV_SOLVER_EXE` to use an executable other than
-`cpp\build\fvsolver.exe`.
+built solver (`.\cpp\build.ps1`). Set `FENICE_EXE` to use an executable other than
+`cpp\build\fenice.exe`.
 
 ## Tabs
 
@@ -34,7 +34,7 @@ built solver (`.\cpp\build.ps1`). Set `FV_SOLVER_EXE` to use an executable other
 ## Single source of truth
 
 The dialog has no physics or defaults of its own. The test-case list comes from
-`fvsolver --list-cases`, and picking a case loads `fvsolver --case NAME --print-config`.
+`fenice --list-cases`, and picking a case loads `fenice --case NAME --print-config`.
 A new test case added to the C++ registry therefore appears in the GUI with its defaults
 automatically.
 

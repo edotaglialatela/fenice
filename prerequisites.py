@@ -102,7 +102,7 @@ def _install_group(packages: list, group_label: str) -> dict:
 
 def main() -> None:
     parser = argparse.ArgumentParser(
-        description="Install FV-solver prerequisites.",
+        description="Install Fenice prerequisites.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--no-gui",   action="store_true", help="Skip PyQt6")
@@ -112,7 +112,7 @@ def main() -> None:
     sep = "=" * 60
     print()
     print(sep)
-    print("  FV Solver -- Dependency Installer")
+    print("  Fenice -- Dependency Installer")
     print(sep)
 
     print("\nPython version")

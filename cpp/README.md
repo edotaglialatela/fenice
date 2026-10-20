@@ -1,4 +1,4 @@
-# FV-Solver — C++ solver
+# Fenice — C++ solver
 
 The solver itself: a 2-D / 3-D compressible finite-volume code for the Euler and
 Navier-Stokes equations, in C++17 with OpenMP and MPI (`nz = 1` is 2-D, `nz > 1` 3-D). The full documentation is in `docs/`
@@ -12,7 +12,7 @@ cpp/
                 Physics (gradients, Navier-Stokes, body force, IBM), TimeScheme, AMR,
                 SolutionMapping, IO (VTK + npz), Params, TestCases, MPIDecomposition, Simulation
   src/          implementations (one .cpp per header)
-  apps/main.cpp fvsolver command-line driver
+  apps/main.cpp fenice command-line driver
   tests/        test_main.cpp (unit tests), regression.py + reference/ (reference states)
   build.ps1     Windows build script (MSVC + Ninja)
 ```
@@ -20,7 +20,7 @@ cpp/
 ## Build
 
 ```powershell
-.\cpp\build.ps1 -Test        # Release build + unit tests -> cpp\build\fvsolver.exe
+.\cpp\build.ps1 -Test        # Release build + unit tests -> cpp\build\fenice.exe
 .\cpp\build.ps1 -NoMpi       # OpenMP only
 ```
 
@@ -31,12 +31,12 @@ MPI needs the MS-MPI SDK: `winget install Microsoft.msmpisdk`. You can also pass
 ## Run
 
 ```powershell
-cpp\build\fvsolver.exe --list-cases
-cpp\build\fvsolver.exe --case "Sod Shock Tube"
-cpp\build\fvsolver.exe --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
-cpp\build\fvsolver.exe --config run.cfg --threads 8
-mpiexec -n 8 cpp\build\fvsolver.exe --case "IBM Supersonic Flow over Cylinder"
-cpp\build\fvsolver.exe --case "Taylor-Green Vortex 3D" --set monitor_interval=10   # 32^3
+cpp\build\fenice.exe --list-cases
+cpp\build\fenice.exe --case "Sod Shock Tube"
+cpp\build\fenice.exe --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
+cpp\build\fenice.exe --config run.cfg --threads 8
+mpiexec -n 8 cpp\build\fenice.exe --case "IBM Supersonic Flow over Cylinder"
+cpp\build\fenice.exe --case "Taylor-Green Vortex 3D" --set monitor_interval=10   # 32^3
 python gui\run.py                                   # GUI front end
 ```
 
@@ -52,7 +52,7 @@ for ParaView, and a `<case>_restart.npz` checkpoint for `resume` / `use_hot_star
 ## Tests
 
 ```powershell
-cpp\build\fv_tests.exe                       # 49 unit tests
+cpp\build\fenice_tests.exe                       # 49 unit tests
 python cpp\tests\regression.py --mpi 4       # 24 serial + 15 MPI runs vs reference states
 ```
 

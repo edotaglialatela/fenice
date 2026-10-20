@@ -12,7 +12,7 @@ python cpp\tests\regression.py --mpi 4          # regression against the referen
 
 Run both after any change to the solver.
 
-## Unit tests (`fv_tests`)
+## Unit tests (`fenice_tests`)
 
 `cpp/tests/test_main.cpp` uses a self-contained harness, so no test framework is needed,
 and exits non-zero on failure. Its 49 tests cover:
