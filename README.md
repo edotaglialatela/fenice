@@ -78,6 +78,15 @@ cmake --build cpp/build -j
 
 Add `-DFV_USE_MPI=OFF` or `-DFV_USE_OPENMP=OFF` to the configure line to leave either out.
 
+### IDEs (CLion, VS Code, Visual Studio)
+
+The repository root is a CMake project with presets (`CMakePresets.json`):
+`msvc-release` / `msvc-debug` on Windows and `linux-release` / `linux-debug` on Linux or
+WSL, each building into `build/<preset>/`. From a terminal: `cmake --preset msvc-release`
+then `cmake --build --preset msvc-release` (in a Visual Studio developer prompt).
+In CLion the presets appear as CMake profiles, and `.run/` provides ready-made run
+configurations: Sod, 3-D Taylor-Green, unit tests, regression and the GUI.
+
 > **Tested platforms:** Windows 11 (MSVC 19.50, MS-MPI 10.1) and Ubuntu 26.04 (GCC 15.2,
 > Open MPI 5.0). On both, all unit tests pass and the regression suite matches the
 > reference states, serial and on 4 MPI ranks. macOS uses the same CMake setup but has not

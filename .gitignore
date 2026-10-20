@@ -1,5 +1,7 @@
-# Build output (rebuild with .\cpp\build.ps1)
+# Build output (rebuild with .\cpp\build.ps1, or a CMake preset / CLion profile)
 cpp/build/
+build/
+cmake-build-*/
 
 # Simulation output (VTK snapshots, checkpoints, logs): regenerate by running the solver
 results/

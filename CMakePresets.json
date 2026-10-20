@@ -1,0 +1,53 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 25, "patch": 0 },
+  "configurePresets": [
+    {
+      "name": "base",
+      "hidden": true,
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": { "FV_USE_OPENMP": "ON", "FV_USE_MPI": "ON", "FV_BUILD_TESTS": "ON" }
+    },
+    {
+      "name": "msvc-release",
+      "displayName": "Windows MSVC - Release",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" },
+      "vendor": { "jetbrains.com/clion": { "toolchain": "Visual Studio" } }
+    },
+    {
+      "name": "msvc-debug",
+      "displayName": "Windows MSVC - Debug",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
+      "vendor": { "jetbrains.com/clion": { "toolchain": "Visual Studio" } }
+    },
+    {
+      "name": "linux-release",
+      "generator": "Unix Makefiles",
+      "displayName": "Linux GCC - Release",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" },
+      "vendor": { "jetbrains.com/clion": { "toolchain": "WSL" } }
+    },
+    {
+      "name": "linux-debug",
+      "generator": "Unix Makefiles",
+      "displayName": "Linux GCC - Debug",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
+      "vendor": { "jetbrains.com/clion": { "toolchain": "WSL" } }
+    }
+  ],
+  "buildPresets": [
+    { "name": "msvc-release", "configurePreset": "msvc-release" },
+    { "name": "msvc-debug", "configurePreset": "msvc-debug" },
+    { "name": "linux-release", "configurePreset": "linux-release" },
+    { "name": "linux-debug", "configurePreset": "linux-debug" }
+  ],
+  "testPresets": [
+    { "name": "msvc-release", "configurePreset": "msvc-release", "output": { "outputOnFailure": true } },
+    { "name": "linux-release", "configurePreset": "linux-release", "output": { "outputOnFailure": true } }
+  ]
+}
