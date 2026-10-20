@@ -35,13 +35,19 @@ if(MSVC)
   target_compile_options(fenice_core PUBLIC /W3 /utf-8 /fp:precise /permissive-)
   target_compile_definitions(fenice_core PUBLIC NOMINMAX _CRT_SECURE_NO_WARNINGS)
 else()
-  target_compile_options(fenice_core PUBLIC -Wall -Wextra -O3 -fno-fast-math -ffp-contract=off)
+  # Optimisation comes from the build type (Release: -O3), so Debug builds stay debuggable
+  target_compile_options(fenice_core PUBLIC -Wall -Wextra -fno-fast-math -ffp-contract=off)
 endif()
 
 if(FV_USE_OPENMP)
   find_package(OpenMP)
   if(OpenMP_CXX_FOUND)
     target_link_libraries(fenice_core PUBLIC OpenMP::OpenMP_CXX)
+    if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
+      # MinGW: FindOpenMP lists no OpenMP libraries (the -fopenmp driver flag pulls in libgomp
+      # itself), so the flag must also reach the link step or every omp_*/GOMP_* is undefined
+      target_link_options(fenice_core PUBLIC -fopenmp)
+    endif()
   else()
     message(WARNING "OpenMP not found: building single-threaded kernels")
   endif()
