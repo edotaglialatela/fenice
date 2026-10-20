@@ -78,8 +78,10 @@ cmake --build cpp/build -j
 
 Add `-DFV_USE_MPI=OFF` or `-DFV_USE_OPENMP=OFF` to the configure line to leave either out.
 
-> Windows (MSVC) is the platform Fenice is developed and tested on. The Linux and macOS
-> builds use the same portable CMake setup but have not been tested yet.
+> **Tested platforms:** Windows 11 (MSVC 19.50, MS-MPI 10.1) and Ubuntu 26.04 (GCC 15.2,
+> Open MPI 5.0). On both, all unit tests pass and the regression suite matches the
+> reference states, serial and on 4 MPI ranks. macOS uses the same CMake setup but has not
+> been tested yet.
 
 ## Run
 

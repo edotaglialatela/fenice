@@ -162,6 +162,9 @@ AMRPatch* AMRTree::find_neighbour_leaf(const AMRPatch* p, Face face, const std::
                 if (p->ymax >= Ly - eps) return nullptr;
                 hit = std::abs(nb->ymin - p->ymax) < eps && nb->xmin < p->xmax - eps && nb->xmax > p->xmin + eps;
                 break;
+            case Face::Front:
+            case Face::Back:   // AMR is 2-D only
+                break;
         }
         if (hit) return nb;
     }
@@ -190,6 +193,9 @@ std::vector<AMRPatch*> AMRTree::neighbour_leaves(const AMRPatch* p, Face face) c
                 hit = std::abs(nb->ymax - p->ymin) < eps && nb->xmin < p->xmax - eps && nb->xmax > p->xmin + eps; break;
             case Face::Top:
                 hit = std::abs(nb->ymin - p->ymax) < eps && nb->xmin < p->xmax - eps && nb->xmax > p->xmin + eps; break;
+            case Face::Front:
+            case Face::Back:   // AMR is 2-D only
+                break;
         }
         if (hit) out.push_back(nb);
     }
@@ -304,6 +310,8 @@ void face_edge_indices(int nx, int ny, Face face, char& which, std::vector<int>&
         case Face::Right:  which = 'x'; for (int j = 0; j < ny; ++j) idx.push_back(j * (nx + 1) + nx); break;
         case Face::Bottom: which = 'y'; for (int i = 0; i < nx; ++i) idx.push_back(i); break;
         case Face::Top:    which = 'y'; for (int i = 0; i < nx; ++i) idx.push_back(ny * nx + i); break;
+        case Face::Front:
+        case Face::Back:   break;   // AMR is 2-D only
     }
 }
 
