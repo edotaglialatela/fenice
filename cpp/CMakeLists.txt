@@ -12,6 +12,7 @@ option(FV_USE_MPI    "MPI domain decomposition (needs an MPI SDK, e.g. MS-MPI)" 
 option(FV_BUILD_TESTS "Build the C++ unit tests" ON)
 
 add_library(fenice_core STATIC
+  src/CaseFile.cpp
   src/Core.cpp
   src/Boundaries.cpp
   src/Schemes.cpp
@@ -26,7 +27,18 @@ add_library(fenice_core STATIC
   src/Simulation.cpp
 )
 target_include_directories(fenice_core PUBLIC include)
-# Project root: logo, default results/ folder
+target_include_directories(fenice_core PRIVATE third_party/tomlplusplus)
+
+# TinyExpr (case-file expressions): C, built with the same strict floating point as the solver
+add_library(fenice_tinyexpr STATIC third_party/tinyexpr/tinyexpr.c)
+target_include_directories(fenice_tinyexpr PUBLIC third_party/tinyexpr)
+if(MSVC)
+  target_compile_options(fenice_tinyexpr PRIVATE /fp:precise /W0)
+else()
+  target_compile_options(fenice_tinyexpr PRIVATE -fno-fast-math -ffp-contract=off -w)
+endif()
+target_link_libraries(fenice_core PUBLIC fenice_tinyexpr)
+# Project root: logo, cases/ folder, default results/ folder
 get_filename_component(FV_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
 target_compile_definitions(fenice_core PUBLIC FV_PROJECT_ROOT="${FV_ROOT}")
 

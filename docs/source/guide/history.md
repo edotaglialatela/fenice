@@ -46,9 +46,9 @@ solutions agree bit for bit, and the Taylor-Green viscosity error dropped from 2
 0.4 %. No regression reference changed, because the only periodic reference case is
 uniform in the periodic direction.
 
-**AMR boundary conditions.** Patches on the domain edge use the case's forced BCs, as the
-uniform-mesh path does, rather than the raw GUI values. This is identical for every
-built-in case's defaults.
+**AMR boundary conditions.** Patches on the domain edge use the same BCs as the
+uniform-mesh path. (Since the move to case files these are the case file's BCs, plus any
+overrides.)
 
 **3-D extension (2026-10-20).** The solver now runs 3-D meshes (`nz > 1`):
 
@@ -63,6 +63,16 @@ serial and MPI. Two 3-D-only choices: the CFL length (see
 [TimeScheme]({{root}}modules/TimeScheme.html)) and the 3-D parabolic viscous limit
 $1/(2\nu\sum_d\Delta x_d^{-2})$. Both keep the stability margins of the 2-D formulas. See the
 [3-D Taylor-Green case]({{root}}cases/taylor-green-3d.html).
+
+**Test cases as files (2026-10-21).** The nine built-in cases moved from C++ to case files,
+`cases/<case>/case.toml`. These are TOML files with the parameters, the boundary
+conditions and the initial conditions: a background state, ordered geometric regions and
+analytic expressions. New cases need no recompilation (`fenice --new-case`, or *Save as
+case…* in the GUI). The move changed no result: every initial field is bit-identical, and
+the regression suite gives the same table as before. One behaviour changed on purpose:
+cases no longer force their boundary conditions in code. Previously Sod, Shu-Osher,
+Poiseuille and the periodic cases silently ignored `bc_*` overrides from the GUI or
+`--set`; now the case file sets the BCs, and overrides apply.
 
 **Smaller changes.**
 

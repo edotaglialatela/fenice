@@ -1,0 +1,37 @@
+# 2-D Taylor-Green vortex: exact viscous decay on a periodic square.
+[case]
+name = "Taylor-Green Vortex"
+description = "Viscous decay vs exact solution, periodic BCs"
+order = 70
+requires_viscous = true
+
+[mesh]
+Lx = 6.283185307179586
+Ly = 6.283185307179586
+nx = 64
+ny = 64
+
+[physics]
+use_viscous = true
+mu = 0.02
+use_bodyforce = false
+
+[boundaries]
+bc_left = "periodic"
+bc_right = "periodic"
+bc_bottom = "periodic"
+bc_top = "periodic"
+
+[numerics]
+riemann_solver = "HLLC (Low-Mach Thornber)"
+use_muscl = true
+muscl_limiter = "Van Leer"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.5
+
+[run]
+t_end = 5.0
+save_interval = 200
+
+[initial]
+profile = "taylor_green"   # exact solution at t = 0 (U0 = 1, rho0 = 1, p0 = 100)

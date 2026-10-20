@@ -1,0 +1,51 @@
+# Flow past a circular cylinder at Re = 100 (immersed boundary): von Karman vortex street.
+[case]
+name = "IBM Flow over Cylinder"
+description = "IBM, vortex shedding at Re = 100, hot start"
+order = 40
+requires_viscous = true
+
+[mesh]
+Lx = 4.0
+Ly = 2.0
+nx = 400
+ny = 200
+
+[physics]
+use_viscous = true
+mu = 2e-3
+use_bodyforce = false
+
+[boundaries]
+bc_left = "vel_inlet"
+bc_right = "transmissive"
+bc_bottom = "wall"
+bc_top = "wall"
+u_in = 1.0
+rho_in = 1.0
+p_out = 100.0
+
+[numerics]
+riemann_solver = "HLLC (Low-Mach Thornber)"
+use_muscl = true
+muscl_limiter = "Van Leer"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.5
+
+[run]
+t_end = 12.0
+save_interval = 1000
+
+[parallel]
+use_mpi = true
+n_cpus = 16
+
+[ibm]
+use_ibm = true
+ibm_shape = "Cylinder"
+ibm_radius = 0.1
+ibm_cx = 1.0
+ibm_cy = 1.0
+
+[initial]
+state = { rho = 1.0, u = 1.0, v = 0.0, p = 100.0 }

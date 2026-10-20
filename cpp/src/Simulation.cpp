@@ -204,7 +204,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
 
     scheme = make_time_scheme(parse_time_scheme(p.time_scheme), p.cfl, p.dt_phys, p.max_inner_iter, p.inner_tol_rel);
 
-    file_prefix = to_prefix(p.test_case);
+    file_prefix = to_prefix(test_case->key);   // the case name, also for a case given by path
     // AMR runs go to <case>_amr so they don't overwrite the uniform-mesh run.
     const std::string subdir = p.use_amr ? file_prefix + "_amr" : file_prefix;
     exporter = VTKExporter((fs::path(p.output_root) / subdir).string(), verbose);
@@ -290,7 +290,6 @@ void Simulation::initialize_field() {
     U = p.use_hot_start ? load_hot_start(p.hot_start_file) : initial_field();
 
     if (p.use_ibm && !p.resume) ibm->apply_forcing(U, fluid);
-    if (test_case->configure_boundaries) test_case->configure_boundaries(boundaries, true);
 
     if (amr_tree) {
         for (int k = 0; k < p.amr_init_levels; ++k)
@@ -314,12 +313,12 @@ void Simulation::initialize_field() {
 Field Simulation::initial_field() const {
     if (test_case->three_d) {
         if (!mesh.is3d()) throw std::invalid_argument("Test case '" + test_case->key + "' is 3-D: set nz > 1");
-        return test_case->initialize(mesh, fluid, p.mu);
+        return test_case->initialize(mesh, fluid, p.source);
     }
-    if (!mesh.is3d()) return test_case->initialize(mesh, fluid, p.mu);
+    if (!mesh.is3d()) return test_case->initialize(mesh, fluid, p.source);
     // 2-D case on a 3-D mesh: initialise one layer and extrude it along z
     const Mesh m2 = generate_cartesian_mesh(mesh.Lx, mesh.Ly, mesh.nx, mesh.ny);
-    const Field layer = test_case->initialize(m2, fluid, p.mu);
+    const Field layer = test_case->initialize(m2, fluid, p.source);
     Field U3(static_cast<size_t>(mesh.num_cells()));
     for (int k = 0; k < mesh.nz; ++k)
         std::copy(layer.begin(), layer.end(), U3.begin() + static_cast<std::ptrdiff_t>(k) * layer.size());
@@ -1078,10 +1077,6 @@ void Simulation::run_mpi(MPI_Comm comm) {
     }
     MPI_Bcast(&t, 1, MPI_DOUBLE, 0, comm);
     MPI_Bcast(&start, 1, MPI_INT, 0, comm);
-    if (test_case->configure_boundaries) {
-        if (root) test_case->configure_boundaries(boundaries, false);
-        test_case->configure_boundaries(lb, root);
-    }
 
     Field U_local = decomp.scatter(U_global);
     if (p.use_ibm && start == 0) local_ibm->apply_forcing(U_local, fluid);

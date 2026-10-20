@@ -77,7 +77,7 @@ public:
     EOS                                  fluid;          // equation of state
     Mesh                                 mesh;           // global mesh
     double                               dt_length = 0;  // CFL length scale (set by setup)
-    BoundaryManager                      boundaries;     // global BCs (after the case's configure_boundaries)
+    BoundaryManager                      boundaries;     // global BCs
     RiemannSolver                        riemann;        // convective flux
     std::unique_ptr<MusclReconstruction> muscl;          // nullptr: 1st-order Godunov
     std::unique_ptr<NavierStokes>        ns;             // nullptr: Euler

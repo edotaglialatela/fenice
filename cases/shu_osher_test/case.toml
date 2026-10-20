@@ -1,0 +1,46 @@
+# Shu-Osher problem: a Mach 3 shock running into a sinusoidal density (entropy) wave.
+[case]
+name = "Shu-Osher Test"
+description = "Shock / entropy-wave interaction, MUSCL accuracy"
+order = 50
+
+[mesh]
+Lx = 10.0
+Ly = 0.1
+nx = 400
+ny = 2
+
+[thermo]
+gamma = 1.4
+
+[physics]
+use_viscous = false
+
+[boundaries]
+bc_left = "transmissive"
+bc_right = "transmissive"
+bc_bottom = "wall"
+bc_top = "wall"
+
+[numerics]
+riemann_solver = "HLLC"
+use_muscl = true
+muscl_limiter = "MC"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.4
+
+[run]
+t_end = 1.8
+save_interval = 100
+
+[parallel]
+use_mpi = false
+
+[initial]
+state = { rho = "1 + 0.2*sin(5*(x - 5))", u = 0.0, v = 0.0, p = 1.0 }   # pre-shock wave
+
+[[initial.region]]   # post-shock state, x < 1
+shape = "halfspace"
+point = [1.0, 0.0]
+normal = [-1.0, 0.0]
+state = { rho = 3.857143, u = 2.629369, p = 10.33333 }

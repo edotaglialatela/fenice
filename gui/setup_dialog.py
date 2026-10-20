@@ -19,10 +19,11 @@ import numpy as np
 from PyQt6.QtCore import Qt
 from PyQt6.QtGui import QPixmap
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame,
+                             QInputDialog,
                              QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
                              QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
-from gui.solver import ROOT_DIR, available_cases, case_defaults
+from gui.solver import ROOT_DIR, available_cases, case_defaults, save_case
 from gui.theme import COLORS
 
 _BOOL_KEYS = {"use_viscous", "use_bodyforce", "resume", "use_mpi", "use_ibm", "use_muscl", "use_hot_start", "use_amr"}
@@ -103,6 +104,10 @@ class SetupDialog(QDialog):
         ok_btn.setObjectName("primaryButton")
         cancel_btn = self.buttons.button(QDialogButtonBox.StandardButton.Cancel)
         cancel_btn.setObjectName("secondaryButton")
+        save_case_btn = self.buttons.addButton("Save as case…", QDialogButtonBox.ButtonRole.ActionRole)
+        save_case_btn.setObjectName("secondaryButton")
+        save_case_btn.setToolTip("Save this configuration as a new test case under cases/")
+        save_case_btn.clicked.connect(self._save_as_case)
         self.buttons.accepted.connect(self.validate_and_accept)
         self.buttons.rejected.connect(self.reject)
         main_right_layout.addWidget(self.buttons)
@@ -670,7 +675,8 @@ class SetupDialog(QDialog):
         self._toggle_amr_inputs(self.check_amr.isChecked())
         self._update_dim_inputs()
 
-    def validate_and_accept(self):
+    def _collect_params(self):
+        """Read every field into ``self.sim_params``; show an error and return False if invalid."""
         try:
             self.sim_params = {
                 'test_case': self.combo_testcase.currentText(),
@@ -720,27 +726,62 @@ class SetupDialog(QDialog):
             }
             if self.sim_params['nz'] < 1:
                 QMessageBox.critical(self, "Config Error", "Nz must be at least 1 (1 = 2-D).")
-                return
+                return False
             if self.sim_params['nz'] > 1 and self.sim_params['use_amr']:
                 QMessageBox.critical(self, "Config Error", "AMR is 2-D only: set Nz = 1 or disable AMR.")
-                return
+                return False
             if self.sim_params['use_mpi']:
                 if self.sim_params['n_cpus'] > max(self.sim_params['nx'], self.sim_params['ny']):
                     QMessageBox.critical(self, "Config Error", "Ncpus cannot exceed max(Nx, Ny).")
-                    return
+                    return False
             if self.sim_params['use_hot_start']:
                 hs_path = self.sim_params['hot_start_file']
                 if not hs_path or not os.path.isfile(hs_path):
                     QMessageBox.critical(self, "Config Error",
                                          "Solution Mapping is enabled but no valid .npz file was selected.")
-                    return
+                    return False
                 if any(w.isVisible() for w in self._fallback_widgets):
                     nx_ov = self.sim_params['hot_start_src_nx']
                     ny_ov = self.sim_params['hot_start_src_ny']
                     if nx_ov <= 0 or ny_ov <= 0:
                         QMessageBox.critical(self, "Config Error",
                                              "Source Nx and Ny must be positive integers.")
-                        return
-            self.accept()
+                        return False
+            return True
         except ValueError:
             QMessageBox.critical(self, "Input Error", "Please check all fields.")
+            return False
+
+    def validate_and_accept(self):
+        if self._collect_params():
+            self.accept()
+
+    def _save_as_case(self):
+        """Save the configured run as a new case folder (cases/<name>/case.toml)."""
+        if not self._collect_params():
+            return
+        name, ok = QInputDialog.getText(self, "Save as case",
+                                        "Name of the new case (it is written to cases/<name>/case.toml):",
+                                        text=f"{self.combo_testcase.currentText()} (copy)")
+        name = name.strip()
+        if not ok or not name:
+            return
+        try:
+            path = save_case(self.sim_params, name)
+        except RuntimeError as exc:
+            QMessageBox.critical(self, "Save as case", str(exc))
+            return
+        self._reload_case_list(select=name)
+        QMessageBox.information(self, "Save as case",
+                                f"Saved the case '{name}' to\n{path}\n\nEdit the file to change its initial "
+                                "conditions; it now appears in the test-case list.")
+
+    def _reload_case_list(self, select=None):
+        current = select or self.combo_testcase.currentText()
+        self.combo_testcase.blockSignals(True)
+        self.combo_testcase.clear()
+        self.combo_testcase.addItems(available_cases())
+        self.combo_testcase.blockSignals(False)
+        idx = self.combo_testcase.findText(current)
+        self.combo_testcase.setCurrentIndex(max(idx, 0))
+        self._apply_test_case_defaults(self.combo_testcase.currentText())

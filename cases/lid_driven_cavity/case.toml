@@ -1,0 +1,41 @@
+# Lid-driven cavity at Re = 400 (Ghia et al. 1982): fluid at rest, the top wall moves at u_in.
+[case]
+name = "Lid Driven Cavity"
+description = "2-D Navier-Stokes at Re = 400 (Ghia 1982)"
+order = 30
+requires_viscous = true
+
+[mesh]
+Lx = 1.0
+Ly = 1.0
+nx = 30
+ny = 30
+
+[physics]
+use_viscous = true
+mu = 2.5e-3
+use_bodyforce = false
+
+[boundaries]
+bc_left = "no_slip"
+bc_right = "no_slip"
+bc_bottom = "no_slip"
+bc_top = "moving_wall"
+u_in = 1.0
+rho_in = 1.0
+p_out = 100.0
+
+[numerics]
+riemann_solver = "HLLC (Low-Mach Thornber)"
+time_scheme = "Runge-Kutta 4"
+cfl = 0.4
+dt_phys = 0.05
+max_inner_iter = 50
+inner_tol_rel = 1e-3
+
+[run]
+t_end = 15.0
+save_interval = 2000
+
+[initial]
+state = { rho = 1.0, u = 0.0, v = 0.0, p = 100.0 }

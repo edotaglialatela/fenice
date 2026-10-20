@@ -1,0 +1,49 @@
+# Mach 2 flow past a cylinder (immersed boundary): detached bow shock and wake.
+[case]
+name = "IBM Supersonic Flow over Cylinder"
+description = "IBM fringe treatment at Mach 2, bow shock"
+order = 60
+
+[mesh]
+Lx = 4.0
+Ly = 4.0
+nx = 400
+ny = 400
+
+[physics]
+use_viscous = false
+use_bodyforce = false
+
+[boundaries]
+bc_left = "vel_inlet"
+bc_right = "transmissive"
+bc_bottom = "transmissive"
+bc_top = "transmissive"
+u_in = 2.0
+rho_in = 1.0
+p_out = 0.7142857142857143   # 1/1.4: sound speed 1, so u_in = 2 is Mach 2
+
+[numerics]
+riemann_solver = "HLLC"
+use_muscl = true
+muscl_limiter = "Minmod"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.4
+
+[run]
+t_end = 5.0
+save_interval = 250
+
+[parallel]
+use_mpi = true
+n_cpus = 16
+
+[ibm]
+use_ibm = true
+ibm_shape = "Cylinder"
+ibm_radius = 0.25
+ibm_cx = 1.0
+ibm_cy = 2.0
+
+[initial]
+state = { rho = 1.0, u = 2.0, v = 0.0, p = 0.7142857142857143 }

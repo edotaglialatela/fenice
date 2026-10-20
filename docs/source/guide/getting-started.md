@@ -66,7 +66,7 @@ cpp\build\fenice.exe --case "Lid Driven Cavity" --print-config
 
 | Option | Meaning |
 |---|---|
-| `--case NAME` | Test case (initial field, forced BCs and default parameters) |
+| `--case NAME` | Test case: a name from `--list-cases`, or a path to a case folder ([Writing a test case]({{root}}guide/writing-cases.html)) |
 | `--config FILE` | `key = value` parameter file (`#` starts a comment) |
 | `--set KEY=VALUE` | Override one parameter (repeatable) |
 | `--threads N` | OpenMP threads (default: all cores; 1 per rank under MPI) |
@@ -74,9 +74,11 @@ cpp\build\fenice.exe --case "Lid Driven Cavity" --print-config
 | `--print-config` | Print the fully resolved parameters and exit |
 | `--print-case-defaults` | Print only the test case's own defaults and exit |
 | `--no-logo` | Do not print the banner |
+| `--new-case NAME --from CASE` | Copy a case to `cases/<name>/case.toml` and exit |
+| `--save-case TARGET` | Save the resolved run as a new case and exit (`--case-name` sets its name) |
 
 Parameters resolve in this order, later sources winning: baseline defaults,
-then the test case's defaults, then the `--config` file, then `--set` overrides. Every key is
+then the test case's file (`cases/<case>/case.toml`), then the `--config` file, then `--set` overrides. Every key is
 listed on the [Parameters]({{root}}guide/parameters.html) page. Values are
 validated at start-up, and a malformed number or unknown BC name stops the run with
 an error.

@@ -1,5 +1,5 @@
 <component name="ProjectRunConfigurationManager">
-  <configuration default="false" name="Unit tests (fenice_tests)" type="CMakeRunConfiguration" factoryName="Application" PROGRAM_PARAMS="" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" WORKING_DIR="file://$PROJECT_DIR$" PASS_PARENT_ENVS_2="true" PROJECT_NAME="Fenice" TARGET_NAME="fenice_tests" RUN_TARGET_PROJECT_NAME="Fenice" RUN_TARGET_NAME="fenice_tests">
+  <configuration default="false" name="Unit tests (fenice_tests)" type="CMakeRunConfiguration" factoryName="Application" REDIRECT_INPUT="false" ELEVATE="false" USE_EXTERNAL_CONSOLE="false" EMULATE_TERMINAL="false" WORKING_DIR="file://$PROJECT_DIR$" PASS_PARENT_ENVS_2="true" PROJECT_NAME="Fenice" TARGET_NAME="fenice_tests" CONFIG_NAME="Debug" RUN_TARGET_PROJECT_NAME="Fenice" RUN_TARGET_NAME="fenice_tests">
     <method v="2">
       <option name="com.jetbrains.cidr.execution.CidrBuildBeforeRunTaskProvider$BuildBeforeRunTask" enabled="true" />
     </method>

@@ -7,8 +7,9 @@ header: Params.hpp
 ---
 
 Every run is described by the same set of `key = value` parameters. They can
-come from the GUI, a `--config` file or `--set` overrides (see
-[Getting started]({{root}}guide/getting-started.html)). Booleans accept
+come from a test case's file (`cases/<case>/case.toml`, see
+[Writing a test case]({{root}}guide/writing-cases.html)), the GUI, a `--config` file or
+`--set` overrides (see [Getting started]({{root}}guide/getting-started.html)). Booleans accept
 `true/false`, `1/0`, `yes/no` and `on/off`. Choice values accept either the GUI label or the
 short alias shown in brackets.
 
@@ -51,8 +52,8 @@ short alias shown in brackets.
 | `rho_in` | `1.0` | Mass-flow inlet density [kg/m³]; also the IBM reference density |
 | `p_out` | `1.0` | Outlet pressure [Pa]; also the IBM reference pressure |
 
-Some test cases force their own BCs (Sod, Shu-Osher, Poiseuille). See the
-[BC formulas]({{root}}modules/Boundaries.html).
+Each test case sets its boundary conditions in its case file, and `--config` and `--set`
+override them. See the [BC formulas]({{root}}modules/Boundaries.html).
 
 ## Numerical schemes
 

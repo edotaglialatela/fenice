@@ -148,6 +148,10 @@ python gui/run.py
 
 ## Test cases
 
+Every test case is a folder under [`cases/`](cases/) holding one `case.toml`. That file
+sets the mesh, physics, numerics, boundary conditions, run control and initial
+conditions, so adding a case needs no C++ and no recompilation. The shipped cases:
+
 | Case | Validates |
 |---|---|
 | Sod Shock Tube | Riemann solvers, limiters, MPI, AMR |
@@ -164,6 +168,41 @@ python gui/run.py
   <img src="docs/img/taylor_green_3d_vorticity.png" width="90%"
        alt="Vorticity magnitude of the 3-D Taylor-Green vortex at four times">
 </p>
+
+### Adding a test case
+
+Copy an existing case, edit it, run it:
+
+```bash
+./cpp/build/fenice --new-case "Shock Bubble" --from "Sod Shock Tube"   # -> cases/shock_bubble/case.toml
+./cpp/build/fenice --case "Shock Bubble"
+```
+
+In the GUI, **Save as case…** saves the configured run as a new case. Initial conditions
+are a background state plus geometric regions (box, half-space, sphere, cylinder) applied
+in order. Any value can also be an analytic expression of `x`, `y`, `z` and the run
+parameters:
+
+```toml
+[initial]
+state = { rho = 0.125, u = 0.0, v = 0.0, p = 0.1 }
+
+[[initial.region]]                 # high-pressure driver, x <= 0.3
+shape = "halfspace"
+point = [0.3, 0.0]
+normal = [-1.0, 0.0]
+state = { rho = 1.0, p = 1.0 }
+
+[[initial.region]]                 # light bubble
+shape = "sphere"
+center = [0.55, "Ly/2"]
+radius = 0.1
+state = { rho = "0.02*(1 + 0.1*sin(20*pi*y))" }
+```
+
+Mistakes are caught when the file loads, with the line and a suggestion
+(`unknown parameter 'gama' (did you mean 'gamma'?)`). The full format is on the
+*Writing a test case* page of the documentation.
 
 ## Testing
 

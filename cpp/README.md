@@ -14,6 +14,7 @@ cpp/
   src/          implementations (one .cpp per header)
   apps/main.cpp fenice command-line driver
   tests/        test_main.cpp (unit tests), regression.py + reference/ (reference states)
+  third_party/  toml++ and TinyExpr (case-file reading and expressions)
   build.ps1     Windows build script (MSVC + Ninja)
 ```
 
@@ -40,8 +41,9 @@ cpp\build\fenice.exe --case "Taylor-Green Vortex 3D" --set monitor_interval=10  
 python gui\run.py                                   # GUI front end
 ```
 
-Parameters resolve in this order, later sources winning: baseline defaults, then the
-test-case defaults, then `--config` (`key = value`), then `--set key=value`. Every key is
+Test cases are the case files in `../cases/` (one `case.toml` per folder), read at run
+time; `--new-case NAME --from CASE` copies one. Parameters resolve in this order, later
+sources winning: baseline defaults, then the case file, then `--config` (`key = value`), then `--set key=value`. Every key is
 documented on the Parameters page of the docs. With `use_mpi = true`, the solver
 re-launches itself under `mpiexec -n n_cpus`. Ctrl+C stops cleanly, writing the
 checkpoint and the `.pvd` index.
@@ -52,7 +54,7 @@ for ParaView, and a `<case>_restart.npz` checkpoint for `resume` / `use_hot_star
 ## Tests
 
 ```powershell
-cpp\build\fenice_tests.exe                       # 49 unit tests
+cpp\build\fenice_tests.exe                       # 55 unit tests
 python cpp\tests\regression.py --mpi 4       # 24 serial + 15 MPI runs vs reference states
 ```
 

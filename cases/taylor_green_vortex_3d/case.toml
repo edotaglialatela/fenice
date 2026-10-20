@@ -1,0 +1,46 @@
+# 3-D Taylor-Green vortex at Re = 1600, Ma = 0.1: transition to turbulence.
+[case]
+name = "Taylor-Green Vortex 3D"
+description = "3-D solver: vortex stretching, transition, dissipation peak (Re = 1600)"
+order = 90
+requires_viscous = true
+requires_3d = true
+
+[mesh]
+Lx = 6.283185307179586
+Ly = 6.283185307179586
+Lz = 6.283185307179586
+nx = 32
+ny = 32
+nz = 32
+
+[physics]
+use_viscous = true
+mu = 6.25e-4
+use_bodyforce = false
+
+[boundaries]
+bc_left = "periodic"
+bc_right = "periodic"
+bc_bottom = "periodic"
+bc_top = "periodic"
+bc_front = "periodic"
+bc_back = "periodic"
+
+[numerics]
+riemann_solver = "HLLC (Low-Mach Thornber)"
+use_muscl = true
+muscl_limiter = "Van Leer"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.5
+
+[run]
+t_end = 20.0
+save_interval = 100
+
+[parallel]
+use_mpi = false
+
+[initial]
+# U0 = 1, rho0 = 1, p0 = rho0 U0^2 / (gamma Ma^2) with Ma = 0.1
+state = { rho = 1.0, u = "sin(x)*cos(y)*cos(z)", v = "-cos(x)*sin(y)*cos(z)", w = 0.0, p = "1/(gamma*0.1*0.1) + 1/16*(cos(2*x) + cos(2*y))*(cos(2*z) + 2)" }

@@ -41,7 +41,7 @@ void on_sigint(int) {
 void usage() {
     std::printf(
         "Usage: fenice [options]\n"
-        "  --case NAME        test case (see --list-cases)\n"
+        "  --case NAME|PATH   test case: a name from --list-cases, or a case folder / case.toml\n"
         "  --config FILE      'key = value' parameter file\n"
         "  --set KEY=VALUE    override one parameter (repeatable)\n"
         "  --threads N        OpenMP threads (default: all cores; 1 per rank under MPI)\n"
@@ -49,6 +49,11 @@ void usage() {
         "  --print-config     print the resolved parameters and exit\n"
         "  --print-case-defaults  print only the test case's own defaults and exit\n"
         "  --no-logo          do not print the banner\n"
+        "  --new-case NAME    create cases/<name>/case.toml from --from CASE (default: --case), then exit\n"
+        "  --from CASE        source case for --new-case\n"
+        "  --save-case TARGET save the resolved run (case + --config + --set) as a new case and exit;\n"
+        "                     TARGET is a case name (written under cases/) or a folder path\n"
+        "  --case-name NAME   [case] name for --save-case (default: from TARGET)\n"
         "Keys: nx, ny, t_end, use_muscl, bc_left, ... (see the Parameters page of the docs),\n"
         "plus output_root, dump_state and max_steps.\n");
 }
@@ -96,7 +101,7 @@ int main(int argc, char** argv) {
     SetConsoleOutputCP(CP_UTF8);
 #endif
     std::vector<std::string> raw(argv + 1, argv + argc);
-    std::string case_name, config_file;
+    std::string case_name, config_file, save_target, save_name, from_case;
     std::vector<std::string> sets;
     bool list_cases = false, print_config = false, print_case_defaults = false, logo = true, mpi_child = false;
     int threads = 0;
@@ -116,6 +121,10 @@ int main(int argc, char** argv) {
         else if (a == "--print-case-defaults") print_case_defaults = true;
         else if (a == "--no-logo") logo = false;
         else if (a == "--mpi-child") mpi_child = true;
+        else if (a == "--save-case") save_target = next();
+        else if (a == "--new-case") save_target = save_name = next();
+        else if (a == "--from") from_case = next();
+        else if (a == "--case-name") save_name = next();
         else if (a == "-h" || a == "--help") { usage(); return 0; }
         else { std::fprintf(stderr, "Unknown argument '%s'\n", a.c_str()); usage(); return 2; }
     }
@@ -125,6 +134,11 @@ int main(int argc, char** argv) {
     if (list_cases) {
         for (const auto& tc : fv::test_registry()) std::printf("%s\n", tc.key.c_str());
         return 0;
+    }
+
+    if (!from_case.empty()) {
+        if (save_target.empty()) { std::fprintf(stderr, "--from needs --new-case NAME\n"); return 2; }
+        case_name = from_case;
     }
 
     fv::SimParams sp;
@@ -143,6 +157,18 @@ int main(int argc, char** argv) {
     } catch (const std::exception& e) {
         std::fprintf(stderr, "[ERROR] %s\n", e.what());
         return 2;
+    }
+    if (!save_target.empty()) {
+        try {
+            const fv::TestCase& src = fv::get_test_case(case_name);
+            const std::string file = fv::save_case(src, merged, save_target, save_name);
+            std::printf("[CASE] Wrote %s (from '%s')\n", file.c_str(), src.key.c_str());
+            std::printf("[CASE] Edit it, then run: fenice --case \"%s\"\n", fv::load_case_file(file).name.c_str());
+        } catch (const std::exception& e) {
+            std::fprintf(stderr, "[ERROR] %s\n", e.what());
+            return 2;
+        }
+        return 0;
     }
     if (print_case_defaults) {
         for (const auto& kv : fv::get_test_case(case_name).defaults.values())

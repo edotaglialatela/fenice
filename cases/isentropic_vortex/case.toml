@@ -1,0 +1,38 @@
+# Isentropic vortex advected diagonally across a periodic box (exact solution: pure translation).
+[case]
+name = "Isentropic Vortex"
+description = "2nd-order accuracy on smooth advection, periodic BCs"
+order = 80
+
+[mesh]
+Lx = 10.0
+Ly = 10.0
+nx = 80
+ny = 80
+
+[thermo]
+gamma = 1.4
+
+[physics]
+use_viscous = false
+use_bodyforce = false
+
+[boundaries]
+bc_left = "periodic"
+bc_right = "periodic"
+bc_bottom = "periodic"
+bc_top = "periodic"
+
+[numerics]
+riemann_solver = "HLLC"
+use_muscl = true
+muscl_limiter = "MC"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.5
+
+[run]
+t_end = 10.0
+save_interval = 50
+
+[initial]
+profile = "isentropic_vortex"   # beta = 5 vortex in a (1, 1) free stream

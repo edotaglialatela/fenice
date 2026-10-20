@@ -544,7 +544,7 @@ figcaption {
 </ul>
 
     
-    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/performance.html">Performance</a></li><li><a href="../guide/gui.html">GUI</a></li><li><a href="../guide/testing.html"><strong>Testing</strong></a></li><li><a href="../guide/history.html">Python → C++</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html">Lid-driven cavity</a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
+    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/writing-cases.html">Writing a test case</a></li><li><a href="../guide/performance.html">Performance</a></li><li><a href="../guide/gui.html">GUI</a></li><li><a href="../guide/testing.html"><strong>Testing</strong></a></li><li><a href="../guide/history.html">Python → C++</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/CaseFile.html">CaseFile</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html">Lid-driven cavity</a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
   </div>
 </nav>
 <main class="pdoc">
@@ -562,7 +562,7 @@ figcaption {
 <h2 id="unit-tests-fenice_tests">Unit tests (<code>fenice_tests</code>)</h2>
 
 <p><code>cpp/tests/test_main.cpp</code> uses a self-contained harness, so no test framework is needed,
-and exits non-zero on failure. Its 49 tests cover:</p>
+and exits non-zero on failure. Its 55 tests cover:</p>
 
 <ul>
 <li><strong>EOS.</strong> Round trips, floors, and the stiffened gas reducing to the ideal gas.</li>
@@ -590,6 +590,12 @@ VTK / VTM / PVD layout and sanitisation.</li>
 recovered to 2 %, and the velocity error converges at 2nd order.</li>
 <li><a href="../cases/isentropic-vortex.html">Isentropic-vortex</a> 2nd-order convergence.</li>
 </ul></li>
+<li><strong>Case files.</strong> Every parameter has a section; parsing of every value type; the error
+messages (misspelt or misplaced keys, unknown sections and shapes, bad expressions,
+missing states, TOML syntax); regions (box, halfspace, sphere, cylinder, override order)
+and expressions checked exactly against hand-written loops; a profile with a region
+leaving the other cells bit-identical; save/load round trip; the shipped cases and
+<code>save_case</code>.</li>
 <li><strong>3-D.</strong>
 <ul>
 <li><em>Extrusion:</em> Sod (MUSCL), cavity, Poiseuille, the IBM cylinder and the isentropic

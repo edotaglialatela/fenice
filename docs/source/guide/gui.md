@@ -31,18 +31,26 @@ built solver (`.\cpp\build.ps1`). Set `FENICE_EXE` to use an executable other th
 * **AMR.** Refinement levels, patch size (must be even), thresholds, remesh interval,
   initial levels and buffer rings. MPI is disabled when AMR is on, and AMR requires Nz = 1.
 
+## Saving a case
+
+**Save as case…** (next to *Run Simulation*) saves the configured run as a new test case.
+It asks for a name and writes `cases/<name>/case.toml` with the dialog's parameters and
+the initial conditions of the selected case. The new case appears in the test-case list
+right away. To change its initial conditions, edit the file; see
+[Writing a test case]({{root}}guide/writing-cases.html).
+
 ## Single source of truth
 
 The dialog has no physics or defaults of its own. The test-case list comes from
 `fenice --list-cases`, and picking a case loads `fenice --case NAME --print-config`.
-A new test case added to the C++ registry therefore appears in the GUI with its defaults
+A new case file under `cases/` therefore appears in the GUI with its defaults
 automatically.
 
 | Module | Role |
 |---|---|
 | `gui/run.py` | Entry point: dialog, config file, solver launch |
 | `gui/setup_dialog.py` | `SetupDialog` (four tabs, validation, `sim_params`) |
-| `gui/solver.py` | Bridge to the executable (`available_cases`, `case_defaults`, `write_config`) |
+| `gui/solver.py` | Bridge to the executable (`available_cases`, `case_defaults`, `write_config`, `save_case`) |
 | `gui/theme.py` | Qt stylesheet and palette shared with the documentation theme |
 
 The dialog's `sim_params` keys are exactly the solver's

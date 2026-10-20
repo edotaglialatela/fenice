@@ -99,6 +99,8 @@ The orchestration lives in [Simulation]({{root}}modules/Simulation.html).
 | `cpp/include/fv/`, `cpp/src/` | Solver library (one header per module page) |
 | `cpp/apps/main.cpp` | `fenice` command-line driver |
 | `cpp/tests/` | Unit tests (`fenice_tests`), regression references and `regression.py` |
+| `cases/` | Test cases, one folder with a `case.toml` each ([Writing a test case]({{root}}guide/writing-cases.html)) |
+| `cpp/third_party/` | toml++ and TinyExpr (case files) |
 | `gui/` | PyQt6 setup dialog and launcher |
 | `validation/` | Post-processing / validation scripts (read the VTK output) |
 | `docs/` | This documentation (`python docs/build.py`) |

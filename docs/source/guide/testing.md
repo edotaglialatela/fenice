@@ -15,7 +15,7 @@ Run both after any change to the solver.
 ## Unit tests (`fenice_tests`)
 
 `cpp/tests/test_main.cpp` uses a self-contained harness, so no test framework is needed,
-and exits non-zero on failure. Its 49 tests cover:
+and exits non-zero on failure. Its 55 tests cover:
 
 * **EOS.** Round trips, floors, and the stiffened gas reducing to the ideal gas.
 * **Limiters.** TVD bounds, symmetry, and Minmod being the most diffusive.
@@ -40,6 +40,12 @@ and exits non-zero on failure. Its 49 tests cover:
   * [Taylor-Green]({{root}}cases/taylor-green.html) decay: the physical viscosity is
     recovered to 2 %, and the velocity error converges at 2nd order.
   * [Isentropic-vortex]({{root}}cases/isentropic-vortex.html) 2nd-order convergence.
+* **Case files.** Every parameter has a section; parsing of every value type; the error
+  messages (misspelt or misplaced keys, unknown sections and shapes, bad expressions,
+  missing states, TOML syntax); regions (box, halfspace, sphere, cylinder, override order)
+  and expressions checked exactly against hand-written loops; a profile with a region
+  leaving the other cells bit-identical; save/load round trip; the shipped cases and
+  `save_case`.
 * **3-D.**
   * *Extrusion:* Sod (MUSCL), cavity, Poiseuille, the IBM cylinder and the isentropic
     vortex, run on `nz = 3` with periodic z, reproduce the 2-D solution in every layer

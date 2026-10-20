@@ -539,11 +539,12 @@ figcaption {
     <input type="search" id="fv-search" placeholder="Search..." role="searchbox" aria-label="search">
     <h2>Contents</h2><ul>
   <li><a href="#tabs">Tabs</a></li>
+  <li><a href="#saving-a-case">Saving a case</a></li>
   <li><a href="#single-source-of-truth">Single source of truth</a></li>
 </ul>
 
     
-    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/performance.html">Performance</a></li><li><a href="../guide/gui.html"><strong>GUI</strong></a></li><li><a href="../guide/testing.html">Testing</a></li><li><a href="../guide/history.html">Python → C++</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html">Lid-driven cavity</a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
+    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/writing-cases.html">Writing a test case</a></li><li><a href="../guide/performance.html">Performance</a></li><li><a href="../guide/gui.html"><strong>GUI</strong></a></li><li><a href="../guide/testing.html">Testing</a></li><li><a href="../guide/history.html">Python → C++</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/CaseFile.html">CaseFile</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html">Lid-driven cavity</a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
   </div>
 </nav>
 <main class="pdoc">
@@ -579,11 +580,19 @@ from the file; legacy files without metadata ask for Nx / Ny.</li>
 initial levels and buffer rings. MPI is disabled when AMR is on, and AMR requires Nz = 1.</li>
 </ul>
 
+<h2 id="saving-a-case">Saving a case</h2>
+
+<p><strong>Save as case…</strong> (next to <em>Run Simulation</em>) saves the configured run as a new test case.
+It asks for a name and writes <code>cases/&lt;name&gt;/case.toml</code> with the dialog's parameters and
+the initial conditions of the selected case. The new case appears in the test-case list
+right away. To change its initial conditions, edit the file; see
+<a href="../guide/writing-cases.html">Writing a test case</a>.</p>
+
 <h2 id="single-source-of-truth">Single source of truth</h2>
 
 <p>The dialog has no physics or defaults of its own. The test-case list comes from
 <code>fenice --list-cases</code>, and picking a case loads <code>fenice --case NAME --print-config</code>.
-A new test case added to the C++ registry therefore appears in the GUI with its defaults
+A new case file under <code>cases/</code> therefore appears in the GUI with its defaults
 automatically.</p>
 
 <table>
@@ -604,7 +613,7 @@ automatically.</p>
 </tr>
 <tr>
   <td><code>gui/solver.py</code></td>
-  <td>Bridge to the executable (<code>available_cases</code>, <code>case_defaults</code>, <code>write_config</code>)</td>
+  <td>Bridge to the executable (<code>available_cases</code>, <code>case_defaults</code>, <code>write_config</code>, <code>save_case</code>)</td>
 </tr>
 <tr>
   <td><code>gui/theme.py</code></td>

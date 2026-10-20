@@ -6,10 +6,12 @@ order: 110
 header: TestCases.hpp
 ---
 
-Nine built-in benchmarks provide pre-configured initial fields, case-specific boundary
-conditions and default parameters. Select one with `--case NAME`, or in the GUI. A case's
-defaults override the baseline defaults, and anything set in a config file or with
-`--set` overrides those (see [Parameters]({{root}}guide/parameters.html)).
+Every test case is a case file, `cases/<folder>/case.toml`, read at start-up (see
+[Writing a test case]({{root}}guide/writing-cases.html)). `test_registry()` loads all of
+them, sorted by their `[case] order`. `get_test_case()` finds a case by name, by folder
+name, or by path. The nine benchmarks shipped with Fenice are such files. Their
+defaults override the baseline defaults, and anything set in a config file or with `--set`
+overrides those (see [Parameters]({{root}}guide/parameters.html)).
 
 | Case (`--case`) | Validates | Page |
 |---|---|---|
@@ -28,11 +30,17 @@ extruded unchanged along z. With periodic (default) front/back sides, every z-la
 reproduces the 2-D solution, which `fenice_tests` checks.
 
 `fenice --list-cases` prints the registry, and
-`fenice --case NAME --print-case-defaults` prints a case's own defaults. The tables on
+`fenice --case NAME --print-case-defaults` prints a case's own parameters. The tables on
 the case pages are generated from that output.
 
-**Adding a case.** Write a function returning a `TestCase` (key, defaults,
-`initialize`, optional `configure_boundaries`, `three_d = true` for a case that needs
-`nz > 1`) in `cpp/src/TestCases.cpp` and add it to `test_registry()`. The GUI picks it up automatically.
+A few analytic initial fields stay in C++ as **profiles** (`find_profile`), which a case
+file selects with `[initial] profile = "NAME"`: `taylor_green`, `isentropic_vortex` and
+`taylor_green_3d`. Everything else (uniform states, regions, analytic expressions) is
+written in the case file.
+
+**Adding a case.** Copy an existing one, `fenice --new-case NAME --from CASE`, then edit
+`cases/<name>/case.toml`. No C++ or rebuild is needed, and the case appears in `--list-cases`
+and in the GUI. A new initial field that cannot be written as regions and expressions can
+be added as a profile in `cpp/src/TestCases.cpp`.
 
 {{api}}

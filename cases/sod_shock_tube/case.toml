@@ -1,0 +1,41 @@
+# Sod shock tube (Sod 1978): a diaphragm at x = Lx/2 separates a high-pressure state from a
+# low-pressure one; the solution has a rarefaction, a contact and a shock.
+[case]
+name = "Sod Shock Tube"
+description = "Riemann solvers, limiters, MPI, AMR"
+order = 10
+
+[mesh]
+Lx = 1.0
+Ly = 0.1
+nx = 200
+ny = 20
+
+[physics]
+use_viscous = false
+use_bodyforce = false
+gx = 0.0
+gy = 0.0
+
+[boundaries]
+bc_left = "transmissive"
+bc_right = "transmissive"
+bc_bottom = "wall"
+bc_top = "wall"
+
+[numerics]
+riemann_solver = "HLLC"
+cfl = 0.5
+
+[run]
+t_end = 0.2
+save_interval = 20
+
+[initial]
+state = { rho = 0.125, u = 0.0, v = 0.0, p = 0.1 }   # right of the diaphragm
+
+[[initial.region]]   # left of the diaphragm
+shape = "halfspace"
+point = ["Lx/2", 0.0]
+normal = [-1.0, 0.0]
+state = { rho = 1.0, p = 1.0 }

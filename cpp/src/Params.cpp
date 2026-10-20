@@ -114,6 +114,7 @@ Params baseline_defaults() {
 
 SimParams SimParams::from(const Params& p) {
     SimParams s;
+    s.source = p;
     s.test_case      = p.str("test_case");
     s.Lx             = p.num("Lx");
     s.Ly             = p.num("Ly");

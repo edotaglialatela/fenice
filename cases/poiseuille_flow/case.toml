@@ -1,0 +1,43 @@
+# Hagen-Poiseuille channel flow: mass-flow inlet, pressure outlet, no-slip walls.  The
+# initial pressure already carries the analytic gradient dp/dx = -12 mu u_in / Ly^2.
+[case]
+name = "Poiseuille Flow"
+description = "Viscous fluxes, inlet / outlet BCs, BDF2"
+order = 20
+requires_viscous = true
+
+[mesh]
+Lx = 3.0
+Ly = 1.0
+nx = 60
+ny = 20
+
+[physics]
+use_viscous = true
+mu = 0.02
+use_bodyforce = false
+gx = 0.0
+gy = 0.0
+
+[boundaries]
+bc_left = "massflow_inlet"
+bc_right = "outlet"
+bc_bottom = "no_slip"
+bc_top = "no_slip"
+u_in = 0.01
+rho_in = 1.0
+p_out = 1.0
+
+[numerics]
+riemann_solver = "HLLC (Low-Mach Thornber)"
+cfl = 0.1
+dt_phys = 0.5
+max_inner_iter = 50
+inner_tol_rel = 1e-3
+
+[run]
+t_end = 80.0
+save_interval = 1000
+
+[initial]
+state = { rho = "rho_in", u = "u_in", v = 0.0, p = "p_out - (-12*mu*u_in/(Ly*Ly))*(Lx - x)" }
