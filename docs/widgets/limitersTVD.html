@@ -1,0 +1,84 @@
+<div style="max-width: 600px; margin: 20px 0; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fafbfc; font-family: sans-serif;">
+        <h4 style="margin-top: 0; color: #24292e;">Interactive Sweby Diagram</h4>
+        <p style="font-size: 13px; color: #586069; margin-bottom: 10px;">Select a limiter to see its behavior relative to the TVD and 2nd-order regions.</p>
+        <select id="limiterSelect" onchange="drawSweby()" style="padding: 5px; font-size: 14px; margin-bottom: 15px; border-radius: 4px; border: 1px solid #ccc;">
+            <option value="minmod">Minmod (Most Diffusive)</option>
+            <option value="vanleer">Van Leer</option>
+            <option value="koren">Koren</option>
+            <option value="mc">MC</option>
+            <option value="superbee">Superbee (Most Compressive)</option>
+        </select>
+        <canvas id="swebyCanvas" width="550" height="350" style="background: white; border: 1px solid #ddd; border-radius: 4px;"></canvas>
+        <script>
+            function drawSweby() {
+                const canvas = document.getElementById('swebyCanvas');
+                if (!canvas) return;
+                const ctx = canvas.getContext('2d');
+                const sel = document.getElementById('limiterSelect').value;
+                
+                // Canvas setup
+                const W = canvas.width, H = canvas.height;
+                const pad = {l: 40, r: 20, t: 20, b: 40};
+                const xMax = 4, yMax = 2.5;
+                const sx = (W - pad.l - pad.r) / xMax;
+                const sy = (H - pad.t - pad.b) / yMax;
+                
+                const px = (x) => pad.l + x * sx;
+                const py = (y) => H - pad.b - y * sy;
+                
+                ctx.clearRect(0, 0, W, H);
+                
+                // Draw TVD Region (Light Gray)
+                ctx.fillStyle = "rgba(220, 225, 230, 0.5)";
+                ctx.beginPath();
+                ctx.moveTo(px(0), py(0)); ctx.lineTo(px(1), py(2));
+                ctx.lineTo(px(4), py(2)); ctx.lineTo(px(4), py(0));
+                ctx.fill();
+                
+                // Draw 2nd Order Region (Darker Gray)
+                ctx.fillStyle = "rgba(180, 190, 200, 0.5)";
+                ctx.beginPath();
+                ctx.moveTo(px(0), py(0)); ctx.lineTo(px(1), py(2));
+                ctx.lineTo(px(4), py(2)); ctx.lineTo(px(4), py(1));
+                ctx.lineTo(px(1), py(1)); ctx.fill();
+                
+                // Grid and Axes
+                ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
+                for(let i=1; i<=xMax; i++) { ctx.beginPath(); ctx.moveTo(px(i), py(0)); ctx.lineTo(px(i), py(yMax)); ctx.stroke(); }
+                for(let i=1; i<=2; i++) { ctx.beginPath(); ctx.moveTo(px(0), py(i)); ctx.lineTo(px(xMax), py(i)); ctx.stroke(); }
+                
+                ctx.strokeStyle = "#333"; ctx.lineWidth = 2;
+                ctx.beginPath(); ctx.moveTo(px(0), py(yMax)); ctx.lineTo(px(0), py(0)); ctx.lineTo(px(xMax), py(0)); ctx.stroke();
+                
+                // Labels
+                ctx.fillStyle = "#333"; ctx.font = "12px sans-serif";
+                ctx.fillText("r", W - pad.r - 10, H - 15);
+                ctx.fillText("Φ(r)", 10, pad.t);
+                for(let i=1; i<=xMax; i++) ctx.fillText(i, px(i)-4, py(0)+15);
+                for(let i=1; i<=2; i++) ctx.fillText(i, px(0)-15, py(i)+4);
+                
+                // Limiters logic
+                const limiters = {
+                    minmod: (r) => Math.max(0, Math.min(1, r)),
+                    vanleer: (r) => (r + Math.abs(r)) / (1 + Math.abs(r)),
+                    koren: (r) => Math.max(0, Math.min(2*r, (2+r)/3, 2)),
+                    mc: (r) => Math.max(0, Math.min(2*r, 0.5*(1+r), 2)),
+                    superbee: (r) => Math.max(0, Math.max(Math.min(2*r, 1), Math.min(r, 2)))
+                };
+                
+                // Draw selected limiter
+                ctx.strokeStyle = "#e74c3c"; ctx.lineWidth = 3;
+                ctx.beginPath();
+                for(let x = 0; x <= xMax; x += 0.05) {
+                    let y = limiters[sel](x);
+                    if(x === 0) ctx.moveTo(px(x), py(y));
+                    else ctx.lineTo(px(x), py(y));
+                }
+                ctx.stroke();
+            }
+            // Add listener to ensure drawing happens after pdoc renders the DOM
+            document.addEventListener("DOMContentLoaded", drawSweby);
+            // Fallback for dynamic loads
+            drawSweby();
+        </script>
+    </div>

@@ -1,0 +1,219 @@
+<div style="max-width: 680px; margin: 20px 0; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fafbfc; font-family: sans-serif;">
+    <h4 style="margin-top: 0; color: #24292e;">Adaptive Mesh Refinement (AMR) - Quadtree Explorer</h4>
+    <p style="font-size: 13px; color: #586069; margin-bottom: 15px;">
+        Move the spatial gradient. If the gradient is greater than the <b>Sensitivity</b>, divide the cell (until <b>Max Lvl</b>). Note the cell saving with respect to a constant mesh.
+    </p>
+    
+    <div style="display: flex; flex-wrap: wrap; gap: 15px; margin-bottom: 15px; align-items: center;">
+        <div style="flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 10px;">
+            <div>
+                <label style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; color: #333; margin-bottom: 3px;">
+                    <span>Gradient Position</span>
+                </label>
+                <input type="range" id="posSlider" min="0" max="100" value="50" style="width: 100%;">
+            </div>
+            
+            <div style="display: flex; flex-direction: column;">
+                <label style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 3px;">Campo Fluidodinamico:</label>
+                <select id="fieldSelect" style="padding: 4px; font-size: 13px; border-radius: 4px; border: 1px solid #ccc;">
+                    <option value="shock">Shock Front</option>
+                    <option value="sphere">Gaussian</option>
+                </select>
+            </div>
+        </div>
+        
+        <div style="flex: 1; min-width: 200px; display: flex; flex-direction: column; gap: 10px;">
+            <div>
+                <label style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; color: #333; margin-bottom: 3px;">
+                    <span>Max Refinement Level</span> <span id="lvlDisp" style="color: #2980b9;">6</span>
+                </label>
+                <input type="range" id="lvlSlider" min="3" max="8" step="1" value="6" style="width: 100%;">
+            </div>
+            <div>
+                <label style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; color: #333; margin-bottom: 3px;">
+                    <span>Sensitivity</span> <span id="sensDisp" style="color: #e74c3c;">0.10</span>
+                </label>
+                <input type="range" id="sensSlider" min="0.01" max="0.5" step="0.01" value="0.10" style="width: 100%; direction: rtl;">
+            </div>
+        </div>
+    </div>
+    
+    <div style="display: flex; justify-content: space-between; background: #fff; border: 1px solid #ddd; padding: 10px 15px; border-radius: 4px; margin-bottom: 15px; align-items: center;">
+        <div style="text-align: center;">
+            <div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase;">AMR Cells</div>
+            <div id="statAMR" style="font-size: 20px; font-weight: bold; color: #2ecc71; font-family: monospace;">0</div>
+        </div>
+        <div style="font-size: 20px; color: #bdc3c7;">vs</div>
+        <div style="text-align: center;">
+            <div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase;">Uniform Equivalent Mesh</div>
+            <div id="statUni" style="font-size: 20px; font-weight: bold; color: #e74c3c; font-family: monospace;">0</div>
+        </div>
+        <div style="width: 1px; height: 30px; background: #ddd;"></div>
+        <div style="text-align: center;">
+            <div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase;">Memory Saving</div>
+            <div id="statSave" style="font-size: 22px; font-weight: bold; color: #2980b9;">0%</div>
+        </div>
+    </div>
+    
+    <div style="display: flex; justify-content: center;">
+        <canvas id="amrCanvas" width="450" height="450" style="background: white; border: 1px solid #ccc; border-radius: 4px;"></canvas>
+    </div>
+    
+    <script>
+        (function() {
+            const canvas = document.getElementById('amrCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            // UI Elements
+            const posSlider = document.getElementById('posSlider');
+            const fieldSelect = document.getElementById('fieldSelect');
+            const lvlSlider = document.getElementById('lvlSlider');
+            const sensSlider = document.getElementById('sensSlider');
+            const lvlDisp = document.getElementById('lvlDisp');
+            const sensDisp = document.getElementById('sensDisp');
+            const statAMR = document.getElementById('statAMR');
+            const statUni = document.getElementById('statUni');
+            const statSave = document.getElementById('statSave');
+
+            let leafCount = 0;
+
+            // Funzione del campo scalare (0.0 -> 1.0)
+            function scalarField(x, y) {
+                let pos = parseFloat(posSlider.value) / 100.0; // 0 to 1
+                let type = fieldSelect.value;
+                
+                if (type === 'sphere') {
+                    // Mappa la posizione per far muovere il cerchio in diagonale
+                    let cx = 0.2 + pos * 0.6;
+                    let cy = 0.2 + pos * 0.6;
+                    let r2 = Math.pow(x - cx, 2) + Math.pow(y - cy, 2);
+                    return Math.exp(-r2 / 0.02);
+                } else {
+                    // Fronte d'urto obliquo (onda a gradino smussata)
+                    let d = pos * 2.0; // Distanza del fronte
+                    let val = 0.5 * (1.0 + Math.tanh(25.0 * (x + y - d + 0.5)));
+                    return val;
+                }
+            }
+
+            // Valutazione del gradiente in una cella
+            function needsRefinement(x, y, w, h, threshold) {
+                // Campioniamo 5 punti: 4 angoli e 1 centro
+                let v1 = scalarField(x, y);
+                let v2 = scalarField(x + w, y);
+                let v3 = scalarField(x, y + h);
+                let v4 = scalarField(x + w, y + h);
+                let vc = scalarField(x + w/2, y + h/2);
+                
+                let maxV = Math.max(v1, v2, v3, v4, vc);
+                let minV = Math.min(v1, v2, v3, v4, vc);
+                
+                return (maxV - minV) > threshold;
+            }
+
+            // Costruzione ricorsiva del Quadtree
+            function buildQuadTree(node, maxLevel, threshold) {
+                if (node.level < maxLevel && needsRefinement(node.x, node.y, node.w, node.h, threshold)) {
+                    let hw = node.w / 2;
+                    let hh = node.h / 2;
+                    let nextLevel = node.level + 1;
+                    
+                    node.children = [
+                        {x: node.x,      y: node.y,      w: hw, h: hh, level: nextLevel}, // TL
+                        {x: node.x + hw, y: node.y,      w: hw, h: hh, level: nextLevel}, // TR
+                        {x: node.x,      y: node.y + hh, w: hw, h: hh, level: nextLevel}, // BL
+                        {x: node.x + hw, y: node.y + hh, w: hw, h: hh, level: nextLevel}  // BR
+                    ];
+                    
+                    node.children.forEach(child => buildQuadTree(child, maxLevel, threshold));
+                }
+            }
+
+            // Mapping colore (Valore 0-1 -> Colore)
+            function getColor(val) {
+                // Sfumatura da Bianco (0) a Blu Scuro (1)
+                let r = Math.floor(255 * (1 - val));
+                let g = Math.floor(255 * (1 - val) * 0.95 + 50 * val); // Un po' di azzurro
+                let b = Math.floor(255 * (1 - val) + 150 * val); 
+                return `rgb(${r},${g},${b})`;
+            }
+
+            // Rendering del Quadtree
+            function drawNode(node, canvasW, canvasH) {
+                if (node.children && node.children.length > 0) {
+                    // Nodo interno: disegna i figli
+                    node.children.forEach(child => drawNode(child, canvasW, canvasH));
+                } else {
+                    // Foglia: Disegna la cella
+                    leafCount++;
+                    
+                    let px = node.x * canvasW;
+                    let py = node.y * canvasH;
+                    let pw = node.w * canvasW;
+                    let ph = node.h * canvasH;
+                    
+                    // Colore basato sul valore al centro della cella
+                    let val = scalarField(node.x + node.w/2, node.y + node.h/2);
+                    
+                    ctx.fillStyle = getColor(val);
+                    ctx.fillRect(px, py, pw, ph);
+                    
+                    // Bordo della cella
+                    ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
+                    ctx.lineWidth = 0.5;
+                    ctx.strokeRect(px, py, pw, ph);
+                }
+            }
+
+            window.drawAMR = function() {
+                let maxLvl = parseInt(lvlSlider.value);
+                let sens = parseFloat(sensSlider.value);
+                
+                lvlDisp.innerText = maxLvl;
+                sensDisp.innerText = sens.toFixed(2);
+                
+                // Inizializza Root Node (L'intero dominio)
+                // Usiamo level 1 come root (4x4 iniziale) per garantire una maglia base
+                let rootCells = [];
+                let baseDivs = 4; 
+                for(let i=0; i<baseDivs; i++) {
+                    for(let j=0; j<baseDivs; j++) {
+                        rootCells.push({
+                            x: i/baseDivs, 
+                            y: j/baseDivs, 
+                            w: 1/baseDivs, 
+                            h: 1/baseDivs, 
+                            level: 2 // Livello logico di partenza
+                        });
+                    }
+                }
+                
+                // Costruisci albero
+                rootCells.forEach(cell => buildQuadTree(cell, maxLvl, sens));
+                
+                // Disegna e conta
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                leafCount = 0;
+                rootCells.forEach(cell => drawNode(cell, canvas.width, canvas.height));
+                
+                // Aggiorna Statistiche
+                let uniformEquivalent = Math.pow(4, maxLvl);
+                let savings = ((1.0 - (leafCount / uniformEquivalent)) * 100).toFixed(1);
+                
+                statAMR.innerText = leafCount.toLocaleString();
+                statUni.innerText = uniformEquivalent.toLocaleString();
+                statSave.innerText = savings + "%";
+            }
+
+            // Event Listeners
+            posSlider.addEventListener('input', drawAMR);
+            fieldSelect.addEventListener('change', drawAMR);
+            lvlSlider.addEventListener('input', drawAMR);
+            sensSlider.addEventListener('input', drawAMR);
+
+            // Inizializza
+            drawAMR();
+        })();
+    </script>
+</div>

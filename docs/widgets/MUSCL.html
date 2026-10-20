@@ -1,0 +1,114 @@
+<div style="max-width: 650px; margin: 20px 0; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fafbfc; font-family: sans-serif;">
+    <h4 style="margin-top: 0; color: #24292e;">MUSCL Reconstruction Explorer</h4>
+    <p style="font-size: 13px; color: #586069; margin-bottom: 10px;">
+        Observe how the different schemes reconstruct the values from the cell averages. Note that the overshoot for the 2nd order unlimited are not bounded.
+    </p>
+    
+    <div style="display: flex; gap: 15px; margin-bottom: 15px;">
+        <select id="profileSelect" onchange="drawMUSCL()" style="padding: 5px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;">
+            <option value="step">Profile: Discontinuity (Shock)</option>
+            <option value="sine">Profile: Smooth Wave</option>
+            <option value="peak">Profile: Peak</option>
+        </select>
+        
+        <select id="schemeSelect" onchange="drawMUSCL()" style="padding: 5px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;">
+            <option value="first">1st Order (Piecewise constant)</option>
+            <option value="central">2nd Order (Central, No Limiter)</option>
+            <option value="minmod">MUSCL (Minmod Limiter)</option>
+            <option value="superbee">MUSCL (Superbee Limiter)</option>
+        </select>
+    </div>
+    
+    <canvas id="musclCanvas" width="600" height="300" style="background: white; border: 1px solid #ddd; border-radius: 4px;"></canvas>
+    
+    <script>
+        function drawMUSCL() {
+            const canvas = document.getElementById('musclCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            const profile = document.getElementById('profileSelect').value;
+            const scheme = document.getElementById('schemeSelect').value;
+            
+            const W = canvas.width, H = canvas.height;
+            const pad = {l: 30, r: 30, t: 30, b: 30};
+            const nCells = 6;
+            const dx = (W - pad.l - pad.r) / nCells;
+            const yMax = 10;
+            const sy = (H - pad.t - pad.b) / yMax;
+            
+            const px = (i) => pad.l + i * dx;
+            const py = (val) => H - pad.b - val * sy;
+            
+            ctx.clearRect(0, 0, W, H);
+            
+            // Definisci i valori medi di cella (inclusi 2 ghost cell ai bordi per calcolare i delta)
+            // U = [ghost_L, cell_0, cell_1, cell_2, cell_3, cell_4, cell_5, ghost_R]
+            let U = [];
+            if (profile === 'step') U = [8, 8, 8, 8, 2, 2, 2, 2];
+            else if (profile === 'sine') U = [5, 6.5, 8, 8.5, 7.5, 5, 2.5, 1.5];
+            else if (profile === 'peak') U = [2, 2, 3, 8, 3, 2, 2, 2];
+
+            // Disegna griglia (bordi delle celle)
+            ctx.strokeStyle = "#ddd"; ctx.lineWidth = 1;
+            for(let i=0; i<=nCells; i++) {
+                ctx.beginPath(); ctx.moveTo(px(i), py(0)); ctx.lineTo(px(i), py(yMax)); ctx.stroke();
+            }
+            
+            // Disegna le medie di cella come barre orizzontali grigie chiare
+            ctx.strokeStyle = "rgba(0,0,0,0.2)"; ctx.lineWidth = 4;
+            for(let i=0; i<nCells; i++) {
+                let val = U[i+1];
+                ctx.beginPath(); ctx.moveTo(px(i)+2, py(val)); ctx.lineTo(px(i+1)-2, py(val)); ctx.stroke();
+            }
+
+            // Funzioni Limitatore (versione phi(a,b))
+            const sign = Math.sign;
+            const min = Math.min;
+            const max = Math.max;
+            const abs = Math.abs;
+            
+            const limiters = {
+                first: (a, b) => 0.0,
+                central: (a, b) => 0.5 * (a + b), // Differenza centrale illimitata
+                minmod: (a, b) => {
+                    if (a*b <= 0) return 0;
+                    return 0.5 * (sign(a) + sign(b)) * min(abs(a), abs(b));
+                },
+                superbee: (a, b) => {
+                    if (a*b <= 0) return 0;
+                    return sign(a) * max(min(2*abs(a), abs(b)), min(abs(a), 2*abs(b)));
+                }
+            };
+
+            // Calcola e disegna la ricostruzione MUSCL
+            ctx.strokeStyle = "#005cc5"; // Blu stile GitHub
+            ctx.lineWidth = 2.5;
+            
+            for(let i=0; i<nCells; i++) {
+                let u_i = U[i+1];
+                let a = u_i - U[i];       // Upwind diff
+                let b = U[i+2] - u_i;     // Downwind diff
+                
+                let phi = limiters[scheme](a, b);
+                
+                // Valori ricostruiti alle interfacce della cella i
+                let u_L = u_i - 0.5 * phi; 
+                let u_R = u_i + 0.5 * phi;
+                
+                // Disegna la linea della pendenza dentro la cella
+                ctx.beginPath();
+                ctx.moveTo(px(i), py(u_L));
+                ctx.lineTo(px(i+1), py(u_R));
+                ctx.stroke();
+                
+                // Disegna pallini per enfatizzare i valori ricostruiti all'interfaccia
+                ctx.fillStyle = "#e74c3c";
+                ctx.beginPath(); ctx.arc(px(i), py(u_L), 3, 0, 2*Math.PI); ctx.fill();
+                ctx.beginPath(); ctx.arc(px(i+1), py(u_R), 3, 0, 2*Math.PI); ctx.fill();
+            }
+        }
+        document.addEventListener("DOMContentLoaded", drawMUSCL);
+        drawMUSCL();
+    </script>
+</div>

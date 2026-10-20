@@ -1,0 +1,26 @@
+# Build output (rebuild with .\cpp\build.ps1)
+cpp/build/
+
+# Simulation output (VTK snapshots, checkpoints, logs): regenerate by running the solver
+results/
+
+# External reference codes and tool clones, not part of the solver
+libraries/
+temp-impeccable/
+
+# Local tool / assistant files
+.claude/
+.impeccable/
+CLAUDE.md
+
+# Python / editor clutter
+__pycache__/
+*.pyc
+.pytest_cache/
+.coverage
+*.tmp
+*_tmp.npz
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

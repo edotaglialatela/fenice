@@ -1,0 +1,157 @@
+<div style="max-width: 650px; margin: 20px 0; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fafbfc; font-family: sans-serif;">
+    <h4 style="margin-top: 0; color: #24292e;">Immersed Boundary Method (IBM) Explorer</h4>
+    <p style="font-size: 13px; color: #586069; margin-bottom: 15px;">
+        <strong>Move the orange circle</strong> to see how the grid adapts to the contour. Black lines show the normals used to interpolate the <i>Ghost</i> nodes.
+    </p>
+    
+    <div style="display: flex; gap: 15px; margin-bottom: 10px; font-size: 13px; font-weight: bold;">
+        <span style="color: #2980b9;">■ Fluid</span>
+        <span style="color: #7f8c8d;">■ Solid Body</span>
+        <span style="color: #d35400;">■ Ghost/Forcing Node</span>
+    </div>
+    
+    <canvas id="ibmCanvas" width="600" height="360" style="background: white; border: 1px solid #ccc; border-radius: 4px; cursor: grab;"></canvas>
+    
+    <script>
+        (function() {
+            const canvas = document.getElementById('ibmCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            
+            // Impostazioni Griglia
+            const cellSize = 30;
+            const cols = canvas.width / cellSize;
+            const rows = canvas.height / cellSize;
+            
+            // Corpo Immerso (Cerchio)
+            let circle = { x: 300, y: 180, r: 75 };
+            let isDragging = false;
+            
+            // Gestione Eventi Mouse
+            canvas.addEventListener('mousedown', (e) => {
+                const rect = canvas.getBoundingClientRect();
+                const mouseX = e.clientX - rect.left;
+                const mouseY = e.clientY - rect.top;
+                
+                // Controlla se il click è dentro il cerchio
+                if (Math.hypot(mouseX - circle.x, mouseY - circle.y) <= circle.r) {
+                    isDragging = true;
+                    canvas.style.cursor = 'grabbing';
+                }
+            });
+            
+            canvas.addEventListener('mousemove', (e) => {
+                if (isDragging) {
+                    const rect = canvas.getBoundingClientRect();
+                    circle.x = e.clientX - rect.left;
+                    circle.y = e.clientY - rect.top;
+                    drawIBM();
+                }
+            });
+            
+            canvas.addEventListener('mouseup', () => { 
+                isDragging = false; 
+                canvas.style.cursor = 'grab';
+            });
+            canvas.addEventListener('mouseleave', () => { 
+                isDragging = false; 
+                canvas.style.cursor = 'grab';
+            });
+
+            function drawIBM() {
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                let grid = [];
+                
+                // 1. Classificazione iniziale (Fluido vs Solido)
+                for (let i = 0; i < cols; i++) {
+                    grid[i] = [];
+                    for (let j = 0; j < rows; j++) {
+                        let cx = i * cellSize + cellSize / 2;
+                        let cy = j * cellSize + cellSize / 2;
+                        let dist = Math.hypot(cx - circle.x, cy - circle.y);
+                        grid[i][j] = { type: dist < circle.r ? 'solid' : 'fluid', cx: cx, cy: cy };
+                    }
+                }
+                
+                // 2. Identificazione dei nodi Ghost/Forcing (Solidi con vicini Fluidi)
+                let ghosts = [];
+                for (let i = 0; i < cols; i++) {
+                    for (let j = 0; j < rows; j++) {
+                        if (grid[i][j].type === 'solid') {
+                            let isGhost = false;
+                            // Controllo sui 4 vicini ortogonali
+                            if (i > 0 && grid[i-1][j].type === 'fluid') isGhost = true;
+                            if (i < cols-1 && grid[i+1][j].type === 'fluid') isGhost = true;
+                            if (j > 0 && grid[i][j-1].type === 'fluid') isGhost = true;
+                            if (j < rows-1 && grid[i][j+1].type === 'fluid') isGhost = true;
+                            
+                            if (isGhost) {
+                                grid[i][j].type = 'ghost';
+                                ghosts.push(grid[i][j]);
+                            }
+                        }
+                    }
+                }
+                
+                // 3. Renderizzazione delle Celle
+                ctx.lineWidth = 0.5;
+                ctx.strokeStyle = "#e0e0e0";
+                
+                for (let i = 0; i < cols; i++) {
+                    for (let j = 0; j < rows; j++) {
+                        let cell = grid[i][j];
+                        
+                        if (cell.type === 'fluid') ctx.fillStyle = "#ebf5fb"; // Azzurro chiaro
+                        else if (cell.type === 'solid') ctx.fillStyle = "#bdc3c7"; // Grigio
+                        else if (cell.type === 'ghost') ctx.fillStyle = "#f39c12"; // Arancione
+                        
+                        ctx.fillRect(i * cellSize, j * cellSize, cellSize, cellSize);
+                        ctx.strokeRect(i * cellSize, j * cellSize, cellSize, cellSize);
+                        
+                        // Disegna un piccolo punto al centro della cella
+                        ctx.fillStyle = "rgba(0,0,0,0.15)";
+                        ctx.beginPath();
+                        ctx.arc(cell.cx, cell.cy, 1.5, 0, Math.PI*2);
+                        ctx.fill();
+                    }
+                }
+                
+                // 4. Renderizzazione del Contorno Immerso (Superficie reale)
+                ctx.beginPath();
+                ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
+                ctx.strokeStyle = "#c0392b";
+                ctx.lineWidth = 2.5;
+                ctx.stroke();
+                
+                // 5. Renderizzazione delle Sonde/Proiezioni per l'interpolazione
+                ctx.strokeStyle = "#2c3e50";
+                ctx.lineWidth = 1.5;
+                ghosts.forEach(ghost => {
+                    // Vettore dal centro del cerchio al centro della cella ghost
+                    let dx = ghost.cx - circle.x;
+                    let dy = ghost.cy - circle.y;
+                    let dist = Math.hypot(dx, dy);
+                    
+                    // Punto di proiezione sulla superficie del corpo immerso
+                    let boundaryX = circle.x + (dx / dist) * circle.r;
+                    let boundaryY = circle.y + (dy / dist) * circle.r;
+                    
+                    // Disegna la linea di interpolazione
+                    ctx.beginPath();
+                    ctx.moveTo(ghost.cx, ghost.cy);
+                    ctx.lineTo(boundaryX, boundaryY);
+                    ctx.stroke();
+                    
+                    // Disegna un piccolo marker sul bordo
+                    ctx.fillStyle = "#c0392b";
+                    ctx.beginPath();
+                    ctx.arc(boundaryX, boundaryY, 2.5, 0, Math.PI*2);
+                    ctx.fill();
+                });
+            }
+            
+            // Inizializza il disegno
+            drawIBM();
+        })();
+    </script>
+</div>

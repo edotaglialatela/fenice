@@ -1,0 +1,175 @@
+<div style="max-width: 680px; margin: 20px 0; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fafbfc; font-family: sans-serif;">
+    <h4 style="margin-top: 0; color: #24292e;">Riemann Problem & Wave Speeds Explorer</h4>
+    <p style="font-size: 13px; color: #586069; margin-bottom: 10px;">
+        Visualizza l'evoluzione della Star Region ($U_{*L}$ e $U_{*R}$) limitata dalle velocità delle onde $S_L$, $S_*$ e $S_R$. Il valore a $x=0$ determina il flusso calcolato dal metodo ai volumi finiti.
+    </p>
+    
+    <div style="display: flex; gap: 15px; margin-bottom: 15px; align-items: center;">
+        <label style="font-size: 13px; font-weight: bold; color: #333;">Variabile:</label>
+        <select id="varSelect" onchange="drawRiemann()" style="padding: 4px; font-size: 13px; border-radius: 4px; border: 1px solid #ccc;">
+            <option value="rho">Densità (ρ)</option>
+            <option value="p">Pressione (P)</option>
+            <option value="u">Velocità (u)</option>
+        </select>
+        
+        <label style="font-size: 13px; font-weight: bold; color: #333; margin-left: 10px;">Tempo (t):</label>
+        <input type="range" id="timeSlider" min="0" max="0.25" step="0.005" value="0.15" oninput="drawRiemann()" style="flex-grow: 1;">
+        <span id="timeValue" style="font-size: 13px; font-family: monospace; width: 40px; font-weight: bold; color: #d35400;">0.15</span>
+    </div>
+
+    <div style="display: flex; justify-content: space-between; background: #fff; border: 1px solid #ddd; padding: 8px 15px; border-radius: 4px; margin-bottom: 10px; font-size: 12px;">
+        <div><b>Stato L:</b> c<sub>L</sub> = 1.183 m/s</div>
+        <div style="color: #2980b9;"><b>Onda L:</b> S<sub>L</sub> = [-1.18, -0.07]</div>
+        <div style="color: #f39c12;"><b>Contatto:</b> S<sub>*</sub> = 0.927</div>
+        <div style="color: #c0392b;"><b>Urto R:</b> S<sub>R</sub> = 1.752</div>
+        <div><b>Stato R:</b> c<sub>R</sub> = 1.058 m/s</div>
+    </div>
+    
+    <canvas id="riemannPlot" width="650" height="200" style="background: white; border: 1px solid #ddd; border-radius: 4px 4px 0 0; border-bottom: none;"></canvas>
+    <canvas id="riemannXT" width="650" height="130" style="background: #f8f9fa; border: 1px solid #ddd; border-radius: 0 0 4px 4px;"></canvas>
+    
+    <script>
+        (function() {
+            const plotCanvas = document.getElementById('riemannPlot');
+            const xtCanvas = document.getElementById('riemannXT');
+            if (!plotCanvas || !xtCanvas) return;
+            const ctxPlot = plotCanvas.getContext('2d');
+            const ctxXT = xtCanvas.getContext('2d');
+            
+            // --- Exact Riemann Solution Hardcoded for Sod Shock Tube ---
+            const gamma = 1.4;
+            const qL = {rho: 1.0, u: 0.0, p: 1.0, c: Math.sqrt(1.4)};
+            const qR = {rho: 0.125, u: 0.0, p: 0.1, c: Math.sqrt(1.4 * 0.1 / 0.125)};
+            
+            // Valori pre-calcolati per la Star Region
+            const star = {p: 0.30313, u: 0.92745, rhoL: 0.42632, rhoR: 0.26557};
+            const speeds = {
+                hL: qL.u - qL.c, // -1.1832
+                tL: star.u - Math.sqrt(gamma * star.p / star.rhoL), // -0.07027
+                contact: star.u, // 0.92745
+                shockR: 1.7522
+            };
+
+            function sampleSod(x, t) {
+                if (t === 0) return { state: x < 0 ? qL : qR, region: x < 0 ? 'U_L' : 'U_R' };
+                const S = x / t;
+                if (S <= speeds.hL) return { state: qL, region: 'U_L' };
+                if (S > speeds.hL && S <= speeds.tL) {
+                    let u = (2 / (gamma + 1)) * (S + qL.c);
+                    let c = qL.c - ((gamma - 1) / 2) * u;
+                    let rho = qL.rho * Math.pow(c / qL.c, 2 / (gamma - 1));
+                    let p = qL.p * Math.pow(c / qL.c, 2 * gamma / (gamma - 1));
+                    return { state: {rho: rho, u: u, p: p}, region: 'Raref.' };
+                }
+                if (S > speeds.tL && S <= speeds.contact) return { state: {rho: star.rhoL, u: star.u, p: star.p}, region: 'U_*L' };
+                if (S > speeds.contact && S <= speeds.shockR) return { state: {rho: star.rhoR, u: star.u, p: star.p}, region: 'U_*R' };
+                return { state: qR, region: 'U_R' };
+            }
+
+            window.drawRiemann = function() {
+                const t = parseFloat(document.getElementById('timeSlider').value);
+                const vVar = document.getElementById('varSelect').value;
+                document.getElementById('timeValue').innerText = t.toFixed(3);
+                
+                const W = plotCanvas.width;
+                const H_plot = plotCanvas.height;
+                const pad = {l: 45, r: 20, t: 25, b: 20};
+                const px = (x) => pad.l + (x + 0.5) * (W - pad.l - pad.r);
+                
+                const yRanges = {
+                    rho: {min: 0, max: 1.1, label: "Densità (ρ)"},
+                    p: {min: 0, max: 1.1, label: "Pressione (P)"},
+                    u: {min: -0.1, max: 1.2, label: "Velocità (u)"}
+                };
+                const r = yRanges[vVar];
+                const py = (y) => H_plot - pad.b - ((y - r.min) / (r.max - r.min)) * (H_plot - pad.t - pad.b);
+
+                // --- 1. Disegno Plot Profilo ---
+                ctxPlot.clearRect(0, 0, W, H_plot);
+                
+                // Assi Plot
+                ctxPlot.strokeStyle = "#ccc"; ctxPlot.lineWidth = 1;
+                ctxPlot.beginPath(); ctxPlot.moveTo(px(-0.5), py(0)); ctxPlot.lineTo(px(0.5), py(0)); ctxPlot.stroke();
+                ctxPlot.strokeStyle = "#e74c3c"; ctxPlot.setLineDash([5, 5]);
+                ctxPlot.beginPath(); ctxPlot.moveTo(px(0), pad.t); ctxPlot.lineTo(px(0), H_plot - pad.b); ctxPlot.stroke();
+                ctxPlot.setLineDash([]);
+                
+                ctxPlot.fillStyle = "#333"; ctxPlot.font = "12px sans-serif";
+                ctxPlot.fillText(r.label, 10, pad.t - 10);
+                
+                // Disegna Curva
+                ctxPlot.strokeStyle = "#2c3e50";
+                ctxPlot.lineWidth = 2.5;
+                ctxPlot.beginPath();
+                for (let i = 0; i <= 250; i++) {
+                    let x = -0.5 + i * (1.0 / 250);
+                    let y = sampleSod(x, t).state[vVar];
+                    if (i === 0) ctxPlot.moveTo(px(x), py(y));
+                    else ctxPlot.lineTo(px(x), py(y));
+                }
+                ctxPlot.stroke();
+                
+                // Stato all'interfaccia
+                let sample_int = sampleSod(0, t);
+                let y_int = sample_int.state[vVar];
+                ctxPlot.fillStyle = "#d35400";
+                ctxPlot.beginPath(); ctxPlot.arc(px(0), py(y_int), 5, 0, 2*Math.PI); ctxPlot.fill();
+                
+                // Mostra quale stato si trova in x=0
+                ctxPlot.fillStyle = "#d35400";
+                ctxPlot.font = "bold 12px monospace";
+                ctxPlot.fillText(`Stato Interfaccia: ${sample_int.region}`, px(0) + 10, py(y_int) - 10);
+
+                // --- 2. Disegno Diagramma x-t ---
+                const H_xt = xtCanvas.height;
+                const pxt_y = (t_val) => H_xt - 15 - (t_val / 0.25) * (H_xt - 30);
+                
+                ctxXT.clearRect(0, 0, W, H_xt);
+                
+                // Asse x = 0
+                ctxXT.strokeStyle = "#e74c3c"; ctxXT.setLineDash([5, 5]); ctxXT.lineWidth = 1;
+                ctxXT.beginPath(); ctxXT.moveTo(px(0), 5); ctxXT.lineTo(px(0), H_xt - 15); ctxXT.stroke();
+                ctxXT.setLineDash([]);
+                
+                const origin = {x: px(0), y: pxt_y(0)};
+                const drawRay = (speed, color) => {
+                    ctxXT.strokeStyle = color; ctxXT.lineWidth = 2.5;
+                    ctxXT.beginPath(); ctxXT.moveTo(origin.x, origin.y); ctxXT.lineTo(px(speed * 0.25), pxt_y(0.25)); ctxXT.stroke();
+                };
+                
+                // Onde
+                ctxXT.fillStyle = "rgba(41, 128, 185, 0.15)";
+                ctxXT.beginPath(); ctxXT.moveTo(origin.x, origin.y); ctxXT.lineTo(px(speeds.hL*0.25), pxt_y(0.25)); ctxXT.lineTo(px(speeds.tL*0.25), pxt_y(0.25)); ctxXT.fill();
+                drawRay(speeds.hL, "#2980b9"); // S_L (Head)
+                drawRay(speeds.tL, "#2980b9"); // S_L (Tail)
+                drawRay(speeds.contact, "#f39c12"); // S_*
+                drawRay(speeds.shockR, "#c0392b"); // S_R
+                
+                // Etichette Onde (in alto)
+                ctxXT.fillStyle = "#333"; ctxXT.font = "bold 11px sans-serif";
+                ctxXT.fillText("S_L", px((speeds.hL+speeds.tL)*0.125)-10, pxt_y(0.25) - 5);
+                ctxXT.fillText("S_*", px(speeds.contact*0.25)-5, pxt_y(0.25) - 5);
+                ctxXT.fillText("S_R", px(speeds.shockR*0.25)-5, pxt_y(0.25) - 5);
+                
+                // Etichette Stati (tra le onde)
+                ctxXT.fillStyle = "#7f8c8d"; ctxXT.font = "12px monospace";
+                ctxXT.fillText("U_L", px(-0.3), pxt_y(0.12));
+                ctxXT.fillText("U_*L", px(-0.02), pxt_y(0.18));
+                ctxXT.fillText("U_*R", px(0.15), pxt_y(0.18));
+                ctxXT.fillText("U_R", px(0.35), pxt_y(0.12));
+
+                // Etichette Assi
+                ctxXT.fillStyle = "#7f8c8d"; ctxXT.font = "11px sans-serif";
+                ctxXT.fillText("t", pad.l - 15, 10);
+                ctxXT.fillText("x", W - pad.r, H_xt - 5);
+
+                // Linea Tempo Corrente
+                let current_y = pxt_y(t);
+                ctxXT.strokeStyle = "rgba(39, 174, 96, 0.6)"; 
+                ctxXT.lineWidth = 2;
+                ctxXT.beginPath(); ctxXT.moveTo(pad.l, current_y); ctxXT.lineTo(W-pad.r, current_y); ctxXT.stroke();
+            }
+            drawRiemann();
+        })();
+    </script>
+</div>

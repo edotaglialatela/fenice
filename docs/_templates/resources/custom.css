@@ -1,0 +1,446 @@
+/* =========================================================
+   FV-Solver Documentation — Custom Theme
+   Stripe / Tailwind-inspired. Desktop-first.
+   ========================================================= */
+
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap');
+
+/* ---------------------------------------------------------
+   Global
+   --------------------------------------------------------- */
+body {
+    background: #f8fafc;
+    color: #1e293b;
+    font-family: 'Inter', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+}
+
+/* ---------------------------------------------------------
+   CSS variable overrides — all pdoc components inherit these
+   --------------------------------------------------------- */
+.pdoc {
+    --text:        #1e293b;
+    --muted:       #64748b;
+    --link:        #4f46e5;
+    --link-hover:  #4338ca;
+    --accent:      #f1f5f9;
+    --accent2:     #e2e8f0;
+    --active:      #e0e7ff;
+    --nav-hover:   rgba(79, 70, 229, 0.08);
+    --name:        #2563eb;
+    --def:         #059669;
+    --annotation:  #0891b2;
+
+    font-family: 'Inter', system-ui, 'Segoe UI', Roboto, sans-serif;
+    color: #1e293b;
+    line-height: 1.7;
+}
+
+/* ---------------------------------------------------------
+   Sidebar — nav.pdoc
+   --------------------------------------------------------- */
+nav.pdoc {
+    background: #f1f5f9;
+    border-right: 1px solid #e2e8f0;
+    font-size: 0.875rem;
+}
+
+/* "Module Index" pill button */
+nav.pdoc .module-list-button {
+    display: inline-block;
+    margin: 0.75rem 0 0.5rem;
+    padding: 0.3rem 0.8rem;
+    border: 1.5px solid #4f46e5;
+    border-radius: 999px;
+    color: #4f46e5 !important;
+    font-size: 0.75rem;
+    font-weight: 600;
+    letter-spacing: 0.02em;
+    text-decoration: none !important;
+    background: transparent;
+    transition: background 0.15s, color 0.15s;
+}
+nav.pdoc .module-list-button:hover {
+    background: #4f46e5;
+    color: #fff !important;
+}
+
+/* Search box */
+nav.pdoc input[type="search"] {
+    width: 100%;
+    padding: 0.35rem 0.7rem;
+    background: #fff;
+    border: 1px solid #e2e8f0;
+    border-radius: 0.375rem;
+    font-size: 0.8rem;
+    color: #1e293b;
+    outline: none;
+    transition: border-color 0.15s;
+}
+nav.pdoc input[type="search"]:focus {
+    border-color: #a5b4fc;
+    box-shadow: 0 0 0 2px rgba(79, 70, 229, 0.12);
+}
+
+/* Section headings in nav (Contents / Submodules / API…) */
+nav.pdoc h2 {
+    font-size: 0.68rem;
+    font-weight: 700;
+    letter-spacing: 0.09em;
+    text-transform: uppercase;
+    color: #94a3b8;
+    margin: 1.4rem 0 0.4rem;
+    padding: 0;
+    border: none;
+}
+
+/* Nav links */
+nav.pdoc a {
+    color: #475569;
+    text-decoration: none;
+    transition: color 0.15s ease;
+}
+nav.pdoc a:hover {
+    color: #4f46e5;
+    text-decoration: none;
+}
+
+/* Member list */
+nav.pdoc .memberlist {
+    list-style: none;
+    padding-left: 0.6rem;
+    margin: 0;
+}
+nav.pdoc .memberlist li {
+    padding: 0.1rem 0;
+    line-height: 1.5;
+}
+nav.pdoc .memberlist a {
+    font-size: 0.78rem;
+    color: #64748b;
+}
+nav.pdoc .memberlist a:hover {
+    color: #4f46e5;
+}
+
+/* pdoc attribution link */
+nav.pdoc .attribution {
+    font-size: 0.7rem;
+    color: #94a3b8 !important;
+    text-decoration: none !important;
+    margin-top: 2rem;
+    display: block;
+}
+
+/* ---------------------------------------------------------
+   Main content area
+   --------------------------------------------------------- */
+main.pdoc {
+    max-width: 900px;
+    margin: 0 auto;
+    padding: 2rem 2.5rem 4rem;
+}
+
+/* Module title */
+.pdoc .modulename {
+    font-size: 1.75rem;
+    font-weight: 700;
+    color: #0f172a;
+    border-bottom: 2px solid #e2e8f0;
+    padding-bottom: 0.75rem;
+    margin-bottom: 1.5rem;
+    letter-spacing: -0.01em;
+}
+.pdoc .modulename a {
+    color: inherit;
+    text-decoration: none;
+}
+.pdoc .modulename a:hover {
+    color: #4f46e5;
+}
+
+/* Module-info section (top of each page) */
+.pdoc .module-info {
+    margin-bottom: 2.5rem;
+}
+
+/* ---------------------------------------------------------
+   Docstring text
+   --------------------------------------------------------- */
+.pdoc .docstring {
+    color: #334155;
+    line-height: 1.75;
+    font-size: 0.95rem;
+}
+
+.pdoc .docstring p {
+    margin: 0.75rem 0;
+}
+
+.pdoc .docstring > p:first-child {
+    margin-top: 0;
+}
+
+/* Headings inside docstrings */
+.pdoc .docstring h1,
+.pdoc .docstring h2 {
+    font-size: 1.1rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin: 1.75rem 0 0.5rem;
+    padding-bottom: 0.3rem;
+    border-bottom: 1px solid #f1f5f9;
+}
+.pdoc .docstring h3 {
+    font-size: 1rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin: 1.25rem 0 0.35rem;
+}
+.pdoc .docstring h4 {
+    font-size: 0.9rem;
+    font-weight: 600;
+    color: #334155;
+    margin: 1rem 0 0.25rem;
+}
+
+/* Links inside docstrings */
+.pdoc .docstring a,
+.pdoc .module-info a {
+    color: #4f46e5;
+    text-decoration: underline;
+    text-underline-offset: 2px;
+    text-decoration-color: #a5b4fc;
+    transition: color 0.15s, text-decoration-color 0.15s;
+}
+.pdoc .docstring a:hover,
+.pdoc .module-info a:hover {
+    color: #4338ca;
+    text-decoration-color: #4338ca;
+}
+
+/* Lists inside docstrings */
+.pdoc .docstring ul,
+.pdoc .docstring ol {
+    padding-left: 1.5rem;
+    margin: 0.5rem 0;
+}
+.pdoc .docstring li {
+    margin: 0.2rem 0;
+}
+
+/* Tables inside docstrings */
+.pdoc .docstring table {
+    border-collapse: collapse;
+    width: 100%;
+    margin: 1rem 0;
+    font-size: 0.9rem;
+}
+.pdoc .docstring th {
+    background: #f1f5f9;
+    font-weight: 600;
+    color: #475569;
+    text-align: left;
+    padding: 0.5rem 0.75rem;
+    border: 1px solid #e2e8f0;
+}
+.pdoc .docstring td {
+    padding: 0.45rem 0.75rem;
+    border: 1px solid #e2e8f0;
+    color: #334155;
+}
+.pdoc .docstring tr:nth-child(even) td {
+    background: #f8fafc;
+}
+
+/* figcaption under images */
+figcaption {
+    font-size: 0.8rem;
+    color: #64748b;
+    text-align: center;
+    margin-top: 0.4rem;
+    font-style: italic;
+}
+
+/* ---------------------------------------------------------
+   Section spacing — separates classes and top-level functions
+   --------------------------------------------------------- */
+.pdoc section {
+    padding-top: 2rem;
+    margin-bottom: 3rem;
+    border-top: 1px solid #f1f5f9;
+}
+.pdoc section:first-of-type {
+    border-top: none;
+    padding-top: 0;
+}
+
+/* ---------------------------------------------------------
+   Attribute / signature blocks  (.attr)
+   --------------------------------------------------------- */
+.pdoc .attr {
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+    background: #f8fafc;
+    border: 1px solid #e2e8f0;
+    border-left: 4px solid #4f46e5;
+    border-radius: 0.375rem;
+    padding: 0.6rem 1rem;
+    margin-bottom: 0.5rem;
+    font-size: 0.85rem;
+    line-height: 1.6;
+    overflow-x: auto;
+}
+
+/* Keyword tokens */
+.pdoc .def {
+    color: #059669;
+    font-weight: 600;
+}
+
+/* Identifier name */
+.pdoc .name {
+    color: #2563eb;
+    font-weight: 600;
+}
+
+/* Type annotations */
+.pdoc .annotation {
+    color: #0891b2;
+}
+
+/* Decorators */
+.pdoc .decorator {
+    color: #7c3aed;
+    font-style: italic;
+}
+
+/* Return annotation arrow → */
+.pdoc .return-annotation {
+    color: #64748b;
+}
+
+/* ---------------------------------------------------------
+   Code blocks — pre
+   --------------------------------------------------------- */
+.pdoc pre {
+    background: #0f172a;
+    color: #e2e8f0;
+    padding: 1.25rem 1.5rem;
+    border-radius: 0.5rem;
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+    font-size: 0.82rem;
+    overflow-x: auto;
+    line-height: 1.65;
+    margin: 1rem 0;
+    border: none;
+}
+
+/* Override syntax-highlight colours for dark background */
+.pdoc pre .hll  { background: #1e3a5f; }
+.pdoc pre .c, .pdoc pre .cm, .pdoc pre .c1 { color: #64748b; font-style: italic; }
+.pdoc pre .k, .pdoc pre .kn, .pdoc pre .kd { color: #86efac; font-weight: 600; }
+.pdoc pre .s, .pdoc pre .s1, .pdoc pre .s2 { color: #fca5a5; }
+.pdoc pre .n  { color: #e2e8f0; }
+.pdoc pre .nb { color: #93c5fd; }
+.pdoc pre .nf { color: #c4b5fd; }
+.pdoc pre .nc { color: #f0abfc; }
+.pdoc pre .mi, .pdoc pre .mf { color: #fdba74; }
+.pdoc pre .o  { color: #94a3b8; }
+.pdoc pre .p  { color: #94a3b8; }
+
+/* ---------------------------------------------------------
+   Inline code — code outside pre
+   --------------------------------------------------------- */
+.pdoc code:not(pre > code) {
+    background: #e2e8f0;
+    color: #1e293b;
+    padding: 0.15em 0.4em;
+    border-radius: 0.25rem;
+    font-family: 'JetBrains Mono', 'Fira Code', Consolas, 'Courier New', monospace;
+    font-size: 0.875em;
+    word-break: break-word;
+}
+
+/* ---------------------------------------------------------
+   Heading anchor links  (#)
+   --------------------------------------------------------- */
+.pdoc .headerlink {
+    color: #cbd5e1;
+    text-decoration: none;
+    margin-left: 0.4em;
+    font-size: 0.85em;
+    transition: color 0.15s;
+}
+.pdoc .headerlink:hover {
+    color: #4f46e5;
+}
+
+/* ---------------------------------------------------------
+   Content-area headings (h1–h4 outside docstring)
+   --------------------------------------------------------- */
+.pdoc h1 {
+    font-size: 1.6rem;
+    font-weight: 700;
+    color: #0f172a;
+    margin-top: 2.5rem;
+    margin-bottom: 0.75rem;
+    letter-spacing: -0.01em;
+}
+.pdoc h2 {
+    font-size: 1.25rem;
+    font-weight: 600;
+    color: #1e293b;
+    margin-top: 2.5rem;
+    margin-bottom: 0.5rem;
+    padding-bottom: 0.4rem;
+    border-bottom: 1px solid #e2e8f0;
+}
+.pdoc h3 {
+    font-size: 1.05rem;
+    font-weight: 600;
+    color: #334155;
+    margin-top: 1.75rem;
+    margin-bottom: 0.35rem;
+}
+.pdoc h4 {
+    font-size: 0.95rem;
+    font-weight: 600;
+    color: #475569;
+    margin-top: 1.25rem;
+    margin-bottom: 0.25rem;
+}
+
+/* ---------------------------------------------------------
+   Search results
+   --------------------------------------------------------- */
+.pdoc .search-result {
+    border: 1px solid #e2e8f0;
+    border-radius: 0.5rem;
+    padding: 0.75rem 1rem;
+    margin-bottom: 0.5rem;
+    background: #fff;
+}
+.pdoc .search-result.focused {
+    border-color: #a5b4fc;
+    box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.12);
+}
+.pdoc .search-result a {
+    color: #4f46e5;
+    font-weight: 600;
+    text-decoration: none;
+}
+
+/* ---------------------------------------------------------
+   Alert / admonition boxes
+   --------------------------------------------------------- */
+.pdoc .alert {
+    border-radius: 0.5rem;
+    padding: 0.85rem 1rem;
+    margin: 1rem 0;
+    border-left: 4px solid #94a3b8;
+    background: #f1f5f9;
+    font-size: 0.9rem;
+}
+.pdoc .alert.note    { border-color: #4f46e5; background: #eef2ff; }
+.pdoc .alert.tip     { border-color: #059669; background: #ecfdf5; }
+.pdoc .alert.warning { border-color: #d97706; background: #fffbeb; }
+.pdoc .alert.danger  { border-color: #dc2626; background: #fef2f2; }

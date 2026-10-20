@@ -1,0 +1,107 @@
+// Block-structured quad-tree AMR: patches, tree operations, Lohner error indicator,
+// recursive subcycling with PARAMESH-style refluxing.
+#pragma once
+
+#include <functional>
+#include <map>
+#include <memory>
+
+#include "fv/Core.hpp"
+#include "fv/TimeScheme.hpp"
+
+namespace fv {
+
+// One block of the quad-tree: a uniform sub-mesh with its own state.  All patches
+// share the same cell count; the cell size halves per level.
+struct AMRPatch {
+    double xmin = 0, xmax = 0, ymin = 0, ymax = 0;   // physical extent
+    int    level = 0;                                 // 0 = root
+    int    id    = 0;                                 // unique, creation order
+    AMRPatch* parent = nullptr;                       // nullptr for the root
+    std::vector<AMRPatch*> children;   // [BL, BR, TL, TR] when refined
+    Mesh   mesh;                       // global coordinates (x0 = xmin, y0 = ymin)
+    Field  U;                          // conservative state, row-major
+
+    // Transient state used by advance_amr_level
+    bool  has_ghost = false;           // U_ghost holds the frozen neighbour snapshot
+    Field U_ghost;
+    Field last_flux_x, last_flux_y;    // face flux * face length of the last stage
+    bool  has_reflux = false;          // reflux registers allocated (abuts a coarser leaf)
+    Field reflux_fx, reflux_fy;        // sum of dt_fine * fine face fluxes over the sub-steps
+    std::vector<Face> reflux_faces;    // faces touching a coarser neighbour
+
+    // True if the patch has no children (an active computational block).
+    bool is_leaf() const { return children.empty(); }
+    // Cells in x.
+    int  nx() const { return mesh.nx; }
+    // Cells in y.
+    int  ny() const { return mesh.ny; }
+    // State neighbours must read: the frozen snapshot during a level advance.
+    const Field& ghost_source() const { return has_ghost ? U_ghost : U; }
+};
+
+// Quad-tree manager: refinement, derefinement, 2:1 balance and neighbour lookup.
+class AMRTree {
+public:
+    // Single root patch over [0, Lx] x [0, Ly].  Patch dimensions must be even when
+    // max_level > 0 (2 fine cells must tile 1 coarse cell); throws otherwise.
+    AMRTree(double Lx, double Ly, int nx_patch, int ny_patch, int max_level = 2);
+
+    std::vector<AMRPatch*> leaves() const;          // bottom-left -> top-right (DFS)
+    std::vector<AMRPatch*> all_patches() const;     // by creation id
+
+    // Split a leaf into 4 children [BL, BR, TL, TR] by conservative injection; throws at max_level.
+    std::vector<AMRPatch*> refine_patch(AMRPatch* patch);
+    // Collapse 4 leaf children into `patch` by conservative averaging.
+    void derefine_patch(AMRPatch* patch);
+    // Refine until no two face-neighbouring leaves differ by more than one level.
+    void enforce_2to1_balance();
+
+    // First leaf across `face` (nullptr at the domain boundary).
+    AMRPatch*              get_neighbour(const AMRPatch* patch, Face face) const;
+    // Every leaf across `face` (up to 2 finer leaves under 2:1 balance).
+    std::vector<AMRPatch*> neighbour_leaves(const AMRPatch* patch, Face face) const;
+
+    AMRPatch* root = nullptr;                // level-0 patch covering the domain
+    double Lx, Ly;                           // domain size
+    int    nx_patch, ny_patch, max_level;    // block size and refinement depth
+
+private:
+    AMRPatch* new_patch(double x0, double x1, double y0, double y1, int level, AMRPatch* parent);
+    AMRPatch* find_neighbour_leaf(const AMRPatch* patch, Face face, const std::vector<AMRPatch*>& lv) const;
+    static void collect_leaves(AMRPatch* p, std::vector<AMRPatch*>& out);
+
+    std::map<int, std::unique_ptr<AMRPatch>> patches_;
+    int next_id_ = 0;
+};
+
+// Lohner second-derivative density sensor and refine / derefine marking.
+class AMRErrorIndicator {
+public:
+    // Refine above `refine_threshold`, derefine below `derefine_threshold`, with
+    // `buffer_layers` rings of neighbours added around flagged patches.
+    AMRErrorIndicator(double refine_threshold = 0.3, double derefine_threshold = 0.1, int buffer_layers = 1)
+        : refine_threshold(refine_threshold), derefine_threshold(derefine_threshold), buffer_layers(buffer_layers) {}
+
+    // eta = max over cells of |second difference| / (|first differences| + 0.01 max|rho|), in [0, 1].
+    double indicator(const AMRPatch& patch) const;
+    // Leaves to refine (flagged + buffer, sorted by id) and parents to derefine.
+    void   mark(AMRTree& tree, std::vector<AMRPatch*>& to_refine, std::vector<AMRPatch*>& to_derefine) const;
+
+    double refine_threshold, derefine_threshold;   // eta thresholds
+    int    buffer_layers;                          // halo rings around flagged patches
+};
+
+// Residual of one leaf patch: fills R (cells) and flux_x / flux_y (face flux *
+// face length) and returns S_max.
+using PatchResidualFn = std::function<double(AMRPatch& patch, AMRTree& tree, const Field& U,
+                                             Field& R, Field& flux_x, Field& flux_y)>;
+
+// Recursive subcycled advance of level `level` by dt; returns max wave speed.
+double advance_amr_level(AMRTree& tree, int level, double dt, double current_time, double max_time,
+                         const PatchResidualFn& residual, TimeScheme& scheme);
+
+// Test hook: disables the coarse-fine reflux correction (negative control).
+extern bool g_amr_disable_reflux;
+
+}  // namespace fv
