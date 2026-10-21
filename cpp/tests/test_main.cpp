@@ -2023,7 +2023,7 @@ state = { p = 9.0 }
 TEST(builtin_cases_and_save_case) {
     // The shipped case files: names, order and flags
     const std::vector<std::string> names = {"Sod Shock Tube", "Poiseuille Flow", "Lid Driven Cavity",
-                                            "IBM Flow over Cylinder", "IBM Airfoil", "Shu-Osher Test",
+                                            "IBM Flow over Cylinder", "IBM Airfoil", "IBM Airfoil AMR", "Shu-Osher Test",
                                             "IBM Supersonic Flow over Cylinder", "Taylor-Green Vortex",
                                             "Isentropic Vortex", "Taylor-Green Vortex 3D"};
     std::vector<std::string> got;

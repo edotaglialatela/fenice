@@ -128,6 +128,10 @@ give $\eta = 0$.
 
 ## Immersed boundary, viscous terms and body force
 
+The [airfoil]({{root}}cases/airfoil.html#adaptive-mesh-refinement) case shows it: with 9 % of
+the cells of the uniform mesh at the body's resolution, AMR gives the same drag and lift
+history in 4 % of the time.
+
 The leaf residual `patch_residual` adds, when enabled, the viscous flux, a body force and
 the immersed-boundary forcing to the convective flux. Each leaf builds its solid mask,
 with a two-cell ghost ring, from the body geometry. The velocity of solid cells is zeroed

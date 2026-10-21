@@ -18,6 +18,36 @@ build\release\fenice.exe --case "IBM Airfoil" --set "ibm_shape=NACA 4412" --set 
 python validation\ibm_loads.py airfoil                        # loads figure + mean coefficients
 ```
 
+## Adaptive mesh refinement
+
+The case `IBM Airfoil AMR` is the same flow on a 192×96 base mesh with
+[AMR]({{root}}modules/AMR.html): 16×16 patches, two refinement levels, the airfoil kept at the
+finest level (the resolution of a 768×384 mesh, chord = 64 cells) and the wake refined where
+the density has gradients.
+
+```powershell
+build\release\fenice.exe --case "IBM Airfoil AMR"        # OpenMP threads; writes Cl, Cd, Cm like the uniform case
+python validation\airfoil_amr.py --docs                  # AMR against uniform 192x96 and 768x384
+```
+
+<figure style="margin:1em 0;">
+<img src="{{root}}img/airfoil_amr.png" style="width:100%">
+<figcaption>NACA 0012 at 10°, Re = 1000, up to $t = 6$ (<code>validation/airfoil_amr.py</code>).
+Top: vorticity with the patches of the AMR run. Bottom: drag and lift of the AMR run and of
+uniform 192×96 and 768×384 meshes, and the cost of the three runs on 16 OpenMP threads.</figcaption>
+</figure>
+
+| run | cells | wall time | rms error of $C_d$ | rms error of $C_l$ |
+|---|---:|---:|---:|---:|
+| uniform 192×96 | 18 432 | 2.5 s | 0.034 | 0.35 |
+| uniform 768×384 | 294 912 | 225 s | (reference) | (reference) |
+| AMR, 192×96 + 2 levels | 27 648 | 9.1 s | 0.009 | 0.048 |
+
+The errors are rms differences of $C_d(t)$ and $C_l(t)$ from the 768×384 run over
+$1 \le t \le 6$ (this is the impulsive start of the flow, not a statistically steady state).
+AMR reproduces the loads of the fine mesh with 9 % of its cells and 4 % of its time. The
+base mesh alone misses most of the lift.
+
 ## Using your own airfoil
 
 1. Copy the case: `fenice --new-case "My Airfoil" --from "IBM Airfoil"`.

@@ -29,6 +29,7 @@ STUDIES = {
                          "--q-animation"], True),   # the settings of the docs figures
     "cylinder_loads": (["ibm_loads.py", "cylinder"], True),
     "airfoil_loads": (["ibm_loads.py", "airfoil"], True),
+    "airfoil_amr": (["airfoil_amr.py"], True),
     "cylinder_mesh_transition": (["cylinder_mesh_transition.py"], True),
 }
 
