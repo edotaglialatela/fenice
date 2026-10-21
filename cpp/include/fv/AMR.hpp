@@ -24,7 +24,7 @@ struct AMRPatch {
 
     // Immersed-boundary masks (built lazily from the body geometry, which never changes).
     std::vector<char> solid;           // nx*ny, 1 = solid cell
-    std::vector<char> solid_ext;       // (nx+2)*(ny+2) with the ghost ring; 0 outside the domain
+    std::vector<char> solid_ext;       // (nx+4)*(ny+4) with a two-cell ghost ring; 0 outside the domain
 
     // Transient state used by advance_amr_level
     bool  has_ghost = false;           // U_ghost holds the frozen neighbour snapshot
@@ -40,6 +40,8 @@ struct AMRPatch {
     int  nx() const { return mesh.nx; }
     // Cells in y.
     int  ny() const { return mesh.ny; }
+    // Solid flag of cell (ix, iy), -2 <= ix < nx+2, -2 <= iy < ny+2 (ghost ring included).
+    char ext_solid(int ix, int iy) const { return solid_ext[(iy + 2) * (nx() + 4) + ix + 2]; }
     // State neighbours must read: the frozen snapshot during a level advance.
     const Field& ghost_source() const { return has_ghost ? U_ghost : U; }
 };

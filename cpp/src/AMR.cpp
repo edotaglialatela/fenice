@@ -469,27 +469,38 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
     }
 
     if (!at_level.empty()) {
-        // Freeze every leaf so all patches read the same neighbour snapshot
+        // Freeze every leaf so patches of other levels read one neighbour snapshot
         // (guardcell-then-advance); required for flux conservation.
         for (AMRPatch* p : lv) { p->U_ghost = p->U; p->has_ghost = true; }
-        // With the snapshot frozen, patches at this level are independent:
-        // advance them concurrently, one scheme clone (scratch buffers) per thread.
+        // The patches of this level are one ODE system: concatenate them and advance with a single
+        // call, so every stage sees the current stage of the same-level neighbours (as the uniform
+        // solver does) while coarser / finer neighbours stay on the snapshot.
         const int n_at = static_cast<int>(at_level.size());
+        std::vector<size_t> off(n_at + 1, 0);
+        for (int k = 0; k < n_at; ++k) off[k + 1] = off[k] + at_level[k]->U.size();
+        Field Ucat(off[n_at]);
+        for (int k = 0; k < n_at; ++k) std::copy(at_level[k]->U.begin(), at_level[k]->U.end(), Ucat.begin() + off[k]);
+        const ResidualFn res = [&](const Field& Uin, Field& R) {
+            R.resize(Uin.size());
+            for (int k = 0; k < n_at; ++k) std::copy(Uin.begin() + off[k], Uin.begin() + off[k + 1], at_level[k]->U_ghost.begin());
+            double s_max = 0.0;
 #pragma omp parallel if(n_at > 1)
-        {
-            std::unique_ptr<TimeScheme> local = scheme.clone();
-            double s_local = 0.0;
+            {
+                Field Rk;
+                double s_local = 0.0;
 #pragma omp for schedule(dynamic)
-            for (int k = 0; k < n_at; ++k) {
-                AMRPatch* patch = at_level[k];
-                ResidualFn res = [&](const Field& U, Field& R) {
-                    return residual(*patch, tree, U, R, patch->last_flux_x, patch->last_flux_y);
-                };
-                s_local = std::max(s_local, local->advance_fixed_dt(patch->U, res, dt));
-            }
+                for (int k = 0; k < n_at; ++k) {
+                    AMRPatch* patch = at_level[k];
+                    s_local = std::max(s_local, residual(*patch, tree, patch->U_ghost, Rk, patch->last_flux_x, patch->last_flux_y));
+                    std::copy(Rk.begin(), Rk.end(), R.begin() + off[k]);
+                }
 #pragma omp critical(fv_amr_smax)
-            S_max = std::max(S_max, s_local);
-        }
+                s_max = std::max(s_max, s_local);
+            }
+            return s_max;
+        };
+        S_max = std::max(S_max, scheme.advance_fixed_dt(Ucat, res, dt));
+        for (int k = 0; k < n_at; ++k) std::copy(Ucat.begin() + off[k], Ucat.begin() + off[k + 1], at_level[k]->U.begin());
         for (AMRPatch* p : lv) p->has_ghost = false;   // keep capacity for the next step
     }
 

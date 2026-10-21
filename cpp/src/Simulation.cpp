@@ -705,20 +705,20 @@ void Simulation::ensure_patch_masks(AMRPatch& patch) const {
     if (!p.use_ibm || !patch.solid.empty()) return;
     const Mesh& m = patch.mesh;
     patch.solid = ibm_factory(m).mask();
-    // Mask of the one-cell ghost ring from the same geometry; 0 outside the domain
+    // Mask of the two-cell ghost ring from the same geometry; 0 outside the domain
     Mesh me = m;
-    me.nx += 2;  me.ny += 2;
-    me.x0 -= m.dx;  me.y0 -= m.dy;
+    me.nx += 4;  me.ny += 4;
+    me.x0 -= 2.0 * m.dx;  me.y0 -= 2.0 * m.dy;
     me.Lx = me.nx * m.dx;  me.Ly = me.ny * m.dy;
     patch.solid_ext = ibm_factory(me).mask();
-    const int PW = m.nx + 2;
-    for (int jj = 0; jj < m.ny + 2; ++jj)
+    const int PW = m.nx + 4;
+    for (int jj = 0; jj < m.ny + 4; ++jj)
         for (int ii = 0; ii < PW; ++ii) {
-            const bool interior = ii >= 1 && ii <= m.nx && jj >= 1 && jj <= m.ny;
-            const double x = m.x0 + (ii - 0.5) * m.dx, y = m.y0 + (jj - 0.5) * m.dy;
+            const bool interior = ii >= 2 && ii < m.nx + 2 && jj >= 2 && jj < m.ny + 2;
+            const double x = m.x0 + (ii - 1.5) * m.dx, y = m.y0 + (jj - 1.5) * m.dy;
             const bool inside = x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly;
             char& c = patch.solid_ext[jj * PW + ii];
-            if (interior) c = patch.solid[(jj - 1) * m.nx + ii - 1];
+            if (interior) c = patch.solid[(jj - 2) * m.nx + ii - 2];
             else if (!inside) c = 0;
         }
 }
@@ -753,7 +753,6 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
     const Field& Uc = *Up;
 
     const double dx = m.dx, dy = m.dy;
-    const double ox = 1e-6 * dx, oy = 1e-6 * dy;
     const bool if_l = patch.xmin > eps, if_r = patch.xmax < mesh.Lx - eps;
     const bool if_b = patch.ymin > eps, if_t = patch.ymax < mesh.Ly - eps;
 
@@ -790,14 +789,14 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
         out = it->second(x, y);
         return &out;
     };
-    // Ghost-cell state at ring position (ii, jj) of this patch (solid cells at rest); false outside the domain
-    auto ring_state = [&](int ii, int jj, State& c) {
-        const double x = m.x0 + (ii - 0.5) * dx, y = m.y0 + (jj - 0.5) * dy;
+    // Ghost-cell state of cell (ix, iy) outside this patch (solid cells at rest); false outside the domain
+    auto ghost_cell = [&](int ix, int iy, State& c) {
+        const double x = m.x0 + (ix + 0.5) * dx, y = m.y0 + (iy + 0.5) * dy;
         if (!(x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly)) return false;
         const State* g = ghost_state(x, y);
         if (!g) return false;
         c = *g;
-        if (p.use_ibm && patch.solid_ext[jj * (nx + 2) + ii]) {
+        if (p.use_ibm && patch.ext_solid(ix, iy)) {
             State W = fluid.cons_to_prim(c);
             W[1] = 0.0; W[2] = 0.0; W[4] = 0.0;
             c = fluid.prim_to_cons(W);
@@ -818,13 +817,13 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
         State c;
         for (int i = 0; i < nx; ++i)
             for (int d = 0; d < D; ++d) {
-                ylo[d * nx + i] = ring_state(i + 1, 0, c) ? c : Uc[i];
-                yhi[d * nx + i] = ring_state(i + 1, ny + 1, c) ? c : Uc[(ny - 1) * nx + i];
+                ylo[d * nx + i] = ghost_cell(i, -1, c) ? c : Uc[i];
+                yhi[d * nx + i] = ghost_cell(i, ny, c) ? c : Uc[(ny - 1) * nx + i];
             }
         for (int j = 0; j < ny; ++j)
             for (int d = 0; d < D; ++d) {
-                xlo[j * D + d] = ring_state(0, j + 1, c) ? c : Uc[j * nx];
-                xhi[j * D + d] = ring_state(nx + 1, j + 1, c) ? c : Uc[j * nx + nx - 1];
+                xlo[j * D + d] = ghost_cell(-1, j, c) ? c : Uc[j * nx];
+                xhi[j * D + d] = ghost_cell(nx, j, c) ? c : Uc[j * nx + nx - 1];
             }
         const TangentialHalos thy{'y', D, if_b ? &ylo : nullptr, if_t ? &yhi : nullptr};
         const TangentialHalos thx{'x', D, if_l ? &xlo : nullptr, if_r ? &xhi : nullptr};
@@ -840,54 +839,38 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
         }
     }
 
-    auto coarser = [&](Face f) -> const AMRPatch* {
-        for (AMRPatch* nb : tree.neighbour_leaves(&patch, f))
-            if (nb->level < patch.level) return nb;
-        return nullptr;
-    };
-    // Index in the (nx+2)*(ny+2) ghost-ring arrays of ghost cell k along face f
-    auto ring_index = [&](Face f, int k) {
-        switch (f) {
-            case Face::Left:   return (k + 1) * (nx + 2);
-            case Face::Right:  return (k + 1) * (nx + 2) + nx + 1;
-            case Face::Bottom: return k + 1;
-            default:           return (ny + 1) * (nx + 2) + k + 1;
-        }
-    };
-    // Coarser neighbour: linear prolongation; same-level / finer: injection.
-    auto fill = [&](Face f, Field& target) {
-        const int n = m.boundary_count(f);
-        if (const AMRPatch* c = coarser(f)) {
-            const Field g = prolong_ghost_face(patch, *c, f);
-            for (int k = 0; k < n; ++k) target[m.boundary_face(f, k)] = g[k];
-        } else {
-            for (int k = 0; k < n; ++k) {
-                double x, y;
-                switch (f) {
-                    case Face::Left:   x = patch.xmin - ox; y = patch.ymin + (k + 0.5) * dy; break;
-                    case Face::Right:  x = patch.xmax + ox; y = patch.ymin + (k + 0.5) * dy; break;
-                    case Face::Bottom: x = patch.xmin + (k + 0.5) * dx; y = patch.ymin - oy; break;
-                    default:           x = patch.xmin + (k + 0.5) * dx; y = patch.ymax + oy; break;
-                }
-                if (const State* s = sample_leaf_state(tree, x, y)) target[m.boundary_face(f, k)] = *s;
-            }
-        }
-        // A solid ghost cell holds no velocity (the neighbour snapshot is never forced)
-        if (p.use_ibm)
-            for (int k = 0; k < n; ++k)
-                if (patch.solid_ext[ring_index(f, k)]) {
-                    State& s = target[m.boundary_face(f, k)];
-                    State W = fluid.cons_to_prim(s);
-                    W[1] = 0.0; W[2] = 0.0; W[4] = 0.0;
-                    s = fluid.prim_to_cons(W);
-                }
-    };
-    if (if_l) fill(Face::Left, pUL);
-    if (if_r) fill(Face::Right, pUR);
-    if (if_b) fill(Face::Bottom, pUL);
-    if (if_t) fill(Face::Top, pUR);
-
-    if (muscl) muscl->reconstruct(pUL, pUR, Uc, nx, ny);
+    // Interface faces: the Riemann ghost and the two MUSCL halo layers come from the same canonical
+    // ghost cells (same level: the cell; finer: 2 x 2 mean; coarser: interpolation), so a seam between
+    // equal-level patches is reconstructed as in the uniform solver
+    constexpr int HD = kHaloDepth;
+    thread_local Field hl, hr, hb, ht;
+    Halos mh;
+    auto nearest = [&](int ix, int iy, const State& own) { State c; return ghost_cell(ix, iy, c) ? c : own; };
+    if (if_l) {
+        hl.resize(static_cast<size_t>(ny) * HD);
+        for (int j = 0; j < ny; ++j) for (int d = 0; d < HD; ++d) hl[j * HD + d] = nearest(d - HD, j, Uc[j * nx]);
+        for (int j = 0; j < ny; ++j) pUL[m.boundary_face(Face::Left, j)] = hl[j * HD + HD - 1];
+        mh.l = &hl;
+    }
+    if (if_r) {
+        hr.resize(static_cast<size_t>(ny) * HD);
+        for (int j = 0; j < ny; ++j) for (int d = 0; d < HD; ++d) hr[j * HD + d] = nearest(nx + d, j, Uc[j * nx + nx - 1]);
+        for (int j = 0; j < ny; ++j) pUR[m.boundary_face(Face::Right, j)] = hr[j * HD];
+        mh.r = &hr;
+    }
+    if (if_b) {
+        hb.resize(static_cast<size_t>(HD) * nx);
+        for (int d = 0; d < HD; ++d) for (int i = 0; i < nx; ++i) hb[d * nx + i] = nearest(i, d - HD, Uc[i]);
+        for (int i = 0; i < nx; ++i) pUL[m.boundary_face(Face::Bottom, i)] = hb[(HD - 1) * nx + i];
+        mh.b = &hb;
+    }
+    if (if_t) {
+        ht.resize(static_cast<size_t>(HD) * nx);
+        for (int d = 0; d < HD; ++d) for (int i = 0; i < nx; ++i) ht[d * nx + i] = nearest(i, ny + d, Uc[(ny - 1) * nx + i]);
+        for (int i = 0; i < nx; ++i) pUR[m.boundary_face(Face::Top, i)] = ht[i];
+        mh.t = &ht;
+    }
+    if (muscl) muscl->reconstruct(pUL, pUR, Uc, nx, ny, mh);
     double S = riemann.compute_flux(pUL, pUR, m, pF);
 
     const int nxf = m.num_xfaces(), nf = m.num_faces();
@@ -910,7 +893,7 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
         for (int jj = 0; jj < PH; ++jj)
             for (int ii = 0; ii < PW; ++ii) {
                 State c;
-                if (!(ii >= 1 && ii <= nx && jj >= 1 && jj <= ny) && ring_state(ii, jj, c)) Pad[jj * PW + ii] = c;
+                if (!(ii >= 1 && ii <= nx && jj >= 1 && jj <= ny) && ghost_cell(ii - 1, jj - 1, c)) Pad[jj * PW + ii] = c;
             }
         // Ghost cells at the corner of an interface and a physical boundary: the boundary condition
         // applied to the ghost cell next to it, as the neighbouring patch does for its own cell
@@ -1013,7 +996,7 @@ void Simulation::amr_solid_reset(AMRTree& tree) {
                 const State* s = (x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly) ? sample_leaf_state(tree, x, y) : nullptr;
                 if (s) {
                     E[e] = *s;
-                    mask[e] = patch.solid_ext[e];
+                    mask[e] = patch.ext_solid(ii - 1, jj - 1);
                 } else {
                     const int i = std::min(std::max(ii - 1, 0), nx - 1), j = std::min(std::max(jj - 1, 0), ny - 1);
                     E[e] = patch.U[j * nx + i];

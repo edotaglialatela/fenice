@@ -206,6 +206,15 @@ SimParams SimParams::from(const Params& p) {
                                     "patches tile the mesh): nx = " + std::to_string(s.nx) + ", ny = " +
                                     std::to_string(s.ny) + ", patch " + std::to_string(s.amr_patch_nx) + " x " +
                                     std::to_string(s.amr_patch_ny));
+    if (s.use_amr) {
+        for (const std::string* bc : {&s.bc_left, &s.bc_right, &s.bc_bottom, &s.bc_top}) {
+            const std::string b = lower(*bc);
+            if (b == "periodic")
+                throw std::invalid_argument("AMR does not support periodic boundaries yet (a patch would wrap onto itself)");
+            if (b == "massflow_inlet" || b == "mass flow inlet")
+                throw std::invalid_argument("AMR does not support the mass-flow inlet (its density average is per patch)");
+        }
+    }
     if (s.use_amr && s.resume)
         throw std::invalid_argument("resume is not available with AMR (AMR runs write no checkpoint); "
                                     "use a hot start from a uniform-mesh checkpoint instead");

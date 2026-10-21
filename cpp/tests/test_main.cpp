@@ -853,6 +853,83 @@ TEST(amr_body_kept_at_max_level) {
 }
 
 namespace {
+// Largest difference between a tiled (single-level) AMR run and the uniform solver after `nsteps` fixed-dt steps
+double tiled_vs_uniform(const char* scheme, const char* muscl, int nsteps, bool ibm_visc) {
+    std::vector<std::pair<const char*, const char*>> base = {
+        {"nx", "96"}, {"ny", "48"}, {"time_scheme", scheme}, {"use_muscl", muscl}};
+    auto make = [&](bool amr) {
+        Params pr = baseline_defaults();
+        if (ibm_visc) {
+            pr.merge(get_test_case("IBM Airfoil").defaults);
+            pr.set("test_case", "IBM Airfoil");
+            pr.set("ibm_cx", "6.0");  pr.set("ibm_cy", "3.0");
+        } else {
+            pr.merge(get_test_case("Sod Shock Tube").defaults);
+            pr.set("test_case", "Sod Shock Tube");
+            pr.set("Lx", "12.0");  pr.set("Ly", "6.0");
+        }
+        pr.set("output_root", tmp_dir().string());
+        pr.set("use_mpi", "false");
+        for (const auto& e : base) pr.set(e.first, e.second);
+        if (amr) {
+            pr.set("use_amr", "true");  pr.set("amr_patch_nx", "48");  pr.set("amr_patch_ny", "24");
+            pr.set("amr_max_level", "0");
+        }
+        return SimParams::from(pr);
+    };
+    Simulation uni, sim;
+    uni.setup(make(false), false);  uni.initialize_field();
+    sim.setup(make(true), false);   sim.initialize_field();
+    AMRTree& tree = *sim.amr_tree;
+    for (int j = 0; j < uni.mesh.ny; ++j)
+        for (int i = 0; i < uni.mesh.nx; ++i)
+            uni.U[j * uni.mesh.nx + i] = test_state(uni.fluid, uni.mesh.xc(i), uni.mesh.yc(j));
+    auto scatter = [&] {
+        for (AMRPatch* lf : tree.leaves()) {
+            const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
+            const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
+            for (int j = 0; j < lf->ny(); ++j)
+                for (int i = 0; i < lf->nx(); ++i) lf->U[j * lf->nx() + i] = uni.U[(j0 + j) * uni.mesh.nx + i0 + i];
+        }
+    };
+    scatter();
+    const PatchResidualFn pr = [&](AMRPatch& p, AMRTree& t, const Field& U, Field& R, Field& fx, Field& fy) {
+        return sim.patch_residual(p, t, U, R, fx, fy);
+    };
+    const ResidualFn res = [&](const Field& Uin, Field& R) { return uni.residual(Uin, R); };
+    const double dt = 2e-3;
+    double t = 0.0;
+    for (int k = 0; k < nsteps; ++k) {
+        uni.scheme->advance_fixed_dt(uni.U, res, dt);
+        if (ibm_visc) uni.ibm->apply_solid_reset(uni.U, uni.fluid);
+        advance_amr_level(tree, 0, dt, t, 1e9, pr, *sim.scheme);
+        if (ibm_visc) sim.amr_solid_reset(tree);
+        t += dt;
+    }
+    double d = 0.0;
+    for (AMRPatch* lf : tree.leaves()) {
+        const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
+        const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
+        for (int j = 0; j < lf->ny(); ++j)
+            for (int i = 0; i < lf->nx(); ++i)
+                for (int q = 0; q < 4; ++q)
+                    d = std::max(d, std::abs(lf->U[j * lf->nx() + i][q] - uni.U[(j0 + j) * uni.mesh.nx + i0 + i][q]));
+    }
+    return d;
+}
+}  // namespace
+
+TEST(amr_tiled_matches_uniform_steps) {
+    // A level-0 tiling must be the uniform solver: the same fixed-dt steps give the same state, for every
+    // time scheme (stage-synchronised ghosts) with and without MUSCL (reconstruction across patch seams)
+    for (const char* sch : {"Explicit Euler", "SSP Runge-Kutta 2", "Runge-Kutta 4"}) {
+        CHECK(tiled_vs_uniform(sch, "false", 3, false) < 1e-15);
+        CHECK(tiled_vs_uniform(sch, "true", 3, false) < 1e-15);
+        CHECK(tiled_vs_uniform(sch, "true", 3, true) < 1e-12);   // airfoil: IBM, viscous, NRBC, solid reset
+    }
+}
+
+namespace {
 void run_viscous_box(double& e0, double& e1, double& m0, double& m1) {
     Simulation sim;
     sim.setup(params_for("Lid Driven Cavity",
