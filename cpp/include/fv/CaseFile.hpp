@@ -59,6 +59,10 @@ void save_case_file(const CaseFile& cf, const std::string& path);
 // Section of the case file a parameter belongs in ("mesh", "numerics", ...); "" if unknown.
 std::string param_section(const std::string& key);
 
+// Throw std::invalid_argument (prefixed with `where`, with a "did you mean" hint) if `p`
+// holds a key that is neither a parameter nor test_case: catches --set / --config typos.
+void check_parameter_keys(const Params& p, const std::string& where);
+
 // Parameter sections of a case file, in canonical order.
 const std::vector<std::string>& param_sections();
 

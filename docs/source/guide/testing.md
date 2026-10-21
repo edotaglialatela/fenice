@@ -57,17 +57,17 @@ and exits non-zero on failure. Its 55 tests cover:
   * *Translation invariance* on a triply periodic box, bit for bit.
   * *Free stream* preserved by every Riemann solver, with and without viscosity.
   * *Taylor-Green 3-D:* the initial dissipation matches the exact $0.75\,\nu$ (0.5 %),
-    and the default 32³ case decays monotonically past the step where a
-    $\min(\Delta x,\Delta y,\Delta z)$ CFL length made it diverge.
+    and the default 32³ case decays monotonically (with a
+    $\min(\Delta x,\Delta y,\Delta z)$ CFL length it would diverge after ~30 steps).
 
 ## Regression references (`regression.py`)
 
-`cpp/tests/reference/` stores final states for 24 short configurations. Sixteen are
-states of the original Python solver (the reference implementation, retired on
-2026-10-20). The Taylor-Green and isentropic-vortex references were added later from the
-C++ solver, after validation against their exact solutions. The five 3-D references
-(Taylor-Green 3-D, an x-decomposed thin box, a no-slip cavity, Sod between slip walls in
-z, and a viscous IBM sphere) were added after the 3-D unit tests above. Together they cover:
+`cpp/tests/reference/` stores final states for 24 short configurations. Sixteen were
+produced by an independent implementation of the same schemes. The Taylor-Green and
+isentropic-vortex references are validated against their exact solutions, and the five
+3-D references (Taylor-Green 3-D, an x-decomposed thin box, a no-slip cavity, Sod between
+slip walls in z, and a viscous IBM sphere) are backed by the 3-D unit tests above.
+Together they cover:
 
 * every Riemann solver, limiter and time scheme;
 * stiffened gas, gravity, and periodic / inlet / outlet BCs;

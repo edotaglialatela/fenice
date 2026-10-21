@@ -98,6 +98,8 @@ running through the whole depth along z.
   * **Deep solid cells** have no fluid neighbour. They are frozen to
     $(\rho_{\rm ref}, p_{\rm ref}) = $ (`rho_in`, `p_out`) to stop long-term drift.
   * The velocity is zero throughout the obstacle.
+  * The energy of reset cells uses the ideal-gas relation $\rho E = p/(\gamma-1)$ for any
+    EOS (with a stiffened gas the $p_\infty$ term is not included).
 
 The reset must never run inside RK stages. Doing so introduces hard density and
 pressure discontinuities, which the Riemann solver amplifies into spurious shocks.

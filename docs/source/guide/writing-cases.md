@@ -171,8 +171,8 @@ state = { rho = 1.0, u = "sin(x)*cos(y)*cos(z)", v = "-cos(x)*sin(y)*cos(z)", p 
 
 Expressions are evaluated in double precision by [TinyExpr](https://github.com/codeplea/tinyexpr).
 An expression evaluates bit for bit like the same arithmetic written in C++ in the same
-order. That is how the built-in Poiseuille, Shu-Osher and 3-D Taylor-Green cases moved from
-C++ to case files without changing a single bit of their results.
+order, so an analytic initial condition needs no C++ profile to be exact (the built-in
+Poiseuille, Shu-Osher and 3-D Taylor-Green cases are written this way).
 
 ### Built-in profiles
 

@@ -37,7 +37,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& section_tab
         {"boundaries", {"bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back", "u_in", "rho_in", "p_out"}},
         {"numerics", {"riemann_solver", "use_muscl", "muscl_limiter", "time_scheme", "cfl", "dt_phys", "max_inner_iter",
                       "inner_tol_rel"}},
-        {"run", {"t_end", "save_interval", "monitor_interval", "max_steps", "resume", "output_root", "dump_state"}},
+        {"run", {"t_end", "save_interval", "monitor_interval", "max_steps", "resume", "output_root", "dump_state", "vtk_format"}},
         {"parallel", {"use_mpi", "n_cpus"}},
         {"ibm", {"use_ibm", "ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz"}},
         {"hot_start", {"use_hot_start", "hot_start_file", "hot_start_src_nx", "hot_start_src_ny"}},
@@ -338,6 +338,13 @@ std::string param_section(const std::string& key) {
     for (const auto& s : section_table())
         if (std::find(s.second.begin(), s.second.end(), key) != s.second.end()) return s.first;
     return "";
+}
+
+void check_parameter_keys(const Params& p, const std::string& where) {
+    for (const auto& kv : p.values()) {
+        if (kv.first == "test_case" || !param_section(kv.first).empty()) continue;
+        throw std::invalid_argument(where + ": unknown parameter '" + kv.first + "'" + hint(kv.first, all_param_keys()));
+    }
 }
 
 const std::vector<std::string>& param_sections() {

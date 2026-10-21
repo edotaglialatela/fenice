@@ -1,5 +1,8 @@
 #include "fv/Physics.hpp"
 
+#include <cctype>
+#include <stdexcept>
+
 namespace fv {
 
 // ---------------------------------------------------------------------------
@@ -328,8 +331,11 @@ ImmersedBoundary::ImmersedBoundary(const Mesh& mesh, const std::string& shape, d
                                    double cx, double cy, double rho_ref, double p_ref, double cz)
     : nx_(mesh.nx), ny_(mesh.ny), nz_(mesh.nz), rho_ref_(rho_ref), p_ref_(p_ref),
       mask_(static_cast<size_t>(mesh.num_cells()), 0) {
-    if (shape != "Cylinder" && shape != "Sphere") return;
-    const bool sphere = mesh.is3d() && shape == "Sphere";
+    std::string s = shape;
+    for (auto& ch : s) ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    if (s != "cylinder" && s != "sphere")
+        throw std::invalid_argument("Unknown IBM shape: '" + shape + "' (use Cylinder or Sphere)");
+    const bool sphere = mesh.is3d() && s == "sphere";
     for (int k = 0; k < nz_; ++k)
         for (int j = 0; j < ny_; ++j)
             for (int i = 0; i < nx_; ++i) {

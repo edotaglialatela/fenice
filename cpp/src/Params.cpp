@@ -1,8 +1,10 @@
 #include "fv/Params.hpp"
 
 #include <cctype>
+#include <cmath>
 #include <fstream>
 #include <stdexcept>
+#include <utility>
 
 #ifndef FV_PROJECT_ROOT
 #define FV_PROJECT_ROOT "."
@@ -21,6 +23,16 @@ std::string lower(std::string s) {
     for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return s;
 }
+// Whole-string number ("1e-3" yes, "0.5x" or "1,5" no).
+bool parse_number(const std::string& s, double& v) {
+    try {
+        size_t used = 0;
+        v = std::stod(s, &used);
+        return trim(s.substr(used)).empty();
+    } catch (const std::exception&) {
+        return false;
+    }
+}
 }  // namespace
 
 void Params::merge(const Params& other) {
@@ -35,23 +47,19 @@ std::string Params::str(const std::string& key, const std::string& def) const {
 double Params::num(const std::string& key, double def) const {
     auto it = values_.find(key);
     if (it == values_.end() || it->second.empty()) return def;
-    try {
-        return std::stod(it->second);
-    } catch (const std::exception&) {
+    double v = 0.0;
+    if (!parse_number(it->second, v))
         throw std::invalid_argument("Parameter '" + key + "' is not a number: '" + it->second + "'");
-    }
+    return v;
 }
 
 int Params::integer(const std::string& key, int def) const {
     auto it = values_.find(key);
     if (it == values_.end() || it->second.empty()) return def;
-    try {
-        size_t used = 0;
-        const double v = std::stod(it->second, &used);
-        return static_cast<int>(v);
-    } catch (const std::exception&) {
+    double v = 0.0;   // "100" and "100.0" (as Python may write it) are both accepted
+    if (!parse_number(it->second, v) || v != std::floor(v) || std::abs(v) > 2147483647.0)
         throw std::invalid_argument("Parameter '" + key + "' is not an integer: '" + it->second + "'");
-    }
+    return static_cast<int>(v);
 }
 
 bool Params::flag(const std::string& key, bool def) const {
@@ -106,7 +114,7 @@ Params baseline_defaults() {
         {"amr_refine_threshold", "0.3"}, {"amr_derefine_threshold", "0.1"},
         {"amr_refine_every", "10"}, {"amr_init_levels", "0"}, {"amr_buffer_layers", "1"},
         {"output_root", FV_PROJECT_ROOT "/results"}, {"dump_state", ""}, {"max_steps", "0"},
-        {"monitor_interval", "0"},
+        {"monitor_interval", "0"}, {"vtk_format", "binary"},
     };
     for (const auto& e : kv) p.set(e[0], e[1]);
     return p;
@@ -177,10 +185,32 @@ SimParams SimParams::from(const Params& p) {
     s.dump_state     = p.str("dump_state");
     s.max_steps      = p.integer("max_steps", 0);
     s.monitor_interval = p.integer("monitor_interval", 0);
+    s.vtk_format       = lower(p.str("vtk_format", "binary"));
 
     if (s.nx <= 0 || s.ny <= 0 || s.nz <= 0) throw std::invalid_argument("nx, ny and nz must be positive");
     if (s.Lx <= 0 || s.Ly <= 0 || s.Lz <= 0) throw std::invalid_argument("Lx, Ly and Lz must be positive");
     if (s.use_amr && s.nz > 1) throw std::invalid_argument("AMR is 2-D only (nz must be 1 when use_amr is on)");
+    if (s.use_amr && s.resume)
+        throw std::invalid_argument("resume is not available with AMR (AMR runs write no checkpoint); "
+                                    "use a hot start from a uniform-mesh checkpoint instead");
+    const std::string eos = lower(s.eos_type);
+    if (eos != "ideal gas" && eos != "stiffened gas")
+        throw std::invalid_argument("Unknown eos_type: '" + s.eos_type + "' (use Ideal Gas or Stiffened Gas)");
+    const std::pair<const std::string*, const std::string*> sides[] = {
+        {&s.bc_left, &s.bc_right}, {&s.bc_bottom, &s.bc_top}, {&s.bc_front, &s.bc_back}};
+    const char* axis = "xyz";
+    for (int a = 0; a < 3; ++a)
+        if ((lower(*sides[a].first) == "periodic") != (lower(*sides[a].second) == "periodic"))
+            throw std::invalid_argument(std::string("Periodic boundaries come in pairs: both ") + axis[a] +
+                                        " sides must be periodic, or neither (got '" + *sides[a].first + "' and '" +
+                                        *sides[a].second + "')");
+    if (s.vtk_format != "binary" && s.vtk_format != "ascii")
+        throw std::invalid_argument("Unknown vtk_format: '" + s.vtk_format + "' (use binary or ascii)");
+    if (!(s.cfl > 0.0)) throw std::invalid_argument("cfl must be positive");
+    if (!(s.t_end > 0.0)) throw std::invalid_argument("t_end must be positive");
+    if (!(s.gamma > 1.0)) throw std::invalid_argument("gamma must be greater than 1");
+    if (s.use_viscous && (!(s.mu >= 0.0) || !(s.pr > 0.0)))
+        throw std::invalid_argument("mu must be >= 0 and pr > 0 with use_viscous");
     return s;
 }
 

@@ -4,6 +4,7 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import xml.etree.ElementTree as ET
+from vtkio import vtk_array
 
 class ExactRiemannSolver:
     """
@@ -129,15 +130,14 @@ def read_latest_from_pvd(pvd_filepath):
     
     def get_array(name, is_vector=False):
         node = vtr_root.find(f'.//DataArray[@Name="{name}"]')
-        data = np.array(node.text.split(), dtype=float)
+        data = vtk_array(node)
         if is_vector:
             data = data.reshape(ny, nx, 3)
         else:
             data = data.reshape(ny, nx)
         return data
 
-    x_nodes_text = vtr_root.find('.//Coordinates/DataArray[@Name="x"]').text
-    x_nodes = np.array(x_nodes_text.split(), dtype=float)
+    x_nodes = vtk_array(vtr_root.find('.//Coordinates/DataArray[@Name="x"]'))
     x_cells = 0.5 * (x_nodes[:-1] + x_nodes[1:])
     
     mid_y = ny // 2

@@ -5,8 +5,7 @@ section: Guide
 order: 30
 ---
 
-Every kernel is native C++ and runs at full speed from the first step. There is no
-compilation threshold and no JIT warm-up. Three levels of parallelism combine:
+Every kernel is native C++. Three levels of parallelism combine:
 
 | Level | Mechanism | Used for |
 |---|---|---|
@@ -30,32 +29,24 @@ identical to the serial one (see [MPIDecomposition]({{root}}modules/MPIDecomposi
 
 ## Benchmark
 
-Time-loop wall time on a 16-thread workstation, measured on 2026-10-20 at the C++ port.
-The Python figures used its Numba kernels, which switched on automatically above 25 000
-cells, and exclude JIT compilation.
+Time-loop wall time on a 16-thread workstation.
 
-| Case | Steps | Python | C++ 1 thread | C++ 16 threads | MPI 4×1 | Speed-up |
-|---|---:|---:|---:|---:|---:|---:|
-| IBM cylinder 400×200 | 20 | 2.18 s | 0.734 s | 0.136 s | 0.202 s | 16× |
-| Supersonic IBM 400×400 | 20 | 2.76 s | 0.843 s | 0.191 s | 0.222 s | 14× |
-| Shu-Osher 4000×2 | 200 | 2.49 s | 0.455 s | 0.206 s | 0.122 s | 12× |
-| Lid cavity RK4 128×128 | 20 | 0.97 s | 0.260 s | 0.042 s | 0.072 s | 23× |
-| AMR Sod, max_level 3 | 13 | 3.67 s | 0.113 s | 0.024 s | – | 153× |
+| Case | Steps | 1 thread | 16 threads | MPI 4×1 | 16 threads vs 1 |
+|---|---:|---:|---:|---:|---:|
+| IBM cylinder 400×200 | 20 | 0.734 s | 0.136 s | 0.202 s | 5.4× |
+| Supersonic IBM 400×400 | 20 | 0.843 s | 0.191 s | 0.222 s | 4.4× |
+| Shu-Osher 4000×2 | 200 | 0.455 s | 0.206 s | 0.122 s | 2.2× |
+| Lid cavity RK4 128×128 | 20 | 0.260 s | 0.042 s | 0.072 s | 6.2× |
+| AMR Sod, max_level 3 | 13 | 0.113 s | 0.024 s | – | 4.7× |
 
-<figure>
-<img src="{{root}}img/cpp_speedup.png" style="width:100%">
-<figcaption>Speed-up of the 16-thread C++ time loop over the Python solver.</figcaption>
-</figure>
-
-AMR gains the most: the Python version spent most of its time in per-patch bookkeeping
-(neighbour searches, ghost filling, small NumPy calls), which native code removes
-entirely.
+The Shu-Osher mesh is small (8 000 cells), so thread fork/join overhead weighs more and it
+scales least with threads; MPI strips suit it better.
 
 ## Practical notes
 
-* The final line of a run reports the **time-loop** duration. VTK export is ASCII, which
-  keeps it readable by the validation scripts; on very large meshes a high
-  `save_interval` keeps output from dominating the run time.
+* The final line of a run reports the **time-loop** duration. Snapshots are binary VTK
+  by default (`vtk_format`); on very large meshes a high `save_interval` still keeps
+  output from dominating the run time.
 * `max_steps = N` stops a run after N steps, which is useful for timing.
 * For low-Mach steady problems, `BDF2 Dual Time` with a convective $\Delta t_{\rm phys}$
   avoids the acoustic CFL limit; see [TimeScheme]({{root}}modules/TimeScheme.html).

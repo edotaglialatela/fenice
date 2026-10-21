@@ -3,6 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xml.etree.ElementTree as ET
 from scipy.interpolate import interp1d
+from vtkio import vtk_array
 
 # --- FUNZIONE DI LETTURA (Riciclata e robusta) ---
 def read_latest_from_pvd(pvd_filepath):
@@ -26,10 +27,10 @@ def read_latest_from_pvd(pvd_filepath):
     
     def get_array(name, is_vector=False):
         node = vtr_root.find(f'.//DataArray[@Name="{name}"]')
-        data = np.array(node.text.split(), dtype=float)
+        data = vtk_array(node)
         return data.reshape(ny, nx, 3) if is_vector else data.reshape(ny, nx)
 
-    x_nodes = np.array(vtr_root.find('.//Coordinates/DataArray[@Name="x"]').text.split(), dtype=float)
+    x_nodes = vtk_array(vtr_root.find('.//Coordinates/DataArray[@Name="x"]'))
     x_cells = 0.5 * (x_nodes[:-1] + x_nodes[1:])
     dx = x_nodes[1] - x_nodes[0]
     

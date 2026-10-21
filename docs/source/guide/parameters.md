@@ -46,7 +46,7 @@ short alias shown in brackets.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `bc_left`, `bc_right`, `bc_bottom`, `bc_top` | `wall` | One of `wall` (*Inviscid Wall (Slip)*), `no_slip` (*Viscous Wall (No-Slip)*), `moving_wall`, `vel_inlet` (*Velocity Inlet*), `massflow_inlet` (*Mass Flow Inlet*), `outlet` (*Pressure Outlet*), `transmissive`, `periodic` |
+| `bc_left`, `bc_right`, `bc_bottom`, `bc_top` | `wall` | One of `wall` (*Inviscid Wall (Slip)*), `no_slip` (*Viscous Wall (No-Slip)*), `moving_wall`, `vel_inlet` (*Velocity Inlet*), `massflow_inlet` (*Mass Flow Inlet*), `outlet` (*Pressure Outlet*), `transmissive`, `periodic` (periodic on both sides of an axis or neither) |
 | `bc_front`, `bc_back` | `periodic` | 3-D only: the $z = 0$ and $z = L_z$ sides, same choices |
 | `u_in` | `0.0` | Inlet velocity / moving-wall velocity [m/s] |
 | `rho_in` | `1.0` | Mass-flow inlet density [kg/m³]; also the IBM reference density |
@@ -74,11 +74,12 @@ override them. See the [BC formulas]({{root}}modules/Boundaries.html).
 |---|---|---|
 | `t_end` | `0.005` | End time [s] |
 | `save_interval` | `1` | Snapshot + checkpoint every N steps |
-| `resume` | `false` | Continue from `<case>_restart.npz` |
+| `resume` | `false` | Continue from `<case>_restart.npz` (not with AMR, which writes no checkpoint) |
 | `output_root` | `<repo>/results` | Parent of the per-case output folder |
 | `max_steps` | `0` | Stop after N steps (≤ 0: run to `t_end`) |
 | `dump_state` | *(empty)* | Write the final state to this `.npz` (regression tests) |
 | `monitor_interval` | `0` | Append domain averages (mass, kinetic and total energy) to `<case>_monitor.csv` every N steps (0: off) |
+| `vtk_format` | `binary` | VTK data arrays: `binary` (inline base64 Float32: about half the size, faster to write) or `ascii` (plain text). Both are valid XML; `validation/vtkio.py` reads either |
 
 ## Parallelism
 
@@ -94,7 +95,7 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 | Key | Default | Meaning |
 |---|---|---|
 | `use_ibm` | `false` | Enable the immersed obstacle |
-| `ibm_shape` | `Cylinder` | `Cylinder` or `Sphere`: identical in 2-D; in 3-D a ball, or a cylinder through the whole depth |
+| `ibm_shape` | `Cylinder` | `Cylinder` or `Sphere` (case-insensitive): identical in 2-D; in 3-D a ball, or a cylinder through the whole depth |
 | `ibm_radius` | `0.1` | Radius [m] |
 | `ibm_cx`, `ibm_cy` | `0.5`, `0.5` | Centre [m] |
 | `ibm_cz` | `0.5` | Sphere centre z [m] (3-D only) |

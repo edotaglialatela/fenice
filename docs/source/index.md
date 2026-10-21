@@ -8,7 +8,6 @@ order: 0
 **Fenice** (Italian for *phoenix*) is a structured-Cartesian compressible finite-volume
 solver for the **Euler and Navier-Stokes equations** in 2-D and 3-D, written in C++17 with OpenMP threading and MPI
 domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz > 1`.
-2-D runs give exactly the same results as before the 3-D extension.
 
 * **Spatial schemes:** HLLC, Low-Mach HLLC (Thornber) and preconditioned HLLC
   (Weiss-Smith) Riemann solvers, with 2nd-order MUSCL and four TVD limiters.
@@ -20,12 +19,6 @@ domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz 
 * **I/O:** VTK output for ParaView, plus `.npz` checkpoints with restart and
   hot-start mapping between resolutions.
 * **GUI:** a PyQt6 setup dialog that configures and launches the solver.
-
-<figure>
-<img src="{{root}}img/cpp_speedup.png" style="width:100%">
-<figcaption>Time-loop speed of the native solver relative to the former Python/Numba implementation
-(see <a href="{{root}}guide/performance.html">Performance and parallelism</a>).</figcaption>
-</figure>
 
 ## Quick start
 

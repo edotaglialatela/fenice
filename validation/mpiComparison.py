@@ -5,6 +5,7 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import xml.etree.ElementTree as ET
+from vtkio import vtk_array
 
 # Resolve project root
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -44,8 +45,8 @@ def compare_poiseuille_mpi():
         
         # (A) Extract Mesh Dimensions Autonomously
         coords = root.findall('.//Coordinates/DataArray')
-        x_nodes = np.fromstring(coords[0].text, sep=' ')
-        y_nodes = np.fromstring(coords[1].text, sep=' ')
+        x_nodes = vtk_array(coords[0])
+        y_nodes = vtk_array(coords[1])
         
         Lx = x_nodes[-1] - x_nodes[0]
         Ly = y_nodes[-1] - y_nodes[0]
@@ -54,14 +55,12 @@ def compare_poiseuille_mpi():
         dy = Ly / ny
         
         # (B) Extract Velocity
-        vel_text = root.find('.//CellData/DataArray[@Name="Velocity"]').text
-        vel_flat = np.fromstring(vel_text, sep=' ')
+        vel_flat = vtk_array(root.find('.//CellData/DataArray[@Name="Velocity"]'))
         vel_3d = vel_flat.reshape((ny, nx, 3))
         u_vel = vel_3d[:, :, 0]
         
         # (C) Extract Density (for Mass Flow Check)
-        rho_text = root.find('.//CellData/DataArray[@Name="Density"]').text
-        rho_flat = np.fromstring(rho_text, sep=' ')
+        rho_flat = vtk_array(root.find('.//CellData/DataArray[@Name="Density"]'))
         rho_2d = rho_flat.reshape((ny, nx))
         
         # (D) Slice Extraction (95% of domain length)

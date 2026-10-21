@@ -50,8 +50,7 @@ asks for more.
 <figure style="margin:1em 0;">
 <img src="{{root}}img/poiseuille_mpi_comparison.png" style="width:100%">
 <figcaption>Hagen-Poiseuille flow (viscous, mass-flow inlet, 60×20) after 19 214 steps: serial vs
-4-rank MPI. The difference is exactly zero. With the former Python interface treatment, a short
-30×10 BDF2 Poiseuille run already differed from serial by ~1e-2 (relative, 4 ranks).</figcaption>
+4-rank MPI. The difference is exactly zero.</figcaption>
 </figure>
 
 {{widget:mpiDecomposition}}

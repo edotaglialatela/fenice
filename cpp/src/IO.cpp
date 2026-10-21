@@ -1,5 +1,7 @@
 #include "fv/IO.hpp"
 
+#include <array>
+#include <charconv>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -36,15 +38,59 @@ inline double sanitize(double x) {
     return x;
 }
 
-inline void append_fmt(std::string& s, const char* fmt, double v) {
+// v in scientific notation with `prec` digits, the same text as printf("%.<prec>e")
+// but several times faster (VTK output time was dominated by snprintf).
+inline void append_sci(std::string& s, double v, int prec) {
     char buf[64];
-    const int n = std::snprintf(buf, sizeof(buf), fmt, v);
-    s.append(buf, static_cast<size_t>(n));
+    const auto r = std::to_chars(buf, buf + sizeof(buf), v, std::chars_format::scientific, prec);
+    s.append(buf, r.ptr);
+}
+
+void append_base64(std::string& s, const uint8_t* d, size_t n) {
+    static const char* abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    size_t i = 0;
+    for (; i + 2 < n; i += 3) {
+        const uint32_t v = (uint32_t(d[i]) << 16) | (uint32_t(d[i + 1]) << 8) | d[i + 2];
+        s += abc[v >> 18]; s += abc[(v >> 12) & 63]; s += abc[(v >> 6) & 63]; s += abc[v & 63];
+    }
+    if (i < n) {
+        const uint32_t v = (uint32_t(d[i]) << 16) | (i + 1 < n ? uint32_t(d[i + 1]) << 8 : 0u);
+        s += abc[v >> 18]; s += abc[(v >> 12) & 63];
+        s += i + 1 < n ? abc[(v >> 6) & 63] : '=';
+        s += '=';
+    }
+}
+
+// One Float32 <DataArray> of tuples of `ncomp` values.  ASCII: `prec` digits, one tuple
+// per line.  Binary: VTK inline base64 of a UInt32 byte count followed by the
+// little-endian floats, encoded as a single stream.
+void data_array(std::string& s, const char* attrs, const std::vector<double>& d, int ncomp, int prec, bool binary) {
+    s += "        <DataArray type=\"Float32\" ";
+    s += attrs;
+    s += binary ? " format=\"binary\">\n" : " format=\"ascii\">\n";
+    if (binary) {
+        std::vector<uint8_t> raw(4 + d.size() * 4);
+        const uint32_t bytes = static_cast<uint32_t>(d.size() * 4);
+        std::memcpy(raw.data(), &bytes, 4);
+        for (size_t k = 0; k < d.size(); ++k) {
+            const float f = static_cast<float>(d[k]);
+            std::memcpy(raw.data() + 4 + 4 * k, &f, 4);
+        }
+        s += "          ";
+        append_base64(s, raw.data(), raw.size());
+        s += '\n';
+    } else {
+        for (size_t k = 0; k < d.size(); ++k) {
+            append_sci(s, d[k], prec);
+            s += (k + 1) % ncomp == 0 ? '\n' : ' ';
+        }
+    }
+    s += "        </DataArray>\n";
 }
 
 // One RectilinearGrid piece; `level` < 0 means no AMR_Level field.
 std::string build_vtr(const EOS& eos, const Field& U, int nx, int ny, double x0, double x1,
-                      double y0, double y1, int level, int nz = 1, double z0 = 0.0, double z1 = 0.0) {
+                      double y0, double y1, int level, bool binary, int nz = 1, double z0 = 0.0, double z1 = 0.0) {
     const int n = nx * ny * nz;
     const bool three_d = nz > 1;
     std::vector<double> rho(n), u(n), v(n), w(n), p(n), T(n), mach(n);
@@ -72,32 +118,27 @@ std::string build_vtr(const EOS& eos, const Field& U, int nx, int ny, double x0,
     const std::vector<double> zs = three_d ? linspace(z0, z1, nz + 1) : std::vector<double>{0.0};
     const std::pair<const char*, const std::vector<double>*> coords[] = {{"x", &xs}, {"y", &ys}, {"z", &zs}};
     for (const auto& c : coords) {
-        std::snprintf(head, sizeof(head), "        <DataArray type=\"Float32\" Name=\"%s\" format=\"ascii\">\n", c.first);
-        s += head;
-        for (double x : *c.second) { append_fmt(s, "%.6e", x); s += '\n'; }
-        s += "        </DataArray>\n";
+        std::snprintf(head, sizeof(head), "Name=\"%s\"", c.first);
+        data_array(s, head, *c.second, 1, 6, binary);
     }
     s += "      </Coordinates>\n";
 
     s += "      <CellData Scalars=\"Density\" Vectors=\"Velocity\">\n";
     auto scalar = [&](const char* name, const std::vector<double>& d) {
-        std::snprintf(head, sizeof(head),
-                      "        <DataArray type=\"Float32\" Name=\"%s\" NumberOfComponents=\"1\" format=\"ascii\">\n", name);
-        s += head;
-        for (double x : d) { append_fmt(s, "%.5e", x); s += '\n'; }
-        s += "        </DataArray>\n";
+        std::snprintf(head, sizeof(head), "Name=\"%s\" NumberOfComponents=\"1\"", name);
+        data_array(s, head, d, 1, 5, binary);
     };
     scalar("Density", rho);
     scalar("Pressure", p);
     scalar("Temperature_nondim", T);
     scalar("Mach", mach);
-    s += "        <DataArray type=\"Float32\" Name=\"Velocity\" NumberOfComponents=\"3\" format=\"ascii\">\n";
+    std::vector<double> vel(static_cast<size_t>(n) * 3);
     for (int c = 0; c < n; ++c) {
-        append_fmt(s, "%.5e", u[c]); s += ' ';
-        append_fmt(s, "%.5e", v[c]); s += ' ';
-        append_fmt(s, "%.5e", three_d ? w[c] : 0.0);  s += '\n';
+        vel[3 * c] = u[c];
+        vel[3 * c + 1] = v[c];
+        vel[3 * c + 2] = three_d ? w[c] : 0.0;
     }
-    s += "        </DataArray>\n";
+    data_array(s, "Name=\"Velocity\" NumberOfComponents=\"3\"", vel, 3, 5, binary);
     if (level >= 0) scalar("AMR_Level", std::vector<double>(n, static_cast<double>(level)));
     s += "      </CellData>\n";
     s += "    </Piece>\n";
@@ -118,16 +159,17 @@ std::string step_name(const std::string& prefix, int step, const char* ext) {
 // VTKExporter
 // ---------------------------------------------------------------------------
 
-VTKExporter::VTKExporter(std::string output_dir, bool verbose) : dir_(std::move(output_dir)) {
+VTKExporter::VTKExporter(std::string output_dir, bool verbose, bool binary)
+    : dir_(std::move(output_dir)), binary_(binary) {
     fs::create_directories(dir_);
-    if (verbose) std::printf("[EXPORTER] Output directory: '%s'\n", dir_.c_str());
+    if (verbose) std::printf("[EXPORTER] Output directory: '%s' (%s VTK)\n", dir_.c_str(), binary ? "binary" : "ASCII");
 }
 
 void VTKExporter::export_vtr(const std::string& prefix, const EOS& eos, const Field& U, const Mesh& mesh,
                              double time, int step) {
     const std::string name = step_name(prefix, step, ".vtr");
     write_file_atomic(fs::path(dir_) / name, build_vtr(eos, U, mesh.nx, mesh.ny, 0.0, mesh.Lx, 0.0, mesh.Ly, -1,
-                                                       mesh.nz, 0.0, mesh.Lz));
+                                                       binary_, mesh.nz, 0.0, mesh.Lz));
     collection.push_back({time, name});
 }
 
@@ -142,7 +184,7 @@ void VTKExporter::export_amr(const std::string& prefix, const EOS& eos, const AM
         std::snprintf(base, sizeof(base), "p%04d.vtr", idx++);
         write_file_atomic(fs::path(dir_) / block_dir / base,
                           build_vtr(eos, patch->U, patch->nx(), patch->ny(), patch->xmin, patch->xmax,
-                                    patch->ymin, patch->ymax, patch->level));
+                                    patch->ymin, patch->ymax, patch->level, binary_));
         leaf_files.push_back(block_dir + "/" + base);
     }
 
@@ -216,6 +258,7 @@ std::vector<double> NpyArray::as_doubles() const {
 std::vector<std::string> NpyArray::as_strings() const {
     if (descr.size() < 3 || descr[1] != 'U') throw std::runtime_error("Not a unicode .npy array: " + descr);
     const int64_t width = std::stoll(descr.substr(2));
+    if (data.size() < static_cast<size_t>(size() * width * 4)) throw std::runtime_error("Truncated .npy data");
     std::vector<std::string> out;
     for (int64_t k = 0; k < size(); ++k) {
         std::string s;
@@ -348,16 +391,15 @@ NpyArray parse_npy(const uint8_t* p, size_t n) {
 // ---------------------------------------------------------------------------
 
 uint32_t crc32(const uint8_t* d, size_t n) {
-    static uint32_t table[256];
-    static bool init = false;
-    if (!init) {
+    static const std::array<uint32_t, 256> table = [] {   // thread-safe one-time init
+        std::array<uint32_t, 256> t{};
         for (uint32_t i = 0; i < 256; ++i) {
             uint32_t c = i;
             for (int k = 0; k < 8; ++k) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-            table[i] = c;
+            t[i] = c;
         }
-        init = true;
-    }
+        return t;
+    }();
     uint32_t c = 0xFFFFFFFFu;
     for (size_t i = 0; i < n; ++i) c = table[(c ^ d[i]) & 0xFF] ^ (c >> 8);
     return c ^ 0xFFFFFFFFu;

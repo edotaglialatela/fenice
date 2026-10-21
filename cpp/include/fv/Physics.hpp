@@ -84,7 +84,7 @@ public:
     ImmersedBoundary() = default;
     // Obstacle of `radius` centred at (cx, cy[, cz]); deep solid cells are frozen to
     // (rho_ref, p_ref).  2-D: "Cylinder" and "Sphere" are both a circle.  3-D: "Sphere"
-    // is a sphere, "Cylinder" an infinite cylinder along z.  Other shapes: empty mask.
+    // is a sphere, "Cylinder" an infinite cylinder along z.  Case-insensitive; other shapes throw.
     ImmersedBoundary(const Mesh& mesh, const std::string& shape, double radius, double cx, double cy,
                      double rho_ref, double p_ref, double cz = 0.0);
     // From a precomputed mask (MPI strips cut from the global mask).

@@ -25,10 +25,11 @@ struct CollectionEntry {
 class VTKExporter {
 public:
     VTKExporter() = default;
-    // Exporter writing into `output_dir` (created if missing).
-    VTKExporter(std::string output_dir, bool verbose);
+    // Exporter writing into `output_dir` (created if missing); `binary`: inline base64
+    // Float32 data arrays (about half the size of ASCII, faster to write), else ASCII text.
+    VTKExporter(std::string output_dir, bool verbose, bool binary = true);
 
-    // One .vtr snapshot (ASCII RectilinearGrid: Density, Pressure, Temperature_nondim, Mach, Velocity).
+    // One .vtr snapshot (RectilinearGrid: Density, Pressure, Temperature_nondim, Mach, Velocity).
     void export_vtr(const std::string& prefix, const EOS& eos, const Field& U, const Mesh& mesh,
                     double time, int step);
     // One .vtm multi-block snapshot of all AMR leaves (+ per-leaf .vtr in a subfolder).
@@ -42,6 +43,7 @@ public:
 
 private:
     std::string dir_;
+    bool        binary_ = true;
 };
 
 // ---------------------------------------------------------------------------

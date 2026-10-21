@@ -147,6 +147,8 @@ int main(int argc, char** argv) {
         fv::Params cfg, ov;
         if (!config_file.empty()) cfg.load_file(config_file);
         for (const auto& s : sets) ov.set_assignment(s);
+        fv::check_parameter_keys(cfg, config_file);
+        fv::check_parameter_keys(ov, "--set");
         merged = fv::baseline_defaults();
         if (case_name.empty()) case_name = ov.str("test_case", cfg.str("test_case", merged.str("test_case")));
         merged.merge(fv::get_test_case(case_name).defaults);

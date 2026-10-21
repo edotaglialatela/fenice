@@ -26,6 +26,7 @@ import xml.etree.ElementTree as ET
 
 import matplotlib.pyplot as plt
 import numpy as np
+from vtkio import vtk_array
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "cpp", "build", "fenice.exe" if os.name == "nt" else "fenice")
@@ -55,7 +56,7 @@ def read_monitor(case_dir):
 def read_vtr(path):
     root = ET.parse(path).getroot()
     nx, _, ny, _, nz = (int(v) for v in root.find("RectilinearGrid").attrib["WholeExtent"].split()[1:])
-    arr = lambda name: np.array(root.find(f'.//DataArray[@Name="{name}"]').text.split(), dtype=float)
+    arr = lambda name: vtk_array(root.find(f'.//DataArray[@Name="{name}"]'))
     vel = arr("Velocity").reshape(nz, ny, nx, 3)     # cell index (k*ny + j)*nx + i
     return arr("Density").reshape(nz, ny, nx), vel
 

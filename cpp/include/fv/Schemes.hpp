@@ -47,7 +47,7 @@ private:
 // TVD slope limiters, from most diffusive (Minmod) to most compressive (MC).
 enum class Limiter { Minmod = 0, VanLeer = 1, MC = 2, Koren = 3 };
 
-// Limiter from its name (case-insensitive); unknown names fall back to Van Leer.
+// Limiter from its name (case-insensitive); unknown names throw std::invalid_argument.
 Limiter parse_limiter(const std::string& s);
 
 // Sign of x (0 for 0).

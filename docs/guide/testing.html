@@ -544,7 +544,7 @@ figcaption {
 </ul>
 
     
-    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/writing-cases.html">Writing a test case</a></li><li><a href="../guide/performance.html">Performance</a></li><li><a href="../guide/gui.html">GUI</a></li><li><a href="../guide/testing.html"><strong>Testing</strong></a></li><li><a href="../guide/history.html">Python → C++</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/CaseFile.html">CaseFile</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html">Lid-driven cavity</a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
+    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/writing-cases.html">Writing a test case</a></li><li><a href="../guide/performance.html">Performance</a></li><li><a href="../guide/gui.html">GUI</a></li><li><a href="../guide/testing.html"><strong>Testing</strong></a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/CaseFile.html">CaseFile</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html">Lid-driven cavity</a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
   </div>
 </nav>
 <main class="pdoc">
@@ -608,19 +608,19 @@ reproduces the x-y run (5e-15).</li>
 <li><em>Translation invariance</em> on a triply periodic box, bit for bit.</li>
 <li><em>Free stream</em> preserved by every Riemann solver, with and without viscosity.</li>
 <li><em>Taylor-Green 3-D:</em> the initial dissipation matches the exact $0.75\,\nu$ (0.5 %),
-and the default 32³ case decays monotonically past the step where a
-$\min(\Delta x,\Delta y,\Delta z)$ CFL length made it diverge.</li>
+and the default 32³ case decays monotonically (with a
+$\min(\Delta x,\Delta y,\Delta z)$ CFL length it would diverge after ~30 steps).</li>
 </ul></li>
 </ul>
 
 <h2 id="regression-references-regressionpy">Regression references (<code>regression.py</code>)</h2>
 
-<p><code>cpp/tests/reference/</code> stores final states for 24 short configurations. Sixteen are
-states of the original Python solver (the reference implementation, retired on
-2026-10-20). The Taylor-Green and isentropic-vortex references were added later from the
-C++ solver, after validation against their exact solutions. The five 3-D references
-(Taylor-Green 3-D, an x-decomposed thin box, a no-slip cavity, Sod between slip walls in
-z, and a viscous IBM sphere) were added after the 3-D unit tests above. Together they cover:</p>
+<p><code>cpp/tests/reference/</code> stores final states for 24 short configurations. Sixteen were
+produced by an independent implementation of the same schemes. The Taylor-Green and
+isentropic-vortex references are validated against their exact solutions, and the five
+3-D references (Taylor-Green 3-D, an x-decomposed thin box, a no-slip cavity, Sod between
+slip walls in z, and a viscous IBM sphere) are backed by the 3-D unit tests above.
+Together they cover:</p>
 
 <ul>
 <li>every Riemann solver, limiter and time scheme;</li>

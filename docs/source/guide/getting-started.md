@@ -80,8 +80,10 @@ cpp\build\fenice.exe --case "Lid Driven Cavity" --print-config
 Parameters resolve in this order, later sources winning: baseline defaults,
 then the test case's file (`cases/<case>/case.toml`), then the `--config` file, then `--set` overrides. Every key is
 listed on the [Parameters]({{root}}guide/parameters.html) page. Values are
-validated at start-up, and a malformed number or unknown BC name stops the run with
-an error.
+validated at start-up. A misspelt key (`--set nX=200`, with a "did you mean" hint), a
+malformed or fractional number where an integer is expected, an unknown name (BC,
+limiter, EOS, IBM shape, scheme), a half-periodic axis or a non-positive `cfl` / `t_end`
+stops the run with an error.
 
 **Ctrl+C** stops cleanly after the current step: the final snapshot, the
 checkpoint and the `.pvd` index are written. A second Ctrl+C aborts immediately.

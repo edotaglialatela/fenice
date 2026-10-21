@@ -39,9 +39,9 @@ read without third-party libraries, so `numpy.load` reads them directly:
 | `nz`, `Lz` | grid depth (`nz = 1` for 2-D; missing in older files, read as 1) |
 | `collection_time`, `collection_file` | `.pvd` index, restored on resume |
 
-The reader handles zip64 headers as written by `numpy.savez`. Checkpoints written by the
-former Python solver are also accepted for resume and hot start; their pickled
-`collection` index is skipped. Compressed archives (`savez_compressed`) are rejected
+The reader handles zip64 headers as written by `numpy.savez`. Archives that store the
+`.pvd` index as a pickled `collection` object instead of the two arrays are also accepted
+for resume and hot start; the pickled index is skipped. Compressed archives (`savez_compressed`) are rejected
 with an explicit error.
 
 ```python

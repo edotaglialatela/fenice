@@ -37,7 +37,7 @@ Limiter parse_limiter(const std::string& s_in) {
     if (s == "van leer" || s == "vanleer")  return Limiter::VanLeer;
     if (s == "mc")                          return Limiter::MC;
     if (s == "koren")                       return Limiter::Koren;
-    return Limiter::VanLeer;   // unknown names fall back to Van Leer
+    throw std::invalid_argument("Unknown MUSCL limiter: '" + s_in + "' (use Minmod, Van Leer, MC or Koren)");
 }
 
 // ---------------------------------------------------------------------------

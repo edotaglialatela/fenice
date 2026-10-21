@@ -362,7 +362,10 @@ TEST(ibm_mask_and_reset) {
     ib.apply_solid_reset(U, eos);
     CHECK(U[50 * 100 + 50][0] == 1.0);                                    // deep solid -> rho_ref
     CHECK_NEAR(U[50 * 100 + 50][3], 1.0 / 0.4, 1e-12);                    // p_ref / (gamma-1)
-    CHECK(ImmersedBoundary(m, "Circle", 0.2, 0.5, 0.5, 1, 1).solid_count() == 0);   // unknown shape
+    CHECK(ImmersedBoundary(m, "cylinder", 0.2, 0.5, 0.5, 1, 1).mask() == ib.mask());   // case-insensitive
+    bool threw = false;
+    try { ImmersedBoundary(m, "Circle", 0.2, 0.5, 0.5, 1, 1); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);   // unknown shape
 }
 
 // ---------------------------------------------------------------------------
@@ -848,6 +851,15 @@ TEST(vtk_export_layout) {
     const std::string vtr((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
     CHECK(vtr.find("<RectilinearGrid WholeExtent=\"0 4 0 2 0 0\">") != std::string::npos);
     CHECK(vtr.find("Name=\"Density\"") != std::string::npos && vtr.find("nan") == std::string::npos);
+    // Default binary: inline base64 of a UInt32 byte count + Float32 values (8 cells -> 32 bytes)
+    CHECK(vtr.find("format=\"binary\"") != std::string::npos && vtr.find("format=\"ascii\"") == std::string::npos);
+    CHECK(vtr.find("NumberOfComponents=\"1\" format=\"binary\">\n          IAAAA") != std::string::npos);
+    VTKExporter ascii_ex((dir / "ascii").string(), false, false);
+    ascii_ex.export_vtr("case", eos, U, m, 0.0, 0);
+    std::ifstream ain((dir / "ascii" / "case_00000.vtr").string());
+    const std::string avtr((std::istreambuf_iterator<char>(ain)), std::istreambuf_iterator<char>());
+    CHECK(avtr.find("Name=\"Density\" NumberOfComponents=\"1\" format=\"ascii\">\n1.00000e+00\n") != std::string::npos);
+    CHECK(avtr.find("format=\"binary\"") == std::string::npos && avtr.find("nan") == std::string::npos);
     std::ifstream pin((dir / "case.pvd").string());
     const std::string pvd((std::istreambuf_iterator<char>(pin)), std::istreambuf_iterator<char>());
     CHECK(pvd.find("timestep=\"5.000000e-01\"") != std::string::npos);
@@ -1325,6 +1337,34 @@ TEST(every_parameter_has_a_case_section) {
         if (!ok) std::printf("    parameter '%s' has no case-file section\n", k.c_str());
         CHECK(ok);
     }
+}
+
+// Bad --set / --config values fail up front instead of being silently ignored or truncated.
+TEST(parameter_validation) {
+    auto error_of = [](std::initializer_list<std::pair<const char*, const char*>> sets) -> std::string {
+        Params p = baseline_defaults();
+        for (const auto& kv : sets) p.set(kv.first, kv.second);
+        try {
+            check_parameter_keys(p, "--set");
+            SimParams::from(p);
+        } catch (const std::invalid_argument& e) {
+            return e.what();
+        }
+        return "";
+    };
+    CHECK(error_of({}).empty());
+    CHECK(error_of({{"nx", "200.0"}, {"cfl", " 0.4 "}, {"eos_type", "stiffened gas"}}).empty());
+    CHECK(error_of({{"nX", "200"}}).find("did you mean 'nx'") != std::string::npos);
+    CHECK(error_of({{"nx", "200.5"}}).find("not an integer") != std::string::npos);
+    CHECK(error_of({{"cfl", "0.5x"}}).find("not a number") != std::string::npos);
+    CHECK(error_of({{"cfl", "0"}}).find("cfl") != std::string::npos);
+    CHECK(error_of({{"eos_type", "ideal"}}).find("eos_type") != std::string::npos);
+    CHECK(error_of({{"bc_left", "periodic"}}).find("in pairs") != std::string::npos);
+    CHECK(error_of({{"bc_left", "Periodic"}, {"bc_right", "periodic"}}).empty());
+    CHECK(error_of({{"use_amr", "true"}, {"resume", "true"}}).find("AMR") != std::string::npos);
+    bool threw = false;
+    try { parse_limiter("superbee"); } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
 }
 
 TEST(case_file_parsing) {

@@ -207,7 +207,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     file_prefix = to_prefix(test_case->key);   // the case name, also for a case given by path
     // AMR runs go to <case>_amr so they don't overwrite the uniform-mesh run.
     const std::string subdir = p.use_amr ? file_prefix + "_amr" : file_prefix;
-    exporter = VTKExporter((fs::path(p.output_root) / subdir).string(), verbose);
+    exporter = VTKExporter((fs::path(p.output_root) / subdir).string(), verbose, p.vtk_format != "ascii");
 
     mesh = generate_cartesian_mesh_3d(p.Lx, p.Ly, p.Lz, p.nx, p.ny, p.nz);
     if (verbose && mesh.is3d()) std::printf("[MESH] 3-D: %d x %d x %d cells\n", p.nx, p.ny, p.nz);
@@ -260,7 +260,8 @@ void Simulation::setup(const SimParams& params, bool verbose) {
 
     if (p.use_bodyforce) {
         body_force = std::make_unique<ConstantBodyForce>(ConstantBodyForce{p.gx, p.gy, mesh.is3d() ? p.gz : 0.0});
-        if (verbose) std::printf("[PHYSICS] Body Forces enabled: gx=%g, gy=%g\n", p.gx, p.gy);
+        if (verbose && mesh.is3d()) std::printf("[PHYSICS] Body Forces enabled: gx=%g, gy=%g, gz=%g\n", p.gx, p.gy, p.gz);
+        else if (verbose)           std::printf("[PHYSICS] Body Forces enabled: gx=%g, gy=%g\n", p.gx, p.gy);
     } else {
         body_force.reset();
     }
@@ -288,8 +289,11 @@ void Simulation::initialize_field() {
         std::printf("[WARNING] This test case requires Navier-Stokes - viscous physics is off!\n");
 
     U = p.use_hot_start ? load_hot_start(p.hot_start_file) : initial_field();
+    start_step = 0;
+    if (p.resume) start_step = load_checkpoint();
 
-    if (p.use_ibm && !p.resume) ibm->apply_forcing(U, fluid);
+    // A fresh start (also resume without a checkpoint) is forced; a restored state already is
+    if (p.use_ibm && start_step == 0) ibm->apply_forcing(U, fluid);
 
     if (amr_tree) {
         for (int k = 0; k < p.amr_init_levels; ++k)
@@ -305,9 +309,6 @@ void Simulation::initialize_field() {
                 for (int i = 0; i < patch->nx(); ++i)
                     patch->U[j * patch->nx() + i] = interp(patch->mesh.xc(i), patch->mesh.yc(j));
     }
-
-    start_step = 0;
-    if (p.resume) start_step = load_checkpoint();
 }
 
 Field Simulation::initial_field() const {
@@ -1081,8 +1082,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
     Field U_local = decomp.scatter(U_global);
     if (p.use_ibm && start == 0) local_ibm->apply_forcing(U_local, fluid);
     if (root)
-        std::printf("[MPI] Initial field scattered to all ranks  (total cells: %d, per-rank avg: %d)\n\n", p.nx * p.ny,
-                    p.nx * p.ny / decomp.n_ranks);
+        std::printf("[MPI] Initial field scattered to all ranks  (total cells: %d, per-rank avg: %d)\n\n",
+                    mesh.num_cells(), mesh.num_cells() / decomp.n_ranks);
 
     Field halo_lo, halo_hi, forced;
     const ResidualFn res = [&](const Field& Uin, Field& R) {

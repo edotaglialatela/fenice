@@ -19,6 +19,7 @@ import xml.etree.ElementTree as ET
 
 import matplotlib.pyplot as plt
 import numpy as np
+from vtkio import vtk_array
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 EXE = os.path.join(ROOT, "cpp", "build", "fenice.exe" if os.name == "nt" else "fenice")
@@ -35,7 +36,7 @@ def run(out_root, *sets):
 
 def read_vtr(path):
     root = ET.parse(path).getroot()
-    arr = lambda name: np.array(root.find(f'.//DataArray[@Name="{name}"]').text.split(), dtype=float)
+    arr = lambda name: vtk_array(root.find(f'.//DataArray[@Name="{name}"]'))
     vel = arr("Velocity").reshape(-1, 3)
     return arr("Density"), vel[:, 0], vel[:, 1]
 

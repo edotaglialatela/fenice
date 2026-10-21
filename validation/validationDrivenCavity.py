@@ -3,6 +3,7 @@ import sys, os, glob
 import numpy as np
 import matplotlib.pyplot as plt
 import xml.etree.ElementTree as ET
+from vtkio import vtk_array
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path: sys.path.insert(0, ROOT_DIR)
@@ -19,7 +20,7 @@ def validate_cavity_convergence():
     #     nx = extent_vals[1] - extent_vals[0]
     #     ny = extent_vals[3] - extent_vals[2]
         
-    #     vel = np.fromstring(root.find('.//CellData/DataArray[@Name="Velocity"]').text, sep=' ').reshape((ny, nx, 3))
+    #     vel = vtk_array(root.find('.//CellData/DataArray[@Name="Velocity"]')).reshape((ny, nx, 3))
     #     u, v = vel[:, :, 0], vel[:, :, 1]
         
     #     # Divergenza calcolata numericamente con differenze finite centrali
@@ -40,7 +41,7 @@ def validate_cavity_convergence():
         extent = list(map(int, root.find('.//Piece').attrib['Extent'].split()))
         nx, ny = extent[1] - extent[0], extent[3] - extent[2]
         
-        vel_flat = np.fromstring(root.find('.//CellData/DataArray[@Name="Velocity"]').text, sep=' ')
+        vel_flat = vtk_array(root.find('.//CellData/DataArray[@Name="Velocity"]'))
         vel_3d = vel_flat.reshape((ny, nx, 3))
         profiles_data.append({'u': vel_3d[:, :, 0], 'v': vel_3d[:, :, 1], 'ny': ny, 'nx': nx})
 

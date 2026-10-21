@@ -543,15 +543,14 @@ figcaption {
 </ul>
 
     
-    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/writing-cases.html">Writing a test case</a></li><li><a href="../guide/performance.html"><strong>Performance</strong></a></li><li><a href="../guide/gui.html">GUI</a></li><li><a href="../guide/testing.html">Testing</a></li><li><a href="../guide/history.html">Python → C++</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/CaseFile.html">CaseFile</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html">Lid-driven cavity</a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
+    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/writing-cases.html">Writing a test case</a></li><li><a href="../guide/performance.html"><strong>Performance</strong></a></li><li><a href="../guide/gui.html">GUI</a></li><li><a href="../guide/testing.html">Testing</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/CaseFile.html">CaseFile</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html">Lid-driven cavity</a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
   </div>
 </nav>
 <main class="pdoc">
   <section class="module-info">
     <h1 class="modulename">Performance and parallelism</h1>
     <div class="docstring">
-<p>Every kernel is native C++ and runs at full speed from the first step. There is no
-compilation threshold and no JIT warm-up. Three levels of parallelism combine:</p>
+<p>Every kernel is native C++. Three levels of parallelism combine:</p>
 
 <table>
 <thead>
@@ -596,86 +595,72 @@ identical to the serial one (see <a href="../modules/MPIDecomposition.html">MPID
 
 <h2 id="benchmark">Benchmark</h2>
 
-<p>Time-loop wall time on a 16-thread workstation, measured on 2026-10-20 at the C++ port.
-The Python figures used its Numba kernels, which switched on automatically above 25 000
-cells, and exclude JIT compilation.</p>
+<p>Time-loop wall time on a 16-thread workstation.</p>
 
 <table>
 <thead>
 <tr>
   <th>Case</th>
   <th style="text-align:right;">Steps</th>
-  <th style="text-align:right;">Python</th>
-  <th style="text-align:right;">C++ 1 thread</th>
-  <th style="text-align:right;">C++ 16 threads</th>
+  <th style="text-align:right;">1 thread</th>
+  <th style="text-align:right;">16 threads</th>
   <th style="text-align:right;">MPI 4×1</th>
-  <th style="text-align:right;">Speed-up</th>
+  <th style="text-align:right;">16 threads vs 1</th>
 </tr>
 </thead>
 <tbody>
 <tr>
   <td>IBM cylinder 400×200</td>
   <td style="text-align:right;">20</td>
-  <td style="text-align:right;">2.18 s</td>
   <td style="text-align:right;">0.734 s</td>
   <td style="text-align:right;">0.136 s</td>
   <td style="text-align:right;">0.202 s</td>
-  <td style="text-align:right;">16×</td>
+  <td style="text-align:right;">5.4×</td>
 </tr>
 <tr>
   <td>Supersonic IBM 400×400</td>
   <td style="text-align:right;">20</td>
-  <td style="text-align:right;">2.76 s</td>
   <td style="text-align:right;">0.843 s</td>
   <td style="text-align:right;">0.191 s</td>
   <td style="text-align:right;">0.222 s</td>
-  <td style="text-align:right;">14×</td>
+  <td style="text-align:right;">4.4×</td>
 </tr>
 <tr>
   <td>Shu-Osher 4000×2</td>
   <td style="text-align:right;">200</td>
-  <td style="text-align:right;">2.49 s</td>
   <td style="text-align:right;">0.455 s</td>
   <td style="text-align:right;">0.206 s</td>
   <td style="text-align:right;">0.122 s</td>
-  <td style="text-align:right;">12×</td>
+  <td style="text-align:right;">2.2×</td>
 </tr>
 <tr>
   <td>Lid cavity RK4 128×128</td>
   <td style="text-align:right;">20</td>
-  <td style="text-align:right;">0.97 s</td>
   <td style="text-align:right;">0.260 s</td>
   <td style="text-align:right;">0.042 s</td>
   <td style="text-align:right;">0.072 s</td>
-  <td style="text-align:right;">23×</td>
+  <td style="text-align:right;">6.2×</td>
 </tr>
 <tr>
   <td>AMR Sod, max_level 3</td>
   <td style="text-align:right;">13</td>
-  <td style="text-align:right;">3.67 s</td>
   <td style="text-align:right;">0.113 s</td>
   <td style="text-align:right;">0.024 s</td>
   <td style="text-align:right;">–</td>
-  <td style="text-align:right;">153×</td>
+  <td style="text-align:right;">4.7×</td>
 </tr>
 </tbody>
 </table>
 
-<figure>
-<img src="../img/cpp_speedup.png" style="width:100%">
-<figcaption>Speed-up of the 16-thread C++ time loop over the Python solver.</figcaption>
-</figure>
-
-<p>AMR gains the most: the Python version spent most of its time in per-patch bookkeeping
-(neighbour searches, ghost filling, small NumPy calls), which native code removes
-entirely.</p>
+<p>The Shu-Osher mesh is small (8 000 cells), so thread fork/join overhead weighs more and it
+scales least with threads; MPI strips suit it better.</p>
 
 <h2 id="practical-notes">Practical notes</h2>
 
 <ul>
-<li>The final line of a run reports the <strong>time-loop</strong> duration. VTK export is ASCII, which
-keeps it readable by the validation scripts; on very large meshes a high
-<code>save_interval</code> keeps output from dominating the run time.</li>
+<li>The final line of a run reports the <strong>time-loop</strong> duration. Snapshots are binary VTK
+by default (<code>vtk_format</code>); on very large meshes a high <code>save_interval</code> still keeps
+output from dominating the run time.</li>
 <li><code>max_steps = N</code> stops a run after N steps, which is useful for timing.</li>
 <li>For low-Mach steady problems, <code>BDF2 Dual Time</code> with a convective $\Delta t_{\rm phys}$
 avoids the acoustic CFL limit; see <a href="../modules/TimeScheme.html">TimeScheme</a>.</li>

@@ -730,6 +730,15 @@ class SetupDialog(QDialog):
             if self.sim_params['nz'] > 1 and self.sim_params['use_amr']:
                 QMessageBox.critical(self, "Config Error", "AMR is 2-D only: set Nz = 1 or disable AMR.")
                 return False
+            if self.sim_params['resume'] and self.sim_params['use_amr']:
+                QMessageBox.critical(self, "Config Error",
+                                     "Resume is not available with AMR (AMR runs write no checkpoint).")
+                return False
+            for a, b in (('bc_left', 'bc_right'), ('bc_bottom', 'bc_top'), ('bc_front', 'bc_back')):
+                if (self.sim_params[a] == 'periodic') != (self.sim_params[b] == 'periodic'):
+                    QMessageBox.critical(self, "Config Error",
+                                         f"{a} / {b}: periodic must be set on both sides or neither.")
+                    return False
             if self.sim_params['use_mpi']:
                 if self.sim_params['n_cpus'] > max(self.sim_params['nx'], self.sim_params['ny']):
                     QMessageBox.critical(self, "Config Error", "Ncpus cannot exceed max(Nx, Ny).")

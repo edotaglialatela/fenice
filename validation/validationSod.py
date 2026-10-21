@@ -4,6 +4,7 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import xml.etree.ElementTree as ET
+from vtkio import vtk_array
 
 class ExactRiemannSolver:
     """
@@ -136,7 +137,7 @@ def read_latest_from_pvd(pvd_filepath):
     def get_array(name, is_vector=False):
         node = vtr_root.find(f'.//DataArray[@Name="{name}"]')
         # Splitta la stringa e converte tutto in float (gestisce spazi e a capo automatici)
-        data = np.array(node.text.split(), dtype=float)
+        data = vtk_array(node)
         
         if is_vector:
             # I vettori hanno 3 componenti
@@ -146,8 +147,7 @@ def read_latest_from_pvd(pvd_filepath):
         return data
 
     # Coordinate X
-    x_nodes_text = vtr_root.find('.//Coordinates/DataArray[@Name="x"]').text
-    x_nodes = np.array(x_nodes_text.split(), dtype=float)
+    x_nodes = vtk_array(vtr_root.find('.//Coordinates/DataArray[@Name="x"]'))
     x_cells = 0.5 * (x_nodes[:-1] + x_nodes[1:])
     
     # Estrazione campi e "slicing" lungo la linea di mezzeria orizzontale

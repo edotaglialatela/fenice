@@ -546,7 +546,7 @@ figcaption {
 </ul>
 
     
-    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="index.html"><strong>Overview</strong></a></li><li><a href="guide/getting-started.html">Getting started</a></li><li><a href="guide/parameters.html">Parameters</a></li><li><a href="guide/writing-cases.html">Writing a test case</a></li><li><a href="guide/performance.html">Performance</a></li><li><a href="guide/gui.html">GUI</a></li><li><a href="guide/testing.html">Testing</a></li><li><a href="guide/history.html">Python → C++</a></li></ul><h3>Modules</h3><ul><li><a href="modules/Core.html">Core (mesh, EOS)</a></li><li><a href="modules/Boundaries.html">Boundaries</a></li><li><a href="modules/Schemes.html">Schemes</a></li><li><a href="modules/Physics.html">Physics</a></li><li><a href="modules/TimeScheme.html">TimeScheme</a></li><li><a href="modules/AMR.html">AMR</a></li><li><a href="modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="modules/IO.html">IO</a></li><li><a href="modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="modules/Simulation.html">Simulation</a></li><li><a href="modules/CaseFile.html">CaseFile</a></li><li><a href="modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="cases/sod.html">Sod shock tube</a></li><li><a href="cases/poiseuille.html">Poiseuille flow</a></li><li><a href="cases/cavity.html">Lid-driven cavity</a></li><li><a href="cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="cases/shu-osher.html">Shu-Osher</a></li><li><a href="cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
+    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="index.html"><strong>Overview</strong></a></li><li><a href="guide/getting-started.html">Getting started</a></li><li><a href="guide/parameters.html">Parameters</a></li><li><a href="guide/writing-cases.html">Writing a test case</a></li><li><a href="guide/performance.html">Performance</a></li><li><a href="guide/gui.html">GUI</a></li><li><a href="guide/testing.html">Testing</a></li></ul><h3>Modules</h3><ul><li><a href="modules/Core.html">Core (mesh, EOS)</a></li><li><a href="modules/Boundaries.html">Boundaries</a></li><li><a href="modules/Schemes.html">Schemes</a></li><li><a href="modules/Physics.html">Physics</a></li><li><a href="modules/TimeScheme.html">TimeScheme</a></li><li><a href="modules/AMR.html">AMR</a></li><li><a href="modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="modules/IO.html">IO</a></li><li><a href="modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="modules/Simulation.html">Simulation</a></li><li><a href="modules/CaseFile.html">CaseFile</a></li><li><a href="modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="cases/sod.html">Sod shock tube</a></li><li><a href="cases/poiseuille.html">Poiseuille flow</a></li><li><a href="cases/cavity.html">Lid-driven cavity</a></li><li><a href="cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="cases/shu-osher.html">Shu-Osher</a></li><li><a href="cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
   </div>
 </nav>
 <main class="pdoc">
@@ -555,8 +555,7 @@ figcaption {
     <div class="docstring">
 <p><strong>Fenice</strong> (Italian for <em>phoenix</em>) is a structured-Cartesian compressible finite-volume
 solver for the <strong>Euler and Navier-Stokes equations</strong> in 2-D and 3-D, written in C++17 with OpenMP threading and MPI
-domain decomposition. A run is 2-D when <code>nz = 1</code> (the default) and 3-D when <code>nz &gt; 1</code>.
-2-D runs give exactly the same results as before the 3-D extension.</p>
+domain decomposition. A run is 2-D when <code>nz = 1</code> (the default) and 3-D when <code>nz &gt; 1</code>.</p>
 
 <ul>
 <li><strong>Spatial schemes:</strong> HLLC, Low-Mach HLLC (Thornber) and preconditioned HLLC
@@ -570,12 +569,6 @@ subcycling, refluxing and 2:1 balance.</li>
 hot-start mapping between resolutions.</li>
 <li><strong>GUI:</strong> a PyQt6 setup dialog that configures and launches the solver.</li>
 </ul>
-
-<figure>
-<img src="img/cpp_speedup.png" style="width:100%">
-<figcaption>Time-loop speed of the native solver relative to the former Python/Numba implementation
-(see <a href="guide/performance.html">Performance and parallelism</a>).</figcaption>
-</figure>
 
 <h2 id="quick-start">Quick start</h2>
 

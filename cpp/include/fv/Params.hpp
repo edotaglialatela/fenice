@@ -83,6 +83,7 @@ struct SimParams {
     std::string dump_state;    // optional .npz with the final state (regression tests)
     int    max_steps;          // stop after this many steps (<= 0: unlimited)
     int    monitor_interval;   // write volume averages to <case>_monitor.csv every N steps (0: off)
+    std::string vtk_format;    // "binary" (inline base64, default) or "ascii" VTK data arrays
     Params source;             // the key/value parameters this view was built from (case-file expressions)
 
     // Parse and validate (positive mesh sizes and domain lengths).

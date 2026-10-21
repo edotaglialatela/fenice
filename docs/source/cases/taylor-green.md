@@ -58,14 +58,9 @@ The automated checks in `fenice_tests` run smaller versions:
 * `periodic_translation_invariance`: shifting the initial field by whole cells must
   shift the solution bit for bit, with MUSCL and viscous terms on or off.
 
-The last check exposed two inherited seams at periodic boundaries, which are now fixed:
-
-* MUSCL left the periodic boundary faces 1st order.
-* The viscous cross-derivatives there used a zero-gradient copy of the cell instead of
-  the opposite cell.
-
-Before the fix the shifted solutions differed by up to 6 %, and the recovered viscosity
-was 2.2 % low (now 0.4 %).
+The last check holds because periodic boundaries are not seams: MUSCL reconstructs the
+periodic boundary faces from wrap-around halos (2nd order like any interior face), and
+the viscous cross-derivatives there use the opposite edge cell.
 
 ## Reference
 

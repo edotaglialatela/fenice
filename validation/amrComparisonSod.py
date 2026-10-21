@@ -4,6 +4,7 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import xml.etree.ElementTree as ET
+from vtkio import vtk_array
 
 # Resolve project root
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -140,7 +141,7 @@ def extract_vtk_data(filepath):
             nodes = root.findall(f'.//DataArray[@Name="{name}"]')
         if not nodes:
             return None
-        return np.concatenate([np.array(n.text.split(), dtype=float) for n in nodes])
+        return np.concatenate([vtk_array(n) for n in nodes])
 
     rho = get_array("Density")
     if rho is None:
@@ -159,7 +160,7 @@ def extract_vtk_data(filepath):
         
         x_nodes_xml = root.find('.//Coordinates/DataArray[@Name="x"]')
         if x_nodes_xml is not None:
-            x_edges = np.array(x_nodes_xml.text.split(), dtype=float)
+            x_edges = vtk_array(x_nodes_xml)
             x_cells = 0.5 * (x_edges[:-1] + x_edges[1:])
         else:
             x_cells = np.linspace(0.0, 1.0, nx)

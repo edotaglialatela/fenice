@@ -5,6 +5,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from scipy.interpolate import RegularGridInterpolator, interp1d, make_interp_spline
 from scipy.fft import fft, fftfreq
+from vtkio import vtk_array
 
 # =============================================================================
 # PARAMETERS
@@ -44,14 +45,14 @@ def get_vtr_data(vtr_filepath):
     extent = list(map(int, piece.attrib['Extent'].split()))
     nx, ny = extent[1], extent[3]
     
-    x_nodes = np.array(root.find('.//Coordinates/DataArray[@Name="x"]').text.split(), dtype=float)
-    y_nodes = np.array(root.find('.//Coordinates/DataArray[@Name="y"]').text.split(), dtype=float)
+    x_nodes = vtk_array(root.find('.//Coordinates/DataArray[@Name="x"]'))
+    y_nodes = vtk_array(root.find('.//Coordinates/DataArray[@Name="y"]'))
     
     x_cells = 0.5 * (x_nodes[:-1] + x_nodes[1:])
     y_cells = 0.5 * (y_nodes[:-1] + y_nodes[1:])
     
     p_node = root.find('.//DataArray[@Name="Pressure"]')
-    p_data = np.array(p_node.text.split(), dtype=float).reshape(ny, nx)
+    p_data = vtk_array(p_node).reshape(ny, nx)
     
     return x_cells, y_cells, p_data
 
