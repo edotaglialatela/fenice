@@ -92,13 +92,18 @@ CASES = {
                                                        bc_back="nonreflecting")),
     # IBM airfoil (NACA 0012 at 10 deg, mu from reynolds; geometry checked by fenice_tests airfoil_geometry)
     "naca0012_ibm":        ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.1, use_mpi=False)),
+    # AMR airfoil: tiled 16 x 16 root, body kept at level 2, remeshing, IBM + viscous + NRBC (validated by
+    # the tiled-vs-uniform unit test; loads checked against a uniform run of the body's resolution)
+    "amr_naca0012":        ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.4, use_amr=True, amr_patch_nx=16, amr_patch_ny=16,
+                                                amr_max_level=2, amr_refine_every=5, use_mpi=False)),
 }
-# Cases also run under MPI (AMR is serial-only); they cover Y- and X-decomposition,
+# Cases also run under MPI (AMR: replicated tree, patches shared out per level); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
 MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodic_x", "poiseuille_bdf2",
              "cylinder_ibm_visc", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
-             "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm"]
+             "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
+             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012"]
 
 
 def run_cpp(name, tmp, n_mpi=0):

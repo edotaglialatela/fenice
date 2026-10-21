@@ -401,15 +401,25 @@ void Simulation::initialize_field() {
             for (AMRPatch* patch : amr_tree->leaves())
                 if (patch->level < amr_tree->max_level) amr_tree->refine_patch(patch);
         if (p.use_ibm && p.amr_refine_ibm) refine_body_patches();
-        // Seed every leaf by sampling the full-domain field at the leaf's
-        // global cell centroids (bilinear, extrapolating at the edges).
-        const double dx_s = mesh.Lx / mesh.nx, dy_s = mesh.Ly / mesh.ny;
-        const GridInterp2D interp(linspace(dx_s / 2.0, mesh.Lx - dx_s / 2.0, mesh.nx),
-                                  linspace(dy_s / 2.0, mesh.Ly - dy_s / 2.0, mesh.ny), U);
-        for (AMRPatch* patch : amr_tree->leaves())
-            for (int j = 0; j < patch->ny(); ++j)
-                for (int i = 0; i < patch->nx(); ++i)
-                    patch->U[j * patch->nx() + i] = interp(patch->mesh.xc(i), patch->mesh.yc(j));
+        if (p.use_hot_start) {
+            // Seed every leaf by sampling the hot-start field at the leaf's global cell centroids
+            // (bilinear, extrapolating at the edges).
+            const double dx_s = mesh.Lx / mesh.nx, dy_s = mesh.Ly / mesh.ny;
+            const GridInterp2D interp(linspace(dx_s / 2.0, mesh.Lx - dx_s / 2.0, mesh.nx),
+                                      linspace(dy_s / 2.0, mesh.Ly - dy_s / 2.0, mesh.ny), U);
+            for (AMRPatch* patch : amr_tree->leaves())
+                for (int j = 0; j < patch->ny(); ++j)
+                    for (int i = 0; i < patch->nx(); ++i)
+                        patch->U[j * patch->nx() + i] = interp(patch->mesh.xc(i), patch->mesh.yc(j));
+        } else {
+            // Evaluate the initial condition at each leaf's own resolution, so refined leaves see the
+            // exact initial discontinuities rather than their interpolation from the base grid
+            for (AMRPatch* patch : amr_tree->leaves()) {
+                Mesh pm = patch->mesh;   // cell positions of the patch, but Lx / Ly of the domain (expressions like Lx/2)
+                pm.Lx = mesh.Lx;  pm.Ly = mesh.Ly;
+                patch->U = test_case->initialize(pm, fluid, p.source);
+            }
+        }
         if (p.use_ibm && start_step == 0)
             for (AMRPatch* patch : amr_tree->leaves()) {
                 ensure_patch_masks(*patch);
@@ -1267,7 +1277,32 @@ void Simulation::solve_amr() {
     int step = start_step;
     const double min_delta_base = std::min(tree.roots[0]->mesh.dx, tree.roots[0]->mesh.dy);
 
-    if (step == 0) exporter.export_amr(file_prefix, fluid, tree, t, step);
+    // Under MPI every rank holds the whole tree and shares each level's patches (see AMRParallel)
+    AMRParallel par_storage;
+    const AMRParallel* par = nullptr;
+#ifdef FV_USE_MPI
+    {
+        int init = 0, size = 1;
+        MPI_Initialized(&init);
+        if (init) MPI_Comm_size(MPI_COMM_WORLD, &size);
+        if (size > 1) {
+            par_storage.size = size;
+            MPI_Comm_rank(MPI_COMM_WORLD, &par_storage.rank);
+            par_storage.allgatherv = [](const double* send, int n, double* recv, const int* counts, const int* displs) {
+                MPI_Allgatherv(send, n, MPI_DOUBLE, recv, counts, displs, MPI_DOUBLE, MPI_COMM_WORLD);
+            };
+            par_storage.allreduce_max = [](double v) {
+                double g = v;
+                MPI_Allreduce(&v, &g, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+                return g;
+            };
+            par = &par_storage;
+        }
+    }
+#endif
+    const bool root = !par || par->rank == 0;
+
+    if (step == 0 && root) exporter.export_amr(file_prefix, fluid, tree, t, step);
 
     const PatchResidualFn pres = [this](AMRPatch& patch, AMRTree& tr, const Field& Uin, Field& R, Field& fx, Field& fy) {
         return patch_residual(patch, tr, Uin, R, fx, fy);
@@ -1282,7 +1317,7 @@ void Simulation::solve_amr() {
     }
 
     // Monitor: area-weighted means over the leaves; IBM loads summed over the leaves in tree order
-    std::FILE* mon = open_monitor();
+    std::FILE* mon = root ? open_monitor() : nullptr;
     auto row = [&](int st) {
         double sums[3] = {0.0, 0.0, 0.0}, area_tot = 0.0;
         std::array<double, 3> loads{};
@@ -1316,7 +1351,7 @@ void Simulation::solve_amr() {
     while (t < p.t_end) {
         double dt = scheme->cfl * min_delta_base / (S_max + 1e-10);
         dt = std::min(dt, p.t_end - t);
-        S_max = advance_amr_level(tree, 0, dt, t, p.t_end, pres, *scheme);
+        S_max = advance_amr_level(tree, 0, dt, t, p.t_end, pres, *scheme, par);
         if (p.use_ibm) amr_solid_reset(tree);
         t += dt;
         ++step;
@@ -1335,13 +1370,13 @@ void Simulation::solve_amr() {
 
         if (mon && step % p.monitor_interval == 0) row(step);
 
-        if (step % p.save_interval == 0) {
+        if (step % p.save_interval == 0 && root) {
             exporter.export_amr(file_prefix, fluid, tree, t, step);
             std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | patches = %zu | wall = %s\n", step, t,
                         dt, S_max, tree.leaves().size(), format_elapsed(seconds_since(t0)).c_str());
             std::fflush(stdout);
         }
-        if (g_stop_requested) { interrupted = true; break; }
+        if (par ? par->allreduce_max(g_stop_requested ? 1.0 : 0.0) > 0.0 : g_stop_requested.load()) { interrupted = true; break; }
         if (p.max_steps > 0 && step - start_step >= p.max_steps) break;
     }
     const double loop_wall = seconds_since(t0);
@@ -1350,6 +1385,7 @@ void Simulation::solve_amr() {
         if (step % p.monitor_interval != 0) row(step);
         std::fclose(mon);
     }
+    if (!root) return;
     if (interrupted) std::printf("\n[INTERRUPTED] Stopping AMR simulation...\n");
     exporter.export_amr(file_prefix, fluid, tree, t, step);
     exporter.write_pvd(file_prefix);

@@ -122,9 +122,21 @@ public:
 using PatchResidualFn = std::function<double(AMRPatch& patch, AMRTree& tree, const Field& U,
                                              Field& R, Field& flux_x, Field& flux_y)>;
 
-// Recursive subcycled advance of level `level` by dt; returns max wave speed.
+// Distributed advance: every rank holds the whole tree and all patch data (so remeshing, refluxing and
+// output need no communication and every rank takes the same decisions); the patches of each level are
+// split over the ranks, each rank advances its own, and after every stage and level the replicas are
+// refreshed with these hooks. The arithmetic of a patch does not depend on its rank: results equal serial.
+struct AMRParallel {
+    int rank = 0, size = 1;
+    // Gather the `n_send` doubles of every rank into `recv` (rank r's block has counts[r], at displs[r]).
+    std::function<void(const double* send, int n_send, double* recv, const int* counts, const int* displs)> allgatherv;
+    std::function<double(double)> allreduce_max;   // max over the ranks
+};
+
+// Recursive subcycled advance of level `level` by dt; returns max wave speed. With `par` the patches of a
+// level are shared out over the ranks (contiguous blocks in leaf order).
 double advance_amr_level(AMRTree& tree, int level, double dt, double current_time, double max_time,
-                         const PatchResidualFn& residual, TimeScheme& scheme);
+                         const PatchResidualFn& residual, TimeScheme& scheme, const AMRParallel* par = nullptr);
 
 // Test hook: disables the coarse-fine reflux correction (negative control).
 extern bool g_amr_disable_reflux;

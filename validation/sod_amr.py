@@ -56,7 +56,7 @@ def main():
                                                      *COMMON, mpi=args.mpi, force=args.force),
                                     PX * 2 ** lv, PY * 2 ** lv)
     coarse, fine = level(LEVELS - 1, "uniform_coarse"), level(LEVELS, "uniform_fine")
-    a = amr(study.run_cached(STUDY, "amr", CASE, "use_amr=true", f"amr_patch_nx={PX}", f"amr_patch_ny={PY}",
+    a = amr(study.run_cached(STUDY, "amr", CASE, "use_amr=true", f"nx={PX}", f"ny={PY}", f"amr_patch_nx={PX}", f"amr_patch_ny={PY}",
                              f"amr_max_level={LEVELS}", f"amr_init_levels={LEVELS}", *COMMON, force=args.force))
     t = fine[4]
     size = lambda lv: f"{PX * 2 ** lv}$\\times${PY * 2 ** lv}"

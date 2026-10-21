@@ -34,8 +34,14 @@ Level 2  ┌───────┬───────┐
 All patches share the same **block size** (`amr_patch_nx × amr_patch_ny` cells). The
 cell size halves per level, $h_\ell = h_0/2^\ell$. The block dimensions **must be
 even**: 2 fine cells tile 1 coarse cell only if the half-domain boundary lands on a
-coarse cell boundary, and `AMRTree` rejects odd sizes. For example, to match a uniform
-200×20 grid use a 100×10 patch with `max_level = 1`, not 50×5 with `max_level = 2`.
+coarse cell boundary, and `AMRTree` rejects odd sizes.
+
+The level-0 patches **tile the mesh**: `nx / amr_patch_nx` by `ny / amr_patch_ny` roots
+(both must divide exactly), so the base grid is exactly the `nx × ny` mesh and the
+refinement granularity is one patch. A 192×96 mesh with 16×16 patches has 12×6 roots and
+refines in blocks of 16×16 cells at every level. With one root (`nx = amr_patch_nx`) the
+tree is the quad-tree drawn above. Neighbour, point and ghost lookups go through a slot
+grid at the footprint of the finest patches, rebuilt after every refine or derefine.
 
 ## Prolongation and restriction
 
@@ -43,22 +49,34 @@ coarse cell boundary, and `AMRTree` rejects odd sizes. For example, to match a u
   injection). This is exactly mass-conservative and monotone: no over- or undershoots.
 * **Derefinement** restricts the children by area-weighted averaging,
   $U_c = \tfrac14\sum U_f$, the exact inverse.
-* **Seeding.** At $t = 0$ every leaf is seeded by bilinear interpolation of the
-  full-domain initial field at the leaf's global cell centres.
+* **Initial condition.** At $t = 0$ every leaf evaluates the case's initial condition at its
+  own cell centres, so refined leaves see exact discontinuities. A hot start is instead
+  interpolated bilinearly onto the leaves.
 
 ## Ghost cells between patches
 
-At every *internal* patch face the ghost layer is filled from the neighbouring leaf:
+Every ghost cell outside a patch comes from one routine, a function of the ghost cell and
+of the patch's level only:
 
-* **Coarser neighbour.** Linear prolongation of the coarse state, which avoids
-  stair-stepping.
-* **Same-level or finer neighbour.** Piecewise-constant injection, copying the
-  neighbour cell that covers the ghost point.
+* **Same-level neighbour.** The neighbour's cell.
+* **Finer neighbour.** The mean of the 2×2 fine cells under the ghost cell.
+* **Coarser neighbour.** Linear interpolation of the coarse state.
+* **Domain edge.** The case's boundary condition; at the corner of an interface and a
+  boundary, the boundary condition applied to the ghost cell next to it.
 
-Physical domain edges use the case's boundary conditions. While a level advances, every
-leaf reads a **frozen snapshot** of its neighbours (`ghost_source`). This is required for
-conservation: without it a later-updated patch would read its neighbour's *new* state,
-and the two sides would disagree on the shared-face flux.
+The same ghost cells feed the Riemann states on the interface faces, the two MUSCL halo
+layers (so a seam between equal-level patches is reconstructed as in the uniform solver),
+the padded state of the viscous flux, and the halos of the non-reflecting outlet. Both
+patches sharing a face therefore compute the same flux, which keeps a viscous closed box
+conservative. Solid cells of an immersed body are held at rest in the ghost cells too.
+
+A level advances as **one concatenated state**: every Runge-Kutta stage reads the current
+stage of its same-level neighbours (as the uniform solver does), while coarser and finer
+leaves are read from a snapshot taken when the level starts. A tiling of equal-level
+patches is therefore the uniform solver bit for bit, for every time scheme.
+
+The periodic and mass-flow inlet boundaries act on a whole boundary and are rejected with
+AMR.
 
 ## Subcycling and refluxing
 
@@ -70,7 +88,7 @@ advance_amr_level(L, dt):
     if a finer level exists:
         init_reflux_registers(L+1)
         2x { advance_amr_level(L+1, dt/2);  accumulate fine face fluxes * dt/2 }
-    advance every leaf at level L by dt   (patches in parallel, frozen neighbour snapshot)
+    advance every leaf at level L by dt   (one state, stages synchronised; other levels frozen)
     if a finer level exists:
         apply_reflux(L);  restrict children -> parents
 ```
@@ -78,9 +96,10 @@ advance_amr_level(L, dt):
 **Refluxing** (PARAMESH `amr_flux_conserve`) works between neighbouring leaves. Each
 coarse cell next to a coarse-fine face is corrected by
 $\pm(\sum F_{\rm fine} - F_{\rm coarse}\Delta t)/A$, so both sides transport the same
-amount across the interface. With Explicit Euler this is exactly conservative. Multi-stage
-schemes keep a small $O(\Delta t^2)$ interface term, because each stage reads the frozen
-$\mathbf U^n$ snapshot.
+amount across the interface. The registers hold the total flux, so the viscous flux is
+corrected too. With Explicit Euler this is exactly conservative; multi-stage schemes keep a
+small $O(\Delta t^2)$ interface term, because the coarse-fine ghost cells are not
+interpolated in time.
 
 ## Error indicator and marking
 
@@ -102,6 +121,20 @@ give $\eta = 0$.
   (default 0.1), unless a child is in the buffered refine set (anti-thrash guard).
 * **2:1 balance.** `enforce_2to1_balance` runs after every remesh, so no two
   neighbouring leaves differ by more than one level.
+* **Immersed bodies.** With `use_ibm` and `amr_refine_ibm` (default), every leaf whose box,
+  grown by one cell, overlaps the body's bounding box is refined to `max_level` from
+  $t = 0$ and never coarsened. The test is geometric, so a thin trailing edge cannot slip
+  between cell centres.
+
+## Immersed boundary, viscous terms and body force
+
+The leaf residual `patch_residual` adds, when enabled, the viscous flux, a body force and
+the immersed-boundary forcing to the convective flux. Each leaf builds its solid mask,
+with a two-cell ghost ring, from the body geometry. The velocity of solid cells is zeroed
+in every residual, and the fringe and deep-solid reset runs once per complete step on a
+snapshot of all leaves, so it does not depend on the leaf order. The total flux
+(convective minus viscous) is what the reflux registers store. The monitor file gets the
+area-weighted means and the loads Fx, Fy, Cd, Cl, Cm summed over the leaves.
 
 ## Output and performance
 
@@ -110,8 +143,16 @@ Each snapshot writes one `.vtr` per leaf into `<case>_<step>/`, grouped by a
 because ParaView's PVD reader takes one file per time step. The `AMR_Level` cell field
 colours the refinement level.
 
-AMR runs are serial-only (MPI is ignored), but the patches of each level advance
-concurrently on all OpenMP threads.
+The patches of each level advance concurrently on all OpenMP threads.
+
+**MPI.** With `use_mpi`, every rank holds the whole tree and all patch data, so remeshing,
+refluxing, the solid reset and the 2:1 balance need no communication and every rank takes
+the same decisions. The patches of each level are shared out over the ranks in contiguous
+blocks (leaf order), each rank advances its own, and the replicas are refreshed with an
+`MPI_Allgatherv` after every stage (the same-level neighbours' state) and after every
+level (state and face fluxes). A patch's arithmetic does not depend on its rank, so the
+result is identical to the serial run for any number of ranks. The cost is memory (one
+full copy per rank) and a gather per stage; rank 0 writes the output.
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/sod_amr.png" style="width:100%">

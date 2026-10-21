@@ -211,10 +211,6 @@ int main(int argc, char** argv) {
     }
 
     const bool under_mpi = mpi_child || launched_by_mpiexec();
-    if (sp.use_amr && sp.use_mpi) {
-        std::printf("[AMR] AMR is serial-only: MPI disabled for this run.\n");
-        sp.use_mpi = false;
-    }
 #ifdef FV_USE_MPI
     if (sp.use_mpi && sp.n_cpus > 1 && !under_mpi) {
         // The ranks write to mpiexec's pipe: pass the colour decision down to them
@@ -248,13 +244,13 @@ int main(int argc, char** argv) {
     int rc = 0;
     try {
         fv::Simulation sim;
-        if (size > 1) {
+        if (size > 1 && !sp.use_amr) {
 #ifdef FV_USE_MPI
             sim.p = sp;
             sim.run_mpi(MPI_COMM_WORLD);
 #endif
-        } else {
-            sim.setup(sp, true);
+        } else {   // serial, or AMR: every rank holds the tree and shares the patches (solve_amr)
+            sim.setup(sp, rank == 0);
             sim.initialize_field();
             sim.solve();
         }

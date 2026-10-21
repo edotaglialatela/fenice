@@ -442,10 +442,56 @@ void restrict_fine_to_coarse(AMRTree& tree, int coarse_level) {
     }
 }
 
+enum class Share { Ghost, State, Fluxes };
+
+// Replace the copies of the patches that a rank does not own by the owner's data.
+void share_level(const AMRParallel& par, const std::vector<AMRPatch*>& pat, const std::vector<int>& owner, Share what) {
+    auto fields = [&](AMRPatch& p) {
+        std::vector<Field*> f;
+        if (what == Share::Ghost) f = {&p.U_ghost};
+        else if (what == Share::State) f = {&p.U};
+        else f = {&p.last_flux_x, &p.last_flux_y};
+        return f;
+    };
+    auto sizes = [&](const AMRPatch& p) {
+        std::vector<size_t> n;
+        const size_t nx = p.nx(), ny = p.ny();
+        if (what == Share::Fluxes) n = {(nx + 1) * ny, nx * (ny + 1)};
+        else n = {nx * ny};
+        return n;
+    };
+    std::vector<int> counts(par.size, 0), displs(par.size, 0);
+    for (size_t k = 0; k < pat.size(); ++k) {
+        const auto n = sizes(*pat[k]);
+        auto f = fields(*pat[k]);
+        for (size_t q = 0; q < f.size(); ++q) {
+            if (owner[k] != par.rank) f[q]->resize(n[q]);
+            counts[owner[k]] += static_cast<int>(n[q] * kNVar);
+        }
+    }
+    for (int r = 1; r < par.size; ++r) displs[r] = displs[r - 1] + counts[r - 1];
+    std::vector<double> send, recv(static_cast<size_t>(displs[par.size - 1] + counts[par.size - 1]));
+    for (size_t k = 0; k < pat.size(); ++k)
+        if (owner[k] == par.rank)
+            for (Field* f : fields(*pat[k]))
+                for (const State& st : *f) send.insert(send.end(), st.begin(), st.end());
+    par.allgatherv(send.data(), static_cast<int>(send.size()), recv.data(), counts.data(), displs.data());
+    std::vector<size_t> pos(displs.begin(), displs.end());
+    for (size_t k = 0; k < pat.size(); ++k) {
+        const int r = owner[k];
+        for (Field* f : fields(*pat[k])) {
+            if (r != par.rank)
+                for (State& st : *f) { std::copy(recv.begin() + pos[r], recv.begin() + pos[r] + kNVar, st.begin()); pos[r] += kNVar; }
+            else
+                pos[r] += f->size() * kNVar;
+        }
+    }
+}
+
 }  // namespace
 
 double advance_amr_level(AMRTree& tree, int level, double dt, double current_time, double max_time,
-                         const PatchResidualFn& residual, TimeScheme& scheme) {
+                         const PatchResidualFn& residual, TimeScheme& scheme, const AMRParallel* par) {
     dt = std::min(dt, max_time - current_time);
     if (dt <= 0.0) return 0.0;
 
@@ -463,7 +509,7 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
         init_reflux_registers(tree, level);
         for (int sub = 0; sub < 2; ++sub) {
             const double t_sub = current_time + sub * (dt / 2);
-            S_max = std::max(S_max, advance_amr_level(tree, level + 1, dt / 2, t_sub, max_time, residual, scheme));
+            S_max = std::max(S_max, advance_amr_level(tree, level + 1, dt / 2, t_sub, max_time, residual, scheme, par));
             accumulate_fine_face_fluxes(tree, level, dt / 2);
         }
     }
@@ -475,14 +521,22 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
         // The patches of this level are one ODE system: concatenate them and advance with a single
         // call, so every stage sees the current stage of the same-level neighbours (as the uniform
         // solver does) while coarser / finer neighbours stay on the snapshot.
-        const int n_at = static_cast<int>(at_level.size());
+        const bool dist = par && par->size > 1;
+        const int n_all = static_cast<int>(at_level.size());
+        std::vector<int> owner(n_all, 0);
+        if (dist) for (int k = 0; k < n_all; ++k) owner[k] = static_cast<int>(static_cast<long long>(k) * par->size / n_all);
+        std::vector<AMRPatch*> mine;   // the patches this rank advances
+        for (int k = 0; k < n_all; ++k)
+            if (!dist || owner[k] == par->rank) mine.push_back(at_level[k]);
+        const int n_at = static_cast<int>(mine.size());
         std::vector<size_t> off(n_at + 1, 0);
-        for (int k = 0; k < n_at; ++k) off[k + 1] = off[k] + at_level[k]->U.size();
+        for (int k = 0; k < n_at; ++k) off[k + 1] = off[k] + mine[k]->U.size();
         Field Ucat(off[n_at]);
-        for (int k = 0; k < n_at; ++k) std::copy(at_level[k]->U.begin(), at_level[k]->U.end(), Ucat.begin() + off[k]);
+        for (int k = 0; k < n_at; ++k) std::copy(mine[k]->U.begin(), mine[k]->U.end(), Ucat.begin() + off[k]);
         const ResidualFn res = [&](const Field& Uin, Field& R) {
             R.resize(Uin.size());
-            for (int k = 0; k < n_at; ++k) std::copy(Uin.begin() + off[k], Uin.begin() + off[k + 1], at_level[k]->U_ghost.begin());
+            for (int k = 0; k < n_at; ++k) std::copy(Uin.begin() + off[k], Uin.begin() + off[k + 1], mine[k]->U_ghost.begin());
+            if (dist) share_level(*par, at_level, owner, Share::Ghost);   // same-level neighbours at this stage
             double s_max = 0.0;
 #pragma omp parallel if(n_at > 1)
             {
@@ -490,7 +544,7 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
                 double s_local = 0.0;
 #pragma omp for schedule(dynamic)
                 for (int k = 0; k < n_at; ++k) {
-                    AMRPatch* patch = at_level[k];
+                    AMRPatch* patch = mine[k];
                     s_local = std::max(s_local, residual(*patch, tree, patch->U_ghost, Rk, patch->last_flux_x, patch->last_flux_y));
                     std::copy(Rk.begin(), Rk.end(), R.begin() + off[k]);
                 }
@@ -500,7 +554,12 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
             return s_max;
         };
         S_max = std::max(S_max, scheme.advance_fixed_dt(Ucat, res, dt));
-        for (int k = 0; k < n_at; ++k) std::copy(Ucat.begin() + off[k], Ucat.begin() + off[k + 1], at_level[k]->U.begin());
+        for (int k = 0; k < n_at; ++k) std::copy(Ucat.begin() + off[k], Ucat.begin() + off[k + 1], mine[k]->U.begin());
+        if (dist) {
+            share_level(*par, at_level, owner, Share::State);
+            share_level(*par, at_level, owner, Share::Fluxes);
+            S_max = par->allreduce_max(S_max);
+        }
         for (AMRPatch* p : lv) p->has_ghost = false;   // keep capacity for the next step
     }
 

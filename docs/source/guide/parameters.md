@@ -118,7 +118,7 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `use_amr` | `false` | Block-structured AMR (serial + threads, 2-D only: rejected when `nz > 1`). IBM, viscous terms and body force are supported. The level-0 patches tile the mesh: `nx` and `ny` must be multiples of `amr_patch_nx` and `amr_patch_ny`, and refinement splits one patch into four, so smaller patches refine more locally |
+| `use_amr` | `false` | Block-structured AMR (2-D only: rejected when `nz > 1`; no periodic or mass-flow boundaries). IBM, viscous terms, body force and MPI are supported. The level-0 patches tile the mesh: `nx` and `ny` must be multiples of `amr_patch_nx` and `amr_patch_ny`, and refinement splits one patch into four, so smaller patches refine more locally |
 | `amr_max_level` | `2` | Refinement levels above the root |
 | `amr_patch_nx`, `amr_patch_ny` | `8`, `8` | Cells per patch; must be **even** when `amr_max_level > 0` |
 | `amr_refine_threshold` | `0.3` | Refine when the Löhner indicator η exceeds this |

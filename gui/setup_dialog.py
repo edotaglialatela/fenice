@@ -475,7 +475,7 @@ class SetupDialog(QDialog):
 
         note = QLabel(
             "ℹ  AMR subdivides patches with large density gradients.\n"
-            "   MPI is disabled when AMR is active.\n"
+            "   Nx, Ny must be multiples of the patch size.\n"
             "   Subcycling: fine patches take 2 sub-steps per coarse step."
         )
         note.setObjectName("fieldNote")
