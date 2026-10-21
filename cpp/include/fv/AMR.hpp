@@ -80,7 +80,6 @@ public:
 
 private:
     AMRPatch* new_patch(double x0, double x1, double y0, double y1, int level, AMRPatch* parent);
-    AMRPatch* find_neighbour_leaf(const AMRPatch* patch, Face face, const std::vector<AMRPatch*>& lv) const;
     static void collect_leaves(AMRPatch* p, std::vector<AMRPatch*>& out);
     void rebuild_index() const;
     // Slot-grid index range [i0, i1) x [j0, j1) of a patch

@@ -132,12 +132,8 @@ private:
     Field gZ_;
 };
 
-// AMR ghost-cell helpers (exposed for tests)
-// Linear prolongation of a COARSER neighbour into patch's ghost layer at 'face'.
-Field prolong_ghost_face(const AMRPatch& patch, const AMRPatch& nb, Face face);
-// State of the leaf cell containing (x, y), or nullptr if no leaf covers it.
-const State* sample_leaf_state(const std::vector<AMRPatch*>& leaves, double x, double y);
-// Same, through the tree's spatial index (no scan over the leaves).
+// AMR ghost-cell helper (exposed for tests): state of the leaf cell containing (x, y), or nullptr
+// outside the domain. Reads the leaf's ghost source (the frozen snapshot during a level advance).
 const State* sample_leaf_state(const AMRTree& tree, double x, double y);
 
 // "12.3s" or "m:ss".

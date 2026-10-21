@@ -158,26 +158,6 @@ void slab_tangential_derivs(const EOS& eos, const BoundaryManager& bm, const Mes
 }
 }  // namespace
 
-// Linear interpolation of a COARSER neighbour into `patch`'s ghost layer at `face`.
-Field prolong_ghost_face(const AMRPatch& patch, const AMRPatch& nb, Face face) {
-    std::vector<double> xs(nb.nx()), ys(nb.ny());
-    for (int i = 0; i < nb.nx(); ++i) xs[i] = nb.mesh.xc(i);
-    for (int j = 0; j < nb.ny(); ++j) ys[j] = nb.mesh.yc(j);
-    const GridInterp2D interp(xs, ys, nb.ghost_source());
-
-    const int nx_f = patch.nx(), ny_f = patch.ny();
-    const double dx_f = patch.mesh.dx, dy_f = patch.mesh.dy;
-    Field ghost;
-    if (face == Face::Left || face == Face::Right) {
-        const double x = (face == Face::Left) ? patch.xmin - 0.5 * dx_f : patch.xmax + 0.5 * dx_f;
-        for (int j = 0; j < ny_f; ++j) ghost.push_back(interp(x, patch.ymin + (j + 0.5) * dy_f));
-    } else {
-        const double y = (face == Face::Bottom) ? patch.ymin - 0.5 * dy_f : patch.ymax + 0.5 * dy_f;
-        for (int i = 0; i < nx_f; ++i) ghost.push_back(interp(patch.xmin + (i + 0.5) * dx_f, y));
-    }
-    return ghost;
-}
-
 // State of the leaf cell containing (x, y), or nullptr outside every leaf.
 const State* sample_leaf_state(const AMRTree& tree, double x, double y) {
     const AMRPatch* leaf = tree.leaf_at(x, y);
@@ -185,19 +165,6 @@ const State* sample_leaf_state(const AMRTree& tree, double x, double y) {
     const int i = std::min(std::max(static_cast<int>((x - leaf->xmin) / leaf->mesh.dx), 0), leaf->nx() - 1);
     const int j = std::min(std::max(static_cast<int>((y - leaf->ymin) / leaf->mesh.dy), 0), leaf->ny() - 1);
     return &leaf->ghost_source()[j * leaf->nx() + i];
-}
-
-const State* sample_leaf_state(const std::vector<AMRPatch*>& leaves, double x, double y) {
-    constexpr double eps = 1e-9;
-    for (const AMRPatch* leaf : leaves) {
-        if (leaf->xmin - eps <= x && x <= leaf->xmax + eps && leaf->ymin - eps <= y && y <= leaf->ymax + eps) {
-            const double dxl = leaf->mesh.dx, dyl = leaf->mesh.dy;
-            const int i = std::min(std::max(static_cast<int>((x - leaf->xmin) / dxl), 0), leaf->nx() - 1);
-            const int j = std::min(std::max(static_cast<int>((y - leaf->ymin) / dyl), 0), leaf->ny() - 1);
-            return &leaf->ghost_source()[j * leaf->nx() + i];
-        }
-    }
-    return nullptr;
 }
 
 std::string format_elapsed(double s) {

@@ -169,9 +169,8 @@ void AMRTree::enforce_2to1_balance() {
         changed = false;
         const auto snapshot = leaves();
         for (AMRPatch* patch : snapshot) {
-            const auto lv = leaves();
             AMRPatch* nbs[4];
-            for (int f = 0; f < 4; ++f) nbs[f] = find_neighbour_leaf(patch, kAllFaces[f], lv);
+            for (int f = 0; f < 4; ++f) nbs[f] = get_neighbour(patch, kAllFaces[f]);
             for (AMRPatch* nb : nbs) {
                 if (nb && nb->is_leaf() && patch->level - nb->level > 1 && nb->level < max_level) {
                     refine_patch(nb);
@@ -182,13 +181,9 @@ void AMRTree::enforce_2to1_balance() {
     }
 }
 
-AMRPatch* AMRTree::find_neighbour_leaf(const AMRPatch* p, Face face, const std::vector<AMRPatch*>&) const {
-    const auto nb = neighbour_leaves(p, face);
-    return nb.empty() ? nullptr : nb.front();
-}
-
 AMRPatch* AMRTree::get_neighbour(const AMRPatch* patch, Face face) const {
-    return find_neighbour_leaf(patch, face, {});
+    const auto nb = neighbour_leaves(patch, face);
+    return nb.empty() ? nullptr : nb.front();
 }
 
 std::vector<AMRPatch*> AMRTree::neighbour_leaves(const AMRPatch* p, Face face) const {

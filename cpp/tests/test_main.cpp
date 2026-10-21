@@ -580,9 +580,9 @@ TEST(amr_sample_leaf_state) {
     AMRTree tree(1.0, 1.0, 4, 4, 1);
     tree.root->U.assign(16, State{0, 0, 0, 0});
     for (int c = 0; c < 16; ++c) tree.root->U[c][0] = c;
-    const State* s = sample_leaf_state(tree.leaves(), 2.5 / 4, 1.5 / 4);
+    const State* s = sample_leaf_state(tree, 2.5 / 4, 1.5 / 4);
     CHECK(s && (*s)[0] == 6.0);
-    CHECK(sample_leaf_state(tree.leaves(), -0.1, 0.5) == nullptr);
+    CHECK(sample_leaf_state(tree, -0.1, 0.5) == nullptr);
 }
 
 TEST(amr_patch_coupling) {
@@ -618,22 +618,6 @@ TEST(amr_patch_coupling) {
     right_col = 0.0;
     for (int j = 0; j < bl->ny(); ++j) right_col = std::max(right_col, std::abs(R[j * bl->nx() + bl->nx() - 1][1]));
     CHECK(right_col > 1e-8);
-}
-
-TEST(amr_ghost_prolongation_linear) {
-    AMRTree tree(1.0, 1.0, 8, 8, 2);
-    tree.refine_patch(tree.root);
-    AMRPatch* bl = sorted_leaf(tree, 0);
-    AMRPatch* br = sorted_leaf(tree, 1);
-    for (int j = 0; j < 8; ++j)
-        for (int i = 0; i < 8; ++i) bl->U[j * 8 + i] = {1.0 + 2.0 * bl->mesh.yc(j), 0, 0, 2.5};
-    tree.refine_patch(br);
-    AMRPatch* child = br->children[0];   // bottom-left child abuts bl across its LEFT face
-    const Field g = prolong_ghost_face(*child, *bl, Face::Left);
-    for (int j = 0; j < child->ny(); ++j) {
-        CHECK_NEAR(g[j][0], 1.0 + 2.0 * child->mesh.yc(j), 1e-9);
-        if (j > 0) CHECK(std::abs(g[j][0] - g[j - 1][0]) > 1e-4);
-    }
 }
 
 namespace {

@@ -40,9 +40,6 @@ public:
     // Inner pseudo-time iterations of the last step (BDF2 only), else -1.
     virtual int inner_iter_last() const { return -1; }
 
-    // Independent copy (own scratch buffers) for concurrent AMR patch updates.
-    virtual std::unique_ptr<TimeScheme> clone() const = 0;
-
     double cfl;   // CFL number
 
 protected:
@@ -53,7 +50,6 @@ protected:
 class ExplicitEuler : public TimeScheme {
 public:
     using TimeScheme::TimeScheme;
-    std::unique_ptr<TimeScheme> clone() const override { return std::make_unique<ExplicitEuler>(*this); }
     StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
     double     advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
 };
@@ -62,7 +58,6 @@ public:
 class SSPRK2 : public TimeScheme {
 public:
     using TimeScheme::TimeScheme;
-    std::unique_ptr<TimeScheme> clone() const override { return std::make_unique<SSPRK2>(*this); }
     StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
     double     advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
 };
@@ -71,7 +66,6 @@ public:
 class RungeKutta4 : public TimeScheme {
 public:
     using TimeScheme::TimeScheme;
-    std::unique_ptr<TimeScheme> clone() const override { return std::make_unique<RungeKutta4>(*this); }
     StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
     double     advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
 };
@@ -84,7 +78,6 @@ public:
     BDF2DualTime(double cfl, double dt_phys, int max_inner_iter = 50, double inner_tol_rel = 1e-3);
     StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
     int        inner_iter_last() const override { return inner_iter_last_; }
-    std::unique_ptr<TimeScheme> clone() const override { return std::make_unique<BDF2DualTime>(*this); }
 
     // Global max across MPI ranks (identity in serial).
     std::function<double(double)> global_norm = [](double x) { return x; };
