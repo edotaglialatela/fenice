@@ -48,20 +48,20 @@ workload (it provides MSVC, CMake and Ninja). For MPI, also install the MS-MPI r
 SDK: `winget install Microsoft.msmpi Microsoft.msmpisdk`.
 
 ```powershell
-.\cpp\build.ps1 -Test        # Release build + unit tests -> cpp\build\fenice.exe
+.\cpp\build.ps1 -Test        # Release build + unit tests -> build\release\fenice.exe
 .\cpp\build.ps1 -NoMpi       # OpenMP only
 ```
 
 ### Linux
 
-Requirements (Debian / Ubuntu shown): a C++17 compiler, CMake ≥ 3.20 and, for MPI,
+Requirements (Debian / Ubuntu shown): a C++17 compiler, CMake ≥ 3.25, Ninja and, for MPI,
 Open MPI or MPICH.
 
 ```bash
-sudo apt install build-essential cmake libopenmpi-dev openmpi-bin
-cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
-cmake --build cpp/build -j
-./cpp/build/fenice_tests     # unit tests
+sudo apt install build-essential cmake ninja-build libopenmpi-dev openmpi-bin
+cmake --preset release
+cmake --build --preset release
+./build/release/fenice_tests     # unit tests
 ```
 
 ### macOS
@@ -70,22 +70,25 @@ Apple's clang has no built-in OpenMP; CMake picks up Homebrew's `libomp` automat
 
 ```bash
 xcode-select --install
-brew install cmake libomp open-mpi
-cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
-cmake --build cpp/build -j
-./cpp/build/fenice_tests     # unit tests
+brew install cmake ninja libomp open-mpi
+cmake --preset release
+cmake --build --preset release
+./build/release/fenice_tests     # unit tests
 ```
 
 Add `-DFV_USE_MPI=OFF` or `-DFV_USE_OPENMP=OFF` to the configure line to leave either out.
+Every build goes to `build/release/` (or `build/debug/` with the `debug` preset).
+
+The Python tools (GUI, validation, docs, regression) share a small package in `python/`;
+`python prerequisites.py` installs it together with their dependencies.
 
 ### IDEs (CLion, VS Code, Visual Studio)
 
-The repository root is a CMake project with presets (`CMakePresets.json`):
-`msvc-release` / `msvc-debug` on Windows, `linux-release` / `linux-debug` on Linux or
-WSL and `macos-release` / `macos-debug` on macOS, each building into `build/<preset>/`. From a terminal: `cmake --preset msvc-release`
-then `cmake --build --preset msvc-release` (in a Visual Studio developer prompt).
-In CLion the presets appear as CMake profiles, and `.run/` provides ready-made run
-configurations: Sod, 3-D Taylor-Green, unit tests, regression and the GUI.
+The repository root is a CMake project with two presets (`CMakePresets.json`), the same on
+every OS: `release` (into `build/release/`) and `debug` (into `build/debug/`). `build.ps1`
+uses `release`. On Windows run the presets from a Visual Studio developer prompt, or pick the
+Visual Studio toolchain in the IDE. In CLion the presets appear as CMake profiles, and `.run/`
+provides ready-made run configurations: Sod, 3-D Taylor-Green, unit tests, regression and the GUI.
 
 > **Tested platforms:** Windows 11 (MSVC 19.50, MS-MPI 10.1), Ubuntu 26.04 (GCC 15.2,
 > Open MPI 5.0) and macOS 27 on Apple M4 (Apple clang 21.0, Homebrew libomp, Open MPI
@@ -101,23 +104,23 @@ defaults, then a `--config` file (`key = value` lines), then `--set key=value`.
 **Windows**
 
 ```powershell
-cpp\build\fenice.exe --list-cases
-cpp\build\fenice.exe --case "Sod Shock Tube"
-cpp\build\fenice.exe --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
-cpp\build\fenice.exe --case "Taylor-Green Vortex 3D" --set monitor_interval=10
-cpp\build\fenice.exe --config run.cfg --threads 8
-mpiexec -n 8 cpp\build\fenice.exe --case "IBM Supersonic Flow over Cylinder"
+build\release\fenice.exe --list-cases
+build\release\fenice.exe --case "Sod Shock Tube"
+build\release\fenice.exe --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
+build\release\fenice.exe --case "Taylor-Green Vortex 3D" --set monitor_interval=10
+build\release\fenice.exe --config run.cfg --threads 8
+mpiexec -n 8 build\release\fenice.exe --case "IBM Supersonic Flow over Cylinder"
 ```
 
 **Linux / macOS**
 
 ```bash
-./cpp/build/fenice --list-cases
-./cpp/build/fenice --case "Sod Shock Tube"
-./cpp/build/fenice --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
-./cpp/build/fenice --case "Taylor-Green Vortex 3D" --set monitor_interval=10
-./cpp/build/fenice --config run.cfg --threads 8
-mpiexec -n 8 ./cpp/build/fenice --case "IBM Supersonic Flow over Cylinder"
+./build/release/fenice --list-cases
+./build/release/fenice --case "Sod Shock Tube"
+./build/release/fenice --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
+./build/release/fenice --case "Taylor-Green Vortex 3D" --set monitor_interval=10
+./build/release/fenice --config run.cfg --threads 8
+mpiexec -n 8 ./build/release/fenice --case "IBM Supersonic Flow over Cylinder"
 ```
 
 With `--set use_mpi=true --set n_cpus=N` the solver re-launches itself under `mpiexec`,
@@ -176,8 +179,8 @@ conditions, so adding a case needs no C++ and no recompilation. The shipped case
 Copy an existing case, edit it, run it:
 
 ```bash
-./cpp/build/fenice --new-case "Shock Hot Spot" --from "Sod Shock Tube"   # -> cases/shock_hot_spot/case.toml
-./cpp/build/fenice --case "Shock Hot Spot"
+./build/release/fenice --new-case "Shock Hot Spot" --from "Sod Shock Tube"   # -> cases/shock_hot_spot/case.toml
+./build/release/fenice --case "Shock Hot Spot"
 ```
 
 In the GUI, **Save as case…** saves the configured run as a new case. Initial conditions
@@ -209,7 +212,7 @@ Mistakes are caught when the file loads, with the line and a suggestion
 ## Testing
 
 ```bash
-cpp/build/fenice_tests                   # unit tests (fenice_tests.exe on Windows)
+build/release/fenice_tests                   # unit tests (fenice_tests.exe on Windows)
 python cpp/tests/regression.py --mpi 4   # compare against the stored reference states
 ```
 

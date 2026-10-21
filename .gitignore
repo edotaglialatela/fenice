@@ -6,10 +6,6 @@ cmake-build-*/
 # Simulation output (VTK snapshots, checkpoints, logs): regenerate by running the solver
 results/
 
-# External reference codes and tool clones, not part of the solver
-libraries/
-temp-impeccable/
-
 # Local tool / assistant files
 .claude/
 .impeccable/
@@ -18,6 +14,7 @@ CLAUDE.md
 # Python / editor clutter
 __pycache__/
 *.pyc
+*.egg-info/
 .pytest_cache/
 .coverage
 *.tmp

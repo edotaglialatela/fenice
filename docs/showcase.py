@@ -34,10 +34,9 @@ from matplotlib.colors import to_rgb
 from PIL import Image
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-sys.path.insert(0, os.path.join(ROOT, "validation"))
-from vtkio import vtk_array  # noqa: E402
+import fenice
+from fenice import vtk_array
 
-EXE = os.path.join(ROOT, "cpp", "build", "fenice.exe" if os.name == "nt" else "fenice")
 OUT = os.path.join(ROOT, "results", "showcase")
 IMG = os.path.join(ROOT, "docs", "img")
 
@@ -49,10 +48,10 @@ SUP = ("IBM Supersonic Flow over Cylinder", "ibm_supersonic_flow_over_cylinder")
 # Simulations
 # ---------------------------------------------------------------------------
 
-def fenice(case, out_root, *sets):
+def run_case(case, out_root, *sets):
     """Run one case: MPI with one rank per core when mpiexec is available (about 20 %
     faster than OpenMP threads on these meshes), else OpenMP threads."""
-    cmd = [EXE, "--case", case, "--no-logo", "--set", f"output_root={out_root}"]
+    cmd = [fenice.exe(), "--case", case, "--no-logo", "--set", f"output_root={out_root}"]
     ranks = os.cpu_count() or 1
     if ranks > 1 and shutil.which("mpiexec"):
         cmd = ["mpiexec", "-n", str(ranks)] + cmd + ["--set", "use_mpi=true", "--set", f"n_cpus={ranks}",
@@ -91,16 +90,16 @@ def run_all():
     pre = os.path.join(OUT, "precursor")
     ck = os.path.join(pre, "cylinder_precursor", "cylinder_precursor_restart.npz")
     if last_time("precursor", "cylinder_precursor") < 10:
-        fenice(precursor_case(), pre, "t_end=10", "save_interval=64")
+        run_case(precursor_case(), pre, "t_end=10", "save_interval=64")
     # Fine cylinder: t = 0..3 densely sampled (the GIFs), then to t = 8 for the force history
     cyl = os.path.join(OUT, "cylinder")
     if last_time("cylinder", CYL[1]) < 3:
-        fenice(CYL[0], cyl, "nx=1200", "ny=600", "t_end=3", "use_hot_start=true", f"hot_start_file={ck}",
+        run_case(CYL[0], cyl, "nx=1200", "ny=600", "t_end=3", "use_hot_start=true", f"hot_start_file={ck}",
                "save_interval=96")
     if last_time("cylinder", CYL[1]) < 8:
-        fenice(CYL[0], cyl, "nx=1200", "ny=600", "t_end=8", "resume=true", "save_interval=192")
+        run_case(CYL[0], cyl, "nx=1200", "ny=600", "t_end=8", "resume=true", "save_interval=192")
     if last_time("supersonic", SUP[1]) < 5:
-        fenice(SUP[0], os.path.join(OUT, "supersonic"), "nx=1600", "ny=1600", "save_interval=250")
+        run_case(SUP[0], os.path.join(OUT, "supersonic"), "nx=1600", "ny=1600", "save_interval=250")
 
 
 def figures():

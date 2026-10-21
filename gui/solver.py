@@ -11,21 +11,25 @@ import os
 import subprocess
 import tempfile
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+import fenice
 
-#: Solver executable (override with the FENICE_EXE environment variable).
-EXE = os.environ.get("FENICE_EXE") or os.path.join(
-    ROOT_DIR, "cpp", "build", "fenice.exe" if os.name == "nt" else "fenice")
+ROOT_DIR = str(fenice.ROOT)
 
 
 class SolverNotFound(RuntimeError):
     """Raised when the C++ solver has not been built."""
 
 
+def solver_exe() -> str:
+    """The solver executable (see fenice.exe: $FENICE_EXE, else build/release/fenice)."""
+    try:
+        return fenice.exe()
+    except FileNotFoundError as e:
+        raise SolverNotFound(str(e)) from None
+
+
 def _run(*args: str) -> str:
-    if not os.path.isfile(EXE):
-        raise SolverNotFound(f"Solver executable not found:\n{EXE}\n\nBuild it first:  .\\cpp\\build.ps1")
-    res = subprocess.run([EXE, *args], capture_output=True, text=True)
+    res = subprocess.run([solver_exe(), *args], capture_output=True, text=True)
     if res.returncode != 0:
         raise RuntimeError(f"fenice {' '.join(args)} failed:\n{res.stderr or res.stdout}")
     return res.stdout

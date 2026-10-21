@@ -5,7 +5,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from scipy.interpolate import RegularGridInterpolator, make_interp_spline
-from vtkio import vtk_array
+from fenice import vtk_array
 
 # =============================================================================
 # PARAMETERS

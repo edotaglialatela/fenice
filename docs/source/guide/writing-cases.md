@@ -21,9 +21,9 @@ cases/
 The fastest way to start is to copy an existing case:
 
 ```powershell
-cpp\build\fenice.exe --new-case "Shock Hot Spot" --from "Sod Shock Tube"   # writes cases/shock_hot_spot/case.toml
+build\release\fenice.exe --new-case "Shock Hot Spot" --from "Sod Shock Tube"   # writes cases/shock_hot_spot/case.toml
 # edit cases/shock_hot_spot/case.toml, then
-cpp\build\fenice.exe --case "Shock Hot Spot"
+build\release\fenice.exe --case "Shock Hot Spot"
 ```
 
 In the GUI, configure a run and press **Save as case…**, which does the same with the

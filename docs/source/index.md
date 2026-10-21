@@ -25,7 +25,7 @@ domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz 
 
 ```powershell
 .\cpp\build.ps1 -Test                                   # build + unit tests
-cpp\build\fenice.exe --case "Sod Shock Tube"          # run a benchmark
+build\release\fenice.exe --case "Sod Shock Tube"          # run a benchmark
 python gui\run.py                                       # or configure it in the GUI
 ```
 

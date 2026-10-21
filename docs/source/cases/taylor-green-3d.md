@@ -35,7 +35,7 @@ quick check of the 3-D solver, not a DNS. What it exercises:
   $2\nu\zeta = \nu\langle|\boldsymbol\omega|^2\rangle = 0.75\,\nu$.
 
 ```powershell
-cpp\build\fenice.exe --case "Taylor-Green Vortex 3D" --set monitor_interval=10
+build\release\fenice.exe --case "Taylor-Green Vortex 3D" --set monitor_interval=10
 python validation\validationTaylorGreen3D.py            # 32³ + 64³ (~6 min with 16 threads)
 python validation\validationTaylorGreen3D.py --skip-64  # 32³ only (~20 s)
 python validation\validationTaylorGreen3D.py --grids 32 64 96 --vorticity-n 96 --mpi 16 --q-animation

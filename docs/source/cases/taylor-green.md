@@ -33,7 +33,7 @@ the incompressible limit. The boundaries are periodic on all four sides.
   location, so the solution must be exactly translation-invariant.
 
 ```powershell
-cpp\build\fenice.exe --case "Taylor-Green Vortex"
+build\release\fenice.exe --case "Taylor-Green Vortex"
 python validation\validationTaylorGreen.py
 ```
 

@@ -24,7 +24,7 @@ The Strouhal number of the shedding frequency $f$ is
 $$\mathrm{St} = \frac{f\,D}{u_{\rm in}} \approx 0.165 \quad (\mathrm{Re} = 100)$$
 
 ```powershell
-cpp\build\fenice.exe --case "IBM Flow over Cylinder"          # uses MPI (16 ranks) by default
+build\release\fenice.exe --case "IBM Flow over Cylinder"          # uses MPI (16 ranks) by default
 python validation\aeroCoeffCylinder.py
 ```
 

@@ -18,7 +18,7 @@ and the results compare directly with the incompressible Ghia (1982) reference. 
 walls are no-slip, and the lid is a `moving_wall` with velocity `u_in`.
 
 ```powershell
-cpp\build\fenice.exe --case "Lid Driven Cavity"
+build\release\fenice.exe --case "Lid Driven Cavity"
 python validation\validationDrivenCavity.py --reuse results\validation\cavity   # 32², 64², 128², both orders
 ```
 

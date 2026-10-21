@@ -4,7 +4,7 @@
     python validation/validationTaylorGreen3D.py --skip-64  # 32^3 only
     python validation/validationTaylorGreen3D.py --grids 32 64 96 --vorticity-n 96 --mpi 16 --reuse results/tgv3d
 
-Runs the C++ solver (cpp/build/fenice) on the "Taylor-Green Vortex 3D" case to t = 20:
+Runs the C++ solver (build/release/fenice) on the "Taylor-Green Vortex 3D" case to t = 20:
 
 1. every grid of --grids (default 32^3, the case default, and 64^3) with the volume-average
    monitor (``monitor_interval``); 32^3 and the --vorticity-n grid also write snapshots;
@@ -30,10 +30,11 @@ import xml.etree.ElementTree as ET
 
 import matplotlib.pyplot as plt
 import numpy as np
-from vtkio import vtk_array
+import fenice
+from fenice import vtk_array
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.path.join(ROOT, "cpp", "build", "fenice.exe" if os.name == "nt" else "fenice")
+EXE = fenice.exe()
 CASE, PREFIX = "Taylor-Green Vortex 3D", "taylor-green_vortex_3d"
 NU = 1.0 / 1600.0
 L = 2.0 * np.pi

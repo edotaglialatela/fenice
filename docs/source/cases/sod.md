@@ -16,8 +16,8 @@ thin in $y$ ($L_y = 0.1$, $n_y = 20$), and the case forces transmissive left/rig
 boundaries and slip walls at the bottom and top, so the problem stays one-dimensional.
 
 ```powershell
-cpp\build\fenice.exe --case "Sod Shock Tube"
-cpp\build\fenice.exe --case "Sod Shock Tube" --set use_muscl=true --set time_scheme=ssprk2
+build\release\fenice.exe --case "Sod Shock Tube"
+build\release\fenice.exe --case "Sod Shock Tube" --set use_muscl=true --set time_scheme=ssprk2
 python validation\validationSod.py
 ```
 

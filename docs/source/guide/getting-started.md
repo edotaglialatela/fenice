@@ -13,7 +13,7 @@ Requirements: Visual Studio 2022 or newer with the *Desktop development with C++
 workload (it provides `cl`, CMake and Ninja).
 
 ```powershell
-.\cpp\build.ps1 -Test     # Release build + unit tests -> cpp\build\fenice.exe
+.\cpp\build.ps1 -Test     # Release build + unit tests -> build\release\fenice.exe
 .\cpp\build.ps1 -NoMpi    # build without MPI
 ```
 
@@ -36,13 +36,20 @@ process with all threads.
 ### Linux / macOS
 
 ```bash
-cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
-cmake --build cpp/build -j
+cmake --preset release
+cmake --build --preset release
 ```
 
-OpenMP and MPI (OpenMPI or MPICH) are used automatically when CMake finds them. On macOS,
-Apple's clang has no OpenMP runtime: `brew install libomp open-mpi` provides both, and
-CMake finds Homebrew's `libomp` by itself.
+The presets use Ninja (`apt install ninja-build`, `brew install ninja`). OpenMP and MPI
+(OpenMPI or MPICH) are used automatically when CMake finds them. On macOS, Apple's clang has
+no OpenMP runtime: `brew install libomp open-mpi` provides both, and CMake finds Homebrew's
+`libomp` by itself.
+
+Every build goes to `build/release/` (`fenice`, `fenice_tests`), or `build/debug/` with the
+`debug` preset; on Windows `build.ps1` uses the same `release` preset. The Python tools
+(GUI, validation scripts, docs, regression) share the package in `python/`, which
+`python prerequisites.py` installs in editable mode; it finds the solver in `build/release/`,
+or wherever `FENICE_EXE` points.
 
 Tested: Windows 11 (MSVC 19.50, MS-MPI 10.1), Ubuntu 26.04 (GCC 15.2, Open MPI 5.0) and
 macOS 27 on Apple M4 (Apple clang 21.0, Open MPI 5.0.9). The regression references are
@@ -63,11 +70,11 @@ regression references.
 ## Run
 
 ```powershell
-cpp\build\fenice.exe --list-cases
-cpp\build\fenice.exe --case "Sod Shock Tube"
-cpp\build\fenice.exe --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
-cpp\build\fenice.exe --config run.cfg --threads 8
-cpp\build\fenice.exe --case "Lid Driven Cavity" --print-config
+build\release\fenice.exe --list-cases
+build\release\fenice.exe --case "Sod Shock Tube"
+build\release\fenice.exe --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
+build\release\fenice.exe --config run.cfg --threads 8
+build\release\fenice.exe --case "Lid Driven Cavity" --print-config
 ```
 
 | Option | Meaning |
@@ -100,7 +107,7 @@ With `use_mpi = true` and `n_cpus > 1`, `fenice` re-launches itself under
 `mpiexec -n n_cpus`. You can also start it directly:
 
 ```powershell
-mpiexec -n 8 cpp\build\fenice.exe --case "IBM Supersonic Flow over Cylinder"
+mpiexec -n 8 build\release\fenice.exe --case "IBM Supersonic Flow over Cylinder"
 ```
 
 Each rank owns a strip of rows or columns; see

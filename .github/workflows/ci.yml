@@ -35,23 +35,24 @@ jobs:
           python-version: "3.12"
       - name: Dependencies (Linux)
         if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libopenmpi-dev openmpi-bin
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build libopenmpi-dev openmpi-bin
       - name: Dependencies (macOS)
         if: runner.os == 'macOS'
-        run: brew install cmake libomp open-mpi
-      - run: python -m pip install numpy
+        run: brew install cmake ninja libomp open-mpi
+      - run: python -m pip install -e python
       - name: Build
         run: |
-          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release 2>&1 | tee configure.log
+          cmake --preset release 2>&1 | tee configure.log
           grep -q "Found OpenMP" configure.log || { echo "::error::OpenMP not found"; exit 1; }
           grep -q "MPI enabled" configure.log || { echo "::error::MPI not found"; exit 1; }
-          # Compiler errors become annotations (visible in the run summary without the full log)
-          cmake --build cpp/build -j 4 > build.log 2>&1 || {
-            grep -E "error|Error" build.log | head -20 | while IFS= read -r line; do echo "::error::$line"; done
-            tail -40 build.log; exit 1; }
+          # Compiler and linker errors become annotations (visible without the full log)
+          cmake --build --preset release -j 4 > build.log 2>&1 || {
+            grep -E "error|Error|undefined reference|multiple definition|ld:" build.log | head -30 |
+              while IFS= read -r line; do echo "::error::$line"; done
+            tail -60 build.log; exit 1; }
           grep -cE "warning" build.log | xargs -I{} echo "{} compiler warning lines"
       - name: Unit tests
-        run: ./cpp/build/fenice_tests
+        run: ./build/release/fenice_tests
       - name: Regression (serial)
         run: python cpp/tests/regression.py
       - name: Regression (4 MPI ranks)
@@ -69,12 +70,12 @@ jobs:
       - uses: mpi4py/setup-mpi@v1
         with:
           mpi: msmpi
-      - run: python -m pip install numpy
+      - run: python -m pip install -e python
       - name: Build and unit tests
         shell: pwsh
         run: |
           .\cpp\build.ps1 -Test
-          if (-not (Select-String -Path cpp\build\build.ninja -Pattern "FV_USE_MPI" -Quiet)) { throw "MPI not compiled in" }
+          if (-not (Select-String -Path build\release\build.ninja -Pattern "FV_USE_MPI" -Quiet)) { throw "MPI not compiled in" }
       - name: Regression (serial)
         run: python cpp/tests/regression.py
       - name: Regression (4 MPI ranks)

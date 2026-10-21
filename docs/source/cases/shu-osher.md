@@ -29,8 +29,8 @@ or Van Leer), a TVD-preserving integrator (SSP-RK2) and $n_x \ge 400$. With $n_y
 uses the **X-direction** decomposition.
 
 ```powershell
-cpp\build\fenice.exe --case "Shu-Osher Test"
-cpp\build\fenice.exe --case "Shu-Osher Test" --set muscl_limiter=Minmod
+build\release\fenice.exe --case "Shu-Osher Test"
+build\release\fenice.exe --case "Shu-Osher Test" --set muscl_limiter=Minmod
 python validation\validationShuOsher.py
 ```
 

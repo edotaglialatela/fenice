@@ -21,7 +21,7 @@ if ROOT_DIR not in sys.path:
 from PyQt6.QtWidgets import QApplication, QMessageBox  # noqa: E402
 
 from gui.setup_dialog import SetupDialog  # noqa: E402
-from gui.solver import EXE, SolverNotFound, available_cases, write_config  # noqa: E402
+from gui.solver import SolverNotFound, available_cases, solver_exe, write_config  # noqa: E402
 from gui.theme import apply_theme  # noqa: E402
 
 
@@ -45,7 +45,7 @@ def main() -> int:
     write_config(params, cfg)
     print(f"[GUI] Parameters written to {cfg}")
     try:
-        proc = subprocess.Popen([EXE, "--config", cfg], cwd=ROOT_DIR)
+        proc = subprocess.Popen([solver_exe(), "--config", cfg], cwd=ROOT_DIR)
         try:
             return proc.wait()
         except KeyboardInterrupt:

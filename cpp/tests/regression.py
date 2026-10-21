@@ -27,12 +27,15 @@ import time
 
 import numpy as np
 
+import fenice
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 REF = os.path.join(HERE, "reference")
-# Solver executable: cpp/build/fenice by default (build.ps1 / README); override with FENICE_EXE,
-# e.g. for an IDE build tree such as build/msvc-release/cpp/fenice.exe.
-EXE = os.environ.get("FENICE_EXE") or os.path.join(os.path.dirname(HERE), "build",
-                                                   "fenice.exe" if os.name == "nt" else "fenice")
+# Solver executable: build/release/fenice ($FENICE_EXE overrides; see fenice.exe)
+try:
+    EXE = fenice.exe()
+except FileNotFoundError as e:
+    sys.exit(str(e))
 
 # name: (test case, overrides on top of the case defaults)
 CASES = {

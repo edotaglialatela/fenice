@@ -3,7 +3,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 import xml.etree.ElementTree as ET
 from scipy.interpolate import interp1d
-from vtkio import vtk_array
+from fenice import vtk_array
 
 # --- FUNZIONE DI LETTURA (Riciclata e robusta) ---
 def read_latest_from_pvd(pvd_filepath):

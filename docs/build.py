@@ -43,11 +43,12 @@ import subprocess
 
 import markdown2
 
+import fenice
+
 DOCS = Path(__file__).resolve().parent
 ROOT = DOCS.parent
 SOURCE = DOCS / "source"
 HEADERS = ROOT / "cpp" / "include" / "fv"
-SOLVER = ROOT / "cpp" / "build" / ("fenice.exe" if __import__("os").name == "nt" else "fenice")
 TEMPLATES = DOCS / "_templates"
 SECTIONS = ["Guide", "Modules", "Test cases"]
 
@@ -434,9 +435,11 @@ def page_list(pages, current) -> str:
 
 def case_defaults_md(case: str) -> str:
     """Markdown table of the case's own defaults, straight from the solver."""
-    if not SOLVER.is_file():
+    try:
+        solver = fenice.exe()
+    except FileNotFoundError:
         return f"*(Build the solver to list the defaults of {case}: `.\\cpp\\build.ps1`)*"
-    out = subprocess.run([str(SOLVER), "--case", case, "--print-case-defaults"], capture_output=True, text=True,
+    out = subprocess.run([solver, "--case", case, "--print-case-defaults"], capture_output=True, text=True,
                          check=True).stdout
     rows = [line.split(" = ", 1) for line in out.splitlines() if " = " in line]
     return "| Parameter | Default |\n|---|---|\n" + "\n".join(f"| `{k}` | `{v}` |" for k, v in rows)

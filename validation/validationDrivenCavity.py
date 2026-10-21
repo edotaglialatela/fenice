@@ -3,7 +3,7 @@
     python validation/validationDrivenCavity.py                 # 32^2, 64^2, 128^2; 1st and 2nd order
     python validation/validationDrivenCavity.py --grids 32 64 128 256 --orders 2 --mpi 16
 
-Runs the C++ solver (cpp/build/fenice) on the "Lid Driven Cavity" case to a steady state
+Runs the C++ solver (build/release/fenice) on the "Lid Driven Cavity" case to a steady state
 (t_end = 40, checked from the kinetic energy of the monitor) for each grid and spatial order
 (1: Godunov, 2: MUSCL), then compares
 
@@ -21,8 +21,10 @@ import tempfile
 import matplotlib.pyplot as plt
 import numpy as np
 
+import fenice
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = os.path.join(ROOT, "cpp", "build", "fenice.exe" if os.name == "nt" else "fenice")
+EXE = fenice.exe()
 CASE, PREFIX = "Lid Driven Cavity", "lid_driven_cavity"
 G = 1.4
 

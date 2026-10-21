@@ -6,7 +6,7 @@ import matplotlib.pyplot as plt
 import matplotlib.animation as animation
 from scipy.interpolate import RegularGridInterpolator, interp1d, make_interp_spline
 from scipy.fft import fft, fftfreq
-from vtkio import vtk_array
+from fenice import vtk_array
 
 # =============================================================================
 # PARAMETERS

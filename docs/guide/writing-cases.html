@@ -575,9 +575,9 @@ recompilation. The approach follows ECOGEN's input files and OpenFOAM's case fol
 <p>The fastest way to start is to copy an existing case:</p>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-new-case</span> <span class="s2">&quot;Shock Hot Spot&quot;</span> <span class="p">-</span><span class="n">-from</span> <span class="s2">&quot;Sod Shock Tube&quot;</span>   <span class="c"># writes cases/shock_hot_spot/case.toml</span>
+<pre><span></span><code><span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-new-case</span> <span class="s2">&quot;Shock Hot Spot&quot;</span> <span class="p">-</span><span class="n">-from</span> <span class="s2">&quot;Sod Shock Tube&quot;</span>   <span class="c"># writes cases/shock_hot_spot/case.toml</span>
 <span class="c"># edit cases/shock_hot_spot/case.toml, then</span>
-<span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Shock Hot Spot&quot;</span>
+<span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Shock Hot Spot&quot;</span>
 </code></pre>
 </div>
 

@@ -14,7 +14,7 @@ import xml.etree.ElementTree as ET
 
 import matplotlib.pyplot as plt
 import numpy as np
-from vtkio import vtk_array
+from fenice import vtk_array
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 

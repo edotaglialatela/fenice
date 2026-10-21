@@ -567,8 +567,8 @@ defaults, $\mathrm{Re} = \rho_0 u_{\rm in} L_y/\mu = 0.5$. The flow is very low-
 which makes it a good target for <code>HLLC (Low-Mach Thornber)</code> and <code>BDF2 Dual Time</code>.</p>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Poiseuille Flow&quot;</span>
-<span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Poiseuille Flow&quot;</span> <span class="p">-</span><span class="n">-set</span> <span class="n">time_scheme</span><span class="p">=</span><span class="n">bdf2</span>
+<pre><span></span><code><span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Poiseuille Flow&quot;</span>
+<span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Poiseuille Flow&quot;</span> <span class="p">-</span><span class="n">-set</span> <span class="n">time_scheme</span><span class="p">=</span><span class="n">bdf2</span>
 <span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">validationPoiseuille</span><span class="p">.</span><span class="n">py</span>
 <span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">mpiComparison</span><span class="p">.</span><span class="n">py</span>      <span class="c"># serial vs MPI (results/poiseuille_flow[_mpi])</span>
 </code></pre>

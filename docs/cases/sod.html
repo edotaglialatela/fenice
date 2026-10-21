@@ -562,8 +562,8 @@ thin in $y$ ($L_y = 0.1$, $n_y = 20$), and the case forces transmissive left/rig
 boundaries and slip walls at the bottom and top, so the problem stays one-dimensional.</p>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Sod Shock Tube&quot;</span>
-<span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Sod Shock Tube&quot;</span> <span class="p">-</span><span class="n">-set</span> <span class="n">use_muscl</span><span class="p">=</span><span class="n">true</span> <span class="p">-</span><span class="n">-set</span> <span class="n">time_scheme</span><span class="p">=</span><span class="n">ssprk2</span>
+<pre><span></span><code><span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Sod Shock Tube&quot;</span>
+<span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Sod Shock Tube&quot;</span> <span class="p">-</span><span class="n">-set</span> <span class="n">use_muscl</span><span class="p">=</span><span class="n">true</span> <span class="p">-</span><span class="n">-set</span> <span class="n">time_scheme</span><span class="p">=</span><span class="n">ssprk2</span>
 <span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">validationSod</span><span class="p">.</span><span class="n">py</span>
 </code></pre>
 </div>

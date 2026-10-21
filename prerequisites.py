@@ -20,6 +20,7 @@ Then:
     python cpp/tests/regression.py     # regression check
 """
 
+import os
 import sys
 import subprocess
 import importlib
@@ -129,6 +130,16 @@ def main() -> None:
 
     all_status.update(_install_group(REQUIRED, "Core (required)"))
 
+    # The repository's own Python helpers (python/fenice), editable: used by the GUI, the
+    # validation scripts, the docs tools and the regression check
+    print("\nFenice Python helpers (python/fenice, editable)")
+    print("-" * 47)
+    local = os.path.join(os.path.dirname(os.path.abspath(__file__)), "python")
+    ok = subprocess.run([sys.executable, "-m", "pip", "install", "-e", local],
+                        capture_output=True, text=True).returncode == 0
+    print(f"  [{'OK' if ok else 'X'}]  fenice               {'installed' if ok else 'FAILED (required)'}")
+    all_status["fenice (python/)"] = "installed" if ok else "failed"
+
     if not args.no_gui:
         all_status.update(_install_group(GUI, "GUI -- gui/run.py"))
     else:
@@ -149,7 +160,7 @@ def main() -> None:
     if not failed:
         print("  All packages installed successfully.")
         print()
-        print("  Build the solver :  .\\cpp\\build.ps1 -Test")
+        print("  Build the solver :  .\\cpp\\build.ps1 -Test   (Linux / macOS: cmake --preset release && cmake --build --preset release)")
         print("  Launch the GUI   :  python gui/run.py")
         print("  Regression check :  python cpp/tests/regression.py")
     else:

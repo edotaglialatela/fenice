@@ -4,7 +4,7 @@ import glob
 import numpy as np
 import matplotlib.pyplot as plt
 import xml.etree.ElementTree as ET
-from vtkio import vtk_array
+from fenice import vtk_array
 
 class ExactRiemannSolver:
     """

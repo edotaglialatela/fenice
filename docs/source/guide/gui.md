@@ -16,7 +16,7 @@ solver output streams there. Ctrl+C reaches the solver, which writes its checkpo
 
 **Requirements:** Python 3.9+, `PyQt6` and `numpy` (`python prerequisites.py`), plus a
 built solver (`.\cpp\build.ps1`). Set `FENICE_EXE` to use an executable other than
-`cpp\build\fenice.exe`.
+`build\release\fenice.exe`.
 
 ## Tabs
 

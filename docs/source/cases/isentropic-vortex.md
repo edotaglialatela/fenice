@@ -23,7 +23,7 @@ the **order of accuracy** of the spatial and temporal schemes. Unlike Sod or Shu
 has no shocks, so the limiters should only clip at the smooth extrema.
 
 ```powershell
-cpp\build\fenice.exe --case "Isentropic Vortex"
+build\release\fenice.exe --case "Isentropic Vortex"
 python validation\validationIsentropicVortex.py
 ```
 

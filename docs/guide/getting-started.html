@@ -568,7 +568,7 @@ figcaption {
 workload (it provides <code>cl</code>, CMake and Ninja).</p>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="p">.\</span><span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">.</span><span class="n">ps1</span> <span class="n">-Test</span>     <span class="c"># Release build + unit tests -&gt; cpp\build\fenice.exe</span>
+<pre><span></span><code><span class="p">.\</span><span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">.</span><span class="n">ps1</span> <span class="n">-Test</span>     <span class="c"># Release build + unit tests -&gt; build\release\fenice.exe</span>
 <span class="p">.\</span><span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">.</span><span class="n">ps1</span> <span class="n">-NoMpi</span>    <span class="c"># build without MPI</span>
 </code></pre>
 </div>
@@ -593,14 +593,21 @@ process with all threads.</p>
 <h3 id="linux-macos">Linux / macOS</h3>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code>cmake<span class="w"> </span>-S<span class="w"> </span>cpp<span class="w"> </span>-B<span class="w"> </span>cpp/build<span class="w"> </span>-DCMAKE_BUILD_TYPE<span class="o">=</span>Release
-cmake<span class="w"> </span>--build<span class="w"> </span>cpp/build<span class="w"> </span>-j
+<pre><span></span><code>cmake<span class="w"> </span>--preset<span class="w"> </span>release
+cmake<span class="w"> </span>--build<span class="w"> </span>--preset<span class="w"> </span>release
 </code></pre>
 </div>
 
-<p>OpenMP and MPI (OpenMPI or MPICH) are used automatically when CMake finds them. On macOS,
-Apple's clang has no OpenMP runtime: <code>brew install libomp open-mpi</code> provides both, and
-CMake finds Homebrew's <code>libomp</code> by itself.</p>
+<p>The presets use Ninja (<code>apt install ninja-build</code>, <code>brew install ninja</code>). OpenMP and MPI
+(OpenMPI or MPICH) are used automatically when CMake finds them. On macOS, Apple's clang has
+no OpenMP runtime: <code>brew install libomp open-mpi</code> provides both, and CMake finds Homebrew's
+<code>libomp</code> by itself.</p>
+
+<p>Every build goes to <code>build/release/</code> (<code>fenice</code>, <code>fenice_tests</code>), or <code>build/debug/</code> with the
+<code>debug</code> preset; on Windows <code>build.ps1</code> uses the same <code>release</code> preset. The Python tools
+(GUI, validation scripts, docs, regression) share the package in <code>python/</code>, which
+<code>python prerequisites.py</code> installs in editable mode; it finds the solver in <code>build/release/</code>,
+or wherever <code>FENICE_EXE</code> points.</p>
 
 <p>Tested: Windows 11 (MSVC 19.50, MS-MPI 10.1), Ubuntu 26.04 (GCC 15.2, Open MPI 5.0) and
 macOS 27 on Apple M4 (Apple clang 21.0, Open MPI 5.0.9). The regression references are
@@ -642,11 +649,11 @@ regression references.</p>
 <h2 id="run">Run</h2>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-list-cases</span>
-<span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Sod Shock Tube&quot;</span>
-<span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Shu-Osher Test&quot;</span> <span class="p">-</span><span class="n">-set</span> <span class="n">nx</span><span class="p">=</span><span class="n">4000</span> <span class="p">-</span><span class="n">-set</span> <span class="n">muscl_limiter</span><span class="p">=</span><span class="n">MC</span>
-<span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-config</span> <span class="n">run</span><span class="p">.</span><span class="n">cfg</span> <span class="p">-</span><span class="n">-threads</span> <span class="n">8</span>
-<span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Lid Driven Cavity&quot;</span> <span class="p">-</span><span class="n">-print-config</span>
+<pre><span></span><code><span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-list-cases</span>
+<span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Sod Shock Tube&quot;</span>
+<span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Shu-Osher Test&quot;</span> <span class="p">-</span><span class="n">-set</span> <span class="n">nx</span><span class="p">=</span><span class="n">4000</span> <span class="p">-</span><span class="n">-set</span> <span class="n">muscl_limiter</span><span class="p">=</span><span class="n">MC</span>
+<span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-config</span> <span class="n">run</span><span class="p">.</span><span class="n">cfg</span> <span class="p">-</span><span class="n">-threads</span> <span class="n">8</span>
+<span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Lid Driven Cavity&quot;</span> <span class="p">-</span><span class="n">-print-config</span>
 </code></pre>
 </div>
 
@@ -718,7 +725,7 @@ checkpoint and the <code>.pvd</code> index are written. A second Ctrl+C aborts i
 <code>mpiexec -n n_cpus</code>. You can also start it directly:</p>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="n">mpiexec</span> <span class="n">-n</span> <span class="n">8</span> <span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;IBM Supersonic Flow over Cylinder&quot;</span>
+<pre><span></span><code><span class="n">mpiexec</span> <span class="n">-n</span> <span class="n">8</span> <span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;IBM Supersonic Flow over Cylinder&quot;</span>
 </code></pre>
 </div>
 

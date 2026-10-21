@@ -1,0 +1,14 @@
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "fenice"
+version = "0.1.0"
+description = "Python helpers for the Fenice solver: locate and run fenice, read its VTK, npz and monitor output"
+requires-python = ">=3.9"
+dependencies = ["numpy"]
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["fenice*"]

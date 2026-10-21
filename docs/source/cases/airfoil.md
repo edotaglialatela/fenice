@@ -13,8 +13,8 @@ a $12c \times 6c$ box with the quarter chord at $(3c, 3c)$: a velocity inlet on 
 slip walls three chords above and below.
 
 ```powershell
-cpp\build\fenice.exe --case "IBM Airfoil"                       # uses MPI (16 ranks) by default
-cpp\build\fenice.exe --case "IBM Airfoil" --set "ibm_shape=NACA 4412" --set ibm_aoa=5
+build\release\fenice.exe --case "IBM Airfoil"                       # uses MPI (16 ranks) by default
+build\release\fenice.exe --case "IBM Airfoil" --set "ibm_shape=NACA 4412" --set ibm_aoa=5
 python validation\airfoilLoads.py                              # loads figure + mean coefficients
 ```
 
