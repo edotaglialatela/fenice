@@ -207,6 +207,9 @@ SimParams SimParams::from(const Params& p) {
                                     std::to_string(s.ny) + ", patch " + std::to_string(s.amr_patch_nx) + " x " +
                                     std::to_string(s.amr_patch_ny));
     if (s.use_amr) {
+        const std::string ts = lower(s.time_scheme);
+        if (ts == "bdf2 dual time" || ts == "bdf2")
+            throw std::invalid_argument("AMR does not support the BDF2 dual-time scheme (use Explicit Euler, SSP Runge-Kutta 2 or Runge-Kutta 4)");
         for (const std::string* bc : {&s.bc_left, &s.bc_right, &s.bc_bottom, &s.bc_top}) {
             const std::string b = lower(*bc);
             if (b == "periodic")

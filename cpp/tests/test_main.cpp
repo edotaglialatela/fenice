@@ -1804,6 +1804,11 @@ TEST(parameter_validation) {
     CHECK(error_of({{"bc_left", "periodic"}}).find("in pairs") != std::string::npos);
     CHECK(error_of({{"bc_left", "Periodic"}, {"bc_right", "periodic"}}).empty());
     CHECK(error_of({{"use_amr", "true"}, {"resume", "true"}}).find("AMR") != std::string::npos);
+    CHECK(error_of({{"use_amr", "true"}, {"nx", "100"}}).find("multiples") != std::string::npos);   // patch 8
+    CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}, {"bc_left", "periodic"}, {"bc_right", "periodic"}})
+              .find("periodic") != std::string::npos);
+    CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}, {"time_scheme", "BDF2 Dual Time"}}).find("BDF2") != std::string::npos);
+    CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}}).empty());
     bool threw = false;
     try { parse_limiter("superbee"); } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);

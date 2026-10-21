@@ -152,7 +152,10 @@ blocks (leaf order), each rank advances its own, and the replicas are refreshed 
 `MPI_Allgatherv` after every stage (the same-level neighbours' state) and after every
 level (state and face fluxes). A patch's arithmetic does not depend on its rank, so the
 result is identical to the serial run for any number of ranks. The cost is memory (one
-full copy per rank) and a gather per stage; rank 0 writes the output.
+full copy per rank) and a gather per stage; rank 0 writes the output. On one node the OpenMP
+threads of a serial run are faster (a 720×360 airfoil on 24×24 patches, 50 steps: 1.8 s on 16
+threads, 13.6 s on 16 ranks); MPI is for runs that do not fit one node's cores, and a patch store
+distributed over the ranks (exchanging only the interface patches) is the next step for those.
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/sod_amr.png" style="width:100%">
