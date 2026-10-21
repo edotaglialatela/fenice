@@ -200,6 +200,11 @@ SimParams SimParams::from(const Params& p) {
     if (s.nx <= 0 || s.ny <= 0 || s.nz <= 0) throw std::invalid_argument("nx, ny and nz must be positive");
     if (s.Lx <= 0 || s.Ly <= 0 || s.Lz <= 0) throw std::invalid_argument("Lx, Ly and Lz must be positive");
     if (s.use_amr && s.nz > 1) throw std::invalid_argument("AMR is 2-D only (nz must be 1 when use_amr is on)");
+    if (s.use_amr && (s.nx % s.amr_patch_nx != 0 || s.ny % s.amr_patch_ny != 0))
+        throw std::invalid_argument("AMR: nx and ny must be multiples of amr_patch_nx and amr_patch_ny (the level-0 "
+                                    "patches tile the mesh): nx = " + std::to_string(s.nx) + ", ny = " +
+                                    std::to_string(s.ny) + ", patch " + std::to_string(s.amr_patch_nx) + " x " +
+                                    std::to_string(s.amr_patch_ny));
     if (s.use_amr && s.resume)
         throw std::invalid_argument("resume is not available with AMR (AMR runs write no checkpoint); "
                                     "use a hot start from a uniform-mesh checkpoint instead");

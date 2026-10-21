@@ -1,6 +1,7 @@
 #include "fv/AMR.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <set>
 #include <stdexcept>
 
@@ -14,8 +15,8 @@ bool g_amr_disable_reflux = false;
 // AMRTree
 // ---------------------------------------------------------------------------
 
-AMRTree::AMRTree(double Lx_, double Ly_, int nxp, int nyp, int max_lvl)
-    : Lx(Lx_), Ly(Ly_), nx_patch(nxp), ny_patch(nyp), max_level(max_lvl) {
+AMRTree::AMRTree(double Lx_, double Ly_, int nxp, int nyp, int max_lvl, int nrx, int nry)
+    : Lx(Lx_), Ly(Ly_), nx_patch(nxp), ny_patch(nyp), max_level(max_lvl), nroot_x(nrx), nroot_y(nry) {
     // Children have the same cell count over half the extent, so 2 fine cells
     // must tile 1 coarse cell: odd dimensions break conservation.
     if (max_level > 0 && (nxp % 2 != 0 || nyp % 2 != 0))
@@ -23,7 +24,15 @@ AMRTree::AMRTree(double Lx_, double Ly_, int nxp, int nyp, int max_lvl)
             "AMR patch dimensions must be EVEN for refinement to align 2:1 (got nx_patch=" +
             std::to_string(nxp) + ", ny_patch=" + std::to_string(nyp) +
             "). Odd dimensions break conservation.");
-    root = new_patch(0.0, Lx, 0.0, Ly, 0, nullptr);
+    if (nrx < 1 || nry < 1) throw std::invalid_argument("AMR needs at least one root patch per axis");
+    nslot_x_ = nrx << max_level;
+    nslot_y_ = nry << max_level;
+    slot_w_  = Lx / nslot_x_;
+    slot_h_  = Ly / nslot_y_;
+    for (int j = 0; j < nry; ++j)
+        for (int i = 0; i < nrx; ++i)
+            roots.push_back(new_patch(Lx * i / nrx, Lx * (i + 1) / nrx, Ly * j / nry, Ly * (j + 1) / nry, 0, nullptr));
+    root = roots[0];
 }
 
 AMRPatch* AMRTree::new_patch(double x0, double x1, double y0, double y1, int level, AMRPatch* parent) {
@@ -33,9 +42,13 @@ AMRPatch* AMRTree::new_patch(double x0, double x1, double y0, double y1, int lev
     p->parent = parent;
     p->id     = next_id_++;
     p->mesh   = generate_cartesian_mesh(x1 - x0, y1 - y0, nx_patch, ny_patch, x0, y0);
+    // Cell size from the base grid by exact halving, so tiled patches share the uniform mesh's dx
+    p->mesh.dx = std::ldexp(Lx / (nroot_x * nx_patch), -level);
+    p->mesh.dy = std::ldexp(Ly / (nroot_y * ny_patch), -level);
     p->U.assign(p->mesh.num_cells(), State{0, 0, 0, 0});
     AMRPatch* raw = p.get();
     patches_[raw->id] = std::move(p);
+    dirty_ = true;
     return raw;
 }
 
@@ -44,10 +57,38 @@ void AMRTree::collect_leaves(AMRPatch* p, std::vector<AMRPatch*>& out) {
     for (AMRPatch* c : p->children) collect_leaves(c, out);
 }
 
+void AMRTree::slots_of(const AMRPatch* p, int& i0, int& i1, int& j0, int& j1) const {
+    i0 = static_cast<int>(std::lround(p->xmin / slot_w_));
+    i1 = static_cast<int>(std::lround(p->xmax / slot_w_));
+    j0 = static_cast<int>(std::lround(p->ymin / slot_h_));
+    j1 = static_cast<int>(std::lround(p->ymax / slot_h_));
+}
+
+void AMRTree::rebuild_index() const {
+    leaf_cache_.clear();
+    for (AMRPatch* r : roots) collect_leaves(r, leaf_cache_);
+    slot_.assign(static_cast<size_t>(nslot_x_) * nslot_y_, nullptr);
+    for (AMRPatch* lf : leaf_cache_) {
+        int i0, i1, j0, j1;
+        slots_of(lf, i0, i1, j0, j1);
+        for (int j = j0; j < j1; ++j)
+            for (int i = i0; i < i1; ++i) slot_[static_cast<size_t>(j) * nslot_x_ + i] = lf;
+    }
+    dirty_ = false;
+}
+
 std::vector<AMRPatch*> AMRTree::leaves() const {
-    std::vector<AMRPatch*> out;
-    collect_leaves(root, out);
-    return out;
+    if (dirty_) rebuild_index();
+    return leaf_cache_;
+}
+
+AMRPatch* AMRTree::leaf_at(double x, double y) const {
+    constexpr double eps = 1e-9;
+    if (dirty_) rebuild_index();
+    if (x < -eps || x > Lx + eps || y < -eps || y > Ly + eps) return nullptr;
+    const int i = std::min(std::max(static_cast<int>(x / slot_w_), 0), nslot_x_ - 1);
+    const int j = std::min(std::max(static_cast<int>(y / slot_h_), 0), nslot_y_ - 1);
+    return slot_[static_cast<size_t>(j) * nslot_x_ + i];
 }
 
 std::vector<AMRPatch*> AMRTree::all_patches() const {
@@ -73,7 +114,7 @@ std::vector<AMRPatch*> AMRTree::refine_patch(AMRPatch* patch) {
     // Conservative piecewise-constant injection: each child cell copies the
     // parent cell containing its centre.
     const Mesh& mp = patch->mesh;
-    const double dx_p = mp.Lx / mp.nx, dy_p = mp.Ly / mp.ny;
+    const double dx_p = mp.dx, dy_p = mp.dy;
     const double x0_p = mp.xc(0) - 0.5 * dx_p;
     const double y0_p = mp.yc(0) - 0.5 * dy_p;
 
@@ -104,9 +145,9 @@ void AMRTree::derefine_patch(AMRPatch* patch) {
     const int nx_p = mp.nx, ny_p = mp.ny;
     Field Uc(static_cast<size_t>(nx_p) * ny_p, State{0, 0, 0, 0});
     for (AMRPatch* child : patch->children) {
-        const double dx_p = mp.Lx / nx_p, dy_p = mp.Ly / ny_p;
-        const double x_off = mp.xc(0) - 0.5 * (mp.Lx / nx_p);
-        const double y_off = mp.yc(0) - 0.5 * (mp.Ly / ny_p);
+        const double dx_p = mp.dx, dy_p = mp.dy;
+        const double x_off = mp.xc(0) - 0.5 * mp.dx;
+        const double y_off = mp.yc(0) - 0.5 * mp.dy;
         const int i_off = static_cast<int>(std::lround((child->xmin - x_off) / dx_p));
         const int j_off = static_cast<int>(std::lround((child->ymin - y_off) / dy_p));
         for (int jc = 0; jc < child->ny(); ++jc)
@@ -119,6 +160,7 @@ void AMRTree::derefine_patch(AMRPatch* patch) {
     patch->U = std::move(Uc);
     for (AMRPatch* c : patch->children) patches_.erase(c->id);
     patch->children.clear();
+    dirty_ = true;
 }
 
 void AMRTree::enforce_2to1_balance() {
@@ -140,65 +182,34 @@ void AMRTree::enforce_2to1_balance() {
     }
 }
 
-AMRPatch* AMRTree::find_neighbour_leaf(const AMRPatch* p, Face face, const std::vector<AMRPatch*>& lv) const {
-    constexpr double eps = 1e-10;
-    for (AMRPatch* nb : lv) {
-        if (nb == p) continue;
-        bool hit = false;
-        switch (face) {
-            case Face::Left:
-                if (p->xmin <= eps) return nullptr;
-                hit = std::abs(nb->xmax - p->xmin) < eps && nb->ymin < p->ymax - eps && nb->ymax > p->ymin + eps;
-                break;
-            case Face::Right:
-                if (p->xmax >= Lx - eps) return nullptr;
-                hit = std::abs(nb->xmin - p->xmax) < eps && nb->ymin < p->ymax - eps && nb->ymax > p->ymin + eps;
-                break;
-            case Face::Bottom:
-                if (p->ymin <= eps) return nullptr;
-                hit = std::abs(nb->ymax - p->ymin) < eps && nb->xmin < p->xmax - eps && nb->xmax > p->xmin + eps;
-                break;
-            case Face::Top:
-                if (p->ymax >= Ly - eps) return nullptr;
-                hit = std::abs(nb->ymin - p->ymax) < eps && nb->xmin < p->xmax - eps && nb->xmax > p->xmin + eps;
-                break;
-            case Face::Front:
-            case Face::Back:   // AMR is 2-D only
-                break;
-        }
-        if (hit) return nb;
-    }
-    return nullptr;
+AMRPatch* AMRTree::find_neighbour_leaf(const AMRPatch* p, Face face, const std::vector<AMRPatch*>&) const {
+    const auto nb = neighbour_leaves(p, face);
+    return nb.empty() ? nullptr : nb.front();
 }
 
 AMRPatch* AMRTree::get_neighbour(const AMRPatch* patch, Face face) const {
-    return find_neighbour_leaf(patch, face, leaves());
+    return find_neighbour_leaf(patch, face, {});
 }
 
 std::vector<AMRPatch*> AMRTree::neighbour_leaves(const AMRPatch* p, Face face) const {
-    constexpr double eps = 1e-10;
     std::vector<AMRPatch*> out;
-    if ((face == Face::Left && p->xmin <= eps) || (face == Face::Right && p->xmax >= Lx - eps) ||
-        (face == Face::Bottom && p->ymin <= eps) || (face == Face::Top && p->ymax >= Ly - eps))
-        return out;
-    for (AMRPatch* nb : leaves()) {
-        if (nb == p) continue;
-        bool hit = false;
-        switch (face) {
-            case Face::Left:
-                hit = std::abs(nb->xmax - p->xmin) < eps && nb->ymin < p->ymax - eps && nb->ymax > p->ymin + eps; break;
-            case Face::Right:
-                hit = std::abs(nb->xmin - p->xmax) < eps && nb->ymin < p->ymax - eps && nb->ymax > p->ymin + eps; break;
-            case Face::Bottom:
-                hit = std::abs(nb->ymax - p->ymin) < eps && nb->xmin < p->xmax - eps && nb->xmax > p->xmin + eps; break;
-            case Face::Top:
-                hit = std::abs(nb->ymin - p->ymax) < eps && nb->xmin < p->xmax - eps && nb->xmax > p->xmin + eps; break;
-            case Face::Front:
-            case Face::Back:   // AMR is 2-D only
-                break;
-        }
-        if (hit) out.push_back(nb);
+    if (dirty_) rebuild_index();
+    int i0, i1, j0, j1;
+    slots_of(p, i0, i1, j0, j1);
+    // Slot range just outside the patch along `face`
+    switch (face) {
+        case Face::Left:   if (i0 <= 0) return out;           i1 = i0;     i0 = i0 - 1; break;
+        case Face::Right:  if (i1 >= nslot_x_) return out;    i0 = i1;     i1 = i1 + 1; break;
+        case Face::Bottom: if (j0 <= 0) return out;           j1 = j0;     j0 = j0 - 1; break;
+        case Face::Top:    if (j1 >= nslot_y_) return out;    j0 = j1;     j1 = j1 + 1; break;
+        case Face::Front:
+        case Face::Back:   return out;   // AMR is 2-D only
     }
+    for (int j = j0; j < j1; ++j)
+        for (int i = i0; i < i1; ++i) {
+            AMRPatch* nb = slot_[static_cast<size_t>(j) * nslot_x_ + i];
+            if (nb && nb != p && (out.empty() || out.back() != nb)) out.push_back(nb);
+        }
     return out;
 }
 
@@ -367,7 +378,7 @@ void apply_reflux(AMRTree& tree, int level, double dt) {
     for (AMRPatch* c : tree.leaves()) {
         if (c->level != level) continue;
         const int nx_c = c->nx(), ny_c = c->ny();
-        const double dx_c = c->mesh.Lx / nx_c, dy_c = c->mesh.Ly / ny_c;
+        const double dx_c = c->mesh.dx, dy_c = c->mesh.dy;
         const double area = c->mesh.cell_area();
         for (Face face : kAllFaces) {
             std::vector<AMRPatch*> fines;
@@ -390,8 +401,8 @@ void apply_reflux(AMRTree& tree, int level, double dt) {
                     face_edge_indices(g->nx(), g->ny(), opp, which_g, idx_g);
                     const Field& reg = (which_g == 'x') ? g->reflux_fx : g->reflux_fy;
                     int kf;
-                    if (vertical) kf = std::min(std::max(static_cast<int>((coord - g->ymin) / (g->mesh.Ly / g->ny())), 0), g->ny() - 1);
-                    else          kf = std::min(std::max(static_cast<int>((coord - g->xmin) / (g->mesh.Lx / g->nx())), 0), g->nx() - 1);
+                    if (vertical) kf = std::min(std::max(static_cast<int>((coord - g->ymin) / g->mesh.dy), 0), g->ny() - 1);
+                    else          kf = std::min(std::max(static_cast<int>((coord - g->xmin) / g->mesh.dx), 0), g->nx() - 1);
                     for (int q = 0; q < kNVar; ++q) sumF[q] += reg[idx_g[kf]][q];
                 }
                 const int ic = vertical ? (face == Face::Left ? 0 : nx_c - 1) : k;

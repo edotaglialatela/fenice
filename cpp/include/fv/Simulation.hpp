@@ -131,6 +131,8 @@ private:
 Field prolong_ghost_face(const AMRPatch& patch, const AMRPatch& nb, Face face);
 // State of the leaf cell containing (x, y), or nullptr if no leaf covers it.
 const State* sample_leaf_state(const std::vector<AMRPatch*>& leaves, double x, double y);
+// Same, through the tree's spatial index (no scan over the leaves).
+const State* sample_leaf_state(const AMRTree& tree, double x, double y);
 
 // "12.3s" or "m:ss".
 std::string format_elapsed(double seconds);

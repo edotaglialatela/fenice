@@ -47,11 +47,15 @@ struct AMRPatch {
 // Quad-tree manager: refinement, derefinement, 2:1 balance and neighbour lookup.
 class AMRTree {
 public:
-    // Single root patch over [0, Lx] x [0, Ly].  Patch dimensions must be even when
-    // max_level > 0 (2 fine cells must tile 1 coarse cell); throws otherwise.
-    AMRTree(double Lx, double Ly, int nx_patch, int ny_patch, int max_level = 2);
+    // Level-0 patches tile [0, Lx] x [0, Ly] as nroot_x x nroot_y blocks of nx_patch x ny_patch cells.
+    // Patch dimensions must be even when max_level > 0 (2 fine cells must tile 1 coarse cell);
+    // throws otherwise.
+    AMRTree(double Lx, double Ly, int nx_patch, int ny_patch, int max_level = 2, int nroot_x = 1, int nroot_y = 1);
 
-    std::vector<AMRPatch*> leaves() const;          // bottom-left -> top-right (DFS)
+    std::vector<AMRPatch*> leaves() const;          // root by root (row-major), DFS inside each
+    // Leaf covering the point (nullptr outside the domain). Uses an index rebuilt after every tree
+    // change; the first call after a change (leaves() makes one) must not be inside a parallel region.
+    AMRPatch*              leaf_at(double x, double y) const;
     std::vector<AMRPatch*> all_patches() const;     // by creation id
 
     // Split a leaf into 4 children [BL, BR, TL, TR] by conservative injection; throws at max_level.
@@ -66,14 +70,26 @@ public:
     // Every leaf across `face` (up to 2 finer leaves under 2:1 balance).
     std::vector<AMRPatch*> neighbour_leaves(const AMRPatch* patch, Face face) const;
 
-    AMRPatch* root = nullptr;                // level-0 patch covering the domain
+    AMRPatch* root = nullptr;                // roots[0]; the level-0 patch when the tree has a single root
+    std::vector<AMRPatch*> roots;            // level-0 patches, row-major (x fastest)
     double Lx, Ly;                           // domain size
     int    nx_patch, ny_patch, max_level;    // block size and refinement depth
+    int    nroot_x, nroot_y;                 // level-0 patches per axis
 
 private:
     AMRPatch* new_patch(double x0, double x1, double y0, double y1, int level, AMRPatch* parent);
     AMRPatch* find_neighbour_leaf(const AMRPatch* patch, Face face, const std::vector<AMRPatch*>& lv) const;
     static void collect_leaves(AMRPatch* p, std::vector<AMRPatch*>& out);
+    void rebuild_index() const;
+    // Slot-grid index range [i0, i1) x [j0, j1) of a patch
+    void slots_of(const AMRPatch* p, int& i0, int& i1, int& j0, int& j1) const;
+
+    // Leaf list and slot grid (one slot per finest-level patch footprint), valid unless dirty_
+    mutable std::vector<AMRPatch*> leaf_cache_;
+    mutable std::vector<AMRPatch*> slot_;
+    mutable bool                   dirty_ = true;
+    int                            nslot_x_ = 1, nslot_y_ = 1;
+    double                         slot_w_ = 1.0, slot_h_ = 1.0;
 
     std::map<int, std::unique_ptr<AMRPatch>> patches_;
     int next_id_ = 0;

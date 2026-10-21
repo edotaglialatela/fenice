@@ -562,7 +562,7 @@ TEST(amr_error_indicator) {
 
 namespace {
 SimParams amr_params(const char* scheme = "SSP Runge-Kutta 2", const char* bcs = "transmissive") {
-    return params_for("Sod Shock Tube", {{"Lx", "1.0"}, {"Ly", "1.0"}, {"nx", "32"}, {"ny", "32"},
+    return params_for("Sod Shock Tube", {{"Lx", "1.0"}, {"Ly", "1.0"}, {"nx", "8"}, {"ny", "8"},
                                          {"bc_left", bcs}, {"bc_right", bcs}, {"bc_bottom", "wall"}, {"bc_top", "wall"},
                                          {"time_scheme", scheme}, {"use_amr", "true"}, {"amr_max_level", "2"},
                                          {"amr_patch_nx", "8"}, {"amr_patch_ny", "8"}});
@@ -750,7 +750,7 @@ TEST(amr_ibm_masks_and_reset_across_patches) {
     uni.initialize_field();
     sim.initialize_field();
     AMRTree& tree = *sim.amr_tree;
-    tree.refine_patch(tree.root);   // four 48 x 24 patches: the 96 x 48 uniform grid
+    CHECK(tree.roots.size() == 4);   // four 48 x 24 root patches: the 96 x 48 uniform grid
     int solid = 0;
     for (AMRPatch* lf : tree.leaves()) {
         sim.ensure_patch_masks(*lf);
@@ -791,7 +791,6 @@ TEST(amr_same_level_patches_match_uniform_residual) {
     uni.initialize_field();
     sim.initialize_field();
     AMRTree& tree = *sim.amr_tree;
-    tree.refine_patch(tree.root);
     for (int j = 0; j < uni.mesh.ny; ++j)
         for (int i = 0; i < uni.mesh.nx; ++i)
             uni.U[j * uni.mesh.nx + i] = test_state(uni.fluid, uni.mesh.xc(i), uni.mesh.yc(j));
@@ -825,7 +824,7 @@ namespace {
 void run_viscous_box(double& e0, double& e1, double& m0, double& m1) {
     Simulation sim;
     sim.setup(params_for("Lid Driven Cavity",
-                         {{"Lx", "1.0"}, {"Ly", "1.0"}, {"nx", "32"}, {"ny", "32"}, {"use_mpi", "false"},
+                         {{"Lx", "1.0"}, {"Ly", "1.0"}, {"nx", "8"}, {"ny", "8"}, {"use_mpi", "false"},
                           {"bc_top", "no_slip"}, {"time_scheme", "Explicit Euler"}, {"use_muscl", "false"},
                           {"mu", "0.02"}, {"use_amr", "true"}, {"amr_max_level", "2"},
                           {"amr_patch_nx", "8"}, {"amr_patch_ny", "8"}}), false);

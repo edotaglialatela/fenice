@@ -166,7 +166,7 @@ Field prolong_ghost_face(const AMRPatch& patch, const AMRPatch& nb, Face face) {
     const GridInterp2D interp(xs, ys, nb.ghost_source());
 
     const int nx_f = patch.nx(), ny_f = patch.ny();
-    const double dx_f = patch.mesh.Lx / nx_f, dy_f = patch.mesh.Ly / ny_f;
+    const double dx_f = patch.mesh.dx, dy_f = patch.mesh.dy;
     Field ghost;
     if (face == Face::Left || face == Face::Right) {
         const double x = (face == Face::Left) ? patch.xmin - 0.5 * dx_f : patch.xmax + 0.5 * dx_f;
@@ -179,11 +179,19 @@ Field prolong_ghost_face(const AMRPatch& patch, const AMRPatch& nb, Face face) {
 }
 
 // State of the leaf cell containing (x, y), or nullptr outside every leaf.
+const State* sample_leaf_state(const AMRTree& tree, double x, double y) {
+    const AMRPatch* leaf = tree.leaf_at(x, y);
+    if (!leaf) return nullptr;
+    const int i = std::min(std::max(static_cast<int>((x - leaf->xmin) / leaf->mesh.dx), 0), leaf->nx() - 1);
+    const int j = std::min(std::max(static_cast<int>((y - leaf->ymin) / leaf->mesh.dy), 0), leaf->ny() - 1);
+    return &leaf->ghost_source()[j * leaf->nx() + i];
+}
+
 const State* sample_leaf_state(const std::vector<AMRPatch*>& leaves, double x, double y) {
     constexpr double eps = 1e-9;
     for (const AMRPatch* leaf : leaves) {
         if (leaf->xmin - eps <= x && x <= leaf->xmax + eps && leaf->ymin - eps <= y && y <= leaf->ymax + eps) {
-            const double dxl = leaf->mesh.Lx / leaf->nx(), dyl = leaf->mesh.Ly / leaf->ny();
+            const double dxl = leaf->mesh.dx, dyl = leaf->mesh.dy;
             const int i = std::min(std::max(static_cast<int>((x - leaf->xmin) / dxl), 0), leaf->nx() - 1);
             const int j = std::min(std::max(static_cast<int>((y - leaf->ymin) / dyl), 0), leaf->ny() - 1);
             return &leaf->ghost_source()[j * leaf->nx() + i];
@@ -354,7 +362,8 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     amr_tree.reset();
     amr_indicator.reset();
     if (p.use_amr) {
-        amr_tree = std::make_unique<AMRTree>(p.Lx, p.Ly, p.amr_patch_nx, p.amr_patch_ny, p.amr_max_level);
+        amr_tree = std::make_unique<AMRTree>(p.Lx, p.Ly, p.amr_patch_nx, p.amr_patch_ny, p.amr_max_level,
+                                             p.nx / p.amr_patch_nx, p.ny / p.amr_patch_ny);
         amr_indicator = std::make_unique<AMRErrorIndicator>(p.amr_refine_threshold, p.amr_derefine_threshold,
                                                             p.amr_buffer_layers);
         if (verbose)
@@ -721,21 +730,16 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
     }
     const Field& Uc = *Up;
 
-    const double dx = m.Lx / nx, dy = m.Ly / ny;
+    const double dx = m.dx, dy = m.dy;
     const double ox = 1e-6 * dx, oy = 1e-6 * dy;
-    const auto leaves = tree.leaves();
     const bool if_l = patch.xmin > eps, if_r = patch.xmax < mesh.Lx - eps;
     const bool if_b = patch.ymin > eps, if_t = patch.ymax < mesh.Ly - eps;
 
     std::map<const AMRPatch*, GridInterp2D> interps;
-    auto leaf_at = [&](double x, double y) -> const AMRPatch* {
-        for (const AMRPatch* lf : leaves)
-            if (lf->xmin - 1e-9 <= x && x <= lf->xmax + 1e-9 && lf->ymin - 1e-9 <= y && y <= lf->ymax + 1e-9) return lf;
-        return nullptr;
-    };
+    auto leaf_at = [&](double x, double y) -> const AMRPatch* { return tree.leaf_at(x, y); };
     auto cell_at = [&](const AMRPatch* lf, double x, double y) -> const State& {
-        const int i = std::min(std::max(static_cast<int>((x - lf->xmin) / (lf->mesh.Lx / lf->nx())), 0), lf->nx() - 1);
-        const int j = std::min(std::max(static_cast<int>((y - lf->ymin) / (lf->mesh.Ly / lf->ny())), 0), lf->ny() - 1);
+        const int i = std::min(std::max(static_cast<int>((x - lf->xmin) / lf->mesh.dx), 0), lf->nx() - 1);
+        const int j = std::min(std::max(static_cast<int>((y - lf->ymin) / lf->mesh.dy), 0), lf->ny() - 1);
         return lf->ghost_source()[j * lf->nx() + i];
     };
     auto ghost_state = [&](double x, double y) -> const State* {
@@ -843,7 +847,7 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
                     case Face::Bottom: x = patch.xmin + (k + 0.5) * dx; y = patch.ymin - oy; break;
                     default:           x = patch.xmin + (k + 0.5) * dx; y = patch.ymax + oy; break;
                 }
-                if (const State* s = sample_leaf_state(leaves, x, y)) target[m.boundary_face(f, k)] = *s;
+                if (const State* s = sample_leaf_state(tree, x, y)) target[m.boundary_face(f, k)] = *s;
             }
         }
         // A solid ghost cell holds no velocity (the neighbour snapshot is never forced)
@@ -984,7 +988,7 @@ void Simulation::amr_solid_reset(AMRTree& tree) {
                     continue;
                 }
                 const double x = m.x0 + (ii - 0.5) * m.dx, y = m.y0 + (jj - 0.5) * m.dy;
-                const State* s = (x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly) ? sample_leaf_state(leaves, x, y) : nullptr;
+                const State* s = (x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly) ? sample_leaf_state(tree, x, y) : nullptr;
                 if (s) {
                     E[e] = *s;
                     mask[e] = patch.solid_ext[e];
@@ -1256,7 +1260,7 @@ void Simulation::solve() {
 void Simulation::solve_amr() {
     AMRTree& tree = *amr_tree;
     int step = start_step;
-    const double min_delta_base = std::min(tree.root->mesh.Lx / tree.root->nx(), tree.root->mesh.Ly / tree.root->ny());
+    const double min_delta_base = std::min(tree.roots[0]->mesh.dx, tree.roots[0]->mesh.dy);
 
     if (step == 0) exporter.export_amr(file_prefix, fluid, tree, t, step);
 
