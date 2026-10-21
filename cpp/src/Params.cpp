@@ -116,7 +116,7 @@ Params baseline_defaults() {
         {"hot_start_src_nx", "0"}, {"hot_start_src_ny", "0"},
         {"use_amr", "false"}, {"amr_max_level", "2"}, {"amr_patch_nx", "8"}, {"amr_patch_ny", "8"},
         {"amr_refine_threshold", "0.3"}, {"amr_derefine_threshold", "0.1"},
-        {"amr_refine_every", "10"}, {"amr_init_levels", "0"}, {"amr_buffer_layers", "1"}, {"amr_refine_ibm", "true"},
+        {"amr_refine_every", "10"}, {"amr_init_levels", "0"}, {"amr_buffer_layers", "1"}, {"amr_refine_ibm", "true"}, {"amr_indicator", "density"},
         {"output_root", FV_PROJECT_ROOT "/results"}, {"dump_state", ""}, {"max_steps", "0"},
         {"monitor_interval", "0"}, {"vtk_format", "binary"},
     };
@@ -192,6 +192,7 @@ SimParams SimParams::from(const Params& p) {
     s.amr_init_levels   = p.integer("amr_init_levels", 0);
     s.amr_buffer_layers = p.integer("amr_buffer_layers", 1);
     s.amr_refine_ibm    = p.flag("amr_refine_ibm");
+    s.amr_indicator     = lower(p.str("amr_indicator", "density"));
     s.output_root    = p.str("output_root", "results");
     s.dump_state     = p.str("dump_state");
     s.max_steps      = p.integer("max_steps", 0);
@@ -206,6 +207,8 @@ SimParams SimParams::from(const Params& p) {
                                     "patches tile the mesh): nx = " + std::to_string(s.nx) + ", ny = " +
                                     std::to_string(s.ny) + ", patch " + std::to_string(s.amr_patch_nx) + " x " +
                                     std::to_string(s.amr_patch_ny));
+    if (s.amr_indicator != "density" && s.amr_indicator != "velocity" && s.amr_indicator != "density+velocity")
+        throw std::invalid_argument("amr_indicator must be density, velocity or density+velocity (got '" + s.amr_indicator + "')");
     if (s.use_amr) {
         const std::string ts = lower(s.time_scheme);
         if (ts == "bdf2 dual time" || ts == "bdf2")

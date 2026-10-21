@@ -104,13 +104,15 @@ public:
     AMRErrorIndicator(double refine_threshold = 0.3, double derefine_threshold = 0.1, int buffer_layers = 1)
         : refine_threshold(refine_threshold), derefine_threshold(derefine_threshold), buffer_layers(buffer_layers) {}
 
-    // eta = max over cells of |second difference| / (|first differences| + 0.01 max|rho|), in [0, 1].
+    // eta = max over cells of |second difference| / (|first differences| + 0.01 max|f|), in [0, 1], for
+    // f = density and / or the speed |u| (the largest of the enabled ones).
     double indicator(const AMRPatch& patch) const;
     // Leaves to refine (flagged + buffer, sorted by id) and parents to derefine.
     void   mark(AMRTree& tree, std::vector<AMRPatch*>& to_refine, std::vector<AMRPatch*>& to_derefine) const;
 
     double refine_threshold, derefine_threshold;   // eta thresholds
     int    buffer_layers;                          // halo rings around flagged patches
+    bool   use_density = true, use_speed = false;  // fields the ratio is taken of
     // Optional: leaves for which this is true are refined to max_level whatever eta says, and their
     // parents are never derefined (an immersed body kept at the finest level).
     std::function<bool(const AMRPatch&)> force_refine;

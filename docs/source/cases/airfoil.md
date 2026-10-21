@@ -18,12 +18,37 @@ build\release\fenice.exe --case "IBM Airfoil" --set "ibm_shape=NACA 4412" --set 
 python validation\ibm_loads.py airfoil                        # loads figure + mean coefficients
 ```
 
+## Loads
+
+With IBM on, every `monitor_interval` steps the monitor records $F_x$, $F_y$ and the
+coefficients $C_d$, $C_l$ and $C_m$ (about the quarter chord, nose-up positive), on the chord
+and $q = \tfrac12\rho_{\rm in}u_{\rm in}^2$. They are computed inside the solver from the
+momentum flux into the body, so they include pressure and friction; see
+[Loads on the body]({{root}}modules/Physics.html#loads-on-the-body).
+
+## Default parameters
+
+{{defaults:IBM Airfoil}}
+
+## Results
+
+<figure>
+<img src="{{root}}img/airfoil_loads.png" style="width:100%">
+<figcaption>NACA 0012 at 10°, Re = 1000, 720 × 360 cells. Top: vorticity at t = 20, with the
+shear layers rolling up into a vortex street. Bottom: lift, drag and moment coefficients;
+over t ≥ 10 (shaded) C<sub>l</sub> = 0.38 (between 0.26 and 0.51), C<sub>d</sub> = 0.17 and
+C<sub>m</sub> ≈ 0 about the quarter chord, as thin-airfoil theory predicts. The dominant lift
+frequency is f c/U ≈ 1.21.</figcaption>
+</figure>
+
 ## Adaptive mesh refinement
 
 The case `IBM Airfoil AMR` is the same flow on a 192×96 base mesh with
 [AMR]({{root}}modules/AMR.html): 16×16 patches, two refinement levels, the airfoil kept at the
-finest level (the resolution of a 768×384 mesh, chord = 64 cells) and the wake refined where
-the density has gradients.
+finest level (the resolution of a 768×384 mesh, chord = 64 cells) and the wake followed by the
+indicator: `amr_indicator = "density+velocity"` takes the Löhner ratio of the speed as well as of the
+density, because at Ma = 0.2 the density hardly varies in the wake (the default, density only, would
+leave it coarse).
 
 ```powershell
 build\release\fenice.exe --case "IBM Airfoil AMR"        # OpenMP threads; writes Cl, Cd, Cm like the uniform case
@@ -33,7 +58,7 @@ python validation\airfoil_amr.py --docs                  # AMR against uniform 1
 <figure style="margin:1em 0;">
 <img src="{{root}}img/airfoil_amr.png" style="width:100%">
 <figcaption>NACA 0012 at 10°, Re = 1000, up to $t = 6$ (<code>validation/airfoil_amr.py</code>).
-Top: vorticity with the patches of the AMR run. Bottom: drag and lift of the AMR run and of
+Top: vorticity with the patches of the AMR run, which follow the airfoil and the wake. Bottom: drag and lift of the AMR run and of
 uniform 192×96 and 768×384 meshes, and the cost of the three runs on 16 OpenMP threads.</figcaption>
 </figure>
 
@@ -41,11 +66,11 @@ uniform 192×96 and 768×384 meshes, and the cost of the three runs on 16 OpenMP
 |---|---:|---:|---:|---:|
 | uniform 192×96 | 18 432 | 2.5 s | 0.034 | 0.35 |
 | uniform 768×384 | 294 912 | 225 s | (reference) | (reference) |
-| AMR, 192×96 + 2 levels | 27 648 | 9.1 s | 0.009 | 0.048 |
+| AMR, 192×96 + 2 levels | 52 224 | 22 s | 0.007 | 0.036 |
 
 The errors are rms differences of $C_d(t)$ and $C_l(t)$ from the 768×384 run over
 $1 \le t \le 6$ (this is the impulsive start of the flow, not a statistically steady state).
-AMR reproduces the loads of the fine mesh with 9 % of its cells and 4 % of its time. The
+AMR reproduces the loads of the fine mesh with 18 % of its cells and 10 % of its time. The
 base mesh alone misses most of the lift.
 
 ## Using your own airfoil
@@ -69,26 +94,3 @@ physical; at airliner Reynolds numbers (10⁵ and above) a 2-D laminar run is an
 unmodelled flow, not a prediction. The staircase IBM also places the wall only to within half
 a cell, so the thin trailing edge needs a fine grid: the default resolves the chord with 60
 cells.
-
-## Loads
-
-With IBM on, every `monitor_interval` steps the monitor records $F_x$, $F_y$ and the
-coefficients $C_d$, $C_l$ and $C_m$ (about the quarter chord, nose-up positive), on the chord
-and $q = \tfrac12\rho_{\rm in}u_{\rm in}^2$. They are computed inside the solver from the
-momentum flux into the body, so they include pressure and friction; see
-[Loads on the body]({{root}}modules/Physics.html#loads-on-the-body).
-
-## Default parameters
-
-{{defaults:IBM Airfoil}}
-
-## Results
-
-<figure>
-<img src="{{root}}img/airfoil_loads.png" style="width:100%">
-<figcaption>NACA 0012 at 10°, Re = 1000, 720 × 360 cells. Top: vorticity at t = 20, with the
-shear layers rolling up into a vortex street. Bottom: lift, drag and moment coefficients;
-over t ≥ 10 (shaded) C<sub>l</sub> = 0.38 (between 0.26 and 0.51), C<sub>d</sub> = 0.17 and
-C<sub>m</sub> ≈ 0 about the quarter chord, as thin-airfoil theory predicts. The dominant lift
-frequency is f c/U ≈ 1.21.</figcaption>
-</figure>

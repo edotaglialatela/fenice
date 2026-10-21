@@ -1,6 +1,6 @@
 # The IBM Airfoil case on a 192 x 96 base mesh with block-structured AMR: 16 x 16 patches, two
 # refinement levels (up to 768 x 384 equivalent), the body kept at the finest level and the wake
-# refined where the density has gradients. The body resolution equals the 720 x 360 uniform case
+# refined where the density or the speed has gradients. The body resolution equals the 720 x 360 uniform case
 # with a fraction of its cells. Runs on OpenMP threads (AMR under MPI is correct but slower on one
 # node); the monitor file has Cl, Cd, Cm as in the uniform case.
 
@@ -52,6 +52,7 @@ amr_patch_ny = 16
 amr_max_level = 2
 amr_refine_every = 5
 amr_refine_ibm = true
+amr_indicator = "density+velocity"
 
 [ibm]
 use_ibm = true

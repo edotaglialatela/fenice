@@ -83,6 +83,7 @@ struct SimParams {
     double amr_refine_threshold, amr_derefine_threshold;
     int    amr_refine_every, amr_init_levels, amr_buffer_layers;
     bool   amr_refine_ibm = true;   // keep the immersed body at the finest level
+    std::string amr_indicator = "density";   // fields of the refinement indicator: density, velocity, density+velocity
 
     // C++-only extras
     std::string output_root;   // parent of the per-case results folder

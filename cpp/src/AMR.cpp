@@ -212,7 +212,10 @@ std::vector<AMRPatch*> AMRTree::neighbour_leaves(const AMRPatch* p, Face face) c
 // Lohner second-derivative error indicator
 // ---------------------------------------------------------------------------
 
-double AMRErrorIndicator::indicator(const AMRPatch& patch) const {
+namespace {
+// Lohner ratio of the scalar `value(cell)` over a patch
+template <class F>
+double lohner_eta(const AMRPatch& patch, F value) {
     const int nx = patch.nx(), ny = patch.ny();
     const int PW = nx + 2;
     // Anti-symmetric (odd) reflection: ghost = 2*edge - interior, so a linear
@@ -221,7 +224,7 @@ double AMRErrorIndicator::indicator(const AMRPatch& patch) const {
     double rho_max = 0.0;
     for (int j = 0; j < ny; ++j)
         for (int i = 0; i < nx; ++i) {
-            const double r = patch.U[j * nx + i][0];
+            const double r = value(patch.U[j * nx + i]);
             rp[(j + 1) * PW + i + 1] = r;
             rho_max = std::max(rho_max, std::abs(r));
         }
@@ -245,6 +248,17 @@ double AMRErrorIndicator::indicator(const AMRPatch& patch) const {
             const double f1y = std::abs(R(j + 1, i) - c) + std::abs(c - R(j - 1, i));
             eta = std::max(eta, std::sqrt(d2x * d2x + d2y * d2y) / (f1x + f1y + floor));
         }
+    return eta;
+}
+}  // namespace
+
+double AMRErrorIndicator::indicator(const AMRPatch& patch) const {
+    double eta = 0.0;
+    if (use_density) eta = lohner_eta(patch, [](const State& c) { return c[0]; });
+    if (use_speed)
+        eta = std::max(eta, lohner_eta(patch, [](const State& c) {
+            return std::sqrt(c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0];
+        }));
     return eta;
 }
 

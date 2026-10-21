@@ -339,6 +339,8 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                                              p.nx / p.amr_patch_nx, p.ny / p.amr_patch_ny);
         amr_indicator = std::make_unique<AMRErrorIndicator>(p.amr_refine_threshold, p.amr_derefine_threshold,
                                                             p.amr_buffer_layers);
+        amr_indicator->use_density = p.amr_indicator != "velocity";
+        amr_indicator->use_speed   = p.amr_indicator != "density";
         if (p.use_ibm && p.amr_refine_ibm)
             amr_indicator->force_refine = [this](const AMRPatch& patch) { return patch_touches_body(patch); };
         if (verbose)

@@ -558,6 +558,15 @@ TEST(amr_error_indicator) {
     for (int j = 0; j < 8; ++j)
         for (int i = 0; i < 8; ++i) tree.root->U[j * 8 + i][0] = i < 4 ? 1.0 : 0.125;
     CHECK(ind.indicator(*tree.root) > 0.3);     // discontinuity
+    // A shear layer: uniform density, speed jump. Only the speed indicator sees it.
+    const EOS eos = EOS::ideal(1.4);
+    for (int j = 0; j < 8; ++j)
+        for (int i = 0; i < 8; ++i) tree.root->U[j * 8 + i] = eos.prim_to_cons({1.0, i < 4 ? 0.0 : 1.0, 0.0, 1.0});
+    AMRErrorIndicator speed;
+    speed.use_density = false;
+    speed.use_speed = true;
+    CHECK(ind.indicator(*tree.root) < 1e-12);
+    CHECK(speed.indicator(*tree.root) > 0.3);
 }
 
 namespace {

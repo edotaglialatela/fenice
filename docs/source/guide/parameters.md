@@ -127,5 +127,6 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 | `amr_init_levels` | `0` | Uniform pre-refinement levels at t = 0 |
 | `amr_buffer_layers` | `1` | Rings of neighbours refined around flagged patches |
 | `amr_refine_ibm` | `true` | With `use_ibm`: leaves whose box (grown by one cell) overlaps the body's bounding box are refined to `amr_max_level` from t = 0 and never coarsened |
+| `amr_indicator` | `density` | Field of the Löhner refinement indicator: `density`, `velocity` (the speed) or `density+velocity` (the larger of the two). Use the speed for vortical, nearly incompressible flow such as a wake, where the density hardly varies |
 
 {{api}}
