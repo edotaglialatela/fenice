@@ -683,6 +683,196 @@ TEST(amr_reflux_conservation) {
 }
 
 // ---------------------------------------------------------------------------
+// AMR with IBM / viscous terms / body force
+// ---------------------------------------------------------------------------
+
+namespace {
+// Smooth, non-trivial state with nonzero velocity everywhere (also inside the body)
+State test_state(const EOS& eos, double x, double y) {
+    return eos.prim_to_cons({1.0 + 0.1 * std::sin(1.3 * x) * std::cos(0.9 * y), 1.0 + 0.2 * std::sin(0.7 * y),
+                             0.15 * std::cos(1.1 * x), 17.0 + 0.5 * std::cos(0.6 * x + 0.4 * y)});
+}
+
+SimParams airfoil_params(std::initializer_list<std::pair<const char*, const char*>> kv) {
+    Params pr = baseline_defaults();
+    pr.merge(get_test_case("IBM Airfoil").defaults);
+    pr.set("test_case", "IBM Airfoil");
+    pr.set("output_root", tmp_dir().string());
+    pr.set("use_mpi", "false");
+    for (const auto& e : kv) pr.set(e.first, e.second);
+    return SimParams::from(pr);
+}
+}  // namespace
+
+TEST(amr_root_patch_matches_uniform_residual) {
+    // One root patch (no interfaces) must reproduce the uniform-mesh residual: IBM forcing,
+    // viscous flux, MUSCL and the physical BCs all go through the AMR kernel.
+    for (const char* gy : {"0.0", "-0.3"}) {
+        const bool gravity = std::string(gy) != "0.0";
+        Simulation uni, amr;
+        uni.setup(airfoil_params({{"nx", "192"}, {"ny", "96"}, {"use_bodyforce", gravity ? "true" : "false"}, {"gy", gy}}), false);
+        amr.setup(airfoil_params({{"nx", "192"}, {"ny", "96"}, {"use_bodyforce", gravity ? "true" : "false"}, {"gy", gy},
+                                  {"use_amr", "true"}, {"amr_patch_nx", "192"}, {"amr_patch_ny", "96"},
+                                  {"amr_max_level", "0"}}), false);
+        uni.initialize_field();
+        amr.initialize_field();
+        CHECK(uni.ibm->solid_count() > 20);
+        AMRPatch& root = *amr.amr_tree->root;
+        for (int j = 0; j < uni.mesh.ny; ++j)
+            for (int i = 0; i < uni.mesh.nx; ++i)
+                uni.U[j * uni.mesh.nx + i] = root.U[j * uni.mesh.nx + i] = test_state(uni.fluid, uni.mesh.xc(i), uni.mesh.yc(j));
+        Field Ru, Ra, fx, fy;
+        const double Su = uni.residual(uni.U, Ru);
+        const double Sa = amr.patch_residual(root, *amr.amr_tree, root.U, Ra, fx, fy);
+        double d = 0.0, m = 0.0;
+        for (size_t c = 0; c < Ru.size(); ++c)
+            for (int q = 0; q < 4; ++q) { d = std::max(d, std::abs(Ru[c][q] - Ra[c][q])); m = std::max(m, std::abs(Ru[c][q])); }
+        CHECK(m > 1e-3);
+        CHECK(d <= 1e-12 * m);
+        CHECK_NEAR(Sa, Su, 1e-12 * Su);
+        // Solid reset: identical to the uniform one
+        uni.ibm->apply_solid_reset(uni.U, uni.fluid);
+        amr.amr_solid_reset(*amr.amr_tree);
+        double dr = 0.0;
+        for (size_t c = 0; c < uni.U.size(); ++c)
+            for (int q = 0; q < 4; ++q) dr = std::max(dr, std::abs(uni.U[c][q] - root.U[c][q]));
+        CHECK(dr < 1e-14);
+    }
+}
+
+TEST(amr_ibm_masks_and_reset_across_patches) {
+    // The body straddles the patch interfaces: the patch masks must tile the uniform mask, and the
+    // reset (fringe cells read across interfaces) must not depend on how the domain is split.
+    Simulation uni, sim;
+    uni.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}}), false);
+    sim.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}, {"use_amr", "true"},
+                              {"amr_patch_nx", "48"}, {"amr_patch_ny", "24"}, {"amr_max_level", "1"}}), false);
+    uni.initialize_field();
+    sim.initialize_field();
+    AMRTree& tree = *sim.amr_tree;
+    tree.refine_patch(tree.root);   // four 48 x 24 patches: the 96 x 48 uniform grid
+    int solid = 0;
+    for (AMRPatch* lf : tree.leaves()) {
+        sim.ensure_patch_masks(*lf);
+        const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
+        const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
+        for (int j = 0; j < lf->ny(); ++j)
+            for (int i = 0; i < lf->nx(); ++i) {
+                CHECK(lf->solid[j * lf->nx() + i] == uni.ibm->mask()[(j0 + j) * uni.mesh.nx + i0 + i]);
+                solid += lf->solid[j * lf->nx() + i];
+                lf->U[j * lf->nx() + i] = test_state(uni.fluid, lf->mesh.xc(i), lf->mesh.yc(j));
+                uni.U[(j0 + j) * uni.mesh.nx + i0 + i] = lf->U[j * lf->nx() + i];
+            }
+    }
+    CHECK(solid == uni.ibm->solid_count());
+    uni.ibm->apply_solid_reset(uni.U, uni.fluid);
+    sim.amr_solid_reset(tree);
+    double d = 0.0;
+    for (AMRPatch* lf : tree.leaves()) {
+        const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
+        const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
+        for (int j = 0; j < lf->ny(); ++j)
+            for (int i = 0; i < lf->nx(); ++i)
+                for (int q = 0; q < 4; ++q)
+                    d = std::max(d, std::abs(lf->U[j * lf->nx() + i][q] - uni.U[(j0 + j) * uni.mesh.nx + i0 + i][q]));
+    }
+    CHECK(d < 1e-14);
+}
+
+TEST(amr_same_level_patches_match_uniform_residual) {
+    // Four same-level patches tiling the uniform grid, the body on their common corner, with the
+    // airfoil BCs (velocity inlet, non-reflecting outlet, walls): every patch residual equals the
+    // uniform one, so interface ghosts, corner BC ghosts and solid ghosts are exact (1st order:
+    // MUSCL has a 1st-order seam at patch interfaces).
+    Simulation uni, sim;
+    uni.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}, {"use_muscl", "false"}}), false);
+    sim.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}, {"use_muscl", "false"},
+                              {"use_amr", "true"}, {"amr_patch_nx", "48"}, {"amr_patch_ny", "24"}, {"amr_max_level", "1"}}), false);
+    uni.initialize_field();
+    sim.initialize_field();
+    AMRTree& tree = *sim.amr_tree;
+    tree.refine_patch(tree.root);
+    for (int j = 0; j < uni.mesh.ny; ++j)
+        for (int i = 0; i < uni.mesh.nx; ++i)
+            uni.U[j * uni.mesh.nx + i] = test_state(uni.fluid, uni.mesh.xc(i), uni.mesh.yc(j));
+    for (AMRPatch* lf : tree.leaves()) {
+        const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
+        const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
+        for (int j = 0; j < lf->ny(); ++j)
+            for (int i = 0; i < lf->nx(); ++i) lf->U[j * lf->nx() + i] = uni.U[(j0 + j) * uni.mesh.nx + i0 + i];
+    }
+    Field Ru;
+    const double Su = uni.residual(uni.U, Ru);
+    double m = 0.0;
+    for (const State& r : Ru) for (int q = 0; q < 4; ++q) m = std::max(m, std::abs(r[q]));
+    double d = 0.0, Smax = 0.0;
+    for (AMRPatch* lf : tree.leaves()) {
+        Field R, fx, fy;
+        Smax = std::max(Smax, sim.patch_residual(*lf, tree, lf->U, R, fx, fy));
+        const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
+        const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
+        for (int j = 0; j < lf->ny(); ++j)
+            for (int i = 0; i < lf->nx(); ++i)
+                for (int q = 0; q < 4; ++q)
+                    d = std::max(d, std::abs(R[j * lf->nx() + i][q] - Ru[(j0 + j) * uni.mesh.nx + i0 + i][q]));
+    }
+    CHECK(m > 1e-3);
+    CHECK(d <= 1e-12 * m);
+    CHECK_NEAR(Smax, Su, 1e-12 * Su);
+}
+
+namespace {
+void run_viscous_box(double& e0, double& e1, double& m0, double& m1) {
+    Simulation sim;
+    sim.setup(params_for("Lid Driven Cavity",
+                         {{"Lx", "1.0"}, {"Ly", "1.0"}, {"nx", "32"}, {"ny", "32"}, {"use_mpi", "false"},
+                          {"bc_top", "no_slip"}, {"time_scheme", "Explicit Euler"}, {"use_muscl", "false"},
+                          {"mu", "0.02"}, {"use_amr", "true"}, {"amr_max_level", "2"},
+                          {"amr_patch_nx", "8"}, {"amr_patch_ny", "8"}}), false);
+    AMRTree& tree = *sim.amr_tree;
+    tree.refine_patch(tree.root);
+    tree.refine_patch(sorted_leaf(tree, 0));
+    tree.enforce_2to1_balance();
+    for (AMRPatch* lf : tree.leaves())
+        for (int j = 0; j < lf->ny(); ++j)
+            for (int i = 0; i < lf->nx(); ++i) {
+                const double x = lf->mesh.xc(i), y = lf->mesh.yc(j);
+                lf->U[j * lf->nx() + i] = sim.fluid.prim_to_cons(
+                    {1.0 + 0.2 * std::exp(-30 * ((x - 0.3) * (x - 0.3) + (y - 0.3) * (y - 0.3))),
+                     0.5 * std::sin(3.14159 * x) * std::sin(2 * 3.14159 * y),
+                     0.3 * std::sin(2 * 3.14159 * x) * std::sin(3.14159 * y), 1.0});
+            }
+    e0 = total(tree, 3);  m0 = total(tree, 0);
+    const PatchResidualFn pr = [&](AMRPatch& p, AMRTree& t, const Field& U, Field& R, Field& fx, Field& fy) {
+        return sim.patch_residual(p, t, U, R, fx, fy);
+    };
+    double finest = 1e9, S0 = 0.0;
+    Field R, fx, fy;
+    for (AMRPatch* lf : tree.leaves()) {
+        finest = std::min(finest, lf->mesh.Lx / lf->nx());
+        S0 = std::max(S0, sim.patch_residual(*lf, tree, lf->U, R, fx, fy));
+    }
+    const double dt = 0.3 * finest / (S0 + 1e-12);
+    double t = 0.0;
+    for (int k = 0; k < 20; ++k) { advance_amr_level(tree, 0, dt, t, 1e9, pr, *sim.scheme); t += dt; }
+    e1 = total(tree, 3);  m1 = total(tree, 0);
+}
+}  // namespace
+
+TEST(amr_viscous_reflux_conservation) {
+    // Closed no-slip box: viscous work only heats the gas, so total energy and mass are conserved.
+    // Only the viscous flux across the coarse-fine seams can break it, which refluxing must repair.
+    double e0, e1, m0, m1;
+    run_viscous_box(e0, e1, m0, m1);
+    CHECK(std::abs(e1 - e0) / e0 < 1e-12);
+    CHECK(std::abs(m1 - m0) / m0 < 1e-12);
+    g_amr_disable_reflux = true;
+    run_viscous_box(e0, e1, m0, m1);
+    g_amr_disable_reflux = false;
+    CHECK(std::abs(e1 - e0) / e0 > 1e-9);
+}
+
+// ---------------------------------------------------------------------------
 // Mapping / IO
 // ---------------------------------------------------------------------------
 

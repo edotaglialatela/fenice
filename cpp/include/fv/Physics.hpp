@@ -32,6 +32,19 @@ struct CrossGhosts {
     const double* hi_d = nullptr;
     // Periodic axes inside this (sub)domain: boundary faces take the opposite edge cell.
     bool periodic_x = false, periodic_y = false, periodic_z = false;
+    // 2-D only, AMR patch sides (any combination, independent of `dir`): tangential derivatives of
+    // the ghost cells across a patch interface. x_*: left / right ghost column, du/dy and dv/dy,
+    // index j. y_*: bottom / top ghost row, du/dx and dv/dx, index i. nullptr: edge cell.
+    const double* x_lo_a = nullptr; const double* x_lo_b = nullptr;
+    const double* x_hi_a = nullptr; const double* x_hi_b = nullptr;
+    const double* y_lo_a = nullptr; const double* y_lo_b = nullptr;
+    const double* y_hi_a = nullptr; const double* y_hi_b = nullptr;
+};
+
+// Viscous face fluxes of a 2-D patch, flux * face length, as added to the cell residual
+// (R_visc = +div): x-faces (nx+1)*ny, y-faces nx*(ny+1). AMR uses them for refluxing.
+struct ViscousFaceFluxes {
+    Field fx, fy;
 };
 
 // Viscous (parabolic) part of the compressible Navier-Stokes residual: Newtonian
@@ -45,7 +58,7 @@ public:
     // time-scale limit dt_visc.  U_pad is the BC-aware padded state.
     double viscous_residual(const Field& U, const Field& grad_x, const Field& grad_y,
                             const Mesh& mesh, const Field& U_pad, Field& R_visc,
-                            const CrossGhosts* cross = nullptr) const;
+                            const CrossGhosts* cross = nullptr, ViscousFaceFluxes* faces = nullptr) const;
     // 3-D version: full stress tensor tau_ij = mu (du_i/dx_j + du_j/dx_i) - 2/3 mu delta_ij div u.
     double viscous_residual_3d(const Field& U, const Field& grad_x, const Field& grad_y, const Field& grad_z,
                                const Mesh& mesh, const Field& U_pad, Field& R_visc,

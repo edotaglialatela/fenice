@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <map>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -287,15 +288,21 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         const std::string digits = naca_digits(p.ibm_shape);
         if (!digits.empty() || lower(p.ibm_shape) == "airfoil") {
             const Polygon2D unit = digits.empty() ? load_airfoil(airfoil_file_path()) : naca4(digits);
-            ibm = std::make_unique<ImmersedBoundary>(
-                mesh, place_airfoil(unit, p.ibm_chord, p.ibm_aoa, p.ibm_cx, p.ibm_cy), p.rho_in, p.p_out);
+            const Polygon2D placed = place_airfoil(unit, p.ibm_chord, p.ibm_aoa, p.ibm_cx, p.ibm_cy);
+            ibm_factory = [placed, rho = p.rho_in, pout = p.p_out](const Mesh& m) {
+                return ImmersedBoundary(m, placed, rho, pout);
+            };
+            ibm = std::make_unique<ImmersedBoundary>(ibm_factory(mesh));
             if (verbose)
                 std::printf("[IBM] %s, chord %g, %g deg, quarter chord at (%g, %g) -> %d solid cells\n",
                             digits.empty() ? airfoil_file_path().c_str() : p.ibm_shape.c_str(), p.ibm_chord,
                             p.ibm_aoa, p.ibm_cx, p.ibm_cy, ibm->solid_count());
         } else {
-            ibm = std::make_unique<ImmersedBoundary>(mesh, p.ibm_shape, p.ibm_radius, p.ibm_cx, p.ibm_cy, p.rho_in,
-                                                     p.p_out, p.ibm_cz);
+            ibm_factory = [shape = p.ibm_shape, r = p.ibm_radius, cx = p.ibm_cx, cy = p.ibm_cy, rho = p.rho_in,
+                           pout = p.p_out, cz = p.ibm_cz](const Mesh& m) {
+                return ImmersedBoundary(m, shape, r, cx, cy, rho, pout, cz);
+            };
+            ibm = std::make_unique<ImmersedBoundary>(ibm_factory(mesh));
             if (verbose)
                 std::printf("[IBM] %s at (%g, %g) r=%g -> %d solid cells\n", p.ibm_shape.c_str(), p.ibm_cx, p.ibm_cy,
                             p.ibm_radius, ibm->solid_count());
@@ -385,6 +392,11 @@ void Simulation::initialize_field() {
             for (int j = 0; j < patch->ny(); ++j)
                 for (int i = 0; i < patch->nx(); ++i)
                     patch->U[j * patch->nx() + i] = interp(patch->mesh.xc(i), patch->mesh.yc(j));
+        if (p.use_ibm && start_step == 0)
+            for (AMRPatch* patch : amr_tree->leaves()) {
+                ensure_patch_masks(*patch);
+                ImmersedBoundary(patch->nx(), patch->ny(), patch->solid, p.rho_in, p.p_out).apply_forcing(patch->U, fluid);
+            }
     }
 }
 
@@ -658,7 +670,29 @@ double Simulation::residual(const Field& Uin, Field& R) {
     return assemble(mesh, boundaries, p.use_ibm ? ibm.get() : nullptr, muscl.get(), Uin, R, nullptr);
 }
 
-double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& Uc, Field& R,
+void Simulation::ensure_patch_masks(AMRPatch& patch) const {
+    if (!p.use_ibm || !patch.solid.empty()) return;
+    const Mesh& m = patch.mesh;
+    patch.solid = ibm_factory(m).mask();
+    // Mask of the one-cell ghost ring from the same geometry; 0 outside the domain
+    Mesh me = m;
+    me.nx += 2;  me.ny += 2;
+    me.x0 -= m.dx;  me.y0 -= m.dy;
+    me.Lx = me.nx * m.dx;  me.Ly = me.ny * m.dy;
+    patch.solid_ext = ibm_factory(me).mask();
+    const int PW = m.nx + 2;
+    for (int jj = 0; jj < m.ny + 2; ++jj)
+        for (int ii = 0; ii < PW; ++ii) {
+            const bool interior = ii >= 1 && ii <= m.nx && jj >= 1 && jj <= m.ny;
+            const double x = m.x0 + (ii - 0.5) * m.dx, y = m.y0 + (jj - 0.5) * m.dy;
+            const bool inside = x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly;
+            char& c = patch.solid_ext[jj * PW + ii];
+            if (interior) c = patch.solid[(jj - 1) * m.nx + ii - 1];
+            else if (!inside) c = 0;
+        }
+}
+
+double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& Uc_in, Field& R,
                                   Field& flux_x, Field& flux_y) {
     // Physical BCs only where the patch touches the domain boundary; internal
     // faces start transmissive and are overwritten from the neighbouring leaf.
@@ -672,19 +706,127 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
                           edge_t ? boundaries.type(Face::Top) : BCType::Transmissive);
     pb.set_params(boundaries.params());
     // Per-thread scratch: patches of one AMR level are advanced concurrently.
-    thread_local Field pUL, pUR, pF;
-    pb.apply_boundary_conditions(Uc, pUL, pUR);
+    thread_local Field pUL, pUR, pF, pUf;
 
     const Mesh& m = patch.mesh;
     const int nx = m.nx, ny = m.ny;
+
+    // IBM: velocity of the solid cells is zeroed in every residual, as in assemble
+    const Field* Up = &Uc_in;
+    if (p.use_ibm) {
+        ensure_patch_masks(patch);
+        pUf = Uc_in;
+        ImmersedBoundary(nx, ny, patch.solid, p.rho_in, p.p_out).apply_forcing(pUf, fluid);
+        Up = &pUf;
+    }
+    const Field& Uc = *Up;
+
     const double dx = m.Lx / nx, dy = m.Ly / ny;
     const double ox = 1e-6 * dx, oy = 1e-6 * dy;
     const auto leaves = tree.leaves();
+    const bool if_l = patch.xmin > eps, if_r = patch.xmax < mesh.Lx - eps;
+    const bool if_b = patch.ymin > eps, if_t = patch.ymax < mesh.Ly - eps;
+
+    std::map<const AMRPatch*, GridInterp2D> interps;
+    auto leaf_at = [&](double x, double y) -> const AMRPatch* {
+        for (const AMRPatch* lf : leaves)
+            if (lf->xmin - 1e-9 <= x && x <= lf->xmax + 1e-9 && lf->ymin - 1e-9 <= y && y <= lf->ymax + 1e-9) return lf;
+        return nullptr;
+    };
+    auto cell_at = [&](const AMRPatch* lf, double x, double y) -> const State& {
+        const int i = std::min(std::max(static_cast<int>((x - lf->xmin) / (lf->mesh.Lx / lf->nx())), 0), lf->nx() - 1);
+        const int j = std::min(std::max(static_cast<int>((y - lf->ymin) / (lf->mesh.Ly / lf->ny())), 0), lf->ny() - 1);
+        return lf->ghost_source()[j * lf->nx() + i];
+    };
+    auto ghost_state = [&](double x, double y) -> const State* {
+        static thread_local State out;
+        const AMRPatch* lf = leaf_at(x, y);
+        if (!lf) return nullptr;
+        if (lf->level == patch.level) { out = cell_at(lf, x, y); return &out; }
+        if (lf->level > patch.level) {   // finer: mean of the 2 x 2 fine cells under the ghost cell
+            out = State{0, 0, 0, 0, 0};
+            for (double sx : {-0.25, 0.25})
+                for (double sy : {-0.25, 0.25}) {
+                    const double fx = x + sx * dx, fy = y + sy * dy;
+                    const AMRPatch* fl = leaf_at(fx, fy);
+                    const State& c = cell_at(fl ? fl : lf, fx, fy);
+                    for (int q = 0; q < kNVar; ++q) out[q] += 0.25 * c[q];
+                }
+            return &out;
+        }
+        auto it = interps.find(lf);   // coarser: linear interpolation
+        if (it == interps.end()) {
+            std::vector<double> xs(lf->nx()), ys(lf->ny());
+            for (int i = 0; i < lf->nx(); ++i) xs[i] = lf->mesh.xc(i);
+            for (int j = 0; j < lf->ny(); ++j) ys[j] = lf->mesh.yc(j);
+            it = interps.emplace(lf, GridInterp2D(xs, ys, lf->ghost_source())).first;
+        }
+        out = it->second(x, y);
+        return &out;
+    };
+    // Ghost-cell state at ring position (ii, jj) of this patch (solid cells at rest); false outside the domain
+    auto ring_state = [&](int ii, int jj, State& c) {
+        const double x = m.x0 + (ii - 0.5) * dx, y = m.y0 + (jj - 0.5) * dy;
+        if (!(x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly)) return false;
+        const State* g = ghost_state(x, y);
+        if (!g) return false;
+        c = *g;
+        if (p.use_ibm && patch.solid_ext[jj * (nx + 2) + ii]) {
+            State W = fluid.cons_to_prim(c);
+            W[1] = 0.0; W[2] = 0.0; W[4] = 0.0;
+            c = fluid.prim_to_cons(W);
+        }
+        return true;
+    };
+
+    // The non-reflecting outlet differentiates along its boundary: where that boundary continues into
+    // another patch, hand it the neighbouring cells as the MPI strip halos do (one pass per direction)
+    const auto nrbc = [&](Face f) { return pb.type(f) == BCType::NonReflecting; };
+    const bool halo_y = (nrbc(Face::Left) || nrbc(Face::Right)) && (if_b || if_t);
+    const bool halo_x = (nrbc(Face::Bottom) || nrbc(Face::Top)) && (if_l || if_r);
+    if (!halo_y && !halo_x) {
+        pb.apply_boundary_conditions(Uc, pUL, pUR);
+    } else {
+        constexpr int D = kHaloDepth;
+        Field ylo(static_cast<size_t>(D) * nx), yhi(ylo.size()), xlo(static_cast<size_t>(D) * ny), xhi(xlo.size());
+        State c;
+        for (int i = 0; i < nx; ++i)
+            for (int d = 0; d < D; ++d) {
+                ylo[d * nx + i] = ring_state(i + 1, 0, c) ? c : Uc[i];
+                yhi[d * nx + i] = ring_state(i + 1, ny + 1, c) ? c : Uc[(ny - 1) * nx + i];
+            }
+        for (int j = 0; j < ny; ++j)
+            for (int d = 0; d < D; ++d) {
+                xlo[j * D + d] = ring_state(0, j + 1, c) ? c : Uc[j * nx];
+                xhi[j * D + d] = ring_state(nx + 1, j + 1, c) ? c : Uc[j * nx + nx - 1];
+            }
+        const TangentialHalos thy{'y', D, if_b ? &ylo : nullptr, if_t ? &yhi : nullptr};
+        const TangentialHalos thx{'x', D, if_l ? &xlo : nullptr, if_r ? &xhi : nullptr};
+        pb.apply_boundary_conditions(Uc, pUL, pUR, halo_y ? &thy : &thx);
+        if (halo_y && halo_x) {   // bottom / top faces from the x pass
+            thread_local Field qL, qR;
+            pb.apply_boundary_conditions(Uc, qL, qR, &thx);
+            for (Face f : {Face::Bottom, Face::Top})
+                for (int k = 0; k < m.boundary_count(f); ++k) {
+                    pUL[m.boundary_face(f, k)] = qL[m.boundary_face(f, k)];
+                    pUR[m.boundary_face(f, k)] = qR[m.boundary_face(f, k)];
+                }
+        }
+    }
 
     auto coarser = [&](Face f) -> const AMRPatch* {
         for (AMRPatch* nb : tree.neighbour_leaves(&patch, f))
             if (nb->level < patch.level) return nb;
         return nullptr;
+    };
+    // Index in the (nx+2)*(ny+2) ghost-ring arrays of ghost cell k along face f
+    auto ring_index = [&](Face f, int k) {
+        switch (f) {
+            case Face::Left:   return (k + 1) * (nx + 2);
+            case Face::Right:  return (k + 1) * (nx + 2) + nx + 1;
+            case Face::Bottom: return k + 1;
+            default:           return (ny + 1) * (nx + 2) + k + 1;
+        }
     };
     // Coarser neighbour: linear prolongation; same-level / finer: injection.
     auto fill = [&](Face f, Field& target) {
@@ -692,26 +834,35 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
         if (const AMRPatch* c = coarser(f)) {
             const Field g = prolong_ghost_face(patch, *c, f);
             for (int k = 0; k < n; ++k) target[m.boundary_face(f, k)] = g[k];
-            return;
-        }
-        for (int k = 0; k < n; ++k) {
-            double x, y;
-            switch (f) {
-                case Face::Left:   x = patch.xmin - ox; y = patch.ymin + (k + 0.5) * dy; break;
-                case Face::Right:  x = patch.xmax + ox; y = patch.ymin + (k + 0.5) * dy; break;
-                case Face::Bottom: x = patch.xmin + (k + 0.5) * dx; y = patch.ymin - oy; break;
-                default:           x = patch.xmin + (k + 0.5) * dx; y = patch.ymax + oy; break;
+        } else {
+            for (int k = 0; k < n; ++k) {
+                double x, y;
+                switch (f) {
+                    case Face::Left:   x = patch.xmin - ox; y = patch.ymin + (k + 0.5) * dy; break;
+                    case Face::Right:  x = patch.xmax + ox; y = patch.ymin + (k + 0.5) * dy; break;
+                    case Face::Bottom: x = patch.xmin + (k + 0.5) * dx; y = patch.ymin - oy; break;
+                    default:           x = patch.xmin + (k + 0.5) * dx; y = patch.ymax + oy; break;
+                }
+                if (const State* s = sample_leaf_state(leaves, x, y)) target[m.boundary_face(f, k)] = *s;
             }
-            if (const State* s = sample_leaf_state(leaves, x, y)) target[m.boundary_face(f, k)] = *s;
         }
+        // A solid ghost cell holds no velocity (the neighbour snapshot is never forced)
+        if (p.use_ibm)
+            for (int k = 0; k < n; ++k)
+                if (patch.solid_ext[ring_index(f, k)]) {
+                    State& s = target[m.boundary_face(f, k)];
+                    State W = fluid.cons_to_prim(s);
+                    W[1] = 0.0; W[2] = 0.0; W[4] = 0.0;
+                    s = fluid.prim_to_cons(W);
+                }
     };
-    if (patch.xmin > eps)          fill(Face::Left, pUL);
-    if (patch.xmax < mesh.Lx - eps) fill(Face::Right, pUR);
-    if (patch.ymin > eps)          fill(Face::Bottom, pUL);
-    if (patch.ymax < mesh.Ly - eps) fill(Face::Top, pUR);
+    if (if_l) fill(Face::Left, pUL);
+    if (if_r) fill(Face::Right, pUR);
+    if (if_b) fill(Face::Bottom, pUL);
+    if (if_t) fill(Face::Top, pUR);
 
     if (muscl) muscl->reconstruct(pUL, pUR, Uc, nx, ny);
-    const double S = riemann.compute_flux(pUL, pUR, m, pF);
+    double S = riemann.compute_flux(pUL, pUR, m, pF);
 
     const int nxf = m.num_xfaces(), nf = m.num_faces();
     flux_x.resize(nxf);
@@ -720,6 +871,78 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
         for (int q = 0; q < kNVar; ++q) flux_x[f][q] = pF[f][q] * dy;
     for (int f = nxf; f < nf; ++f)
         for (int q = 0; q < kNVar; ++q) flux_y[f - nxf][q] = pF[f][q] * dx;
+
+    if (ns) {
+        // Padded state: physical-BC ghosts from the BoundaryManager; across interfaces (corners
+        // included) a ghost state that depends only on the ghost cell and the level, so both patches
+        // sharing a face see the same cross-derivatives and compute the same viscous flux
+        thread_local Field Pad, gX, gY, Rv;
+        thread_local ViscousFaceFluxes vff;
+        const NavierStokes nsl(fluid, ns->mu(), p.pr);   // own scratch: the shared ns is not thread-safe
+        pb.get_padded_U(Uc, Pad);
+        const int PW = nx + 2, PH = ny + 2;
+        for (int jj = 0; jj < PH; ++jj)
+            for (int ii = 0; ii < PW; ++ii) {
+                State c;
+                if (!(ii >= 1 && ii <= nx && jj >= 1 && jj <= ny) && ring_state(ii, jj, c)) Pad[jj * PW + ii] = c;
+            }
+        // Ghost cells at the corner of an interface and a physical boundary: the boundary condition
+        // applied to the ghost cell next to it, as the neighbouring patch does for its own cell
+        auto bc_pad = [&](const State& cell, bool along_y, bool high) {
+            const Mesh m1 = generate_cartesian_mesh(dx, dy, 1, 1);
+            BoundaryManager b1(m1, fluid);
+            b1.set_boundary_types(along_y ? BCType::Transmissive : pb.type(Face::Left),
+                                  along_y ? BCType::Transmissive : pb.type(Face::Right),
+                                  along_y ? pb.type(Face::Bottom) : BCType::Transmissive,
+                                  along_y ? pb.type(Face::Top) : BCType::Transmissive);
+            b1.set_params(boundaries.params());
+            Field one(1, cell), P1;
+            b1.get_padded_U(one, P1);
+            return P1[along_y ? (high ? 7 : 1) : (high ? 5 : 3)];
+        };
+        for (int jj : {0, ny + 1}) {
+            if (!(jj == 0 ? edge_b : edge_t)) continue;
+            for (int ii : {0, nx + 1})
+                if (ii == 0 ? if_l : if_r) Pad[jj * PW + ii] = bc_pad(Pad[(jj == 0 ? 1 : ny) * PW + ii], true, jj != 0);
+        }
+        for (int ii : {0, nx + 1}) {
+            if (!(ii == 0 ? edge_l : edge_r)) continue;
+            for (int jj : {0, ny + 1})
+                if (jj == 0 ? if_b : if_t) Pad[jj * PW + ii] = bc_pad(Pad[jj * PW + (ii == 0 ? 1 : nx)], false, ii != 0);
+        }
+        compute_gradients(Pad, nx, ny, m.dx, m.dy, gX, gY);
+
+        // du/dy, dv/dy (column) or du/dx, dv/dx (row) of the ghost cells across interfaces
+        thread_local std::vector<double> ga[4], gb[4];
+        CrossGhosts cg;
+        auto ghost_derivs = [&](bool column, int side, std::vector<double>& a, std::vector<double>& b) {
+            const int n = column ? ny : nx;
+            const double h2 = 2.0 * (column ? m.dy : m.dx);
+            a.resize(n);  b.resize(n);
+            for (int k = 0; k < n; ++k) {
+                const int c = column ? (k + 1) * PW + (side == 0 ? 0 : nx + 1) : (side == 0 ? 0 : ny + 1) * PW + k + 1;
+                const int step = column ? PW : 1;
+                const State &hi = Pad[c + step], &lo = Pad[c - step];
+                State g;
+                for (int q = 0; q < kNVar; ++q) g[q] = (hi[q] - lo[q]) / h2;
+                const State W = fluid.cons_to_prim(Pad[c]);
+                a[k] = (g[1] - W[1] * g[0]) / W[0];
+                b[k] = (g[2] - W[2] * g[0]) / W[0];
+            }
+        };
+        if (if_l) { ghost_derivs(true, 0, ga[0], gb[0]);  cg.x_lo_a = ga[0].data(); cg.x_lo_b = gb[0].data(); }
+        if (if_r) { ghost_derivs(true, 1, ga[1], gb[1]);  cg.x_hi_a = ga[1].data(); cg.x_hi_b = gb[1].data(); }
+        if (if_b) { ghost_derivs(false, 0, ga[2], gb[2]); cg.y_lo_a = ga[2].data(); cg.y_lo_b = gb[2].data(); }
+        if (if_t) { ghost_derivs(false, 1, ga[3], gb[3]); cg.y_hi_a = ga[3].data(); cg.y_hi_b = gb[3].data(); }
+
+        const double dt_visc = nsl.viscous_residual(Uc, gX, gY, m, Pad, Rv, &cg, &vff);
+        // Total flux = convective - viscous, so that R = -div(flux) and the reflux sees both
+        for (size_t f = 0; f < flux_x.size(); ++f)
+            for (int q = 0; q < kNVar; ++q) flux_x[f][q] -= vff.fx[f][q];
+        for (size_t f = 0; f < flux_y.size(); ++f)
+            for (int q = 0; q < kNVar; ++q) flux_y[f][q] -= vff.fy[f][q];
+        S = std::max(S, p.cfl * std::min(m.dx, m.dy) / (dt_visc + 1e-12));
+    }
 
     R.resize(Uc.size());
     const double area = m.cell_area();
@@ -732,7 +955,50 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
             State& r = R[j * nx + i];
             for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 - (fr[q] - fl[q])) - (ft[q] - fb[q])) / area;
         }
+    if (body_force) body_force->add_to(Uc, R);
     return S;
+}
+
+void Simulation::amr_solid_reset(AMRTree& tree) {
+    const auto leaves = tree.leaves();
+    // Snapshot first: every leaf reads its neighbours' pre-reset cells, whatever the order
+    for (AMRPatch* l : leaves) {
+        ensure_patch_masks(*l);
+        l->U_ghost = l->U;
+        l->has_ghost = true;
+    }
+    const int nl = static_cast<int>(leaves.size());
+#pragma omp parallel for schedule(dynamic) if(nl > 1)
+    for (int k = 0; k < nl; ++k) {
+        AMRPatch& patch = *leaves[k];
+        const Mesh& m = patch.mesh;
+        const int nx = m.nx, ny = m.ny, PW = nx + 2, PH = ny + 2;
+        Field E(static_cast<size_t>(PW) * PH);
+        std::vector<char> mask(E.size(), 1);   // outside the domain: "solid", nothing to pull from
+        for (int jj = 0; jj < PH; ++jj)
+            for (int ii = 0; ii < PW; ++ii) {
+                const int e = jj * PW + ii;
+                if (ii >= 1 && ii <= nx && jj >= 1 && jj <= ny) {
+                    E[e] = patch.U[(jj - 1) * nx + ii - 1];
+                    mask[e] = patch.solid[(jj - 1) * nx + ii - 1];
+                    continue;
+                }
+                const double x = m.x0 + (ii - 0.5) * m.dx, y = m.y0 + (jj - 0.5) * m.dy;
+                const State* s = (x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly) ? sample_leaf_state(leaves, x, y) : nullptr;
+                if (s) {
+                    E[e] = *s;
+                    mask[e] = patch.solid_ext[e];
+                } else {
+                    const int i = std::min(std::max(ii - 1, 0), nx - 1), j = std::min(std::max(jj - 1, 0), ny - 1);
+                    E[e] = patch.U[j * nx + i];
+                }
+            }
+        ImmersedBoundary(PW, PH, std::move(mask), p.rho_in, p.p_out).apply_solid_reset(E, fluid);
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i)
+                if (patch.solid[j * nx + i]) patch.U[j * nx + i] = E[(j + 1) * PW + i + 1];
+    }
+    for (AMRPatch* l : leaves) l->has_ghost = false;
 }
 
 // ---------------------------------------------------------------------------
@@ -1013,6 +1279,7 @@ void Simulation::solve_amr() {
         double dt = scheme->cfl * min_delta_base / (S_max + 1e-10);
         dt = std::min(dt, p.t_end - t);
         S_max = advance_amr_level(tree, 0, dt, t, p.t_end, pres, *scheme);
+        if (p.use_ibm) amr_solid_reset(tree);
         t += dt;
         ++step;
 

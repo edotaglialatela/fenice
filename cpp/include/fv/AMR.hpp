@@ -22,6 +22,10 @@ struct AMRPatch {
     Mesh   mesh;                       // global coordinates (x0 = xmin, y0 = ymin)
     Field  U;                          // conservative state, row-major
 
+    // Immersed-boundary masks (built lazily from the body geometry, which never changes).
+    std::vector<char> solid;           // nx*ny, 1 = solid cell
+    std::vector<char> solid_ext;       // (nx+2)*(ny+2) with the ghost ring; 0 outside the domain
+
     // Transient state used by advance_amr_level
     bool  has_ghost = false;           // U_ghost holds the frozen neighbour snapshot
     Field U_ghost;

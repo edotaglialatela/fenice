@@ -4,6 +4,7 @@
 #include <array>
 #include <atomic>
 #include <cstdio>
+#include <functional>
 #include <memory>
 
 #include "fv/AMR.hpp"
@@ -42,8 +43,17 @@ public:
 
     // Full spatial residual R(U) on the serial domain; returns S_max.
     double residual(const Field& U, Field& R);
-    // Residual of one AMR leaf (convective terms only: no viscous / IBM / body force).
+    // Residual of one AMR leaf: convective flux, plus (when enabled) IBM forcing, viscous flux and
+    // body force. Ghost states across patch interfaces come from the neighbouring leaves; the
+    // viscous flux is added to flux_x / flux_y so coarse-fine refluxing also corrects it.
     double patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U, Field& R, Field& flux_x, Field& flux_y);
+
+    // Build the IBM masks of an AMR leaf from the body geometry (no-op if present or without IBM).
+    // Touches only `patch`, so concurrent calls on different leaves are safe.
+    void ensure_patch_masks(AMRPatch& patch) const;
+    // Once per complete AMR step: fringe Neumann + deep-solid reset on every leaf, reading the
+    // neighbour cells across patch interfaces from a snapshot taken before any leaf is reset.
+    void amr_solid_reset(AMRTree& tree);
 
     void solve();   // serial uniform mesh or AMR
 #ifdef FV_USE_MPI
@@ -90,6 +100,7 @@ public:
     std::unique_ptr<NavierStokes>        ns;             // nullptr: Euler
     std::unique_ptr<ConstantBodyForce>   body_force;     // optional source term
     std::unique_ptr<ImmersedBoundary>    ibm;            // optional obstacle
+    std::function<ImmersedBoundary(const Mesh&)> ibm_factory;   // same body on any (patch) mesh
     std::unique_ptr<TimeScheme>          scheme;         // time integrator
     std::unique_ptr<AMRTree>             amr_tree;       // non-null when AMR is on
     std::unique_ptr<AMRErrorIndicator>   amr_indicator;  // AMR marking

@@ -49,7 +49,8 @@ void compute_gradients_3d(const Field& P, const Mesh& m, Field& gx, Field& gy, F
 // ---------------------------------------------------------------------------
 
 double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Field& gY,
-                                      const Mesh& mesh, const Field& U_pad, Field& Rv, const CrossGhosts* cg) const {
+                                      const Mesh& mesh, const Field& U_pad, Field& Rv, const CrossGhosts* cg,
+                                      ViscousFaceFluxes* ff) const {
     constexpr double MU_DIAG = 4.0 / 3.0;
     constexpr double MU_OFF  = 2.0 / 3.0;
 
@@ -111,8 +112,9 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
         const bool gl = lo && cg && cg->dir == 'x' && cg->lo_a, gr = hi && cg && cg->dir == 'x' && cg->hi_a;
         const bool px = cg && cg->periodic_x;
         const int xL = (lo && px) ? j * nx + nx - 1 : cL, xR = (hi && px) ? j * nx : cR;
-        const double du_dy = 0.5 * ((gl ? cg->lo_a[j] : dudy[xL]) + (gr ? cg->hi_a[j] : dudy[xR]));
-        const double dv_dy = 0.5 * ((gl ? cg->lo_b[j] : dvdy[xL]) + (gr ? cg->hi_b[j] : dvdy[xR]));
+        const bool al = lo && cg && cg->x_lo_a, ar = hi && cg && cg->x_hi_a;   // AMR patch interfaces
+        const double du_dy = 0.5 * ((gl ? cg->lo_a[j] : al ? cg->x_lo_a[j] : dudy[xL]) + (gr ? cg->hi_a[j] : ar ? cg->x_hi_a[j] : dudy[xR]));
+        const double dv_dy = 0.5 * ((gl ? cg->lo_b[j] : al ? cg->x_lo_b[j] : dvdy[xL]) + (gr ? cg->hi_b[j] : ar ? cg->x_hi_b[j] : dvdy[xR]));
         const double tau_xx = mu_ * (MU_DIAG * du_dx - MU_OFF * dv_dy);
         const double tau_xy = mu_ * (du_dy + dv_dx);
         const double q_x    = -k_cond * dT_dx;
@@ -134,24 +136,35 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
         const bool gb = lo && cg && cg->dir == 'y' && cg->lo_a, gt = hi && cg && cg->dir == 'y' && cg->hi_a;
         const bool py = cg && cg->periodic_y;
         const int yB = (lo && py) ? (ny - 1) * nx + i : cB, yT = (hi && py) ? i : cT;
-        const double du_dx = 0.5 * ((gb ? cg->lo_a[i] : dudx[yB]) + (gt ? cg->hi_a[i] : dudx[yT]));
-        const double dv_dx = 0.5 * ((gb ? cg->lo_b[i] : dvdx[yB]) + (gt ? cg->hi_b[i] : dvdx[yT]));
+        const bool ab = lo && cg && cg->y_lo_a, at = hi && cg && cg->y_hi_a;   // AMR patch interfaces
+        const double du_dx = 0.5 * ((gb ? cg->lo_a[i] : ab ? cg->y_lo_a[i] : dudx[yB]) + (gt ? cg->hi_a[i] : at ? cg->y_hi_a[i] : dudx[yT]));
+        const double dv_dx = 0.5 * ((gb ? cg->lo_b[i] : ab ? cg->y_lo_b[i] : dvdx[yB]) + (gt ? cg->hi_b[i] : at ? cg->y_hi_b[i] : dvdx[yT]));
         const double tau_yy = mu_ * (MU_DIAG * dv_dy - MU_OFF * du_dx);
         const double tau_yx = mu_ * (du_dy + dv_dx);
         const double q_y    = -k_cond * dT_dy;
         return {0.0, tau_yx * dx, tau_yy * dx, (u_f * tau_yx + v_f * tau_yy - q_y) * dx};
     };
 
+    if (ff) {
+        ff->fx.resize(static_cast<size_t>(nx + 1) * ny);
+        ff->fy.resize(static_cast<size_t>(nx) * (ny + 1));
+    }
     const double area = mesh.cell_area();
 #pragma omp parallel for schedule(static) if(n >= kOmpMinWork)
     for (int j = 0; j < ny; ++j) {
         State Fl = xflux(j, 0);
+        if (ff) ff->fx[j * (nx + 1)] = Fl;
         for (int i = 0; i < nx; ++i) {
             const State Fr = xflux(j, i + 1);
             const State Gb = yflux(j, i);
             const State Gt = yflux(j + 1, i);
             State& r = Rv[j * nx + i];
             for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) / area;
+            if (ff) {
+                ff->fx[j * (nx + 1) + i + 1] = Fr;
+                ff->fy[j * nx + i] = Gb;
+                if (j == ny - 1) ff->fy[ny * nx + i] = Gt;
+            }
             Fl = Fr;
         }
     }

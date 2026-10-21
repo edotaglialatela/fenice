@@ -200,9 +200,6 @@ SimParams SimParams::from(const Params& p) {
     if (s.nx <= 0 || s.ny <= 0 || s.nz <= 0) throw std::invalid_argument("nx, ny and nz must be positive");
     if (s.Lx <= 0 || s.Ly <= 0 || s.Lz <= 0) throw std::invalid_argument("Lx, Ly and Lz must be positive");
     if (s.use_amr && s.nz > 1) throw std::invalid_argument("AMR is 2-D only (nz must be 1 when use_amr is on)");
-    if (s.use_amr && (s.use_ibm || s.use_viscous || s.use_bodyforce))
-        throw std::invalid_argument("AMR is convective-only: it does not support use_ibm, use_viscous or "
-                                    "use_bodyforce (they would be silently ignored)");
     if (s.use_amr && s.resume)
         throw std::invalid_argument("resume is not available with AMR (AMR runs write no checkpoint); "
                                     "use a hot start from a uniform-mesh checkpoint instead");

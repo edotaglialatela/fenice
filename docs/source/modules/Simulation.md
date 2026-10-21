@@ -48,7 +48,7 @@ The function returns $S_{\max}$; under MPI it is all-reduced.
 `patch_residual` is the AMR counterpart for one leaf patch. Domain-edge faces use the
 case's BCs, and internal faces are filled from the neighbouring leaves (see
 [AMR]({{root}}modules/AMR.html)). It also returns the face fluxes needed for refluxing.
-The AMR path is convective-only: viscous, IBM and body-force terms are not applied there.
+The AMR path applies the same physics as the uniform path (viscous, IBM, body force); see `patch_residual` and `amr_solid_reset`.
 
 ## Time loops
 

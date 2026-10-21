@@ -118,7 +118,7 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `use_amr` | `false` | Block-structured AMR (serial + threads, 2-D only: rejected when `nz > 1`; convective-only: rejected with `use_ibm`, `use_viscous` or `use_bodyforce`; the root is one `amr_patch_nx` x `amr_patch_ny` patch, `nx`/`ny` are not used) |
+| `use_amr` | `false` | Block-structured AMR (serial + threads, 2-D only: rejected when `nz > 1`). IBM, viscous terms and body force are supported. The root is one `amr_patch_nx` x `amr_patch_ny` patch: `nx` / `ny` are not used, so set the patch size to the base grid you want (refinement splits a patch into four) |
 | `amr_max_level` | `2` | Refinement levels above the root |
 | `amr_patch_nx`, `amr_patch_ny` | `8`, `8` | Cells per patch; must be **even** when `amr_max_level > 0` |
 | `amr_refine_threshold` | `0.3` | Refine when the Löhner indicator η exceeds this |
