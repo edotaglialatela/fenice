@@ -1298,6 +1298,35 @@ void Simulation::solve_amr() {
         for (AMRPatch* leaf : tree.leaves()) S_max = std::max(S_max, patch_residual(*leaf, tree, leaf->U, R, fx, fy));
     }
 
+    // Monitor: area-weighted means over the leaves; IBM loads summed over the leaves in tree order
+    std::FILE* mon = open_monitor();
+    auto row = [&](int st) {
+        double sums[3] = {0.0, 0.0, 0.0}, area_tot = 0.0;
+        std::array<double, 3> loads{};
+        Field R, fx, fy;
+        for (AMRPatch* leaf : tree.leaves()) {
+            const double a = leaf->mesh.cell_area();
+            for (const State& c : leaf->U) {
+                sums[0] += c[0] * a;
+                sums[1] += 0.5 * (c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0] * a;
+                sums[2] += c[3] * a;
+                area_tot += a;
+            }
+            if (p.use_ibm) {
+                patch_residual(*leaf, tree, leaf->U, R, fx, fy);
+                const auto l = ibm_loads(leaf->mesh, ImmersedBoundary(leaf->nx(), leaf->ny(), leaf->solid, p.rho_in, p.p_out),
+                                         leaf->U, R);
+                for (int q = 0; q < 3; ++q) loads[q] += l[q];
+            }
+        }
+        monitor_row(mon, st, {sums[0] / area_tot * mesh.cell_area(), sums[1] / area_tot * mesh.cell_area(),
+                              sums[2] / area_tot * mesh.cell_area()}, p.use_ibm ? &loads : nullptr);
+    };
+    if (mon && step == 0) {
+        if (p.use_ibm) for (AMRPatch* leaf : tree.leaves()) ensure_patch_masks(*leaf);
+        row(step);
+    }
+
     const auto t0 = Clock::now();
     bool interrupted = false;
     std::vector<AMRPatch*> to_refine, to_derefine;
@@ -1321,6 +1350,8 @@ void Simulation::solve_amr() {
             tree.enforce_2to1_balance();
         }
 
+        if (mon && step % p.monitor_interval == 0) row(step);
+
         if (step % p.save_interval == 0) {
             exporter.export_amr(file_prefix, fluid, tree, t, step);
             std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | patches = %zu | wall = %s\n", step, t,
@@ -1332,6 +1363,10 @@ void Simulation::solve_amr() {
     }
     const double loop_wall = seconds_since(t0);
 
+    if (mon) {
+        if (step % p.monitor_interval != 0) row(step);
+        std::fclose(mon);
+    }
     if (interrupted) std::printf("\n[INTERRUPTED] Stopping AMR simulation...\n");
     exporter.export_amr(file_prefix, fluid, tree, t, step);
     exporter.write_pvd(file_prefix);
