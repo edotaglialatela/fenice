@@ -6,8 +6,9 @@
 Runs the Sod case on a 40 x 4 base mesh with 8 x 2 patches and three AMR levels (320 x 32 at the
 finest level), remeshing every 2 steps, once per frame to t = k t_end / frames (the steps before the
 last one are identical, so the frames are one run). Animates the density at the leaf cells coloured
-by level against the exact solution, and the patches below it: the refined patches travel with the
-rarefaction head, the contact and the shock, and are released behind them.
+by level against the exact solution, the patches below it (the refined patches travel with the
+rarefaction fan, the contact and the shock, and are released behind them) and, at the bottom, the
+mesh itself with its cell edges.
 Figure: sod_amr_animation.gif (plus a still, sod_amr_animation.png).
 """
 import numpy as np
@@ -47,16 +48,25 @@ def main():
     data = [frame(args, k) for k in range(1, FRAMES + 1)]
     xe = np.linspace(0, 1, 800)
 
-    fig, (a0, a1) = plt.subplots(2, 1, figsize=(9, 5.6), gridspec_kw=dict(height_ratios=[3, 1.1]), sharex=True)
-    fig.subplots_adjust(left=0.08, right=0.98, top=0.9, bottom=0.12, hspace=0.12)
+    fig, (a0, a1, a2) = plt.subplots(3, 1, figsize=(9, 7.4), gridspec_kw=dict(height_ratios=[3, 1.1, 1.0]),
+                                     sharex=True)
+    fig.subplots_adjust(left=0.08, right=0.98, top=0.93, bottom=0.08, hspace=0.14)
+    from matplotlib.collections import PolyCollection
+    ly = 0.1   # the case's Ly
     a0.set_ylim(0.05, 1.08)
     a0.set_xlim(0, 1)
     a0.set_ylabel(r"density $\rho$")
     a1.set_ylim(-0.5, LEVELS + 0.5)
     a1.set_yticks(range(LEVELS + 1))
     a1.set_ylabel("level")
-    a1.set_xlabel("$x$")
     a1.grid(False)
+    a2.set_ylim(0, ly)
+    a2.set_yticks([0, ly])
+    a2.set_ylabel("$y$")
+    a2.set_xlabel("$x$")
+    a2.grid(False)
+    a2.set_title("mesh (cell edges, coloured by level)", fontsize=10, pad=3)
+    mesh_pc = []
     (exact,) = a0.plot([], [], color="k", lw=1.1, label="exact")
     dots = [a0.plot([], [], "o", ms=3.2, color=COLORS[lv], label=f"AMR cells, level {lv}")[0] for lv in range(LEVELS + 1)]
     a0.legend(loc="upper right", ncol=3, fontsize=8)
@@ -75,6 +85,18 @@ def main():
             if (x0, x1) in {(b[0], b[1]) for b in meta[:0]}:
                 continue
             bars.append(a1.add_patch(plt.Rectangle((x0, level - 0.35), x1 - x0, 0.7, fc=COLORS[int(level)], ec="white", lw=0.4)))
+        while mesh_pc:
+            mesh_pc.pop().remove()
+        quads, colors = [], []
+        for x0, x1, y0, y1, level in meta:
+            dx, dy = (x1 - x0) / PX, (y1 - y0) / PY
+            for j in range(PY):
+                for i in range(PX):
+                    xa, ya = x0 + i * dx, y0 + j * dy
+                    quads.append([(xa, ya), (xa + dx, ya), (xa + dx, ya + dy), (xa, ya + dy)])
+                    colors.append(COLORS[int(level)])
+        pc = PolyCollection(quads, facecolors=colors, edgecolors="k", linewidths=0.25, alpha=0.55)
+        mesh_pc.append(a2.add_collection(pc))
         n_cells = len(meta) * PX * PY
         title.set_text(rf"Sod shock tube, AMR: $t = {t:.3f}$, {len(meta) // 1} patches, {n_cells} cells "
                        rf"(uniform at the finest level: {NX * 2 ** LEVELS * NY * 2 ** LEVELS})")

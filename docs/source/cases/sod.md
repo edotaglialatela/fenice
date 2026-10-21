@@ -65,7 +65,7 @@ moved on.
 <figure>
 <img src="{{root}}img/sod_amr_animation.gif" style="width:100%">
 <figcaption>Density at the AMR cells (coloured by level) against the exact solution, and the
-patches below, for $0 < t \le 0.2$. At $t = 0.1$ the 178 patches hold 2 848 cells instead of the
+patches below and the mesh with its cell edges at the bottom, for $0 < t \le 0.2$. At $t = 0.1$ the 178 patches hold 2 848 cells instead of the
 10 240 of the uniform finest mesh.</figcaption>
 </figure>
 
