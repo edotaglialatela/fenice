@@ -1,6 +1,6 @@
 """Taylor-Green vortex: viscous decay and grid convergence against the exact solution.
 
-    python validation/taylor_green.py [--docs]
+    python cases/validation/taylor_green.py [--docs]
 
 Runs the solver on the periodic Taylor-Green vortex:
 

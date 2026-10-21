@@ -36,9 +36,9 @@ quick check of the 3-D solver, not a DNS. What it exercises:
 
 ```powershell
 build\release\fenice.exe --case "Taylor-Green Vortex 3D" --set monitor_interval=10
-python validation\taylor_green_3d.py            # 32³ + 64³ (~6 min with 16 threads)
-python validation\taylor_green_3d.py --skip-64  # 32³ only (~20 s)
-python validation\taylor_green_3d.py --grids 32 64 96 --vorticity-n 96 --mpi 16 --q-animation
+python cases\validation\taylor_green_3d.py            # 32³ + 64³ (~6 min with 16 threads)
+python cases\validation\taylor_green_3d.py --skip-64  # 32³ only (~20 s)
+python cases\validation\taylor_green_3d.py --grids 32 64 96 --vorticity-n 96 --mpi 16 --q-animation
 ```
 
 The last line is what produced the figures below (about 40 min on 16 cores); `--q-animation`

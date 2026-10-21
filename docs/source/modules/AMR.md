@@ -166,7 +166,7 @@ distributed over the ranks (exchanging only the interface patches) is the next s
 <img src="{{root}}img/sod_amr.png" style="width:100%">
 <figcaption>Sod shock tube with 10×2 patches and 4 levels against uniform meshes at the two
 finest levels: the error of the finest uniform mesh with 53% of its cells
-(<code>validation/sod_amr.py</code>).</figcaption>
+(<code>cases/validation/sod_amr.py</code>).</figcaption>
 </figure>
 
 {{widget:AMR}}

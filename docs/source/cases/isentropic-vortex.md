@@ -24,7 +24,7 @@ has no shocks, so the limiters should only clip at the smooth extrema.
 
 ```powershell
 build\release\fenice.exe --case "Isentropic Vortex"
-python validation\isentropic_vortex.py
+python cases\validation\isentropic_vortex.py
 ```
 
 ## Default parameters

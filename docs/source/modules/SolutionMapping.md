@@ -35,7 +35,7 @@ AMR ghost layers from coarser neighbours.
 checkpoint. Shedding carries on without a new start-up transient; after a short drag
 spike while the field adapts to the finer mask, C<sub>l</sub> keeps its amplitude (0.37)
 and C<sub>d</sub> settles at 1.46 (1.43 on the coarse mesh)
-(<code>validation/cylinder_mesh_transition.py</code>).</figcaption>
+(<code>cases/validation/cylinder_mesh_transition.py</code>).</figcaption>
 </figure>
 
 ## Conservative restriction

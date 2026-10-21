@@ -15,7 +15,7 @@ slip walls three chords above and below.
 ```powershell
 build\release\fenice.exe --case "IBM Airfoil"                       # uses MPI (16 ranks) by default
 build\release\fenice.exe --case "IBM Airfoil" --set "ibm_shape=NACA 4412" --set ibm_aoa=5
-python validation\ibm_loads.py airfoil                        # loads figure + mean coefficients
+python cases\validation\ibm_loads.py airfoil                        # loads figure + mean coefficients
 ```
 
 ## Loads
@@ -52,12 +52,12 @@ leave it coarse).
 
 ```powershell
 build\release\fenice.exe --case "IBM Airfoil AMR"        # OpenMP threads; writes Cl, Cd, Cm like the uniform case
-python validation\airfoil_amr.py --docs                  # AMR against uniform 192x96 and 768x384
+python cases\validation\airfoil_amr.py --docs                  # AMR against uniform 192x96 and 768x384
 ```
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/airfoil_amr.png" style="width:100%">
-<figcaption>NACA 0012 at 10°, Re = 1000, up to $t = 6$ (<code>validation/airfoil_amr.py</code>).
+<figcaption>NACA 0012 at 10°, Re = 1000, up to $t = 6$ (<code>cases/validation/airfoil_amr.py</code>).
 Top: vorticity with the patches of the AMR run, which follow the airfoil and the wake. Bottom: drag and lift of the AMR run and of
 uniform 192×96 and 768×384 meshes, and the cost of the three runs on 16 OpenMP threads.</figcaption>
 </figure>

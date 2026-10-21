@@ -33,7 +33,7 @@ import argparse
 
 REQUIRED = [
     ("numpy",      "numpy",      "Arrays - validation scripts, regression check, GUI hot-start probe", True),
-    ("matplotlib", "matplotlib", "Plotting for validation scripts in validation/",                   True),
+    ("matplotlib", "matplotlib", "Plotting for validation scripts in cases/validation/",                   True),
 ]
 
 GUI = [

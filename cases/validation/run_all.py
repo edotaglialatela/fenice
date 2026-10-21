@@ -1,9 +1,9 @@
 """Run every validation study, in order of cost.
 
-    python validation/run_all.py                  # quick studies only (minutes)
-    python validation/run_all.py --all            # also the long MPI runs (cylinder, airfoil, 3-D TG)
-    python validation/run_all.py --all --docs     # and refresh the figures in docs/img/
-    python validation/run_all.py sod cavity       # only these studies
+    python cases/validation/run_all.py                  # quick studies only (minutes)
+    python cases/validation/run_all.py --all            # also the long MPI runs (cylinder, airfoil, 3-D TG)
+    python cases/validation/run_all.py --all --docs     # and refresh the figures in docs/img/
+    python cases/validation/run_all.py sod cavity       # only these studies
 
 Each study keeps its runs in results/validation/<study>/ and re-uses them, so a second call
 only redraws the figures; pass --force to re-run the simulations. Prints a summary and exits

@@ -24,7 +24,7 @@ which makes it a good target for `HLLC (Low-Mach Thornber)` and `BDF2 Dual Time`
 ```powershell
 build\release\fenice.exe --case "Poiseuille Flow"
 build\release\fenice.exe --case "Poiseuille Flow" --set time_scheme=bdf2
-python validation\poiseuille.py     # grid convergence + serial vs 4 MPI ranks
+python cases\validation\poiseuille.py     # grid convergence + serial vs 4 MPI ranks
 ```
 
 ## Default parameters

@@ -1,7 +1,7 @@
 """Cylinder loads across a hot start from a coarse to a fine mesh (animated).
 
-    python validation/cylinder_mesh_transition.py            # results/validation/cylinder_mesh_transition/
-    python validation/cylinder_mesh_transition.py --docs     # also docs/img/cylinder_mesh_transition.gif
+    python cases/validation/cylinder_mesh_transition.py            # results/validation/cylinder_mesh_transition/
+    python cases/validation/cylinder_mesh_transition.py --docs     # also docs/img/cylinder_mesh_transition.gif
 
 Runs the "IBM Flow over Cylinder" case on the default 400 x 200 mesh to t = 6, then continues
 on 800 x 400 for 3 more time units by hot start from the coarse checkpoint (16 MPI ranks unless

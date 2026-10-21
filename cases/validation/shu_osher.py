@@ -1,7 +1,7 @@
 """Shu-Osher shock / entropy-wave interaction: limiters and grid convergence against a fine reference.
 
-    python validation/shu_osher.py            # results/validation/shu_osher/
-    python validation/shu_osher.py --docs     # also docs/img/shu_osher.png
+    python cases/validation/shu_osher.py            # results/validation/shu_osher/
+    python cases/validation/shu_osher.py --docs     # also docs/img/shu_osher.png
 
 Runs the "Shu-Osher Test" case (MUSCL + SSP-RK2, t = 1.8) with the MC and Minmod limiters on
 200, 400, 800 and 1600 cells, plus a 6400-cell MC reference (there is no closed-form

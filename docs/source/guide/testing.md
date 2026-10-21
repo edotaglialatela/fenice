@@ -93,7 +93,7 @@ periodic wrap-around. Every case matches bit for bit, except the BDF2 / mass-flo
 existing one.
 
 A deliberate change to the numerics changes these states. Re-validate the solver
-physically (`validation/`) before regenerating the references.
+physically (`cases/validation/`) before regenerating the references.
 
 ## Continuous integration
 
@@ -104,7 +104,7 @@ runs `fenice_tests` and the regression suite serially and on 4 MPI ranks. Every 
 must reproduce the same reference states. The hosted runners have 3 or 4 cores, so the
 MPI runs oversubscribe them (Open MPI environment variables in the workflow).
 
-## Physical validation (`validation/`)
+## Physical validation (`cases/validation/`)
 
 Each script is one study: it runs the solver into `results/validation/<study>/`, compares
 the result with an analytical or reference solution, prints the errors and saves its figures
@@ -114,9 +114,9 @@ there. Runs that already finished are reused, so a second call only redraws the 
 this way. The shared helpers are in the `fenice` Python package (`python/fenice/`).
 
 ```powershell
-python validation\run_all.py                  # the quick studies (minutes)
-python validation\run_all.py --all --docs     # every study, refresh docs/img (hours: long MPI runs)
-python validation\sod.py --force              # one study, re-running its simulations
+python cases\validation\run_all.py                  # the quick studies (minutes)
+python cases\validation\run_all.py --all --docs     # every study, refresh docs/img (hours: long MPI runs)
+python cases\validation\sod.py --force              # one study, re-running its simulations
 ```
 
 | Script | Compares |

@@ -1,7 +1,7 @@
 """Sod shock tube against the exact Riemann solution: 1st order, 1st vs 2nd order, limiters.
 
-    python validation/sod.py            # results/validation/sod/
-    python validation/sod.py --docs     # also docs/img/sod_*.png
+    python cases/validation/sod.py            # results/validation/sod/
+    python cases/validation/sod.py --docs     # also docs/img/sod_*.png
 
 Runs the "Sod Shock Tube" case (200 x 20 cells, t = 0.2) with 1st-order Godunov, with MUSCL
 + SSP-RK2 for each limiter, and compares the profiles on the centre row with the exact

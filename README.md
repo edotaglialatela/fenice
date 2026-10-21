@@ -220,7 +220,7 @@ python cpp/tests/regression.py --mpi 4   # compare against the stored reference 
 change to the code must reproduce them (serial and on MPI ranks).
 
 The physical validation (exact solutions, convergence orders, literature data) is one
-script per study in `validation/`; `python validation/run_all.py` runs the quick ones and
+script per study in `cases/validation/`; `python cases/validation/run_all.py` runs the quick ones and
 writes the figures to `results/validation/`.
 
 ## Documentation

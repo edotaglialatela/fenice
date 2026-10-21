@@ -25,8 +25,8 @@ $$\mathrm{St} = \frac{f\,D}{u_{\rm in}} \approx 0.165 \quad (\mathrm{Re} = 100)$
 
 ```powershell
 build\release\fenice.exe --case "IBM Flow over Cylinder"          # uses MPI (16 ranks) by default
-python validation\ibm_loads.py cylinder                # loads, Strouhal number
-python validation\cylinder_mesh_transition.py         # hot start 400×200 -> 800×400
+python cases\validation\ibm_loads.py cylinder                # loads, Strouhal number
+python cases\validation\cylinder_mesh_transition.py         # hot start 400×200 -> 800×400
 ```
 
 ## Default parameters
@@ -79,7 +79,7 @@ circle just outside the cylinder (no viscous stresses).</figcaption>
 checkpoint. Shedding carries on without a new start-up transient; after a short drag
 spike while the field adapts to the finer mask, C<sub>l</sub> keeps its amplitude (0.37)
 and C<sub>d</sub> settles at 1.46 (1.43 on the coarse mesh)
-(<code>validation/cylinder_mesh_transition.py</code>).</figcaption>
+(<code>cases/validation/cylinder_mesh_transition.py</code>).</figcaption>
 </figure>
 <figure>
 <img src="{{root}}img/cylinder_no_shedding.gif" style="width:100%">

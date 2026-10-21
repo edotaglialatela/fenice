@@ -1,7 +1,7 @@
 """Sod shock tube with AMR against uniform meshes at the two finest AMR levels.
 
-    python validation/sod_amr.py            # results/validation/sod_amr/
-    python validation/sod_amr.py --docs     # also docs/img/sod_amr.png
+    python cases/validation/sod_amr.py            # results/validation/sod_amr/
+    python cases/validation/sod_amr.py --docs     # also docs/img/sod_amr.png
 
 Runs the "Sod Shock Tube" case (1st-order Godunov, t = 0.2) with AMR (10 x 2 patches, 4
 levels, pre-refined at t = 0) and on uniform meshes at the two finest AMR levels (80 x 16 and

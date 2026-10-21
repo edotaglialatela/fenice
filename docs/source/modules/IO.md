@@ -23,7 +23,7 @@ the run is interrupted mid-write.
   `.vtr` or the `.vtm`).
 
 Values are sanitised for ParaView's float32 parser: NaN becomes 0, ±Inf becomes
-±$10^{30}$, and $|x| < 10^{-30}$ becomes 0. The `validation/` scripts parse these files
+±$10^{30}$, and $|x| < 10^{-30}$ becomes 0. The `cases/validation/` scripts parse these files
 directly with `xml.etree`.
 
 ## Checkpoints (`.npz`)

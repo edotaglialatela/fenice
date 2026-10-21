@@ -1,7 +1,7 @@
 """Loads on an IBM body: vorticity around it, Cl / Cd / Cm history and the Strouhal number.
 
-    python validation/ibm_loads.py airfoil              # results/validation/airfoil_loads/
-    python validation/ibm_loads.py cylinder --docs      # results/validation/cylinder_loads/, docs/img/
+    python cases/validation/ibm_loads.py airfoil              # results/validation/airfoil_loads/
+    python cases/validation/ibm_loads.py cylinder --docs      # results/validation/cylinder_loads/, docs/img/
 
 Runs the "IBM Airfoil" or "IBM Flow over Cylinder" case (16 MPI ranks unless --mpi says
 otherwise; tens of minutes) into results/validation/<body>_loads/run/, unless that run exists.

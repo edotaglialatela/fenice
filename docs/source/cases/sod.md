@@ -18,8 +18,8 @@ boundaries and slip walls at the bottom and top, so the problem stays one-dimens
 ```powershell
 build\release\fenice.exe --case "Sod Shock Tube"
 build\release\fenice.exe --case "Sod Shock Tube" --set use_muscl=true --set time_scheme=ssprk2
-python validation\sod.py           # exact solution, orders, limiters
-python validation\sod_amr.py       # AMR vs uniform meshes
+python cases\validation\sod.py           # exact solution, orders, limiters
+python cases\validation\sod_amr.py       # AMR vs uniform meshes
 ```
 
 ## Default parameters
@@ -46,7 +46,7 @@ from 1.1e-2 to 3.0e-3, mostly at the contact and the rarefaction corners.</figca
 diffusive, MC the sharpest, with a small temperature overshoot at the contact.</figcaption>
 </figure>
 
-The same case validates [AMR]({{root}}modules/AMR.html): `validation/sod_amr.py` runs it
+The same case validates [AMR]({{root}}modules/AMR.html): `cases/validation/sod_amr.py` runs it
 with 10×2 patches and 4 levels (pre-refined at t = 0) and on uniform meshes at the two finest
 levels.
 
@@ -57,7 +57,7 @@ the contact and the shock and reaches the error of the 160×32 mesh (L1 1.5e-2 v
 53% of its cells.</figcaption>
 </figure>
 
-The refinement follows the waves. `validation/sod_amr_animation.py` runs a 40×4 base mesh with 8×2
+The refinement follows the waves. `cases/validation/sod_amr_animation.py` runs a 40×4 base mesh with 8×2
 patches and three levels, remeshing every two steps: the finest patches sit on the contact and the
 shock, the rarefaction fan is refined where it is steepest, and each patch is released once the wave has
 moved on.

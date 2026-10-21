@@ -1,7 +1,7 @@
 """Hagen-Poiseuille channel flow: developed profile, grid convergence and serial vs MPI.
 
-    python validation/poiseuille.py            # results/validation/poiseuille/
-    python validation/poiseuille.py --docs     # also docs/img/poiseuille_*.png
+    python cases/validation/poiseuille.py            # results/validation/poiseuille/
+    python cases/validation/poiseuille.py --docs     # also docs/img/poiseuille_*.png
 
 Runs the "Poiseuille Flow" case (BDF2 dual time, t = 80) on ny = 10, 20, 40 (nx = 3 ny) and
 compares u(y) at x = 0.95 Lx with the parabola u = 6 u_in y (Ly - y) / Ly^2. Runs the ny = 20

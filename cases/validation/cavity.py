@@ -1,7 +1,7 @@
 """Lid-driven cavity at Re = 400 against Ghia, Ghia & Shin (1982), with grid convergence.
 
-    python validation/cavity.py                 # 32^2, 64^2, 128^2; 1st and 2nd order
-    python validation/cavity.py --grids 32 64 128 256 --orders 2 --mpi 16 --docs
+    python cases/validation/cavity.py                 # 32^2, 64^2, 128^2; 1st and 2nd order
+    python cases/validation/cavity.py --grids 32 64 128 256 --orders 2 --mpi 16 --docs
 
 Runs the "Lid Driven Cavity" case into results/validation/cavity/n<N>_o<order>/ (existing
 runs are reused; --force re-runs them) to a steady state

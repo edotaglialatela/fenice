@@ -1,7 +1,7 @@
 """AMR following the waves of the Sod shock tube (animated).
 
-    python validation/sod_amr_animation.py            # results/validation/sod_amr_animation/
-    python validation/sod_amr_animation.py --docs     # also docs/img/sod_amr_animation.gif
+    python cases/validation/sod_amr_animation.py            # results/validation/sod_amr_animation/
+    python cases/validation/sod_amr_animation.py --docs     # also docs/img/sod_amr_animation.gif
 
 Runs the Sod case on a 40 x 4 base mesh with 8 x 2 patches and three AMR levels (320 x 32 at the
 finest level), remeshing every 2 steps, once per frame to t = k t_end / frames (the steps before the

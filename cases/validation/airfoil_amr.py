@@ -1,7 +1,7 @@
 """AMR with an immersed body: the airfoil on 192 x 96 + two levels against uniform meshes.
 
-    python validation/airfoil_amr.py             # results/validation/airfoil_amr/
-    python validation/airfoil_amr.py --docs      # also docs/img/airfoil_amr.png
+    python cases/validation/airfoil_amr.py             # results/validation/airfoil_amr/
+    python cases/validation/airfoil_amr.py --docs      # also docs/img/airfoil_amr.png
 
 Runs "IBM Airfoil" on the 192 x 96 base mesh and on 768 x 384 (the resolution AMR keeps at
 the body), and "IBM Airfoil AMR" (192 x 96, 16 x 16 patches, two levels, body at the finest
