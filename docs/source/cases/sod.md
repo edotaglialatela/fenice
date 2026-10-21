@@ -32,16 +32,15 @@ python validation\validationSod.py
 <figcaption>Density at t = 0.2 s: HLLC, 1st-order Godunov, MPI parallel run.</figcaption>
 </figure>
 
-<div style="display:flex; gap:1em; align-items:flex-start; flex-wrap:wrap; margin-top:1em;">
-<figure style="margin:0; flex:1 1 45%;">
+<figure>
 <img src="{{root}}img/Sod_1st_vs_2nd_Order.png" style="width:100%">
 <figcaption>1st-order vs 2nd-order MUSCL.</figcaption>
 </figure>
-<figure style="margin:0; flex:1 1 45%;">
+
+<figure>
 <img src="{{root}}img/Sod_Limiters_Comparison.png" style="width:100%">
 <figcaption>Limiter comparison (Minmod / Van Leer / MC / Koren).</figcaption>
 </figure>
-</div>
 
 The same case validates [AMR]({{root}}modules/AMR.html): `validation/amrComparisonSod.py`
 compares a uniform mesh with an AMR run of equal finest resolution.

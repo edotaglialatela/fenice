@@ -1,0 +1,77 @@
+# Build, unit tests and regression (serial and 4 MPI ranks) on Linux x64 / ARM64, macOS and Windows.
+# Every platform must reproduce the reference states in cpp/tests/reference/ (tolerance 1e-8).
+name: CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  # Hosted runners have 3-4 cores; the X-decomposition cases need 4 ranks
+  OMPI_MCA_rmaps_base_oversubscribe: "yes"                   # Open MPI 4
+  PRTE_MCA_rmaps_default_mapping_policy: ":oversubscribe"    # Open MPI 5
+
+jobs:
+  unix:
+    name: ${{ matrix.name }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: "Linux x64 (GCC, Open MPI)", os: ubuntu-latest }
+          - { name: "Linux ARM64 (GCC, Open MPI)", os: ubuntu-24.04-arm }
+          - { name: "macOS arm64 (Apple clang, libomp, Open MPI)", os: macos-latest }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake libopenmpi-dev openmpi-bin
+      - name: Dependencies (macOS)
+        if: runner.os == 'macOS'
+        run: brew install cmake libomp open-mpi
+      - run: python -m pip install numpy
+      - name: Build
+        run: |
+          cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release 2>&1 | tee configure.log
+          grep -q "Found OpenMP" configure.log || { echo "::error::OpenMP not found"; exit 1; }
+          grep -q "MPI enabled" configure.log || { echo "::error::MPI not found"; exit 1; }
+          cmake --build cpp/build -j
+      - name: Unit tests
+        run: ./cpp/build/fenice_tests
+      - name: Regression (serial)
+        run: python cpp/tests/regression.py
+      - name: Regression (4 MPI ranks)
+        run: python cpp/tests/regression.py --mpi 4
+
+  windows:
+    name: Windows x64 (MSVC, MS-MPI)
+    runs-on: windows-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: mpi4py/setup-mpi@v1
+        with:
+          mpi: msmpi
+      - run: python -m pip install numpy
+      - name: Build and unit tests
+        shell: pwsh
+        run: |
+          .\cpp\build.ps1 -Test
+          if (-not (Select-String -Path cpp\build\build.ninja -Pattern "FV_USE_MPI" -Quiet)) { throw "MPI not compiled in" }
+      - name: Regression (serial)
+        run: python cpp/tests/regression.py
+      - name: Regression (4 MPI ranks)
+        run: python cpp/tests/regression.py --mpi 4

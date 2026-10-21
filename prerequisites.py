@@ -11,6 +11,7 @@ Optional flags
 --------------
 --no-gui      Skip PyQt6 (headless / server environments).
 --no-docs     Skip markdown2 (only needed to rebuild the documentation).
+--viz3d       Also install PyVista (3-D Q-criterion animation of the Taylor-Green case).
 
 Then:
 
@@ -40,6 +41,10 @@ GUI = [
 
 DOCS = [
     ("markdown2",  "markdown2",  "Markdown renderer for docs/build.py",                               True),
+]
+
+VIZ3D = [
+    ("pyvista",    "pyvista",    "3-D iso-surfaces (validationTaylorGreen3D.py --q-animation)",      False),
 ]
 
 
@@ -107,6 +112,7 @@ def main() -> None:
     )
     parser.add_argument("--no-gui",   action="store_true", help="Skip PyQt6")
     parser.add_argument("--no-docs",  action="store_true", help="Skip markdown2")
+    parser.add_argument("--viz3d",    action="store_true", help="Also install PyVista (3-D Q-criterion animation)")
     args = parser.parse_args()
 
     sep = "=" * 60
@@ -132,6 +138,9 @@ def main() -> None:
         all_status.update(_install_group(DOCS, "Documentation -- docs/build.py"))
     else:
         print("\nDocs  [skipped -- --no-docs]")
+
+    if args.viz3d:
+        all_status.update(_install_group(VIZ3D, "3-D visualisation -- --viz3d"))
 
     # Summary
     print()

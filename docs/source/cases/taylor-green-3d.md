@@ -38,7 +38,11 @@ quick check of the 3-D solver, not a DNS. What it exercises:
 cpp\build\fenice.exe --case "Taylor-Green Vortex 3D" --set monitor_interval=10
 python validation\validationTaylorGreen3D.py            # 32³ + 64³ (~6 min with 16 threads)
 python validation\validationTaylorGreen3D.py --skip-64  # 32³ only (~20 s)
+python validation\validationTaylorGreen3D.py --grids 32 64 96 --vorticity-n 96 --mpi 16 --q-animation
 ```
+
+The last line is what produced the figures below (about 40 min on 16 cores); `--q-animation`
+needs PyVista (`python prerequisites.py --viz3d`).
 
 `monitor_interval` writes the domain-averaged mass and kinetic / total energy to
 `<case>_monitor.csv` (see [IO]({{root}}modules/IO.html#monitor-monitor_interval)), which
@@ -53,29 +57,41 @@ is all a kinetic-energy history needs.
 <figure>
 <img src="{{root}}img/taylor_green_3d_validation.png" style="width:100%">
 <figcaption>Left: kinetic energy. Right: total dissipation rate −dE<sub>k</sub>/dt from the monitor,
-the resolved physical part 2νζ (enstrophy) from the 32³ snapshots, and the DNS peak.
-Peak dissipation: 0.0110 at t = 6.6 (32³), 0.0113 at t = 8.5 (64³), against 0.0127 at t ≈ 9 for the DNS; E<sub>k</sub>(20)/E<sub>k</sub>(0) = 0.23 and 0.21.</figcaption>
+the resolved physical part 2νζ (enstrophy) from the 32³ and 96³ snapshots, and the DNS peak.
+Peak dissipation: 0.0110 at t = 6.6 (32³), 0.0113 at t = 8.5 (64³) and 0.0125 at t = 8.3 (96³),
+against 0.0127 at t ≈ 9 for the DNS; E<sub>k</sub>(20)/E<sub>k</sub>(0) = 0.23, 0.21 and 0.19.</figcaption>
 </figure>
 
 <figure>
 <img src="{{root}}img/taylor_green_3d_vorticity.png" style="width:100%">
 <figcaption>Vorticity magnitude at 96³ on three faces of the box (top) and on the periodic
-plane x = 0 (bottom); `validationTaylorGreen3D.py --vorticity-n 96`. The initial large-scale vortices (t = 0) roll up into vortex sheets
+plane x = 0 (bottom). The initial large-scale vortices (t = 0) roll up into vortex sheets
 (t ≈ 4), the sheets break up near the dissipation peak (t ≈ 8), and small-scale structures
 fill the box (t ≈ 12).</figcaption>
 </figure>
 
+<figure>
+<img src="{{root}}img/taylor_green_3d_q.gif" style="width:70%; display:block; margin:0 auto;">
+<figcaption>Coherent vortices at 96³: iso-surface Q = 3 of the Q-criterion
+Q = ½(‖Ω‖² − ‖S‖²) (rotation dominating strain), coloured by the vorticity ω<sub>z</sub>
+(blue negative, red positive), from t = 3.5, when Q first exceeds 3, to t = 20. Vortex tubes
+form and pair, reconnect into the ring-like lattice of the dissipation peak (t ≈ 8), break
+into small-scale turbulence and decay. The camera turns 60° over the animation.</figcaption>
+</figure>
+
 Reading the curves:
 
-* **Physical transition.** Both grids follow the textbook sequence: a laminar phase with
+* **Physical transition.** Every grid follows the textbook sequence: a laminar phase with
   slowly rising dissipation, a peak, then turbulent decay.
-* **Coarse-grid behaviour.** At 32³ the scheme's numerical dissipation adds to the
-  viscous one, so the energy drops too early and the peak comes too soon. Doubling the
-  resolution moves the peak toward the DNS (later and higher). This is the expected
-  convergence of a 2nd-order finite-volume scheme on the TGV.
+* **Grid convergence.** At 32³ the scheme's numerical dissipation adds to the viscous
+  one, so the energy drops too early and the peak comes too soon. Refining moves the peak
+  later and higher, toward the DNS: at 96³ it is 2 % below the DNS value, 0.7 time units
+  early. This is the expected convergence of a 2nd-order finite-volume scheme on the TGV.
 * **Resolved vs total dissipation.** $2\nu\zeta$ equals $-dE_k/dt$ at $t = 0$ (the exact
   $0.75\,\nu$). Later it is only a small part of the total at 32³, so most of the
-  dissipation there is numerical: the smallest eddies are far below the grid scale.
+  dissipation there is numerical: the smallest eddies are far below the grid scale. At 96³
+  the resolved part is about three times larger and accounts for over a third of the
+  total at the peak.
 * **Small oscillations** of the 32³ $-dE_k/dt$ come from acoustic waves at Ma 0.1
   exchanging kinetic and internal energy; the total energy is conserved to round-off.
 

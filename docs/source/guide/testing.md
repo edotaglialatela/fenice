@@ -92,6 +92,15 @@ existing one.
 A deliberate change to the numerics changes these states. Re-validate the solver
 physically (`validation/`) before regenerating the references.
 
+## Continuous integration
+
+`.github/workflows/ci.yml` runs on every push and pull request on GitHub Actions. On Linux
+x64 (GCC), Linux ARM64 (GCC), macOS on Apple Silicon (Apple clang with Homebrew `libomp`)
+and Windows (MSVC through `build.ps1`, MS-MPI), it builds the solver with OpenMP and MPI,
+runs `fenice_tests` and the regression suite serially and on 4 MPI ranks. Every platform
+must reproduce the same reference states. The hosted runners have 3 or 4 cores, so the
+MPI runs oversubscribe them (Open MPI environment variables in the workflow).
+
 ## Physical validation (`validation/`)
 
 The scripts read the VTK output of a run and compare it with analytical or reference

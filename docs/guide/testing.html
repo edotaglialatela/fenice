@@ -540,6 +540,7 @@ figcaption {
     <h2>Contents</h2><ul>
   <li><a href="#unit-tests-fenice_tests">Unit tests (<code>fenice_tests</code>)</a></li>
   <li><a href="#regression-references-regressionpy">Regression references (<code>regression.py</code>)</a></li>
+  <li><a href="#continuous-integration">Continuous integration</a></li>
   <li><a href="#physical-validation-validation">Physical validation (<code>validation/</code>)</a></li>
 </ul>
 
@@ -646,6 +647,15 @@ existing one.</p>
 
 <p>A deliberate change to the numerics changes these states. Re-validate the solver
 physically (<code>validation/</code>) before regenerating the references.</p>
+
+<h2 id="continuous-integration">Continuous integration</h2>
+
+<p><code>.github/workflows/ci.yml</code> runs on every push and pull request on GitHub Actions. On Linux
+x64 (GCC), Linux ARM64 (GCC), macOS on Apple Silicon (Apple clang with Homebrew <code>libomp</code>)
+and Windows (MSVC through <code>build.ps1</code>, MS-MPI), it builds the solver with OpenMP and MPI,
+runs <code>fenice_tests</code> and the regression suite serially and on 4 MPI ranks. Every platform
+must reproduce the same reference states. The hosted runners have 3 or 4 cores, so the
+MPI runs oversubscribe them (Open MPI environment variables in the workflow).</p>
 
 <h2 id="physical-validation-validation">Physical validation (<code>validation/</code>)</h2>
 

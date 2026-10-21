@@ -1,5 +1,7 @@
 # Fenice
 
+[![CI](https://github.com/edotaglialatela/fenice/actions/workflows/ci.yml/badge.svg)](https://github.com/edotaglialatela/fenice/actions/workflows/ci.yml)
+
 **Fenice** (Italian for *phoenix*) is a compressible finite-volume solver for the Euler
 and Navier-Stokes equations on structured Cartesian grids, in 2-D and 3-D. It is written
 in C++17 with OpenMP threading and MPI domain decomposition, and comes with a PyQt6 setup
@@ -87,7 +89,8 @@ configurations: Sod, 3-D Taylor-Green, unit tests, regression and the GUI.
 > **Tested platforms:** Windows 11 (MSVC 19.50, MS-MPI 10.1), Ubuntu 26.04 (GCC 15.2,
 > Open MPI 5.0) and macOS 27 on Apple M4 (Apple clang 21.0, Homebrew libomp, Open MPI
 > 5.0.9). On all three, every unit test passes and the regression suite reproduces the
-> reference states bit for bit, serial and on 4 MPI ranks.
+> reference states bit for bit, serial and on 4 MPI ranks. GitHub Actions repeats this on
+> every push on Linux x64 and ARM64, macOS and Windows (`.github/workflows/ci.yml`).
 
 ## Run
 
