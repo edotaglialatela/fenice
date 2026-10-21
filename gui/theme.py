@@ -4,7 +4,7 @@ A single, reusable Qt theme: a named colour palette, a Qt Style Sheet (QSS)
 built from it, and :func:`apply_theme` to install both on a ``QApplication``.
 
 Design intent — *precise instrument*. The palette is derived from the project's
-own brand asset (``aesthetics/logo.png``): the deep oxblood of the robe is the
+own brand asset (``gui/logo.png``): the deep oxblood of the robe is the
 primary/brand accent, the halo gold carries warnings, and a clean bright red is
 reserved for errors so the interface never reads as "all error". Surfaces are a
 cool, low-chroma neutral — an instrument panel under office light, not the AI

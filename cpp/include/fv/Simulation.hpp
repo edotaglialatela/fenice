@@ -142,7 +142,7 @@ const State* sample_leaf_state(const AMRTree& tree, double x, double y);
 
 // "12.3s" or "m:ss".
 std::string format_elapsed(double seconds);
-// Print aesthetics/logo.txt. `colors`: 0 plain, 256 (xterm-256 palette) or 24 (24-bit
+// Print cpp/logo.txt. `colors`: 0 plain, 256 (xterm-256 palette) or 24 (24-bit
 // colour) for a gold-to-oxblood gradient; see terminal_colors() in the fenice driver.
 void        print_logo(int colors = 0);
 

@@ -172,7 +172,7 @@ class SetupDialog(QDialog):
 
         self.image_label = QLabel()
         self.image_label.setObjectName("logoImage")
-        image_path = os.path.join(ROOT_DIR, "aesthetics", "logo.png")
+        image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
         if os.path.exists(image_path):
             pixmap = QPixmap(image_path)
             pixmap = pixmap.scaled(320, 560, Qt.AspectRatioMode.KeepAspectRatio,

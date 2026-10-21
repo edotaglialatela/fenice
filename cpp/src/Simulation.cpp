@@ -222,7 +222,7 @@ std::string ansi_rgb(int colors, int r, int g, int b) {
 }  // namespace
 
 void print_logo(int colors) {
-    std::ifstream in(std::string(FV_PROJECT_ROOT) + "/aesthetics/logo.txt", std::ios::binary);
+    std::ifstream in(std::string(FV_PROJECT_ROOT) + "/cpp/logo.txt", std::ios::binary);
     if (!in) return;
     std::vector<std::string> lines;
     for (std::string line; std::getline(in, line);) {
