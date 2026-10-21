@@ -203,11 +203,11 @@ def render_cylinder(n_frames):
     width = WIDTH["cylinder"]
     w = [vorticity(f) for f in fields]
     wmax = 0.5 * np.percentile(np.abs(w[0])[~solid], 99.9)   # saturate the boundary layer
-    write_gif(os.path.join(IMG, "vonKarman_vortices.gif"),
+    write_gif(os.path.join(IMG, "cylinder_vortices.gif"),
               [frame(x, solid, -wmax, wmax, width) for x in w], "RdBu_r", "#3a3a3a", 50)
     s = [speed(f) for f in fields]
     smax = max(np.percentile(x[~solid], 99.9) for x in s)
-    write_gif(os.path.join(IMG, "vonKarman_velocity.gif"),
+    write_gif(os.path.join(IMG, "cylinder_velocity.gif"),
               [frame(x, solid, 0, smax, width) for x in s], "magma", "#9aa0a6", 50)
 
 

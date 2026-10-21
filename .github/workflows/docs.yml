@@ -1,0 +1,52 @@
+# Builds the documentation (docs/build.py -> docs/site/) and publishes it on GitHub Pages.
+# One-time setup on GitHub: Settings -> Pages -> Build and deployment -> Source: GitHub Actions.
+name: Docs
+
+on:
+  push:
+    branches: [main]
+    paths: ["docs/**", "cpp/include/**", "cases/**", "python/**", ".github/workflows/docs.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build the site
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Solver (for the default-parameter tables only)
+        run: |
+          brew install ninja
+          cmake --preset release -DFV_USE_MPI=OFF -DFV_USE_OPENMP=OFF -DFV_BUILD_TESTS=OFF
+          cmake --build --preset release -j 4
+      - name: Site
+        run: |
+          pip install markdown2 -e python
+          python docs/build.py
+      - uses: actions/configure-pages@v5
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/site
+
+  deploy:
+    name: Publish
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4

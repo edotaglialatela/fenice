@@ -24,3 +24,6 @@ __pycache__/
 Thumbs.db
 desktop.ini
 PRODUCT.md
+
+# Generated documentation site (python docs/build.py; published by .github/workflows/docs.yml)
+docs/site/

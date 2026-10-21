@@ -8,7 +8,7 @@ in C++17 with OpenMP threading and MPI domain decomposition, and comes with a Py
 GUI, validation scripts and full documentation.
 
 <p align="center">
-  <img src="docs/img/vonKarman_vortices.gif" width="64%"
+  <img src="docs/img/cylinder_vortices.gif" width="64%"
        alt="Vorticity of the von Karman vortex street behind a cylinder at Re = 100">
   <img src="docs/img/supersonic_cylinder_schlieren.gif" width="32%"
        alt="Numerical schlieren of Mach 2 flow over a cylinder, showing the bow shock">
@@ -219,11 +219,16 @@ python cpp/tests/regression.py --mpi 4   # compare against the stored reference 
 `cpp/tests/reference/` holds the final states of 28 reference configurations; every
 change to the code must reproduce them (serial and on MPI ranks).
 
+The physical validation (exact solutions, convergence orders, literature data) is one
+script per study in `validation/`; `python validation/run_all.py` runs the quick ones and
+writes the figures to `results/validation/`.
+
 ## Documentation
 
-The HTML documentation is in [`docs/`](docs/index.html): open `docs/index.html` locally,
-or rebuild it with `python docs/build.py --open`. It covers the governing equations, every
-module, all parameters, and a validation page per test case.
+The documentation is online at **<https://edotaglialatela.github.io/fenice/>**, rebuilt on
+every push to `main`. It covers the governing equations, every module, all parameters, and
+a validation page per test case. To build it locally from `docs/source/`:
+`python docs/build.py --open` (writes `docs/site/`).
 
 ## License
 

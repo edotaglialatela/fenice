@@ -1,7 +1,9 @@
 """Build the Fenice HTML documentation.
 
-    python docs/build.py            # build into docs/
-    python docs/build.py --open     # build and open index.html
+    python docs/build.py            # build into docs/site/ (gitignored)
+    python docs/build.py --open     # build and open docs/site/index.html
+
+The published copy is built by .github/workflows/docs.yml and served by GitHub Pages.
 
 Pages are Markdown files in ``docs/source/`` with a small front-matter block::
 
@@ -35,6 +37,7 @@ import argparse
 import html
 import json
 import re
+import shutil
 import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -50,6 +53,7 @@ ROOT = DOCS.parent
 SOURCE = DOCS / "source"
 HEADERS = ROOT / "cpp" / "include" / "fv"
 TEMPLATES = DOCS / "_templates"
+SITE = DOCS / "site"   # the generated site (gitignored; published to GitHub Pages by CI)
 SECTIONS = ["Guide", "Modules", "Test cases"]
 
 EXTRAS = {"code-friendly": None, "cuddled-lists": None, "fenced-code-blocks": {"cssclass": "pdoc-code codehilite"},
@@ -77,7 +81,7 @@ class Page:
 
     @property
     def rel_root(self) -> str:
-        depth = len(self.out.relative_to(DOCS).parts) - 1
+        depth = len(self.out.relative_to(SITE).parts) - 1
         return "../" * depth
 
 
@@ -94,7 +98,7 @@ def load_pages() -> list[Page]:
                     meta[k.strip()] = v.split("#")[0].strip()
             body = text[m.end():]
         rel = src.relative_to(SOURCE).with_suffix(".html")
-        pages.append(Page(src, meta, body, DOCS / rel))
+        pages.append(Page(src, meta, body, SITE / rel))
     return pages
 
 
@@ -426,7 +430,7 @@ def page_list(pages, current) -> str:
             continue
         out.append(f"<h3>{sec}</h3><ul>")
         for p in group:
-            href = current.rel_root + p.out.relative_to(DOCS).as_posix()
+            href = current.rel_root + p.out.relative_to(SITE).as_posix()
             label = html.escape(p.meta.get("nav", p.title))
             out.append(f'<li><a href="{href}">{"<strong>" + label + "</strong>" if p is current else label}</a></li>')
         out.append("</ul>")
@@ -470,7 +474,7 @@ def build(open_browser: bool = False) -> None:
             widget = (DOCS / "widgets" / f"{w}.html").read_text(encoding="utf-8")
             html_body = re.sub(rf"(<p>)?\x00WIDGET{k}\x00(</p>)?", lambda _: f'<div class="fv-widget">\n{widget}\n</div>', html_body)
         p.html, p.toc, p.api = html_body, toc, nav
-        back = "" if p.out == DOCS / "index.html" else (
+        back = "" if p.out == SITE / "index.html" else (
             f'<a class="pdoc-button module-list-button" href="{p.rel_root}index.html">&#8592;&nbsp;Fenice</a>')
         contents = f"<h2>Contents</h2>{toc}" if toc else ""
         p.out.parent.mkdir(parents=True, exist_ok=True)
@@ -479,7 +483,7 @@ def build(open_browser: bool = False) -> None:
                                      api_nav=nav_api(nav), pagelist=page_list(pages, p), body=html_body, api=api),
                          encoding="utf-8")
 
-        url = p.out.relative_to(DOCS).as_posix()
+        url = p.out.relative_to(SITE).as_posix()
         plain = re.sub(r"(?s)<(script|style)\b.*?</\1>", " ", html_body)   # widget code is not content
         plain = re.sub(r"<[^>]+>", " ", plain)
         search.append({"title": p.title, "url": url, "heading": "", "text": re.sub(r"\s+", " ", plain)[:400]})
@@ -489,10 +493,12 @@ def build(open_browser: bool = False) -> None:
             search.append({"title": p.title, "url": f"{url}#{aid}", "heading": name, "text": ""})
             search += [{"title": p.title, "url": f"{url}#{mid}", "heading": f"{name}.{n}", "text": ""} for mid, n, _ in sub]
 
-    (DOCS / "search_index.js").write_text("window.FV_SEARCH = " + json.dumps(search) + ";\n", encoding="utf-8")
-    print(f"Built {len(pages)} pages into {DOCS}")
+    (SITE / "search_index.js").write_text("window.FV_SEARCH = " + json.dumps(search) + ";\n", encoding="utf-8")
+    shutil.copytree(DOCS / "img", SITE / "img", dirs_exist_ok=True)
+    (SITE / ".nojekyll").write_text("", encoding="utf-8")   # GitHub Pages: serve the files as they are
+    print(f"Built {len(pages)} pages into {SITE}")
     if open_browser:
-        webbrowser.open((DOCS / "index.html").as_uri())
+        webbrowser.open((SITE / "index.html").as_uri())
 
 
 if __name__ == "__main__":

@@ -37,11 +37,11 @@ python validation\cylinder_mesh_transition.py         # hot start 400×200 -> 80
 
 <div style="display:flex; gap:1em; align-items:flex-start; flex-wrap:wrap;">
 <figure style="margin:0; flex:1 1 45%;">
-<img src="{{root}}img/vonKarman_vortices.gif" style="width:100%">
+<img src="{{root}}img/cylinder_vortices.gif" style="width:100%">
 <figcaption>Vorticity.</figcaption>
 </figure>
 <figure style="margin:0; flex:1 1 45%;">
-<img src="{{root}}img/vonKarman_velocity.gif" style="width:100%">
+<img src="{{root}}img/cylinder_velocity.gif" style="width:100%">
 <figcaption>Velocity magnitude.</figcaption>
 </figure>
 </div>
@@ -69,7 +69,7 @@ C<sub>d</sub> = 1.43, C<sub>l</sub> = ±0.37 and St = 0.178, against 1.33-1.35, 
 0.164-0.166 in the literature for Re = 100.</figcaption>
 </figure>
 <figure>
-<img src="{{root}}img/aero_coeff_fine.gif" style="width:100%">
+<img src="{{root}}img/cylinder_loads_1200x600.gif" style="width:100%">
 <figcaption>C_L and C_D over time on a 1200×600 mesh, from the pressure integrated on a
 circle just outside the cylinder (no viscous stresses).</figcaption>
 </figure>
@@ -82,6 +82,6 @@ and C<sub>d</sub> settles at 1.46 (1.43 on the coarse mesh)
 (<code>validation/cylinder_mesh_transition.py</code>).</figcaption>
 </figure>
 <figure>
-<img src="{{root}}img/aero_coeff_stableCase.gif" style="width:100%">
+<img src="{{root}}img/cylinder_no_shedding.gif" style="width:100%">
 <figcaption>Stable case: without perturbations no vortex shedding develops.</figcaption>
 </figure>
