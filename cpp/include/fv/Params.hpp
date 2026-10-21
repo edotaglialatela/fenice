@@ -82,6 +82,7 @@ struct SimParams {
     int    amr_max_level, amr_patch_nx, amr_patch_ny;
     double amr_refine_threshold, amr_derefine_threshold;
     int    amr_refine_every, amr_init_levels, amr_buffer_layers;
+    bool   amr_refine_ibm = true;   // keep the immersed body at the finest level
 
     // C++-only extras
     std::string output_root;   // parent of the per-case results folder

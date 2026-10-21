@@ -746,7 +746,7 @@ TEST(amr_ibm_masks_and_reset_across_patches) {
     Simulation uni, sim;
     uni.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}}), false);
     sim.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}, {"use_amr", "true"},
-                              {"amr_patch_nx", "48"}, {"amr_patch_ny", "24"}, {"amr_max_level", "1"}}), false);
+                              {"amr_patch_nx", "48"}, {"amr_patch_ny", "24"}, {"amr_max_level", "1"}, {"amr_refine_ibm", "false"}}), false);
     uni.initialize_field();
     sim.initialize_field();
     AMRTree& tree = *sim.amr_tree;
@@ -787,7 +787,7 @@ TEST(amr_same_level_patches_match_uniform_residual) {
     Simulation uni, sim;
     uni.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}, {"use_muscl", "false"}}), false);
     sim.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}, {"use_muscl", "false"},
-                              {"use_amr", "true"}, {"amr_patch_nx", "48"}, {"amr_patch_ny", "24"}, {"amr_max_level", "1"}}), false);
+                              {"use_amr", "true"}, {"amr_patch_nx", "48"}, {"amr_patch_ny", "24"}, {"amr_max_level", "1"}, {"amr_refine_ibm", "false"}}), false);
     uni.initialize_field();
     sim.initialize_field();
     AMRTree& tree = *sim.amr_tree;
@@ -818,6 +818,38 @@ TEST(amr_same_level_patches_match_uniform_residual) {
     CHECK(m > 1e-3);
     CHECK(d <= 1e-12 * m);
     CHECK_NEAR(Smax, Su, 1e-12 * Su);
+}
+
+TEST(amr_body_kept_at_max_level) {
+    // Tiled root, airfoil: after seeding every leaf that touches the body is at max_level, the tree is
+    // 2:1 balanced, and a remesh (which sees a uniform flow, eta = 0) never coarsens the body
+    Simulation sim;
+    sim.setup(airfoil_params({{"nx", "192"}, {"ny", "96"}, {"use_amr", "true"}, {"amr_patch_nx", "16"},
+                              {"amr_patch_ny", "16"}, {"amr_max_level", "2"}}), false);
+    sim.initialize_field();
+    AMRTree& tree = *sim.amr_tree;
+    auto check = [&] {
+        int body = 0;
+        for (AMRPatch* lf : tree.leaves()) {
+            if (sim.patch_touches_body(*lf)) { CHECK(lf->level == tree.max_level); ++body; }
+            for (Face f : kAllFaces)
+                for (AMRPatch* nb : tree.neighbour_leaves(lf, f)) CHECK(std::abs(nb->level - lf->level) <= 1);
+        }
+        CHECK(body > 4);
+    };
+    check();
+    std::vector<AMRPatch*> to_ref, to_der;
+    for (int pass = 0; pass < 3; ++pass) {
+        sim.amr_indicator->mark(tree, to_ref, to_der);
+        for (AMRPatch* p : to_ref) if (p->is_leaf() && p->level < tree.max_level) tree.refine_patch(p);
+        for (AMRPatch* par : to_der) {
+            bool kids = !par->is_leaf();
+            for (AMRPatch* c : par->children) kids = kids && c->is_leaf();
+            if (kids) tree.derefine_patch(par);
+        }
+        tree.enforce_2to1_balance();
+        check();
+    }
 }
 
 namespace {

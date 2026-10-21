@@ -55,6 +55,11 @@ public:
     // neighbour cells across patch interfaces from a snapshot taken before any leaf is reset.
     void amr_solid_reset(AMRTree& tree);
 
+    // True if the box of `patch`, grown by one of its cells, overlaps the immersed body's bounding box.
+    bool patch_touches_body(const AMRPatch& patch) const;
+    // Refine leaves touching the body up to max_level (2:1 balanced), e.g. before seeding at t = 0.
+    void refine_body_patches();
+
     void solve();   // serial uniform mesh or AMR
 #ifdef FV_USE_MPI
     // Full MPI run (all ranks call it): decomposition, scatter, time loop, gather + output on rank 0.
@@ -101,6 +106,7 @@ public:
     std::unique_ptr<ConstantBodyForce>   body_force;     // optional source term
     std::unique_ptr<ImmersedBoundary>    ibm;            // optional obstacle
     std::function<ImmersedBoundary(const Mesh&)> ibm_factory;   // same body on any (patch) mesh
+    std::array<double, 4> ibm_bbox{};                           // body extent {xmin, xmax, ymin, ymax}
     std::unique_ptr<TimeScheme>          scheme;         // time integrator
     std::unique_ptr<AMRTree>             amr_tree;       // non-null when AMR is on
     std::unique_ptr<AMRErrorIndicator>   amr_indicator;  // AMR marking

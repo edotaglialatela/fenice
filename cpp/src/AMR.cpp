@@ -261,10 +261,15 @@ void AMRErrorIndicator::mark(AMRTree& tree, std::vector<AMRPatch*>& to_refine,
     std::map<int, double> eta;
     for (AMRPatch* p : lv) eta[p->id] = indicator(*p);
 
+    std::set<int> forced;
+    if (force_refine)
+        for (AMRPatch* p : lv)
+            if (force_refine(*p)) forced.insert(p->id);
+
     std::vector<AMRPatch*> flagged;
     for (AMRPatch* p : lv) {
         const double e = eta[p->id];
-        if (e > refine_threshold && p->level < tree.max_level) {
+        if ((e > refine_threshold || forced.count(p->id)) && p->level < tree.max_level) {
             flagged.push_back(p);
         } else if (e < derefine_threshold && p->parent && p->level > 0) {
             // All siblings must be leaves below the threshold to collapse the parent.
@@ -299,7 +304,7 @@ void AMRErrorIndicator::mark(AMRTree& tree, std::vector<AMRPatch*>& to_refine,
     std::vector<AMRPatch*> kept;
     for (AMRPatch* par : to_derefine) {
         bool any = false;
-        for (AMRPatch* c : par->children) any = any || buffered.count(c->id) > 0;
+        for (AMRPatch* c : par->children) any = any || buffered.count(c->id) > 0 || forced.count(c->id) > 0;
         if (!any) kept.push_back(par);
     }
     to_derefine = std::move(kept);

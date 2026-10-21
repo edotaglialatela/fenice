@@ -116,7 +116,7 @@ Params baseline_defaults() {
         {"hot_start_src_nx", "0"}, {"hot_start_src_ny", "0"},
         {"use_amr", "false"}, {"amr_max_level", "2"}, {"amr_patch_nx", "8"}, {"amr_patch_ny", "8"},
         {"amr_refine_threshold", "0.3"}, {"amr_derefine_threshold", "0.1"},
-        {"amr_refine_every", "10"}, {"amr_init_levels", "0"}, {"amr_buffer_layers", "1"},
+        {"amr_refine_every", "10"}, {"amr_init_levels", "0"}, {"amr_buffer_layers", "1"}, {"amr_refine_ibm", "true"},
         {"output_root", FV_PROJECT_ROOT "/results"}, {"dump_state", ""}, {"max_steps", "0"},
         {"monitor_interval", "0"}, {"vtk_format", "binary"},
     };
@@ -191,6 +191,7 @@ SimParams SimParams::from(const Params& p) {
     s.amr_refine_every  = std::max(1, p.integer("amr_refine_every", 10));
     s.amr_init_levels   = p.integer("amr_init_levels", 0);
     s.amr_buffer_layers = p.integer("amr_buffer_layers", 1);
+    s.amr_refine_ibm    = p.flag("amr_refine_ibm");
     s.output_root    = p.str("output_root", "results");
     s.dump_state     = p.str("dump_state");
     s.max_steps      = p.integer("max_steps", 0);

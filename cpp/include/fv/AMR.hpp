@@ -110,6 +110,9 @@ public:
 
     double refine_threshold, derefine_threshold;   // eta thresholds
     int    buffer_layers;                          // halo rings around flagged patches
+    // Optional: leaves for which this is true are refined to max_level whatever eta says, and their
+    // parents are never derefined (an immersed body kept at the finest level).
+    std::function<bool(const AMRPatch&)> force_refine;
 };
 
 // Residual of one leaf patch: fills R (cells) and flux_x / flux_y (face flux *

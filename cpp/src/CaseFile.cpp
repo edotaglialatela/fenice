@@ -44,7 +44,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& section_tab
                  "ibm_aoa"}},
         {"hot_start", {"use_hot_start", "hot_start_file", "hot_start_src_nx", "hot_start_src_ny"}},
         {"amr", {"use_amr", "amr_max_level", "amr_patch_nx", "amr_patch_ny", "amr_refine_threshold",
-                 "amr_derefine_threshold", "amr_refine_every", "amr_init_levels", "amr_buffer_layers"}},
+                 "amr_derefine_threshold", "amr_refine_every", "amr_init_levels", "amr_buffer_layers", "amr_refine_ibm"}},
     };
     return t;
 }

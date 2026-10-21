@@ -297,6 +297,11 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         if (!digits.empty() || lower(p.ibm_shape) == "airfoil") {
             const Polygon2D unit = digits.empty() ? load_airfoil(airfoil_file_path()) : naca4(digits);
             const Polygon2D placed = place_airfoil(unit, p.ibm_chord, p.ibm_aoa, p.ibm_cx, p.ibm_cy);
+            ibm_bbox = {1e300, -1e300, 1e300, -1e300};
+            for (const auto& q : placed.pts) {
+                ibm_bbox[0] = std::min(ibm_bbox[0], q[0]);  ibm_bbox[1] = std::max(ibm_bbox[1], q[0]);
+                ibm_bbox[2] = std::min(ibm_bbox[2], q[1]);  ibm_bbox[3] = std::max(ibm_bbox[3], q[1]);
+            }
             ibm_factory = [placed, rho = p.rho_in, pout = p.p_out](const Mesh& m) {
                 return ImmersedBoundary(m, placed, rho, pout);
             };
@@ -306,6 +311,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                             digits.empty() ? airfoil_file_path().c_str() : p.ibm_shape.c_str(), p.ibm_chord,
                             p.ibm_aoa, p.ibm_cx, p.ibm_cy, ibm->solid_count());
         } else {
+            ibm_bbox = {p.ibm_cx - p.ibm_radius, p.ibm_cx + p.ibm_radius, p.ibm_cy - p.ibm_radius, p.ibm_cy + p.ibm_radius};
             ibm_factory = [shape = p.ibm_shape, r = p.ibm_radius, cx = p.ibm_cx, cy = p.ibm_cy, rho = p.rho_in,
                            pout = p.p_out, cz = p.ibm_cz](const Mesh& m) {
                 return ImmersedBoundary(m, shape, r, cx, cy, rho, pout, cz);
@@ -366,6 +372,8 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                                              p.nx / p.amr_patch_nx, p.ny / p.amr_patch_ny);
         amr_indicator = std::make_unique<AMRErrorIndicator>(p.amr_refine_threshold, p.amr_derefine_threshold,
                                                             p.amr_buffer_layers);
+        if (p.use_ibm && p.amr_refine_ibm)
+            amr_indicator->force_refine = [this](const AMRPatch& patch) { return patch_touches_body(patch); };
         if (verbose)
             std::printf("[AMR] Enabled - max_level=%d, patch_size=%dx%d, subcycling active\n", p.amr_max_level,
                         p.amr_patch_nx, p.amr_patch_ny);
@@ -392,6 +400,7 @@ void Simulation::initialize_field() {
         for (int k = 0; k < p.amr_init_levels; ++k)
             for (AMRPatch* patch : amr_tree->leaves())
                 if (patch->level < amr_tree->max_level) amr_tree->refine_patch(patch);
+        if (p.use_ibm && p.amr_refine_ibm) refine_body_patches();
         // Seed every leaf by sampling the full-domain field at the leaf's
         // global cell centroids (bilinear, extrapolating at the edges).
         const double dx_s = mesh.Lx / mesh.nx, dy_s = mesh.Ly / mesh.ny;
@@ -677,6 +686,19 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
 }
 double Simulation::residual(const Field& Uin, Field& R) {
     return assemble(mesh, boundaries, p.use_ibm ? ibm.get() : nullptr, muscl.get(), Uin, R, nullptr);
+}
+
+bool Simulation::patch_touches_body(const AMRPatch& patch) const {
+    const double mx = patch.mesh.dx, my = patch.mesh.dy;
+    return patch.xmax + mx >= ibm_bbox[0] && patch.xmin - mx <= ibm_bbox[1] &&
+           patch.ymax + my >= ibm_bbox[2] && patch.ymin - my <= ibm_bbox[3];
+}
+
+void Simulation::refine_body_patches() {
+    for (int pass = 0; pass < amr_tree->max_level; ++pass)
+        for (AMRPatch* patch : amr_tree->leaves())
+            if (patch->level < amr_tree->max_level && patch_touches_body(*patch)) amr_tree->refine_patch(patch);
+    amr_tree->enforce_2to1_balance();
 }
 
 void Simulation::ensure_patch_masks(AMRPatch& patch) const {

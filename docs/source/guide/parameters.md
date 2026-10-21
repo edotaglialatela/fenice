@@ -126,5 +126,6 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 | `amr_refine_every` | `10` | Remesh every N coarse steps |
 | `amr_init_levels` | `0` | Uniform pre-refinement levels at t = 0 |
 | `amr_buffer_layers` | `1` | Rings of neighbours refined around flagged patches |
+| `amr_refine_ibm` | `true` | With `use_ibm`: leaves whose box (grown by one cell) overlaps the body's bounding box are refined to `amr_max_level` from t = 0 and never coarsened |
 
 {{api}}
