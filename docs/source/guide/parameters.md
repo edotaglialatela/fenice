@@ -46,11 +46,13 @@ short alias shown in brackets.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `bc_left`, `bc_right`, `bc_bottom`, `bc_top` | `wall` | One of `wall` (*Inviscid Wall (Slip)*), `no_slip` (*Viscous Wall (No-Slip)*), `moving_wall`, `vel_inlet` (*Velocity Inlet*), `massflow_inlet` (*Mass Flow Inlet*), `outlet` (*Pressure Outlet*), `transmissive`, `periodic` (periodic on both sides of an axis or neither) |
+| `bc_left`, `bc_right`, `bc_bottom`, `bc_top` | `wall` | One of `wall` (*Inviscid Wall (Slip)*), `no_slip` (*Viscous Wall (No-Slip)*), `moving_wall`, `vel_inlet` (*Velocity Inlet*), `massflow_inlet` (*Mass Flow Inlet*), `outlet` (*Pressure Outlet*), `transmissive`, `nonreflecting` (*Non-Reflecting Outlet*), `periodic` (periodic on both sides of an axis or neither) |
 | `bc_front`, `bc_back` | `periodic` | 3-D only: the $z = 0$ and $z = L_z$ sides, same choices |
 | `u_in` | `0.0` | Inlet velocity / moving-wall velocity [m/s] |
 | `rho_in` | `1.0` | Mass-flow inlet density [kg/m³]; also the IBM reference density |
-| `p_out` | `1.0` | Outlet pressure [Pa]; also the IBM reference pressure |
+| `p_out` | `1.0` | Outlet pressure [Pa]; also the IBM reference pressure and the far-field pressure of `nonreflecting` |
+| `nrbc_sigma` | `0.28` | `nonreflecting`: relaxation of the pressure towards `p_out` ($\sigma$; 0: none) |
+| `nrbc_beta` | `-1` | `nonreflecting`: weight of the transverse terms in [0, 1] (1: none, 0: full); negative: local Mach number |
 
 Each test case sets its boundary conditions in its case file, and `--config` and `--set`
 override them. See the [BC formulas]({{root}}modules/Boundaries.html).

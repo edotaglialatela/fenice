@@ -1,4 +1,5 @@
 import os
+import sys
 import xml.etree.ElementTree as ET
 import numpy as np
 import matplotlib.pyplot as plt
@@ -10,7 +11,9 @@ from vtkio import vtk_array
 # =============================================================================
 # PARAMETERS
 # =============================================================================
-PVD_FILE = "../results/ibm_flow_over_cylinder/ibm_flow_over_cylinder.pvd" # Path to your PVD file
+# Path to the PVD file (optional first argument)
+PVD_FILE = sys.argv[1] if len(sys.argv) > 1 else "../results/ibm_flow_over_cylinder/ibm_flow_over_cylinder.pvd"
+T_START = 1.0   # start of the FFT window: skips the start-up / hot-start transient
 RHO_INF = 1.0
 U_INF = 1.0
 D = 0.2
@@ -165,7 +168,7 @@ if __name__ == "__main__":
 
     print("Extraction completed. Generating animation...")
 
-    calculate_strouhal(t_history, Cl_history, D, U_INF, t_start=0.0) # skip some initial time if wanted
+    calculate_strouhal(t_history, Cl_history, D, U_INF, t_start=T_START)
 
     # =============================================================================
     # ANIMATION MGLIORATA

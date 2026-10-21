@@ -101,7 +101,7 @@ Params baseline_defaults() {
         {"riemann_solver", "HLLC"}, {"time_scheme", "Explicit Euler"},
         {"bc_left", "wall"}, {"bc_right", "wall"}, {"bc_bottom", "wall"}, {"bc_top", "wall"},
         {"bc_front", "periodic"}, {"bc_back", "periodic"},
-        {"u_in", "0.0"}, {"rho_in", "1.0"}, {"p_out", "1.0"},
+        {"u_in", "0.0"}, {"rho_in", "1.0"}, {"p_out", "1.0"}, {"nrbc_sigma", "0.28"}, {"nrbc_beta", "-1"},
         {"use_bodyforce", "false"}, {"gx", "0.0"}, {"gy", "-9.81"}, {"gz", "0.0"},
         {"resume", "false"}, {"use_mpi", "false"}, {"n_cpus", "2"},
         {"use_ibm", "false"}, {"ibm_shape", "Cylinder"}, {"ibm_radius", "0.1"},
@@ -150,6 +150,8 @@ SimParams SimParams::from(const Params& p) {
     s.u_in           = p.num("u_in", 0.0);
     s.rho_in         = p.num("rho_in", 1.0);
     s.p_out          = p.num("p_out", 1.0);
+    s.nrbc_sigma     = p.num("nrbc_sigma", 0.28);
+    s.nrbc_beta      = p.num("nrbc_beta", -1.0);
     s.use_bodyforce  = p.flag("use_bodyforce");
     s.gx             = p.num("gx", 0.0);
     s.gy             = p.num("gy", 0.0);
@@ -206,6 +208,8 @@ SimParams SimParams::from(const Params& p) {
                                         *sides[a].second + "')");
     if (s.vtk_format != "binary" && s.vtk_format != "ascii")
         throw std::invalid_argument("Unknown vtk_format: '" + s.vtk_format + "' (use binary or ascii)");
+    if (!(s.nrbc_sigma >= 0.0)) throw std::invalid_argument("nrbc_sigma must be >= 0");
+    if (!(s.nrbc_beta <= 1.0)) throw std::invalid_argument("nrbc_beta must be <= 1 (< 0: local Mach number)");
     if (!(s.cfl > 0.0)) throw std::invalid_argument("cfl must be positive");
     if (!(s.t_end > 0.0)) throw std::invalid_argument("t_end must be positive");
     if (!(s.gamma > 1.0)) throw std::invalid_argument("gamma must be greater than 1");

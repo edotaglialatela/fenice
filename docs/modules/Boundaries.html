@@ -539,9 +539,10 @@ figcaption {
     <input type="search" id="fv-search" placeholder="Search..." role="searchbox" aria-label="search">
     <h2>Contents</h2><ul>
   <li><a href="#boundary-condition-types">Boundary-condition types</a></li>
+  <li><a href="#non-reflecting-outlet">Non-reflecting outlet</a></li>
 </ul>
 
-    <h2>API Documentation</h2><ul class="memberlist"><li><a class="class" href="#BCType">BCType</a></li><li><a class="function" href="#parse_bc">parse_bc</a></li><li><a class="function" href="#bc_name">bc_name</a></li><li><a class="class" href="#BCParams">BCParams</a><ul class="memberlist"><li><a class="variable" href="#BCParams.u_in">u_in, v_in, rho_in, p_out</a></li></ul></li><li><a class="class" href="#BoundaryManager">BoundaryManager</a><ul class="memberlist"><li><a class="function" href="#BoundaryManager.BoundaryManager">BoundaryManager</a></li><li><a class="function" href="#BoundaryManager.set_boundary_types">set_boundary_types</a></li><li><a class="function" href="#BoundaryManager.set_params">set_params</a></li><li><a class="function" href="#BoundaryManager.type">type</a></li><li><a class="function" href="#BoundaryManager.set_type">set_type</a></li><li><a class="function" href="#BoundaryManager.params">params</a></li><li><a class="function" href="#BoundaryManager.mesh">mesh</a></li><li><a class="function" href="#BoundaryManager.apply_boundary_conditions">apply_boundary_conditions</a></li><li><a class="function" href="#BoundaryManager.get_padded_U">get_padded_U</a></li><li><a class="function" href="#BoundaryManager.set_mean_reducer">set_mean_reducer</a></li></ul></li></ul>
+    <h2>API Documentation</h2><ul class="memberlist"><li><a class="class" href="#BCType">BCType</a></li><li><a class="function" href="#parse_bc">parse_bc</a></li><li><a class="function" href="#bc_name">bc_name</a></li><li><a class="class" href="#BCParams">BCParams</a><ul class="memberlist"><li><a class="variable" href="#BCParams.u_in">u_in, v_in, rho_in, p_out</a></li><li><a class="variable" href="#BCParams.nrbc_sigma">nrbc_sigma</a></li><li><a class="variable" href="#BCParams.nrbc_beta">nrbc_beta</a></li><li><a class="variable" href="#BCParams.length">length</a></li></ul></li><li><a class="class" href="#TangentialHalos">TangentialHalos</a><ul class="memberlist"><li><a class="variable" href="#TangentialHalos.dir">dir</a></li><li><a class="variable" href="#TangentialHalos.depth">depth</a></li><li><a class="variable" href="#TangentialHalos.lo">lo</a></li><li><a class="variable" href="#TangentialHalos.hi">hi</a></li></ul></li><li><a class="class" href="#BoundaryManager">BoundaryManager</a><ul class="memberlist"><li><a class="function" href="#BoundaryManager.BoundaryManager">BoundaryManager</a></li><li><a class="function" href="#BoundaryManager.set_boundary_types">set_boundary_types</a></li><li><a class="function" href="#BoundaryManager.set_params">set_params</a></li><li><a class="function" href="#BoundaryManager.type">type</a></li><li><a class="function" href="#BoundaryManager.set_type">set_type</a></li><li><a class="function" href="#BoundaryManager.params">params</a></li><li><a class="function" href="#BoundaryManager.mesh">mesh</a></li><li><a class="function" href="#BoundaryManager.apply_boundary_conditions">apply_boundary_conditions</a></li><li><a class="function" href="#BoundaryManager.get_padded_U">get_padded_U</a></li><li><a class="function" href="#BoundaryManager.set_mean_reducer">set_mean_reducer</a></li></ul></li></ul>
     <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/writing-cases.html">Writing a test case</a></li><li><a href="../guide/performance.html">Performance</a></li><li><a href="../guide/gui.html">GUI</a></li><li><a href="../guide/testing.html">Testing</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html"><strong>Boundaries</strong></a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/CaseFile.html">CaseFile</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html">Lid-driven cavity</a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
   </div>
 </nav>
@@ -609,6 +610,10 @@ convective solver.</li>
   <td>$\mathbf{U}_g = \mathbf{U}_i$ (far field / outflow)</td>
 </tr>
 <tr>
+  <td><code>nonreflecting</code>: characteristic outlet</td>
+  <td>only the incoming acoustic characteristic differs from the cell (see below)</td>
+</tr>
+<tr>
   <td><code>periodic</code></td>
   <td>ghost taken from the cell on the opposite boundary; MUSCL and the viscous cross-derivatives also wrap around, so a periodic seam is identical to an interior face</td>
 </tr>
@@ -629,15 +634,92 @@ Feed 3-D inflows through the x or y sides.</p>
 <p>Under MPI the mass-flow average $\langle\rho\rangle$ is reduced over every rank
 sharing the inlet, so the inlet behaves exactly as in a serial run.</p>
 
+<h2 id="non-reflecting-outlet">Non-reflecting outlet</h2>
+
+<p><code>transmissive</code> passes plane waves at normal incidence almost perfectly (reflection
+~$10^{-5}$): with $\mathbf{U}_g = \mathbf{U}_i$ the Riemann solver lets no wave enter. But
+nothing fixes the pressure level, so in subsonic flow it drifts, and oblique waves and
+vortices crossing the boundary reflect. <code>nonreflecting</code> is a characteristic outlet in the
+LODI / NSCBC framework (Rudy &amp; Strikwerda 1980; Poinsot &amp; Lele 1992; Lodato, Domingo &amp;
+Vervisch 2008). With $u_{\rm out}$ the outward normal velocity and $M = u_{\rm out}/c$, the
+ghost differs from the cell only in the incoming acoustic characteristic
+$w_1 = p - \rho c\,u_{\rm out}$; the outgoing acoustic, entropy and vorticity waves are
+extrapolated. Its amplitude is</p>
+
+<p>$$\mathcal{L}_1 = K\,(p - p_{\rm out}) - (1-\beta)\,\mathcal{T}_1, \qquad K = \sigma\,c\,(1-M^2)/L,$$</p>
+
+<p>applied across the boundary face as the jump $\delta w_1 = -h\,\mathcal{L}_1/(c - u_{\rm out})$
+($h$ the cell size, $L$ the domain length normal to the side):</p>
+
+<ul>
+<li>the <strong>relaxation</strong> $K\,(p - p_{\rm out})$ is a weak incoming wave that keeps the mean
+pressure at $p_{\rm out}$ (<code>nrbc_sigma</code>, default 0.28, Rudy &amp; Strikwerda's optimum;
+0 gives no anchoring);</li>
+<li>the <strong>transverse terms</strong>
+$\mathcal{T}_1 = \sum_t \big(v_t\,\partial_t p + \rho c^2\,\partial_t v_t - \rho c\,v_t\,\partial_t u_{\rm out}\big)$,
+differentiated along the boundary, let vortices and oblique waves leave with less
+reflection. <code>nrbc_beta</code> weighs them: the default (negative) uses the local Mach number,
+as Yoo &amp; Im recommend; 1 switches them off; 0 compensates them fully, which is unstable
+for strong vortices.</li>
+</ul>
+
+<p>At supersonic outflow nothing enters and the ghost is the cell. Measured on a pressure
+pulse, a cylindrical wave and an isentropic vortex leaving the domain (MUSCL, SSP-RK2):</p>
+
+<table>
+<thead>
+<tr>
+  <th>Test</th>
+  <th><code>transmissive</code></th>
+  <th><code>nonreflecting</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>plane wave, normal incidence</td>
+  <td>$1\times10^{-5}$</td>
+  <td>$1\times10^{-2}$ (the $p_{\rm out}$ relaxation)</td>
+</tr>
+<tr>
+  <td>cylindrical wave, all angles and corners</td>
+  <td>3.3 %</td>
+  <td>2.5 %</td>
+</tr>
+<tr>
+  <td>isentropic vortex exit</td>
+  <td>8.3 %</td>
+  <td>3.8 %</td>
+</tr>
+<tr>
+  <td>mean pressure, tube open at both ends</td>
+  <td>drifts</td>
+  <td>relaxes to $p_{\rm out}$</td>
+</tr>
+</tbody>
+</table>
+
+<p>The derivatives along the boundary use the strip halos across MPI interfaces (central
+differences, one-sided at the ends of a side, wrapped on periodic axes), so MPI runs are
+identical to serial ones.</p>
+
 </div></section><h2 id="api-reference">API reference <code>fv/Boundaries.hpp</code></h2>
-<section id="BCType"><div class="attr class"><span class="def">enum</span> <span class="name">BCType</span><span class="signature pdoc-code condensed"> { Wall, NoSlip, MovingWall, VelInlet, MassflowInlet, Outlet, Transmissive, Periodic }</span></div><a class="headerlink" href="#BCType"></a><div class="docstring"><p>Boundary-condition types (see the module page for the ghost-state formulas).</p></div>
+<section id="BCType"><div class="attr class"><span class="def">enum</span> <span class="name">BCType</span><span class="signature pdoc-code condensed"> { Wall, NoSlip, MovingWall, VelInlet, MassflowInlet, Outlet, Transmissive, Periodic, NonReflecting }</span></div><a class="headerlink" href="#BCType"></a><div class="docstring"><p>Boundary-condition types (see the module page for the ghost-state formulas).</p></div>
 </section>
 <section id="parse_bc"><div class="attr function"><span class="def">BCType</span> <span class="name">parse_bc</span><span class="signature pdoc-code condensed">(const std::string&amp; s)</span></div><a class="headerlink" href="#parse_bc"></a><div class="docstring"><p>Accepts both internal names ("no_slip") and GUI labels ("Viscous Wall (No-Slip)").</p></div>
 </section>
 <section id="bc_name"><div class="attr function"><span class="def">std::string</span> <span class="name">bc_name</span><span class="signature pdoc-code condensed">(BCType t)</span></div><a class="headerlink" href="#bc_name"></a><div class="docstring"><p>Internal name of a BC type ("no_slip", "vel_inlet", ...).</p></div>
 </section>
-<section id="BCParams"><div class="attr class"><span class="def">struct</span> <span class="name">BCParams</span><span class="signature pdoc-code condensed"></span></div><a class="headerlink" href="#BCParams"></a><div class="docstring"><p>Parameters of the inlet / outlet / moving-wall BCs.</p></div>
+<section id="BCParams"><div class="attr class"><span class="def">struct</span> <span class="name">BCParams</span><span class="signature pdoc-code condensed"></span></div><a class="headerlink" href="#BCParams"></a><div class="docstring"><p>Parameters of the inlet / outlet / moving-wall / non-reflecting BCs.</p></div>
 <div id="BCParams.u_in" class="classattr"><div class="attr variable"><span class="name">double u_in = 0.0, v_in = 0.0, rho_in = 1.0, p_out = 1.0</span></div><a class="headerlink" href="#BCParams.u_in"></a><div class="docstring"><p>inlet/wall velocity, inlet density, outlet pressure</p></div></div>
+<div id="BCParams.nrbc_sigma" class="classattr"><div class="attr variable"><span class="def">double</span> <span class="name">nrbc_sigma</span><span class="signature pdoc-code condensed"> = 0.28</span></div><a class="headerlink" href="#BCParams.nrbc_sigma"></a><div class="docstring"><p>non-reflecting outlet: relaxation towards p_out (0: none)</p></div></div>
+<div id="BCParams.nrbc_beta" class="classattr"><div class="attr variable"><span class="def">double</span> <span class="name">nrbc_beta</span><span class="signature pdoc-code condensed"> = -1.0</span></div><a class="headerlink" href="#BCParams.nrbc_beta"></a><div class="docstring"><p>NRBC transverse weight (1: none, 0: full; &lt; 0: local Mach number)</p></div></div>
+<div id="BCParams.length" class="classattr"><div class="attr variable"><span class="def">double</span> <span class="name">length</span><span class="signature pdoc-code condensed">[3]</span></div><a class="headerlink" href="#BCParams.length"></a><div class="docstring"><p>global domain size per axis (relaxation length of the NRBC)</p></div></div>
+</section>
+<section id="TangentialHalos"><div class="attr class"><span class="def">struct</span> <span class="name">TangentialHalos</span><span class="signature pdoc-code condensed"></span></div><a class="headerlink" href="#TangentialHalos"></a><div class="docstring"><p>MPI strip halos, for the non-reflecting BC's derivatives along a boundary that crosses rank interfaces. Layouts as in the halo exchange: y-strips [(d*nz + k)*nx + i], x-strips [(k*ny + j)*depth + d]; lo's layer depth-1 and hi's layer 0 touch the strip.</p></div>
+<div id="TangentialHalos.dir" class="classattr"><div class="attr variable"><span class="def">char</span> <span class="name">dir</span><span class="signature pdoc-code condensed"> = 'y'</span></div><a class="headerlink" href="#TangentialHalos.dir"></a><div class="docstring"><p>decomposition direction</p></div></div>
+<div id="TangentialHalos.depth" class="classattr"><div class="attr variable"><span class="def">int</span> <span class="name">depth</span><span class="signature pdoc-code condensed"> = 2</span></div><a class="headerlink" href="#TangentialHalos.depth"></a><div class="docstring"><p>halo layers</p></div></div>
+<div id="TangentialHalos.lo" class="classattr"><div class="attr variable"><span class="def">const Field*</span> <span class="name">lo</span><span class="signature pdoc-code condensed"> = nullptr</span></div><a class="headerlink" href="#TangentialHalos.lo"></a><div class="docstring"><p>lower neighbour's cells (nullptr: physical end)</p></div></div>
+<div id="TangentialHalos.hi" class="classattr"><div class="attr variable"><span class="def">const Field*</span> <span class="name">hi</span><span class="signature pdoc-code condensed"> = nullptr</span></div><a class="headerlink" href="#TangentialHalos.hi"></a><div class="docstring"><p>upper neighbour's cells</p></div></div>
 </section>
 <section id="BoundaryManager"><div class="attr class"><span class="def">class</span> <span class="name">BoundaryManager</span><span class="signature pdoc-code condensed"></span></div><a class="headerlink" href="#BoundaryManager"></a><div class="docstring"><p>Builds the ghost states of one (sub)domain from its boundary types (four sides in 2-D, six in 3-D).  Defaults: transmissive left/right, slip walls bottom/top, periodic front/back.</p></div>
 <div id="BoundaryManager.BoundaryManager" class="classattr"><div class="attr function"><span class="def"></span> <span class="name">BoundaryManager</span><span class="signature pdoc-code condensed">(const Mesh&amp; mesh, const EOS&amp; eos)</span></div><a class="headerlink" href="#BoundaryManager.BoundaryManager"></a><div class="docstring"><p>Manager for <code>mesh</code>; ghost states use <code>eos</code> for primitive &lt;-&gt; conservative conversions.</p></div></div>
@@ -647,7 +729,7 @@ sharing the inlet, so the inlet behaves exactly as in a serial run.</p>
 <div id="BoundaryManager.set_type" class="classattr"><div class="attr function"><span class="def">void</span> <span class="name">set_type</span><span class="signature pdoc-code condensed">(Face f, BCType t)</span></div><a class="headerlink" href="#BoundaryManager.set_type"></a><div class="docstring"><p>Change the BC type of one side.</p></div></div>
 <div id="BoundaryManager.params" class="classattr"><div class="attr function"><span class="def">const BCParams&amp;</span> <span class="name">params</span><span class="signature pdoc-code condensed">() const</span></div><a class="headerlink" href="#BoundaryManager.params"></a><div class="docstring"><p>Current BC parameters.</p></div></div>
 <div id="BoundaryManager.mesh" class="classattr"><div class="attr function"><span class="def">const Mesh&amp;</span> <span class="name">mesh</span><span class="signature pdoc-code condensed">() const</span></div><a class="headerlink" href="#BoundaryManager.mesh"></a><div class="docstring"><p>Mesh the manager was built for.</p></div></div>
-<div id="BoundaryManager.apply_boundary_conditions" class="classattr"><div class="attr function"><span class="def">void</span> <span class="name">apply_boundary_conditions</span><span class="signature pdoc-code condensed">(const Field&amp; U, Field&amp; UL, Field&amp; UR) const</span></div><a class="headerlink" href="#BoundaryManager.apply_boundary_conditions"></a><div class="docstring"><p>First-order face states for every face of the mesh (UL/UR resized to num_faces).</p></div></div>
+<div id="BoundaryManager.apply_boundary_conditions" class="classattr"><div class="attr function"><span class="def">void</span> <span class="name">apply_boundary_conditions</span><span class="signature pdoc-code condensed">(const Field&amp; U, Field&amp; UL, Field&amp; UR, const TangentialHalos* th = nullptr) const</span></div><a class="headerlink" href="#BoundaryManager.apply_boundary_conditions"></a><div class="docstring"><p>First-order face states for every face of the mesh (UL/UR resized to num_faces). <code>th</code>: MPI strip halos (non-reflecting sides crossing rank interfaces).</p></div></div>
 <div id="BoundaryManager.get_padded_U" class="classattr"><div class="attr function"><span class="def">void</span> <span class="name">get_padded_U</span><span class="signature pdoc-code condensed">(const Field&amp; U, Field&amp; U_pad) const</span></div><a class="headerlink" href="#BoundaryManager.get_padded_U"></a><div class="docstring"><p>U padded with BC-consistent ghost cells: (ny+2)*(nx+2) in 2-D, (nz+2)*(ny+2)*(nx+2) in 3-D (row-major).</p></div></div>
 <div id="BoundaryManager.set_mean_reducer" class="classattr"><div class="attr function"><span class="def">void</span> <span class="name">set_mean_reducer</span><span class="signature pdoc-code condensed">(Face f, std::function&lt;void(double&amp; sum, double&amp; count)&gt; r)</span></div><a class="headerlink" href="#BoundaryManager.set_mean_reducer"></a><div class="docstring"><p>MPI: combine the mass-flow inlet's (sum, count) of interior density across the ranks sharing side <code>f</code>, so the inlet average matches the serial run.</p></div></div>
 </section><section><div class="docstring">

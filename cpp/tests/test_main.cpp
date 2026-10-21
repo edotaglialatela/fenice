@@ -206,6 +206,69 @@ TEST(bc_ghost_states) {
     CHECK_NEAR(P[2 * PW][2], U[1 * m.nx][2], 1e-15);
 }
 
+TEST(nonreflecting_outlet) {
+    const EOS eos = EOS::ideal(1.4);
+    const Mesh m = generate_cartesian_mesh(2.0, 1.0, 8, 4);
+    BoundaryManager bm(m, eos);
+    bm.set_boundary_types(BCType::NonReflecting, BCType::NonReflecting, BCType::Wall, BCType::Wall);
+    BCParams bp;
+    bp.p_out = 1.0;
+    bp.nrbc_sigma = 0.28;
+    bp.length[0] = 2.0;
+    bm.set_params(bp);
+    const double rho = 1.2, u = 0.3, p = 1.25;
+    Field U = uniform_field(eos, m.num_cells(), rho, u, 0.1, p);
+    Field UL, UR;
+    bm.apply_boundary_conditions(U, UL, UR);
+    const double c = eos.sound_speed(p, rho);
+    // Each side: only the incoming acoustic characteristic jumps, by -alpha (p - p_out),
+    // alpha = sigma (1 + M) h / L with M the outward Mach number
+    for (int side = 0; side < 2; ++side) {
+        const double s = side == 0 ? -1.0 : 1.0;   // outward normal: -x on the left, +x on the right
+        const State Wg = eos.cons_to_prim(side == 0 ? UL[m.boundary_face(Face::Left, 1)]
+                                                    : UR[m.boundary_face(Face::Right, 1)]);
+        const double dp = Wg[3] - p, du = s * (Wg[1] - u), drho = Wg[0] - rho;
+        const double alpha = 0.28 * (1.0 + s * u / c) * m.dx / 2.0;
+        CHECK_NEAR(dp - rho * c * du, -alpha * (p - 1.0), 1e-12);   // incoming w1 = p - rho c u_out
+        CHECK_NEAR(dp + rho * c * du, 0.0, 1e-12);                  // outgoing acoustic wave unchanged
+        CHECK_NEAR(drho - dp / (c * c), 0.0, 1e-12);                // entropy unchanged
+        CHECK_NEAR(Wg[2], 0.1, 1e-12);                              // vorticity (tangential velocity) unchanged
+    }
+    // sigma = 0, and supersonic outflow: the ghost is the cell (transmissive)
+    auto same = [](const State& x, const State& y) {
+        double d = 0.0;
+        for (int q = 0; q < kNVar; ++q) d = std::max(d, std::abs(x[q] - y[q]) / (1.0 + std::abs(y[q])));
+        return d < 1e-14;
+    };
+    bp.nrbc_sigma = 0.0;
+    bm.set_params(bp);
+    bm.apply_boundary_conditions(U, UL, UR);
+    CHECK(same(UR[m.boundary_face(Face::Right, 0)], U[m.nx - 1]));
+    bp.nrbc_sigma = 0.28;
+    bm.set_params(bp);
+    U = uniform_field(eos, m.num_cells(), rho, 2.5 * c, 0.0, p);
+    bm.apply_boundary_conditions(U, UL, UR);
+    CHECK(same(UR[m.boundary_face(Face::Right, 0)], U[m.nx - 1]));
+    CHECK(parse_bc("Non-Reflecting Outlet") == BCType::NonReflecting && bc_name(BCType::NonReflecting) == "nonreflecting");
+
+    // A tube open at both ends with p above p_out: the NRBC relaxes the pressure to p_out,
+    // transmissive keeps it (perfectly non-reflecting, so nothing anchors the level)
+    for (const char* bc : {"transmissive", "nonreflecting"}) {
+        Simulation sim;
+        sim.setup(params_for("Sod Shock Tube", {{"nx", "100"}, {"ny", "2"}, {"bc_left", bc}, {"bc_right", bc},
+                                                {"p_out", "1.0"}, {"nrbc_sigma", "1.0"}, {"t_end", "30"}}),
+                  false);
+        sim.U = uniform_field(sim.fluid, sim.mesh.num_cells(), 1.0, 0.0, 0.0, 1.1);
+        const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
+        double t = 0.0;
+        while (t < 30.0) t += sim.scheme->step(sim.U, res, sim.dt_length, t, 30.0).dt;
+        const double p_mid = sim.fluid.cons_to_prim(sim.U[50])[3];
+        std::printf("    %s: p after 30 acoustic times %.6f (p_out 1, start 1.1)\n", bc, p_mid);
+        if (std::string(bc) == "transmissive") CHECK(std::abs(p_mid - 1.1) < 1e-9);
+        else                                   CHECK(std::abs(p_mid - 1.0) < 0.01);
+    }
+}
+
 TEST(bc_parse_labels) {
     CHECK(parse_bc("Inviscid Wall (Slip)") == BCType::Wall);
     CHECK(parse_bc("Mass Flow Inlet") == BCType::MassflowInlet);
@@ -1500,6 +1563,15 @@ TEST(initial_regions_and_expressions) {
     }
     CHECK(kept == 96);
     CHECK(changed == 4);
+
+    // Usual precedence: -a^2 = -(a^2) (a Gaussian must not become exp(+x^2)), a^b^c = a^(b^c)
+    InitialSpec pr;
+    pr.state = {{"rho", "2^3^2"}, {"u", "-2^2"}, {"v", "exp(-x^2)"}, {"p", "1.0"}};
+    const Field Q = evaluate_initial(pr, m, eos, run);
+    const State Wq = eos.cons_to_prim(Q[3]);   // cell (3, 0): x = 0.35
+    CHECK(Wq[0] == 512.0);
+    CHECK_NEAR(Wq[1], -4.0, 1e-12);
+    CHECK_NEAR(Wq[2], std::exp(-0.35 * 0.35), 1e-12);
 }
 
 TEST(case_file_save_load_round_trip) {

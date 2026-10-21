@@ -78,12 +78,22 @@ CASES = {
     "sphere3d_ibm_visc":   ("IBM Flow over Cylinder", dict(nx=32, ny=16, nz=8, Lz=1.0, t_end=0.03, use_mpi=False,
                                                        ibm_shape="Sphere", ibm_cz=0.5, ibm_radius=0.25,
                                                        bc_front="wall", bc_back="wall")),
+    # Non-reflecting outlet (C++ references; NRBC validated by fenice_tests nonreflecting_outlet and the
+    # plane-wave / cylindrical-wave / vortex-exit reflection measurements on the Boundaries page)
+    "vortex_nrbc":         ("Isentropic Vortex", dict(nx=40, ny=48, t_end=1.0, use_muscl=True, bc_left="transmissive",
+                                                  bc_right="nonreflecting")),
+    "vortex_nrbc_xdecomp": ("Isentropic Vortex", dict(nx=64, ny=6, t_end=0.5, bc_left="nonreflecting",
+                                                  bc_right="nonreflecting", nrbc_sigma=1.0)),
+    "tgv3d_nrbc":          ("Taylor-Green Vortex 3D", dict(nx=16, ny=16, nz=8, t_end=0.3, bc_left="transmissive",
+                                                       bc_right="nonreflecting", bc_front="nonreflecting",
+                                                       bc_back="nonreflecting")),
 }
 # Cases also run under MPI (AMR is serial-only); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
 MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodic_x", "poiseuille_bdf2",
              "cylinder_ibm_visc", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
-             "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc"]
+             "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
+             "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc"]
 
 
 def run_cpp(name, tmp, n_mpi=0):

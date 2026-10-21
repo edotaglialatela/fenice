@@ -36,6 +36,7 @@ For a face with outward normal $\hat n$:
 | `massflow_inlet`: mass-flow inlet | target velocity $u_t = \rho_{\rm in}u_{\rm in}/\langle\rho\rangle$, with $\langle\rho\rangle$ the inlet-averaged interior density; $u_g = 2u_t - u_i$ |
 | `outlet`: pressure outlet | $p_g = p_{\rm out}$; outflow velocity kept, backflow ($V_n < 0$) clamped to zero |
 | `transmissive`: zero gradient | $\mathbf{U}_g = \mathbf{U}_i$ (far field / outflow) |
+| `nonreflecting`: characteristic outlet | only the incoming acoustic characteristic differs from the cell (see below) |
 | `periodic` | ghost taken from the cell on the opposite boundary; MUSCL and the viscous cross-derivatives also wrap around, so a periodic seam is identical to an interior face |
 
 All velocity-based ghosts are built in primitive variables and converted back
@@ -51,5 +52,46 @@ Feed 3-D inflows through the x or y sides.
 
 Under MPI the mass-flow average $\langle\rho\rangle$ is reduced over every rank
 sharing the inlet, so the inlet behaves exactly as in a serial run.
+
+## Non-reflecting outlet
+
+`transmissive` passes plane waves at normal incidence almost perfectly (reflection
+~$10^{-5}$): with $\mathbf{U}_g = \mathbf{U}_i$ the Riemann solver lets no wave enter. But
+nothing fixes the pressure level, so in subsonic flow it drifts, and oblique waves and
+vortices crossing the boundary reflect. `nonreflecting` is a characteristic outlet in the
+LODI / NSCBC framework (Rudy & Strikwerda 1980; Poinsot & Lele 1992; Lodato, Domingo &
+Vervisch 2008). With $u_{\rm out}$ the outward normal velocity and $M = u_{\rm out}/c$, the
+ghost differs from the cell only in the incoming acoustic characteristic
+$w_1 = p - \rho c\,u_{\rm out}$; the outgoing acoustic, entropy and vorticity waves are
+extrapolated. Its amplitude is
+
+$$\mathcal{L}_1 = K\,(p - p_{\rm out}) - (1-\beta)\,\mathcal{T}_1, \qquad K = \sigma\,c\,(1-M^2)/L,$$
+
+applied across the boundary face as the jump $\delta w_1 = -h\,\mathcal{L}_1/(c - u_{\rm out})$
+($h$ the cell size, $L$ the domain length normal to the side):
+
+* the **relaxation** $K\,(p - p_{\rm out})$ is a weak incoming wave that keeps the mean
+  pressure at $p_{\rm out}$ (`nrbc_sigma`, default 0.28, Rudy & Strikwerda's optimum;
+  0 gives no anchoring);
+* the **transverse terms**
+  $\mathcal{T}_1 = \sum_t \big(v_t\,\partial_t p + \rho c^2\,\partial_t v_t - \rho c\,v_t\,\partial_t u_{\rm out}\big)$,
+  differentiated along the boundary, let vortices and oblique waves leave with less
+  reflection. `nrbc_beta` weighs them: the default (negative) uses the local Mach number,
+  as Yoo & Im recommend; 1 switches them off; 0 compensates them fully, which is unstable
+  for strong vortices.
+
+At supersonic outflow nothing enters and the ghost is the cell. Measured on a pressure
+pulse, a cylindrical wave and an isentropic vortex leaving the domain (MUSCL, SSP-RK2):
+
+| Test | `transmissive` | `nonreflecting` |
+|---|---|---|
+| plane wave, normal incidence | $1\times10^{-5}$ | $1\times10^{-2}$ (the $p_{\rm out}$ relaxation) |
+| cylindrical wave, all angles and corners | 3.3 % | 2.5 % |
+| isentropic vortex exit | 8.3 % | 3.8 % |
+| mean pressure, tube open at both ends | drifts | relaxes to $p_{\rm out}$ |
+
+The derivatives along the boundary use the strip halos across MPI interfaces (central
+differences, one-sided at the ends of a side, wrapped on periodic axes), so MPI runs are
+identical to serial ones.
 
 {{api}}

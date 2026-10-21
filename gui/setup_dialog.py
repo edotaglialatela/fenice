@@ -273,7 +273,7 @@ class SetupDialog(QDialog):
         f3 = QFormLayout()
         bc_opts = ["Inviscid Wall (Slip)", "Viscous Wall (No-Slip)", "Moving Wall",
                    "Velocity Inlet", "Mass Flow Inlet", "Pressure Outlet",
-                   "Transmissive", "Periodic"]
+                   "Transmissive", "Non-Reflecting Outlet", "Periodic"]
         self.bc_left = QComboBox(); self.bc_left.addItems(bc_opts)
         self.bc_right = QComboBox(); self.bc_right.addItems(bc_opts)
         self.bc_bottom = QComboBox(); self.bc_bottom.addItems(bc_opts)
@@ -613,6 +613,7 @@ class SetupDialog(QDialog):
         "Velocity Inlet": "vel_inlet", "Mass Flow Inlet": "massflow_inlet", 
         "Pressure Outlet": "outlet",
         "Transmissive": "transmissive", 
+        "Non-Reflecting Outlet": "nonreflecting",
         "Periodic": "periodic",
     }
 

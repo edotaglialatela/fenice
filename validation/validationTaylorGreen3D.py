@@ -2,6 +2,7 @@
 
     python validation/validationTaylorGreen3D.py            # 32^3 and 64^3 (the 64^3 run takes minutes)
     python validation/validationTaylorGreen3D.py --skip-64  # 32^3 only
+    python validation/validationTaylorGreen3D.py --skip-64 --vorticity-n 96 --mpi 16   # finer vorticity figure
 
 Runs the C++ solver (cpp/build/fenice) on the "Taylor-Green Vortex 3D" case to t = 20:
 
@@ -10,7 +11,8 @@ Runs the C++ solver (cpp/build/fenice) on the "Taylor-Green Vortex 3D" case to t
 2. kinetic energy E_k(t) and its dissipation rate eps = -dE_k/dt (from the monitor), plus the
    resolved physical dissipation 2 nu zeta (enstrophy, from the 32^3 snapshots), against the
    DNS peak eps ~ 0.0127 at t ~ 9 (van Rees et al. 2011; Wang et al. 2013);
-3. vorticity magnitude |omega| on the box faces and on the periodic plane x = 0 at four times.
+3. vorticity magnitude |omega| on the box faces and on the periodic plane x = 0 at four times
+   (from the 32^3 snapshots, or from an extra N^3 run to t = 12.5 with --vorticity-n N).
 
 The grids are deliberately coarse: the case is a 3-D bug check (vortex stretching, the
 dissipation peak, the energy cascade), not a converged DNS.
@@ -35,10 +37,14 @@ NU = 1.0 / 1600.0
 L = 2.0 * np.pi
 DNS_PEAK = (9.0, 0.0127)      # (t, eps_max), spectral DNS 512^3 at Re = 1600
 SNAP_TIMES = (0.0, 4.0, 8.0, 12.0)
+MPI_RANKS = 1                 # --mpi N: run the solver under mpiexec with N ranks
 
 
 def run(out_root, *sets):
     cmd = [EXE, "--case", CASE, "--no-logo", "--set", f"output_root={out_root}"]
+    if MPI_RANKS > 1:
+        cmd = ["mpiexec", "-n", str(MPI_RANKS)] + cmd + ["--set", "use_mpi=true", "--set", f"n_cpus={MPI_RANKS}",
+                                                         "--mpi-child"]
     for s in sets:
         cmd += ["--set", s]
     subprocess.run(cmd, check=True, capture_output=True, text=True)
@@ -75,6 +81,13 @@ def snapshots(case_dir):
     return [(float(ds.attrib["timestep"]), os.path.join(case_dir, ds.attrib["file"])) for ds in pvd.iter("DataSet")]
 
 
+def pick_snapshot(shots, ts, om):
+    """Keep |omega| of the snapshot closest to each of SNAP_TIMES."""
+    for target in SNAP_TIMES:
+        if target not in shots or abs(ts - target) < abs(shots[target][0] - target):
+            shots[target] = (ts, np.linalg.norm(om, axis=-1))
+
+
 def cube_faces(ax, field, vmax, title):
     """Paint the three visible faces of the periodic box (x = 2pi, y = 0, z = 2pi) with |omega|."""
     n = field.shape[0]
@@ -96,14 +109,19 @@ def cube_faces(ax, field, vmax, title):
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--skip-64", action="store_true", help="only run the 32^3 grid")
-    ap.add_argument("--reuse", metavar="DIR", help="reuse runs in DIR/n32 and DIR/n64 instead of running")
+    ap.add_argument("--reuse", metavar="DIR", help="keep the runs in DIR (DIR/n32, DIR/n64, ...): existing ones are reused")
+    ap.add_argument("--vorticity-n", type=int, default=32, metavar="N",
+                    help="grid of the vorticity figure (default 32: the 32^3 run; otherwise an extra N^3 run)")
+    ap.add_argument("--mpi", type=int, default=1, metavar="N", help="run the solver on N MPI ranks")
     args = ap.parse_args()
+    global MPI_RANKS
+    MPI_RANKS = args.mpi
 
     tmp = args.reuse or tempfile.mkdtemp(prefix="tgv3d_")
     runs = {}
     for n in (32,) if args.skip_64 else (32, 64):
         case_dir = os.path.join(tmp, f"n{n}", PREFIX)
-        if not args.reuse:
+        if not (args.reuse and os.path.isdir(case_dir)):
             print(f"[RUN] {n}^3 to t = 20 ...")
             sets = [f"nx={n}", f"ny={n}", f"nz={n}", f"monitor_interval={5 if n == 32 else 10}",
                     f"save_interval={100 if n == 32 else 1000000000}"]
@@ -114,17 +132,25 @@ def main():
         print(f"      {n}^3: E_k(20)/E_k(0) = {ke[-1] / ke[0]:.3f}, peak eps = {eps[k]:.4f} at t = {t[k]:.2f}")
 
     # Resolved (physical) dissipation 2 nu zeta from the 32^3 snapshots
-    snaps = snapshots(os.path.join(tmp, "n32", PREFIX))
+    nv = args.vorticity_n
     t_s, eps_phys, shots = [], [], {}
-    for ts, path in snaps:
+    for ts, path in snapshots(os.path.join(tmp, "n32", PREFIX)):
         rho, vel = read_vtr(path)
         om = vorticity(vel)
         t_s.append(ts)
         eps_phys.append(NU * np.mean(rho * np.sum(om ** 2, axis=-1)))
-        for target in SNAP_TIMES:
-            if target not in shots or abs(ts - target) < abs(shots[target][0] - target):
-                shots[target] = (ts, np.linalg.norm(om, axis=-1))
+        if nv == 32:
+            pick_snapshot(shots, ts, om)
     t_s, eps_phys = np.array(t_s), np.array(eps_phys)
+    if nv != 32:
+        case_dir = os.path.join(tmp, f"n{nv}", PREFIX)
+        if not (args.reuse and os.path.isdir(case_dir)):
+            print(f"[RUN] {nv}^3 to t = 12.5 (vorticity snapshots) ...")
+            case_dir = run(os.path.join(tmp, f"n{nv}"), f"nx={nv}", f"ny={nv}", f"nz={nv}", "t_end=12.5",
+                           "save_interval=50")
+        for ts, path in snapshots(case_dir):
+            if min(abs(ts - target) for target in SNAP_TIMES) < 0.25:
+                pick_snapshot(shots, ts, vorticity(read_vtr(path)[1]))
 
     plt.rcParams.update({"font.family": "serif", "mathtext.fontset": "cm", "axes.labelsize": 12,
                          "axes.titlesize": 13, "legend.fontsize": 10, "figure.dpi": 150})
@@ -156,7 +182,8 @@ def main():
 
     vmax = max(np.percentile(f, 99.5) for _, f in shots.values())
     fig = plt.figure(figsize=(16, 7.6))
-    fig.suptitle(r"3-D Taylor-Green vortex, 32$^3$: vorticity magnitude $|\omega|$", fontsize=15, fontweight="bold")
+    fig.suptitle(rf"3-D Taylor-Green vortex, {nv}$^3$: vorticity magnitude $|\omega|$", fontsize=15,
+                 fontweight="bold")
     for c, target in enumerate(SNAP_TIMES):
         ts, f = shots[target]
         cube_faces(fig.add_subplot(2, 4, c + 1, projection="3d"), f, vmax, f"$t = {ts:.1f}$")

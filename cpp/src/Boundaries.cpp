@@ -22,6 +22,7 @@ BCType parse_bc(const std::string& s_in) {
     if (s == "outlet" || s == "pressure outlet")                return BCType::Outlet;
     if (s == "transmissive")                                    return BCType::Transmissive;
     if (s == "periodic")                                        return BCType::Periodic;
+    if (s == "nonreflecting" || s == "non_reflecting" || s == "non-reflecting outlet") return BCType::NonReflecting;
     throw std::invalid_argument("Unknown boundary condition type: '" + s_in + "'");
 }
 
@@ -34,6 +35,7 @@ std::string bc_name(BCType t) {
         case BCType::MassflowInlet: return "massflow_inlet";
         case BCType::Outlet:        return "outlet";
         case BCType::Transmissive:  return "transmissive";
+        case BCType::NonReflecting: return "nonreflecting";
         default:                    return "periodic";
     }
 }
@@ -47,7 +49,7 @@ void BoundaryManager::set_boundary_types(BCType left, BCType right, BCType botto
 // Convective ghost cells
 // ---------------------------------------------------------------------------
 
-void BoundaryManager::apply_boundary_conditions(const Field& U, Field& UL, Field& UR) const {
+void BoundaryManager::apply_boundary_conditions(const Field& U, Field& UL, Field& UR, const TangentialHalos* th) const {
     const int nx = mesh_.nx, ny = mesh_.ny, nz = mesh_.nz;
     const Mesh& m = mesh_;
     UL.resize(m.num_faces());   // every face is written below (interior + sides)
@@ -87,17 +89,17 @@ void BoundaryManager::apply_boundary_conditions(const Field& U, Field& UL, Field
     }
 
     // Sides in a fixed order: right, top, left, bottom (then back, front in 3-D).
-    apply_side(U, UL, UR, Face::Right);
-    apply_side(U, UL, UR, Face::Top);
-    apply_side(U, UL, UR, Face::Left);
-    apply_side(U, UL, UR, Face::Bottom);
+    apply_side(U, UL, UR, Face::Right, th);
+    apply_side(U, UL, UR, Face::Top, th);
+    apply_side(U, UL, UR, Face::Left, th);
+    apply_side(U, UL, UR, Face::Bottom, th);
     if (m.is3d()) {
-        apply_side(U, UL, UR, Face::Back);
-        apply_side(U, UL, UR, Face::Front);
+        apply_side(U, UL, UR, Face::Back, th);
+        apply_side(U, UL, UR, Face::Front, th);
     }
 }
 
-void BoundaryManager::apply_side(const Field& U, Field& UL, Field& UR, Face side) const {
+void BoundaryManager::apply_side(const Field& U, Field& UL, Field& UR, Face side, const TangentialHalos* th) const {
     const int n = mesh_.boundary_count(side);
     if (n == 0) return;
     const BCType bc   = type(side);
@@ -171,6 +173,70 @@ void BoundaryManager::apply_side(const Field& U, Field& UL, Field& UR, Face side
                     Wg[2] = outflow ? Wi[2] : 0.0;
                     Wg[4] = outflow ? Wi[4] : 0.0;
                     Wg[3] = std::max(params_.p_out, 1e-5);
+                    break;
+                }
+                case BCType::NonReflecting: {
+                    // Characteristic outlet (Rudy & Strikwerda 1980; Poinsot & Lele 1992; transverse
+                    // terms: Lodato, Domingo & Vervisch 2008). The ghost differs from the cell only in
+                    // the incoming acoustic characteristic w1 = p - rho c u_out, whose amplitude is
+                    //   L1 = K (p - p_out) - (1 - beta) T1,   K = sigma c (1 - M^2) / L,
+                    // with T1 the transverse terms of the w1 equation. Across one cell the jump is
+                    // dw1 = -h L1 / (c - u_out); the K part alone gives -sigma (1 + M) h / L (p - p_out).
+                    // Outgoing acoustic, entropy and vorticity waves are extrapolated (as transmissive).
+                    const double s     = isR ? 1.0 : -1.0;   // outward normal along the axis
+                    const int    qv    = kMom[axis];
+                    const double u_out = s * Wi[qv];
+                    const double c     = eos_.sound_speed(Wi[3], Wi[0]);
+                    const double M     = std::min(std::max(u_out / c, -1.0), 1.0);
+                    if (M >= 1.0) break;                     // supersonic outflow: nothing enters
+                    const double hs[3] = {mesh_.dx, mesh_.dy, mesh_.dz};
+                    const double h     = hs[axis];
+                    const double K     = params_.nrbc_sigma * c * (1.0 - M * M) / params_.length[axis];
+                    const double beta  = params_.nrbc_beta >= 0.0 ? params_.nrbc_beta : std::abs(M);
+                    double T1 = 0.0;   // sum over tangential axes t: v_t dp/dt + rho c^2 dv_t/dt - rho c s v_t du_n/dt
+                    if (beta < 1.0) {
+                        const int ijk[3] = {cell % nx, (cell / nx) % ny, cell / (nx * ny)};
+                        const int n3[3]  = {nx, ny, nz};
+                        for (int t = 0; t < 3; ++t) {
+                            if (t == axis || n3[t] == 1) continue;
+                            const bool wrap = type(static_cast<Face>(2 * t)) == BCType::Periodic &&
+                                              type(static_cast<Face>(2 * t + 1)) == BCType::Periodic;
+                            // Across an MPI interface the neighbour comes from the strip halo
+                            const bool mpi_t = th && t == (th->dir == 'y' ? 1 : 0);
+                            const Field* h_lo = mpi_t ? th->lo : nullptr;
+                            const Field* h_hi = mpi_t ? th->hi : nullptr;
+                            auto prim = [&](int d) {
+                                if (d < 0 || d >= n3[t]) {
+                                    const Field& H = d < 0 ? *h_lo : *h_hi;
+                                    const int D = th->depth, layer = d < 0 ? D - 1 : 0;
+                                    const size_t hidx = th->dir == 'y'
+                                        ? (static_cast<size_t>(layer) * nz + ijk[2]) * nx + ijk[0]
+                                        : (static_cast<size_t>(ijk[2]) * ny + ijk[1]) * D + layer;
+                                    return eos_.cons_to_prim(H[hidx]);
+                                }
+                                int idx[3] = {ijk[0], ijk[1], ijk[2]};
+                                idx[t] = d;
+                                return eos_.cons_to_prim(U[mesh_.cell(idx[0], idx[1], idx[2])]);
+                            };
+                            int lo = ijk[t] - 1, hi = ijk[t] + 1;   // central, wrapped or one-sided at the ends
+                            double span = 2.0;
+                            if (wrap) { lo = (lo + n3[t]) % n3[t]; hi = hi % n3[t]; }
+                            else {
+                                if (lo < 0 && !h_lo) { lo = 0; span -= 1.0; }
+                                if (hi >= n3[t] && !h_hi) { hi = n3[t] - 1; span -= 1.0; }
+                                if (span <= 0.0) continue;
+                            }
+                            const State Wl = prim(lo), Wh = prim(hi);
+                            const double ht = span * hs[t];
+                            const int    qt = kMom[t];
+                            T1 += Wi[qt] * (Wh[3] - Wl[3]) / ht + Wi[0] * c * c * (Wh[qt] - Wl[qt]) / ht -
+                                  Wi[0] * c * s * Wi[qt] * (Wh[qv] - Wl[qv]) / ht;
+                        }
+                    }
+                    const double dw1   = -h * (K * (Wi[3] - params_.p_out) - (1.0 - beta) * T1) / (c - u_out);
+                    Wg[3]  = Wi[3] + 0.5 * dw1;
+                    Wg[qv] = Wi[qv] - s * dw1 / (2.0 * Wi[0] * c);
+                    Wg[0]  = Wi[0] + 0.5 * dw1 / (c * c);
                     break;
                 }
                 default: break;

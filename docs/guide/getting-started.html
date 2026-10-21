@@ -598,7 +598,13 @@ cmake<span class="w"> </span>--build<span class="w"> </span>cpp/build<span class
 </code></pre>
 </div>
 
-<p>OpenMP and MPI (OpenMPI or MPICH) are used automatically when CMake finds them.</p>
+<p>OpenMP and MPI (OpenMPI or MPICH) are used automatically when CMake finds them. On macOS,
+Apple's clang has no OpenMP runtime: <code>brew install libomp open-mpi</code> provides both, and
+CMake finds Homebrew's <code>libomp</code> by itself.</p>
+
+<p>Tested: Windows 11 (MSVC 19.50, MS-MPI 10.1), Ubuntu 26.04 (GCC 15.2, Open MPI 5.0) and
+macOS 27 on Apple M4 (Apple clang 21.0, Open MPI 5.0.9). The regression references are
+reproduced bit for bit on all three, serial and on 4 MPI ranks.</p>
 
 <h3 id="build-options">Build options</h3>
 
@@ -682,7 +688,7 @@ regression references.</p>
 </tr>
 <tr>
   <td><code>--no-logo</code></td>
-  <td>Do not print the banner</td>
+  <td>Do not print the banner (coloured on a terminal; set <code>NO_COLOR=1</code> for plain text)</td>
 </tr>
 <tr>
   <td><code>--new-case NAME --from CASE</code></td>

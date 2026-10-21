@@ -76,6 +76,18 @@ void strip_tangential_derivs(const EOS& eos, const BoundaryManager& bm, const Me
     }
 }
 
+// BC parameters of a run (the same on every MPI rank: global domain lengths).
+BCParams bc_params(const SimParams& p) {
+    BCParams b;
+    b.u_in = p.u_in;
+    b.rho_in = p.rho_in;
+    b.p_out = p.p_out;
+    b.nrbc_sigma = p.nrbc_sigma;
+    b.nrbc_beta = p.nrbc_beta;
+    b.length[0] = p.Lx; b.length[1] = p.Ly; b.length[2] = p.Lz;
+    return b;
+}
+
 // Cells of the halo slice adjacent to the interface (lo: last slice, hi: first).
 Field adjacent_strip(const Field& halo, char dir, bool lo, int nx, int ny) {
     constexpr int D = kHaloDepth;
@@ -185,13 +197,51 @@ std::string format_elapsed(double s) {
     return buf;
 }
 
-void print_logo() {
+namespace {
+// ANSI foreground colour: 24-bit, or the nearest entry of the xterm-256 colour cube.
+std::string ansi_rgb(int colors, int r, int g, int b) {
+    char buf[32];
+    if (colors == 24) {
+        std::snprintf(buf, sizeof(buf), "\x1b[38;2;%d;%d;%dm", r, g, b);
+    } else {
+        auto level = [](int v) { return v < 48 ? 0 : v < 115 ? 1 : (v - 35) / 40; };   // 0,95,135,175,215,255
+        std::snprintf(buf, sizeof(buf), "\x1b[38;5;%dm", 16 + 36 * level(r) + 6 * level(g) + level(b));
+    }
+    return buf;
+}
+}  // namespace
+
+void print_logo(int colors) {
     std::ifstream in(std::string(FV_PROJECT_ROOT) + "/aesthetics/logo.txt", std::ios::binary);
     if (!in) return;
-    std::stringstream ss;
-    ss << in.rdbuf();
-    std::fwrite(ss.str().data(), 1, ss.str().size(), stdout);
-    std::printf("\n%54s\n%67s\n\n", "F E N I C E", "compressible finite-volume solver");
+    std::vector<std::string> lines;
+    for (std::string line; std::getline(in, line);) {
+        if (!line.empty() && line.back() == '\r') line.pop_back();
+        lines.push_back(line);
+    }
+    // Phoenix gradient, top to bottom: halo gold, orange, red, oxblood (the GUI's brand colours)
+    static const int stops[][3] = {{0xF2, 0xC6, 0x5C}, {0xE8, 0x8E, 0x3A}, {0xD2, 0x50, 0x3A}, {0xB2, 0x37, 0x44}};
+    const int n = static_cast<int>(lines.size()), ns = 4;
+    for (int r = 0; r < n; ++r) {
+        if (colors) {
+            const double t = n > 1 ? static_cast<double>(r) / (n - 1) * (ns - 1) : 0.0;
+            const int k = std::min(static_cast<int>(t), ns - 2);
+            const double f = t - k;
+            int c[3];
+            for (int q = 0; q < 3; ++q)
+                c[q] = static_cast<int>(stops[k][q] + (stops[k + 1][q] - stops[k][q]) * f + 0.5);
+            std::fputs(ansi_rgb(colors, c[0], c[1], c[2]).c_str(), stdout);
+        }
+        std::fputs(lines[r].c_str(), stdout);
+        std::fputs(colors ? "\x1b[0m\n" : "\n", stdout);
+    }
+    if (colors) {
+        const std::string gold = ansi_rgb(colors, stops[0][0], stops[0][1], stops[0][2]);
+        std::printf("\n%s\x1b[1m%54s\x1b[0m\n\x1b[2m%67s\x1b[0m\n\n", gold.c_str(), "F E N I C E",
+                    "compressible finite-volume solver");
+    } else {
+        std::printf("\n%54s\n%67s\n\n", "F E N I C E", "compressible finite-volume solver");
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -234,7 +284,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     boundaries.set_boundary_types(parse_bc(p.bc_left), parse_bc(p.bc_right), parse_bc(p.bc_bottom), parse_bc(p.bc_top));
     boundaries.set_type(Face::Front, parse_bc(p.bc_front));
     boundaries.set_type(Face::Back, parse_bc(p.bc_back));
-    boundaries.set_params({p.u_in, 0.0, p.rho_in, p.p_out});
+    boundaries.set_params(bc_params(p));
 
     const RiemannType rt = parse_riemann(p.riemann_solver);
     riemann = RiemannSolver(fluid, rt, 0.1);
@@ -245,6 +295,9 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     if (p.use_muscl) {
         muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter));
         if (verbose) std::printf("[SOLVER] 2nd-Order MUSCL active (Limiter: %s)\n", p.muscl_limiter.c_str());
+        if (verbose && parse_time_scheme(p.time_scheme) == TimeSchemeType::ExplicitEuler)
+            std::printf("[WARNING] MUSCL with Explicit Euler is unstable for smooth waves (amplitudes grow): "
+                        "use SSP Runge-Kutta 2 or Runge-Kutta 4\n");
     } else {
         muscl.reset();
         if (verbose) std::printf("[SOLVER] 1st-Order Spatial (Godunov) active\n");
@@ -342,7 +395,9 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     const int nx = m.nx, ny = m.ny, nxf = m.num_xfaces();
     constexpr int D = kHaloDepth;
 
-    bm.apply_boundary_conditions(*Uc, UL_, UR_);
+    TangentialHalos th;
+    if (halos) th = {halos->dir, D, halos->lo, halos->hi};
+    bm.apply_boundary_conditions(*Uc, UL_, UR_, halos ? &th : nullptr);
 
     Halos mh;
     if (halos) {
@@ -447,7 +502,9 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     const int nx = m.nx, ny = m.ny, nz = m.nz;
     constexpr int D = kHaloDepth;
 
-    bm.apply_boundary_conditions(Uv, UL_, UR_);
+    TangentialHalos th;
+    if (halos) th = {halos->dir, D, halos->lo, halos->hi};
+    bm.apply_boundary_conditions(Uv, UL_, UR_, halos ? &th : nullptr);
 
     // MPI halos (slab layouts, see Halos) override the BC ghosts at interface faces
     Halos mh;
@@ -1034,7 +1091,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     lb.set_boundary_types(l, r, b, tp);
     lb.set_type(Face::Front, parse_bc(p.bc_front));   // z sides are never split
     lb.set_type(Face::Back, parse_bc(p.bc_back));
-    lb.set_params({p.u_in, 0.0, p.rho_in, p.p_out});
+    lb.set_params(bc_params(p));
     {
         auto reducer = [&decomp](double& sum, double& count) {
             double in[2] = {sum, count}, out[2];
@@ -1051,15 +1108,15 @@ void Simulation::run_mpi(MPI_Comm comm) {
         }
     }
     if (root) {
+        // Domain BCs (rank 0's own l/r/b/tp have interface sides set to transmissive)
+        std::printf("[MPI] Domain BCs  left=%s, right=%s, bottom=%s, top=%s\n", bc_name(parse_bc(p.bc_left)).c_str(),
+                    bc_name(parse_bc(p.bc_right)).c_str(), bc_name(parse_bc(p.bc_bottom)).c_str(),
+                    bc_name(parse_bc(p.bc_top)).c_str());
         if (dir == 'y') {
             std::printf("[MPI] Local meshes ready  -  each rank: nx=%d, ny_local varies\n", p.nx);
-            std::printf("[MPI] BCs  left=%s, right=%s, bottom=%s / top=%s (physical)\n", bc_name(l).c_str(),
-                        bc_name(r).c_str(), bc_name(b).c_str(), bc_name(tp).c_str());
             if (periodic) std::printf("[MPI] Periodic Y detected - wrap-around halo exchange enabled\n");
         } else {
             std::printf("[MPI] Local meshes ready  -  each rank: ny=%d, nx_local varies\n", p.ny);
-            std::printf("[MPI] BCs  bottom=%s, top=%s, left=%s / right=%s (physical)\n", bc_name(b).c_str(),
-                        bc_name(tp).c_str(), bc_name(l).c_str(), bc_name(r).c_str());
             if (periodic) std::printf("[MPI] Periodic X detected - wrap-around halo exchange enabled\n");
         }
     }

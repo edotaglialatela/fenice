@@ -42,6 +42,9 @@ Time-loop wall time on a 16-thread workstation.
 The Shu-Osher mesh is small (8 000 cells), so thread fork/join overhead weighs more and it
 scales least with threads; MPI strips suit it better.
 
+On a MacBook Air (Apple M4, 10 threads) the same runs are faster: supersonic IBM 400×400
+in 0.138 s on 10 OpenMP threads, and the IBM cylinder 400×200 in 0.125 s on 4 MPI ranks.
+
 ## Practical notes
 
 * The final line of a run reports the **time-loop** duration. Snapshots are binary VTK

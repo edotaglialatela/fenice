@@ -20,7 +20,12 @@
 #define NOMINMAX
 #endif
 #define WIN32_LEAN_AND_MEAN
+#include <io.h>
 #include <windows.h>
+#define FV_ISATTY_STDOUT() _isatty(_fileno(stdout))
+#else
+#include <unistd.h>
+#define FV_ISATTY_STDOUT() isatty(fileno(stdout))
 #endif
 #ifdef _OPENMP
 #include <omp.h>
@@ -71,6 +76,29 @@ std::string self_path(const char* argv0) {
     if (n > 0 && n < MAX_PATH) return std::string(buf, n);
 #endif
     return argv0;
+}
+
+// Colour depth for the banner: 0 (plain), 256 or 24 (24-bit).  Colour only on a terminal
+// (or with FORCE_COLOR, which the MPI relaunch sets for its piped ranks); NO_COLOR and
+// TERM=dumb turn it off (https://no-color.org).
+int terminal_colors() {
+    if (std::getenv("NO_COLOR")) return 0;
+    const char* term = std::getenv("TERM");
+    if (term && std::string(term) == "dumb") return 0;
+    const bool tty = FV_ISATTY_STDOUT() != 0;
+    if (!tty && !std::getenv("FORCE_COLOR")) return 0;
+#ifdef _WIN32
+    if (tty) {   // the console interprets escape sequences only with VT processing on
+        const HANDLE h = GetStdHandle(STD_OUTPUT_HANDLE);
+        DWORD mode = 0;
+        if (!GetConsoleMode(h, &mode) || !SetConsoleMode(h, mode | ENABLE_VIRTUAL_TERMINAL_PROCESSING)) return 0;
+    }
+    return 24;   // Windows Terminal and conhost (Windows 10+) both render 24-bit colour
+#else
+    const char* ct = std::getenv("COLORTERM");
+    if (ct && (std::string(ct) == "truecolor" || std::string(ct) == "24bit")) return 24;
+    return 256;   // e.g. macOS Terminal.app
+#endif
 }
 
 std::string quote(const std::string& s) { return "\"" + s + "\""; }
@@ -188,8 +216,17 @@ int main(int argc, char** argv) {
         sp.use_mpi = false;
     }
 #ifdef FV_USE_MPI
-    if (sp.use_mpi && sp.n_cpus > 1 && !under_mpi)
+    if (sp.use_mpi && sp.n_cpus > 1 && !under_mpi) {
+        // The ranks write to mpiexec's pipe: pass the colour decision down to them
+        if (logo && terminal_colors() && !std::getenv("FORCE_COLOR")) {
+#ifdef _WIN32
+            _putenv_s("FORCE_COLOR", "1");
+#else
+            setenv("FORCE_COLOR", "1", 0);
+#endif
+        }
         return relaunch_under_mpiexec(sp.n_cpus, self_path(argv[0]), forward);
+    }
 #else
     if (sp.use_mpi && sp.n_cpus > 1 && !under_mpi)
         std::printf("[MPI] This build has no MPI support - running on one process with OpenMP threads instead.\n");
@@ -206,7 +243,7 @@ int main(int argc, char** argv) {
     else if (size > 1 && !std::getenv("OMP_NUM_THREADS")) omp_set_num_threads(1);   // avoid oversubscription
 #endif
     std::signal(SIGINT, on_sigint);
-    if (logo && rank == 0) fv::print_logo();
+    if (logo && rank == 0) fv::print_logo(terminal_colors());
 
     int rc = 0;
     try {

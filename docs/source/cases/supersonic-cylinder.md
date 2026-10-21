@@ -44,6 +44,9 @@ cpp\build\fenice.exe --case "IBM Supersonic Flow over Cylinder"
 </figure>
 </div>
 
+From t = 0 to 5 on a 1200 × 1200 mesh; `python docs/showcase.py run`, then `render`,
+regenerates both animations.
+
 ## Reference
 
 * Ambrosio, A. & Wortman, A. (1962). Stagnation-point shock-detachment distance for flow

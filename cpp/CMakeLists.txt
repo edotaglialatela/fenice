@@ -37,6 +37,9 @@ if(MSVC)
 else()
   target_compile_options(fenice_tinyexpr PRIVATE -fno-fast-math -ffp-contract=off -w)
 endif()
+# Usual maths precedence: -a^2 = -(a^2) and a^b^c = a^(b^c) (TinyExpr's default would make
+# exp(-x^2) an exp(+x^2)); a compile switch of the vendored, unmodified source
+target_compile_definitions(fenice_tinyexpr PRIVATE TE_POW_FROM_RIGHT)
 target_link_libraries(fenice_core PUBLIC fenice_tinyexpr)
 # Project root: logo, cases/ folder, default results/ folder
 get_filename_component(FV_ROOT "${CMAKE_CURRENT_SOURCE_DIR}/.." ABSOLUTE)
@@ -52,7 +55,21 @@ else()
 endif()
 
 if(FV_USE_OPENMP)
-  find_package(OpenMP)
+  if(APPLE AND NOT DEFINED OpenMP_CXX_FLAGS)
+    # Apple clang ships no OpenMP runtime: use Homebrew's libomp when it is installed
+    # (explicit -DOpenMP_CXX_FLAGS=... on the command line still take precedence)
+    find_program(FV_BREW brew)
+    if(FV_BREW)
+      execute_process(COMMAND ${FV_BREW} --prefix libomp OUTPUT_VARIABLE FV_LIBOMP
+                      OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+    endif()
+    if(FV_LIBOMP AND EXISTS "${FV_LIBOMP}/lib/libomp.dylib")
+      set(OpenMP_CXX_FLAGS "-Xpreprocessor -fopenmp -I${FV_LIBOMP}/include" CACHE STRING "OpenMP flags")
+      set(OpenMP_CXX_LIB_NAMES omp CACHE STRING "OpenMP libraries")
+      set(OpenMP_omp_LIBRARY "${FV_LIBOMP}/lib/libomp.dylib" CACHE FILEPATH "Homebrew libomp")
+    endif()
+  endif()
+  find_package(OpenMP COMPONENTS CXX)   # C++ only: no misleading "OpenMP_C not found"
   if(OpenMP_CXX_FOUND)
     target_link_libraries(fenice_core PUBLIC OpenMP::OpenMP_CXX)
     if(CMAKE_CXX_COMPILER_ID STREQUAL "GNU")
@@ -61,7 +78,7 @@ if(FV_USE_OPENMP)
       target_link_options(fenice_core PUBLIC -fopenmp)
     endif()
   else()
-    message(WARNING "OpenMP not found: building single-threaded kernels")
+    message(WARNING "OpenMP not found: building single-threaded kernels (macOS: brew install libomp)")
   endif()
 endif()
 

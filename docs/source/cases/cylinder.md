@@ -45,17 +45,22 @@ python validation\aeroCoeffCylinder.py
 </figure>
 </div>
 
+One shedding period on a 1200 × 600 mesh (60 cells per diameter), hot-started from a
+developed 400 × 200 street. `python docs/showcase.py run`, then `render`, regenerates both
+animations.
+
 ## Aerodynamic coefficients
 
 Once the flow reaches periodic shedding, the lift and drag coefficients
-$C_L(t)$ and $C_D(t)$ are obtained by integrating the pressure and viscous stresses on the
-cylinder surface:
+$C_L(t)$ and $C_D(t)$ are obtained by integrating the pressure on a circle just outside the
+cylinder ($r = D/2 + 0.015$; viscous stresses are not included):
 
 $$C_L = \frac{F_y}{\tfrac12\rho u_{\rm in}^2 D}, \qquad C_D = \frac{F_x}{\tfrac12\rho u_{\rm in}^2 D}$$
 
 The Strouhal number is the dominant frequency of $C_L(t)$, found by FFT. The results below
-use the fine mesh (800×400), [hot-started]({{root}}modules/SolutionMapping.html) from a
-converged 400×200 field.
+use the 1200×600 mesh, [hot-started]({{root}}modules/SolutionMapping.html) from a developed
+400×200 street and run for 8 time units; the spectrum starts at t = 1, after the hot-start
+transient.
 
 <figure>
 <img src="{{root}}img/strouhal_fft_fine.png" style="width:100%">
@@ -63,11 +68,12 @@ converged 400×200 field.
 </figure>
 <figure>
 <img src="{{root}}img/aero_coeff_fine.gif" style="width:100%">
-<figcaption>C_L and C_D over time, fine mesh (800×400).</figcaption>
+<figcaption>C_L and C_D over time, 1200×600 mesh.</figcaption>
 </figure>
 <figure>
 <img src="{{root}}img/aero_coeff_meshTransition.gif" style="width:100%">
-<figcaption>Aerodynamic coefficients across the mesh mapping.</figcaption>
+<figcaption>Aerodynamic coefficients across the mesh mapping: 400×200 to t = 10 (a small
+transverse-velocity kick behind the cylinder starts the shedding), then 1200×600.</figcaption>
 </figure>
 <figure>
 <img src="{{root}}img/aero_coeff_stableCase.gif" style="width:100%">

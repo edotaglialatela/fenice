@@ -59,8 +59,8 @@ Peak dissipation: 0.0110 at t = 6.6 (32³), 0.0113 at t = 8.5 (64³), against 0.
 
 <figure>
 <img src="{{root}}img/taylor_green_3d_vorticity.png" style="width:100%">
-<figcaption>Vorticity magnitude at 32³ on three faces of the box (top) and on the periodic
-plane x = 0 (bottom). The initial large-scale vortices (t = 0) roll up into vortex sheets
+<figcaption>Vorticity magnitude at 96³ on three faces of the box (top) and on the periodic
+plane x = 0 (bottom); `validationTaylorGreen3D.py --vorticity-n 96`. The initial large-scale vortices (t = 0) roll up into vortex sheets
 (t ≈ 4), the sheets break up near the dissipation peak (t ≈ 8), and small-scale structures
 fill the box (t ≈ 12).</figcaption>
 </figure>

@@ -38,16 +38,33 @@
       "inherits": "base",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" },
       "vendor": { "jetbrains.com/clion": { "toolchain": "WSL" } }
+    },
+    {
+      "name": "macos-release",
+      "generator": "Unix Makefiles",
+      "displayName": "macOS clang - Release",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Release" }
+    },
+    {
+      "name": "macos-debug",
+      "generator": "Unix Makefiles",
+      "displayName": "macOS clang - Debug",
+      "inherits": "base",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
     }
   ],
   "buildPresets": [
     { "name": "msvc-release", "configurePreset": "msvc-release" },
     { "name": "msvc-debug", "configurePreset": "msvc-debug" },
     { "name": "linux-release", "configurePreset": "linux-release" },
-    { "name": "linux-debug", "configurePreset": "linux-debug" }
+    { "name": "linux-debug", "configurePreset": "linux-debug" },
+    { "name": "macos-release", "configurePreset": "macos-release" },
+    { "name": "macos-debug", "configurePreset": "macos-debug" }
   ],
   "testPresets": [
     { "name": "msvc-release", "configurePreset": "msvc-release", "output": { "outputOnFailure": true } },
-    { "name": "linux-release", "configurePreset": "linux-release", "output": { "outputOnFailure": true } }
+    { "name": "linux-release", "configurePreset": "linux-release", "output": { "outputOnFailure": true } },
+    { "name": "macos-release", "configurePreset": "macos-release", "output": { "outputOnFailure": true } }
   ]
 }

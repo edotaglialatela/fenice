@@ -31,7 +31,7 @@ AMR ghost layers from coarser neighbours.
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/aero_coeff_meshTransition.gif" style="width:100%">
-<figcaption>Aerodynamic coefficients of the cylinder case across a 400×200 → 800×400 hot start.</figcaption>
+<figcaption>Aerodynamic coefficients of the cylinder case across a 400×200 → 1200×600 hot start.</figcaption>
 </figure>
 
 ## Conservative restriction

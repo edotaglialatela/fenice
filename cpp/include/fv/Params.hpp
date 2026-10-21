@@ -57,6 +57,8 @@ struct SimParams {
     bool   use_viscous;
     double mu, pr;
     double u_in, rho_in, p_out;
+    double nrbc_sigma;         // non-reflecting outlet: relaxation of p towards p_out (0: none)
+    double nrbc_beta;          // NRBC transverse weight in [0, 1] (1: LODI only); < 0: local Mach number
     bool   use_bodyforce;
     double gx, gy, gz;
     bool   resume;

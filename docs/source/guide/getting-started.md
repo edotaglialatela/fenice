@@ -40,7 +40,13 @@ cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
 cmake --build cpp/build -j
 ```
 
-OpenMP and MPI (OpenMPI or MPICH) are used automatically when CMake finds them.
+OpenMP and MPI (OpenMPI or MPICH) are used automatically when CMake finds them. On macOS,
+Apple's clang has no OpenMP runtime: `brew install libomp open-mpi` provides both, and
+CMake finds Homebrew's `libomp` by itself.
+
+Tested: Windows 11 (MSVC 19.50, MS-MPI 10.1), Ubuntu 26.04 (GCC 15.2, Open MPI 5.0) and
+macOS 27 on Apple M4 (Apple clang 21.0, Open MPI 5.0.9). The regression references are
+reproduced bit for bit on all three, serial and on 4 MPI ranks.
 
 ### Build options
 
@@ -73,7 +79,7 @@ cpp\build\fenice.exe --case "Lid Driven Cavity" --print-config
 | `--list-cases` | List the built-in test cases |
 | `--print-config` | Print the fully resolved parameters and exit |
 | `--print-case-defaults` | Print only the test case's own defaults and exit |
-| `--no-logo` | Do not print the banner |
+| `--no-logo` | Do not print the banner (coloured on a terminal; set `NO_COLOR=1` for plain text) |
 | `--new-case NAME --from CASE` | Copy a case to `cases/<name>/case.toml` and exit |
 | `--save-case TARGET` | Save the resolved run as a new case and exit (`--case-name` sets its name) |
 

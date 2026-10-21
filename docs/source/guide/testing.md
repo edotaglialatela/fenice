@@ -62,11 +62,14 @@ and exits non-zero on failure. Its 55 tests cover:
 
 ## Regression references (`regression.py`)
 
-`cpp/tests/reference/` stores final states for 24 short configurations. Sixteen were
+`cpp/tests/reference/` stores final states for 27 short configurations. Sixteen were
 produced by an independent implementation of the same schemes. The Taylor-Green and
-isentropic-vortex references are validated against their exact solutions, and the five
+isentropic-vortex references are validated against their exact solutions; the five
 3-D references (Taylor-Green 3-D, an x-decomposed thin box, a no-slip cavity, Sod between
-slip walls in z, and a viscous IBM sphere) are backed by the 3-D unit tests above.
+slip walls in z, and a viscous IBM sphere) are backed by the 3-D unit tests above; and the
+three non-reflecting-outlet references (2-D vortex in Y- and X-decomposition, 3-D
+Taylor-Green with non-reflecting x and z sides) by the `nonreflecting_outlet` test and the
+reflection measurements on the [Boundaries]({{root}}modules/Boundaries.html) page.
 Together they cover:
 
 * every Riemann solver, limiter and time scheme;
@@ -74,13 +77,14 @@ Together they cover:
 * viscous flow and IBM;
 * hot start;
 * AMR with mixed refinement levels and derefinement;
-* 3-D periodic, wall and no-slip front/back sides, 3-D IBM.
+* 3-D periodic, wall and no-slip front/back sides, 3-D IBM;
+* the non-reflecting outlet, including its derivatives along sides split between MPI ranks.
 
 `regression.py` runs the C++ solver on each configuration through the normal command
 line and compares the final state cell by cell (tolerance 1e-8 relative). With `--mpi N`,
-the 15 MPI-capable cases (5 of them 3-D) also run on N ranks, in both Y- and X-decomposition and with
-periodic wrap-around. At retirement every case matched bit for bit, except the BDF2 /
-mass-flow cases at ~1e-14.
+the 18 MPI-capable cases (6 of them 3-D) also run on N ranks, in both Y- and X-decomposition and with
+periodic wrap-around. Every case matches bit for bit, except the BDF2 / mass-flow cases at
+~1e-14 (sums associated differently).
 
 `--create-missing` writes references for newly added cases only and never overwrites an
 existing one.

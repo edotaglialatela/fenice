@@ -615,11 +615,14 @@ $\min(\Delta x,\Delta y,\Delta z)$ CFL length it would diverge after ~30 steps).
 
 <h2 id="regression-references-regressionpy">Regression references (<code>regression.py</code>)</h2>
 
-<p><code>cpp/tests/reference/</code> stores final states for 24 short configurations. Sixteen were
+<p><code>cpp/tests/reference/</code> stores final states for 27 short configurations. Sixteen were
 produced by an independent implementation of the same schemes. The Taylor-Green and
-isentropic-vortex references are validated against their exact solutions, and the five
+isentropic-vortex references are validated against their exact solutions; the five
 3-D references (Taylor-Green 3-D, an x-decomposed thin box, a no-slip cavity, Sod between
-slip walls in z, and a viscous IBM sphere) are backed by the 3-D unit tests above.
+slip walls in z, and a viscous IBM sphere) are backed by the 3-D unit tests above; and the
+three non-reflecting-outlet references (2-D vortex in Y- and X-decomposition, 3-D
+Taylor-Green with non-reflecting x and z sides) by the <code>nonreflecting_outlet</code> test and the
+reflection measurements on the <a href="../modules/Boundaries.html">Boundaries</a> page.
 Together they cover:</p>
 
 <ul>
@@ -628,14 +631,15 @@ Together they cover:</p>
 <li>viscous flow and IBM;</li>
 <li>hot start;</li>
 <li>AMR with mixed refinement levels and derefinement;</li>
-<li>3-D periodic, wall and no-slip front/back sides, 3-D IBM.</li>
+<li>3-D periodic, wall and no-slip front/back sides, 3-D IBM;</li>
+<li>the non-reflecting outlet, including its derivatives along sides split between MPI ranks.</li>
 </ul>
 
 <p><code>regression.py</code> runs the C++ solver on each configuration through the normal command
 line and compares the final state cell by cell (tolerance 1e-8 relative). With <code>--mpi N</code>,
-the 15 MPI-capable cases (5 of them 3-D) also run on N ranks, in both Y- and X-decomposition and with
-periodic wrap-around. At retirement every case matched bit for bit, except the BDF2 /
-mass-flow cases at ~1e-14.</p>
+the 18 MPI-capable cases (6 of them 3-D) also run on N ranks, in both Y- and X-decomposition and with
+periodic wrap-around. Every case matches bit for bit, except the BDF2 / mass-flow cases at
+~1e-14 (sums associated differently).</p>
 
 <p><code>--create-missing</code> writes references for newly added cases only and never overwrites an
 existing one.</p>

@@ -6,15 +6,15 @@ in C++17 with OpenMP threading and MPI domain decomposition, and comes with a Py
 GUI, validation scripts and full documentation.
 
 <p align="center">
-  <img src="docs/img/vonKarman_vortices.gif" width="58%"
+  <img src="docs/img/vonKarman_vortices.gif" width="64%"
        alt="Vorticity of the von Karman vortex street behind a cylinder at Re = 100">
-  <img src="docs/img/supersonic_cylinder_schlieren.gif" width="39%"
+  <img src="docs/img/supersonic_cylinder_schlieren.gif" width="32%"
        alt="Numerical schlieren of Mach 2 flow over a cylinder, showing the bow shock">
 </p>
 <p align="center">
-  <em>Left: von Kármán vortex street behind a cylinder at Re = 100 (vorticity).
-  Right: Mach 2 flow over a cylinder, with its bow shock (numerical schlieren).
-  Both use the immersed boundary method.</em>
+  <em>Left: von Kármán vortex street behind a cylinder at Re = 100 (vorticity, 1200 × 600
+  cells, one shedding period). Right: Mach 2 flow over a cylinder forming its bow shock
+  (numerical schlieren, 1200 × 1200 cells). Both use the immersed boundary method.</em>
 </p>
 
 ## Features
@@ -63,15 +63,12 @@ cmake --build cpp/build -j
 
 ### macOS
 
-Apple's clang has no built-in OpenMP, so install Homebrew's `libomp` and point CMake at it:
+Apple's clang has no built-in OpenMP; CMake picks up Homebrew's `libomp` automatically:
 
 ```bash
 xcode-select --install
 brew install cmake libomp open-mpi
-LIBOMP=$(brew --prefix libomp)
-cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release \
-      -DOpenMP_CXX_FLAGS="-Xpreprocessor -fopenmp -I$LIBOMP/include" \
-      -DOpenMP_CXX_LIB_NAMES=omp -DOpenMP_omp_LIBRARY=$LIBOMP/lib/libomp.dylib
+cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release
 cmake --build cpp/build -j
 ./cpp/build/fenice_tests     # unit tests
 ```
@@ -81,16 +78,16 @@ Add `-DFV_USE_MPI=OFF` or `-DFV_USE_OPENMP=OFF` to the configure line to leave e
 ### IDEs (CLion, VS Code, Visual Studio)
 
 The repository root is a CMake project with presets (`CMakePresets.json`):
-`msvc-release` / `msvc-debug` on Windows and `linux-release` / `linux-debug` on Linux or
-WSL, each building into `build/<preset>/`. From a terminal: `cmake --preset msvc-release`
+`msvc-release` / `msvc-debug` on Windows, `linux-release` / `linux-debug` on Linux or
+WSL and `macos-release` / `macos-debug` on macOS, each building into `build/<preset>/`. From a terminal: `cmake --preset msvc-release`
 then `cmake --build --preset msvc-release` (in a Visual Studio developer prompt).
 In CLion the presets appear as CMake profiles, and `.run/` provides ready-made run
 configurations: Sod, 3-D Taylor-Green, unit tests, regression and the GUI.
 
-> **Tested platforms:** Windows 11 (MSVC 19.50, MS-MPI 10.1) and Ubuntu 26.04 (GCC 15.2,
-> Open MPI 5.0). On both, all unit tests pass and the regression suite matches the
-> reference states, serial and on 4 MPI ranks. macOS uses the same CMake setup but has not
-> been tested yet.
+> **Tested platforms:** Windows 11 (MSVC 19.50, MS-MPI 10.1), Ubuntu 26.04 (GCC 15.2,
+> Open MPI 5.0) and macOS 27 on Apple M4 (Apple clang 21.0, Homebrew libomp, Open MPI
+> 5.0.9). On all three, every unit test passes and the regression suite reproduces the
+> reference states bit for bit, serial and on 4 MPI ranks.
 
 ## Run
 
@@ -211,7 +208,7 @@ cpp/build/fenice_tests                   # unit tests (fenice_tests.exe on Windo
 python cpp/tests/regression.py --mpi 4   # compare against the stored reference states
 ```
 
-`cpp/tests/reference/` holds the final states of 24 reference configurations; every
+`cpp/tests/reference/` holds the final states of 27 reference configurations; every
 change to the code must reproduce them (serial and on MPI ranks).
 
 ## Documentation

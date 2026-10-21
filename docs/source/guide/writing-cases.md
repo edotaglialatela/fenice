@@ -167,7 +167,7 @@ state = { rho = 1.0, u = "sin(x)*cos(y)*cos(z)", v = "-cos(x)*sin(y)*cos(z)", p 
 | Run parameters | every numeric parameter by name: `Lx`, `Ly`, `Lz`, `nx`, `mu`, `gamma`, `u_in`, `rho_in`, `p_out`, `gx`, ... (resolved values, so `--set` overrides apply) |
 | Constants | `pi`, `e` |
 | Functions | `sin cos tan asin acos atan atan2 sinh cosh tanh exp sqrt pow abs floor ceil`, `ln` (natural log); note that `log` is base 10, like `log10` |
-| Operators | `+ - * / ^` and `%` (remainder), with the usual precedence |
+| Operators | `+ - * / ^` and `%` (remainder), with the usual precedence: `-x^2` is $-(x^2)$, so `exp(-x^2)` is a Gaussian, and `2^3^2` is $2^{(3^2)}$ |
 
 Expressions are evaluated in double precision by [TinyExpr](https://github.com/codeplea/tinyexpr).
 An expression evaluates bit for bit like the same arithmetic written in C++ in the same

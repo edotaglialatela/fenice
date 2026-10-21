@@ -1,4 +1,5 @@
 import os
+import sys
 import xml.etree.ElementTree as ET
 import numpy as np
 import matplotlib.pyplot as plt
@@ -9,8 +10,9 @@ from vtkio import vtk_array
 # =============================================================================
 # PARAMETERS
 # =============================================================================
-COARSE_PVD = "../results/ibm_flow_over_cylinder_lowres/ibm_flow_over_cylinder.pvd"
-FINE_PVD = "../results/ibm_flow_over_cylinder/ibm_flow_over_cylinder.pvd"
+# Coarse and fine PVD files (optional first and second arguments)
+COARSE_PVD = sys.argv[1] if len(sys.argv) > 2 else "../results/ibm_flow_over_cylinder_lowres/ibm_flow_over_cylinder.pvd"
+FINE_PVD = sys.argv[2] if len(sys.argv) > 2 else "../results/ibm_flow_over_cylinder/ibm_flow_over_cylinder.pvd"
 
 RHO_INF = 1.0
 U_INF = 1.0
