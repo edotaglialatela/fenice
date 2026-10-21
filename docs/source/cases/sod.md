@@ -57,6 +57,18 @@ the contact and the shock and reaches the error of the 160×32 mesh (L1 1.5e-2 v
 53% of its cells.</figcaption>
 </figure>
 
+The refinement follows the waves. `validation/sod_amr_animation.py` runs a 40×4 base mesh with 8×2
+patches and three levels, remeshing every two steps: the finest patches sit on the contact and the
+shock, the rarefaction fan is refined where it is steepest, and each patch is released once the wave has
+moved on.
+
+<figure>
+<img src="{{root}}img/sod_amr_animation.gif" style="width:100%">
+<figcaption>Density at the AMR cells (coloured by level) against the exact solution, and the
+patches below, for $0 < t \le 0.2$. At $t = 0.1$ the 178 patches hold 2 848 cells instead of the
+10 240 of the uniform finest mesh.</figcaption>
+</figure>
+
 ## Reference
 
 * Sod, G.A. (1978). A survey of several finite difference methods for systems of

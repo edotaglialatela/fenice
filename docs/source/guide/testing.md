@@ -123,6 +123,7 @@ python validation\sod.py --force              # one study, re-running its simula
 |---|---|
 | `sod.py` | Sod vs the exact Riemann solution; 1st vs 2nd order; the four limiters |
 | `sod_amr.py` | AMR vs uniform meshes at the two finest levels (cells and L1 error) |
+| `sod_amr_animation.py` | animation of the AMR patches following the waves of the Sod tube |
 | `shu_osher.py` | Shu-Osher density, MC vs Minmod, convergence against a 6400-cell reference |
 | `isentropic_vortex.py` | isentropic-vortex convergence and limiter comparison |
 | `taylor_green.py` | Taylor-Green kinetic-energy decay and grid convergence |

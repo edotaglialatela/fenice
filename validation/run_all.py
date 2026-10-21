@@ -20,6 +20,7 @@ HERE = Path(__file__).resolve().parent
 STUDIES = {
     "sod": (["sod.py"], False),
     "sod_amr": (["sod_amr.py"], False),
+    "sod_amr_animation": (["sod_amr_animation.py"], False),
     "shu_osher": (["shu_osher.py"], False),
     "isentropic_vortex": (["isentropic_vortex.py"], False),
     "taylor_green": (["taylor_green.py"], False),
