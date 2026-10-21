@@ -30,8 +30,12 @@ after interpolation.
 AMR ghost layers from coarser neighbours.
 
 <figure style="margin:1em 0;">
-<img src="{{root}}img/aero_coeff_meshTransition.gif" style="width:100%">
-<figcaption>Aerodynamic coefficients of the cylinder case across a 400×200 → 1200×600 hot start.</figcaption>
+<img src="{{root}}img/cylinder_mesh_transition.gif" style="width:100%">
+<figcaption>Loads across a hot start: 400×200 to t = 6, then 800×400 mapped from its
+checkpoint. Shedding carries on without a new start-up transient; after a short drag
+spike while the field adapts to the finer mask, C<sub>l</sub> keeps its amplitude (0.37)
+and C<sub>d</sub> settles at 1.46 (1.43 on the coarse mesh)
+(<code>validation/cylinder_mesh_transition.py</code>).</figcaption>
 </figure>
 
 ## Conservative restriction

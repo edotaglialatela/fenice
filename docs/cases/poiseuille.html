@@ -569,8 +569,7 @@ which makes it a good target for <code>HLLC (Low-Mach Thornber)</code> and <code
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Poiseuille Flow&quot;</span>
 <span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Poiseuille Flow&quot;</span> <span class="p">-</span><span class="n">-set</span> <span class="n">time_scheme</span><span class="p">=</span><span class="n">bdf2</span>
-<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">validationPoiseuille</span><span class="p">.</span><span class="n">py</span>
-<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">mpiComparison</span><span class="p">.</span><span class="n">py</span>      <span class="c"># serial vs MPI (results/poiseuille_flow[_mpi])</span>
+<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">poiseuille</span><span class="p">.</span><span class="n">py</span>     <span class="c"># grid convergence + serial vs 4 MPI ranks</span>
 </code></pre>
 </div>
 
@@ -682,13 +681,15 @@ which makes it a good target for <code>HLLC (Low-Mach Thornber)</code> and <code
 <h2 id="validation-results">Validation results</h2>
 
 <figure>
-<img src="../img/convergence_poiseuille.png" style="width:100%">
-<figcaption>L2 error of the velocity profile against the Poiseuille parabola as a function of grid resolution.</figcaption>
+<img src="../img/poiseuille_convergence.png" style="width:100%">
+<figcaption>Velocity profile at x = 0.95 L<sub>x</sub> on n<sub>y</sub> = 10, 20, 40 and the
+relative L2 error against the parabola: second order (observed 2.10 and 1.93).</figcaption>
 </figure>
 
 <figure>
-<img src="../img/poiseuille_mpi_comparison.png" style="width:100%">
-<figcaption>Serial vs 4-rank MPI after 19 214 steps: the profiles are identical (maximum difference 0).</figcaption>
+<img src="../img/poiseuille_mpi.png" style="width:100%">
+<figcaption>Serial vs 4 MPI ranks (y-strips, dotted): the fields agree to 1.8e-15, the
+round-off of the all-reduced mass-flow inlet average.</figcaption>
 </figure>
 
     </div>

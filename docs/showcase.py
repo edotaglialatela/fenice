@@ -2,7 +2,6 @@
 
     python docs/showcase.py run        # simulations into results/showcase/ (about 1.5 h on 16 cores)
     python docs/showcase.py render     # GIFs from those results into docs/img/
-    python docs/showcase.py figures    # cylinder force-history figures (validation scripts)
 
 Needs Python >= 3.11 (tomllib), numpy, scipy, matplotlib and Pillow.
 
@@ -12,7 +11,10 @@ Runs (fenice under MPI, one rank per core, binary VTK):
   with a small transverse-velocity kick that starts the shedding) is hot-started on the
   unmodified case at 1200 x 600 (60 cells per diameter): t = 0..3 densely sampled for
   the GIFs, which loop exactly one shedding period (found from a wake probe), then
-  resumed to t = 8 for the lift / drag history and its spectrum.
+  resumed to t = 8.
+
+The force histories of the cylinder page come from the validation studies
+(validation/ibm_loads.py, validation/cylinder_mesh_transition.py).
 * IBM Supersonic Flow over Cylinder (Mach 2): 1600 x 1600 from t = 0 to 5.
 
 Every frame is the simulated field only (no axes, legend or background), box-averaged
@@ -86,7 +88,7 @@ def last_time(name, key):
 
 
 def run_all():
-    # Coarse precursor, densely sampled: also the coarse half of aero_coeff_meshTransition.gif
+    # Coarse precursor, densely sampled
     pre = os.path.join(OUT, "precursor")
     ck = os.path.join(pre, "cylinder_precursor", "cylinder_precursor_restart.npz")
     if last_time("precursor", "cylinder_precursor") < 10:
@@ -100,22 +102,6 @@ def run_all():
         run_case(CYL[0], cyl, "nx=1200", "ny=600", "t_end=8", "resume=true", "save_interval=192")
     if last_time("supersonic", SUP[1]) < 5:
         run_case(SUP[0], os.path.join(OUT, "supersonic"), "nx=1600", "ny=1600", "save_interval=250")
-
-
-def figures():
-    """Force-history figures of the cylinder page from the same runs (validation scripts)."""
-    val = os.path.join(ROOT, "validation")
-    env = dict(os.environ, MPLBACKEND="Agg")
-    fine = os.path.join(OUT, "cylinder", CYL[1], f"{CYL[1]}.pvd")
-    coarse = os.path.join(OUT, "precursor", "cylinder_precursor", "cylinder_precursor.pvd")
-    subprocess.run([sys.executable, "aeroCoeffCylinder.py", fine], cwd=val, env=env, check=True)
-    subprocess.run([sys.executable, "meshMappingAnimation.py", coarse, fine], cwd=val, env=env, check=True)
-    for src, dst in [(os.path.join(os.path.dirname(fine), "strouhal_fft.png"), "strouhal_fft_fine.png"),
-                     (os.path.join(os.path.dirname(fine), "aerodynamics.gif"), "aero_coeff_fine.gif"),
-                     (os.path.join(os.path.dirname(fine), "mesh_transition_aerodynamics.gif"),
-                      "aero_coeff_meshTransition.gif")]:
-        shutil.copyfile(src, os.path.join(IMG, dst))
-        print(f"[FIG] docs/img/{dst}")
 
 
 # ---------------------------------------------------------------------------
@@ -243,13 +229,11 @@ def render_supersonic(n_frames):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    ap.add_argument("stage", choices=["run", "render", "figures"])
+    ap.add_argument("stage", choices=["run", "render"])
     ap.add_argument("--frames", type=int, default=48, help="frames per GIF (default 48)")
     args = ap.parse_args()
     if args.stage == "run":
         run_all()
-    elif args.stage == "figures":
-        figures()
     else:
         render_cylinder(args.frames)
         render_supersonic(args.frames)

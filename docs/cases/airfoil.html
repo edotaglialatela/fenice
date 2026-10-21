@@ -562,7 +562,7 @@ slip walls three chords above and below.</p>
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;IBM Airfoil&quot;</span>                       <span class="c"># uses MPI (16 ranks) by default</span>
 <span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;IBM Airfoil&quot;</span> <span class="p">-</span><span class="n">-set</span> <span class="s2">&quot;ibm_shape=NACA 4412&quot;</span> <span class="p">-</span><span class="n">-set</span> <span class="n">ibm_aoa</span><span class="p">=</span><span class="n">5</span>
-<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">airfoilLoads</span><span class="p">.</span><span class="n">py</span>                              <span class="c"># loads figure + mean coefficients</span>
+<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">ibm_loads</span><span class="p">.</span><span class="n">py</span> <span class="n">airfoil</span>                        <span class="c"># loads figure + mean coefficients</span>
 </code></pre>
 </div>
 
@@ -734,12 +734,12 @@ momentum flux into the body, so they include pressure and friction; see
 <h2 id="results">Results</h2>
 
 <figure>
-<img src="../img/airfoil_naca0012_loads.png" style="width:100%">
+<img src="../img/airfoil_loads.png" style="width:100%">
 <figcaption>NACA 0012 at 10°, Re = 1000, 720 × 360 cells. Top: vorticity at t = 20, with the
 shear layers rolling up into a vortex street. Bottom: lift, drag and moment coefficients;
 over t ≥ 10 (shaded) C<sub>l</sub> = 0.38 (between 0.26 and 0.51), C<sub>d</sub> = 0.17 and
 C<sub>m</sub> ≈ 0 about the quarter chord, as thin-airfoil theory predicts. The dominant lift
-frequency is f c/U ≈ 1.2.</figcaption>
+frequency is f c/U ≈ 1.21.</figcaption>
 </figure>
 
     </div>

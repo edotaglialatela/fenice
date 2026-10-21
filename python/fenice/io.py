@@ -68,3 +68,12 @@ def read_dump(path):
     """A dump_state / checkpoint .npz as a dict of arrays (U, t, step, ...)."""
     with np.load(path) as z:
         return {k: z[k] for k in z.files}
+
+
+def primitive(U, gamma=1.4):
+    """rho, u, v, p (and w in 3-D) from conservative states U (n, 4) or (n, 5), ideal gas."""
+    rho = U[:, 0]
+    u, v = U[:, 1] / rho, U[:, 2] / rho
+    w = U[:, 4] / rho if U.shape[1] > 4 else np.zeros_like(rho)
+    p = (gamma - 1.0) * (U[:, 3] - 0.5 * rho * (u * u + v * v + w * w))
+    return (rho, u, v, p) if U.shape[1] == 4 else (rho, u, v, p, w)

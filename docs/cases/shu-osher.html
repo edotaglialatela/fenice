@@ -577,7 +577,7 @@ uses the <strong>X-direction</strong> decomposition.</p>
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Shu-Osher Test&quot;</span>
 <span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Shu-Osher Test&quot;</span> <span class="p">-</span><span class="n">-set</span> <span class="n">muscl_limiter</span><span class="p">=</span><span class="n">Minmod</span>
-<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">validationShuOsher</span><span class="p">.</span><span class="n">py</span>
+<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">shu_osher</span><span class="p">.</span><span class="n">py</span>      <span class="c"># MC and Minmod, 200-1600 cells vs a 6400-cell reference</span>
 </code></pre>
 </div>
 
@@ -668,14 +668,14 @@ uses the <strong>X-direction</strong> decomposition.</p>
 
 <h2 id="validation-results">Validation results</h2>
 
-<figure>
-<img src="../img/validation_ShuOsher_MC.png" style="width:100%">
-<figcaption>Density at t = 1.8 s: MC limiter.</figcaption>
-</figure>
+<p>There is no closed-form solution, so the reference is the MC run on 6400 cells, and the
+error of each grid is measured against the reference averaged onto it.</p>
 
 <figure>
-<img src="../img/validation_ShuOsher_Minmod.png" style="width:100%">
-<figcaption>Density at t = 1.8 s: Minmod limiter (more diffusive).</figcaption>
+<img src="../img/shu_osher.png" style="width:100%">
+<figcaption>Density at t = 1.8 with MC and Minmod on 400 cells; the inset zooms on the
+post-shock entropy waves, which Minmod flattens more. Right: L1 error against the reference.
+The shock limits both limiters to about first order; MC stays about 2× more accurate.</figcaption>
 </figure>
 
 <h2 id="references">References</h2>

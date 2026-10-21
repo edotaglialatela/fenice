@@ -31,7 +31,7 @@ uses the **X-direction** decomposition.
 ```powershell
 build\release\fenice.exe --case "Shu-Osher Test"
 build\release\fenice.exe --case "Shu-Osher Test" --set muscl_limiter=Minmod
-python validation\validationShuOsher.py
+python validation\shu_osher.py      # MC and Minmod, 200-1600 cells vs a 6400-cell reference
 ```
 
 ## Default parameters
@@ -40,13 +40,14 @@ python validation\validationShuOsher.py
 
 ## Validation results
 
+There is no closed-form solution, so the reference is the MC run on 6400 cells, and the
+error of each grid is measured against the reference averaged onto it.
+
 <figure>
-<img src="{{root}}img/validation_ShuOsher_MC.png" style="width:100%">
-<figcaption>Density at t = 1.8 s: MC limiter.</figcaption>
-</figure>
-<figure>
-<img src="{{root}}img/validation_ShuOsher_Minmod.png" style="width:100%">
-<figcaption>Density at t = 1.8 s: Minmod limiter (more diffusive).</figcaption>
+<img src="{{root}}img/shu_osher.png" style="width:100%">
+<figcaption>Density at t = 1.8 with MC and Minmod on 400 cells; the inset zooms on the
+post-shock entropy waves, which Minmod flattens more. Right: L1 error against the reference.
+The shock limits both limiters to about first order; MC stays about 2× more accurate.</figcaption>
 </figure>
 
 ## References

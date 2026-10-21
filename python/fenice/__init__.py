@@ -6,7 +6,8 @@ tools and the regression check (``python prerequisites.py`` installs it in edita
     for t, path in fenice.read_pvd(fenice.RESULTS / "validation" / "sod" / "sod_shock_tube"):
         f = fenice.read_vtr(path)          # f["Density"], f["Velocity"], f["x"], ...
 """
-from .io import read_dump, read_monitor, read_pvd, read_vtr, vtk_array
+from .io import primitive, read_dump, read_monitor, read_pvd, read_vtr, vtk_array
 from .solver import RESULTS, ROOT, exe, run
 
-__all__ = ["ROOT", "RESULTS", "exe", "run", "vtk_array", "read_pvd", "read_vtr", "read_monitor", "read_dump"]
+__all__ = ["ROOT", "RESULTS", "exe", "run", "vtk_array", "read_pvd", "read_vtr", "read_monitor", "read_dump",
+           "primitive"]

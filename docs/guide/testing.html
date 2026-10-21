@@ -660,9 +660,19 @@ MPI runs oversubscribe them (Open MPI environment variables in the workflow).</p
 
 <h2 id="physical-validation-validation">Physical validation (<code>validation/</code>)</h2>
 
-<p>The scripts read the VTK output of a run and compare it with analytical or reference
-solutions. The figures on the <a href="../modules/TestCases.html">test-case pages</a> were
-produced this way:</p>
+<p>Each script is one study: it runs the solver into <code>results/validation/&lt;study&gt;/</code>, compares
+the result with an analytical or reference solution, prints the errors and saves its figures
+there. Runs that already finished are reused, so a second call only redraws the figures
+(<code>--force</code> re-runs them). Every script takes <code>--docs</code>, which also copies the figures into
+<code>docs/img/</code>: the figures on the <a href="../modules/TestCases.html">test-case pages</a> are made
+this way. The shared helpers are in the <code>fenice</code> Python package (<code>python/fenice/</code>).</p>
+
+<div class="pdoc-code codehilite">
+<pre><span></span><code><span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">run_all</span><span class="p">.</span><span class="n">py</span>                  <span class="c"># the quick studies (minutes)</span>
+<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">run_all</span><span class="p">.</span><span class="n">py</span> <span class="p">-</span><span class="n">-all</span> <span class="p">-</span><span class="n">-docs</span>     <span class="c"># every study, refresh docs/img (hours: long MPI runs)</span>
+<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">sod</span><span class="p">.</span><span class="n">py</span> <span class="p">-</span><span class="n">-force</span>              <span class="c"># one study, re-running its simulations</span>
+</code></pre>
+</div>
 
 <table>
 <thead>
@@ -673,44 +683,44 @@ produced this way:</p>
 </thead>
 <tbody>
 <tr>
-  <td><code>validationSod.py</code>, <code>comparisonSecondOrder.py</code></td>
-  <td>Sod vs the exact Riemann solution; 1st vs 2nd order, limiters</td>
+  <td><code>sod.py</code></td>
+  <td>Sod vs the exact Riemann solution; 1st vs 2nd order; the four limiters</td>
 </tr>
 <tr>
-  <td><code>amrComparisonSod.py</code></td>
-  <td>uniform vs AMR Sod (cells vs L2 error)</td>
+  <td><code>sod_amr.py</code></td>
+  <td>AMR vs uniform meshes at the two finest levels (cells and L1 error)</td>
 </tr>
 <tr>
-  <td><code>validationPoiseuille.py</code>, <code>mpiComparison.py</code></td>
-  <td>Poiseuille parabola; serial vs MPI</td>
+  <td><code>shu_osher.py</code></td>
+  <td>Shu-Osher density, MC vs Minmod, convergence against a 6400-cell reference</td>
 </tr>
 <tr>
-  <td><code>validationDrivenCavity.py</code></td>
-  <td>cavity profiles vs Ghia (1982)</td>
+  <td><code>isentropic_vortex.py</code></td>
+  <td>isentropic-vortex convergence and limiter comparison</td>
 </tr>
 <tr>
-  <td><code>validationShuOsher.py</code></td>
-  <td>Shu-Osher density</td>
+  <td><code>taylor_green.py</code></td>
+  <td>Taylor-Green kinetic-energy decay and grid convergence</td>
 </tr>
 <tr>
-  <td><code>aeroCoeffCylinder.py</code></td>
-  <td>cylinder C_L / C_D and Strouhal number</td>
+  <td><code>poiseuille.py</code></td>
+  <td>Poiseuille parabola, grid convergence; serial vs 4 MPI ranks</td>
 </tr>
 <tr>
-  <td><code>meshMappingAnimation.py</code></td>
-  <td>hot-start mapping animation</td>
+  <td><code>cavity.py</code></td>
+  <td>cavity centrelines and vortex vs Ghia (1982), 32²-128², both orders</td>
 </tr>
 <tr>
-  <td><code>validationTaylorGreen.py</code></td>
-  <td>Taylor-Green kinetic-energy decay and grid convergence (runs the solver)</td>
+  <td><code>taylor_green_3d.py</code></td>
+  <td>3-D Taylor-Green energy, dissipation, vorticity, Q-criterion animation</td>
 </tr>
 <tr>
-  <td><code>validationIsentropicVortex.py</code></td>
-  <td>isentropic-vortex convergence and limiter comparison (runs the solver)</td>
+  <td><code>ibm_loads.py cylinder</code> / <code>airfoil</code></td>
+  <td>IBM loads from the monitor, Strouhal number</td>
 </tr>
 <tr>
-  <td><code>validationTaylorGreen3D.py</code></td>
-  <td>3-D Taylor-Green energy, dissipation and vorticity at 32³ / 64³ (runs the solver)</td>
+  <td><code>cylinder_mesh_transition.py</code></td>
+  <td>cylinder loads across a 400×200 → 800×400 hot start (animation)</td>
 </tr>
 </tbody>
 </table>

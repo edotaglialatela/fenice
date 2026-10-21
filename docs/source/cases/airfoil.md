@@ -15,7 +15,7 @@ slip walls three chords above and below.
 ```powershell
 build\release\fenice.exe --case "IBM Airfoil"                       # uses MPI (16 ranks) by default
 build\release\fenice.exe --case "IBM Airfoil" --set "ibm_shape=NACA 4412" --set ibm_aoa=5
-python validation\airfoilLoads.py                              # loads figure + mean coefficients
+python validation\ibm_loads.py airfoil                        # loads figure + mean coefficients
 ```
 
 ## Using your own airfoil
@@ -55,10 +55,10 @@ momentum flux into the body, so they include pressure and friction; see
 ## Results
 
 <figure>
-<img src="{{root}}img/airfoil_naca0012_loads.png" style="width:100%">
+<img src="{{root}}img/airfoil_loads.png" style="width:100%">
 <figcaption>NACA 0012 at 10°, Re = 1000, 720 × 360 cells. Top: vorticity at t = 20, with the
 shear layers rolling up into a vortex street. Bottom: lift, drag and moment coefficients;
 over t ≥ 10 (shaded) C<sub>l</sub> = 0.38 (between 0.26 and 0.51), C<sub>d</sub> = 0.17 and
 C<sub>m</sub> ≈ 0 about the quarter chord, as thin-airfoil theory predicts. The dominant lift
-frequency is f c/U ≈ 1.2.</figcaption>
+frequency is f c/U ≈ 1.21.</figcaption>
 </figure>

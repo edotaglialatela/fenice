@@ -82,7 +82,7 @@ override them. See the [BC formulas]({{root}}modules/Boundaries.html).
 | `max_steps` | `0` | Stop after N steps (≤ 0: run to `t_end`) |
 | `dump_state` | *(empty)* | Write the final state to this `.npz` (regression tests) |
 | `monitor_interval` | `0` | Append domain averages (mass, kinetic and total energy), and with IBM the body loads (Fx, Fy, Cd, Cl, Cm), to `<case>_monitor.csv` every N steps (0: off) |
-| `vtk_format` | `binary` | VTK data arrays: `binary` (inline base64 Float32: about half the size, faster to write) or `ascii` (plain text). Both are valid XML; `validation/vtkio.py` reads either |
+| `vtk_format` | `binary` | VTK data arrays: `binary` (inline base64 Float32: about half the size, faster to write) or `ascii` (plain text). Both are valid XML; `fenice.read_vtr` (Python package) reads either |
 
 ## Parallelism
 

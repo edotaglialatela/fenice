@@ -45,7 +45,7 @@ DOCS = [
 ]
 
 VIZ3D = [
-    ("pyvista",    "pyvista",    "3-D iso-surfaces (validationTaylorGreen3D.py --q-animation)",      False),
+    ("pyvista",    "pyvista",    "3-D iso-surfaces (taylor_green_3d.py --q-animation)",      False),
 ]
 
 

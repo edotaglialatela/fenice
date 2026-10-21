@@ -114,8 +114,10 @@ AMR runs are serial-only (MPI is ignored), but the patches of each level advance
 concurrently on all OpenMP threads.
 
 <figure style="margin:1em 0;">
-<img src="{{root}}img/sod_amr_comparison.png" style="width:100%">
-<figcaption>Sod shock tube: uniform mesh vs AMR. Density profile, cell count and L2 error.</figcaption>
+<img src="{{root}}img/sod_amr.png" style="width:100%">
+<figcaption>Sod shock tube with 10×2 patches and 4 levels against uniform meshes at the two
+finest levels: the error of the finest uniform mesh with 53% of its cells
+(<code>validation/sod_amr.py</code>).</figcaption>
 </figure>
 
 {{widget:AMR}}

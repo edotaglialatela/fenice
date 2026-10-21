@@ -564,7 +564,8 @@ boundaries and slip walls at the bottom and top, so the problem stays one-dimens
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Sod Shock Tube&quot;</span>
 <span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Sod Shock Tube&quot;</span> <span class="p">-</span><span class="n">-set</span> <span class="n">use_muscl</span><span class="p">=</span><span class="n">true</span> <span class="p">-</span><span class="n">-set</span> <span class="n">time_scheme</span><span class="p">=</span><span class="n">ssprk2</span>
-<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">validationSod</span><span class="p">.</span><span class="n">py</span>
+<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">sod</span><span class="p">.</span><span class="n">py</span>           <span class="c"># exact solution, orders, limiters</span>
+<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">sod_amr</span><span class="p">.</span><span class="n">py</span>       <span class="c"># AMR vs uniform meshes</span>
 </code></pre>
 </div>
 
@@ -648,26 +649,32 @@ boundaries and slip walls at the bottom and top, so the problem stays one-dimens
 <h2 id="validation-results">Validation results</h2>
 
 <figure>
-<img src="../img/SOD_mpi_1stOrder.png" style="width:100%">
-<figcaption>Density at t = 0.2 s: HLLC, 1st-order Godunov, MPI parallel run.</figcaption>
+<img src="../img/sod_exact.png" style="width:100%">
+<figcaption>1st-order Godunov (HLLC, 200 cells) against the exact solution at t = 0.2:
+L1 density error 1.1e-2.</figcaption>
 </figure>
 
 <figure>
-<img src="../img/Sod_1st_vs_2nd_Order.png" style="width:100%">
-<figcaption>1st-order vs 2nd-order MUSCL.</figcaption>
+<img src="../img/sod_orders.png" style="width:100%">
+<figcaption>1st-order Godunov vs MUSCL (Van Leer) + SSP-RK2: the L1 density error drops
+from 1.1e-2 to 3.0e-3, mostly at the contact and the rarefaction corners.</figcaption>
 </figure>
 
 <figure>
-<img src="../img/Sod_Limiters_Comparison.png" style="width:100%">
-<figcaption>Limiter comparison (Minmod / Van Leer / MC / Koren).</figcaption>
+<img src="../img/sod_limiters.png" style="width:100%">
+<figcaption>The four MUSCL limiters (L1 density error in the legend): Minmod is the most
+diffusive, MC the sharpest, with a small temperature overshoot at the contact.</figcaption>
 </figure>
 
-<p>The same case validates <a href="../modules/AMR.html">AMR</a>: <code>validation/amrComparisonSod.py</code>
-compares a uniform mesh with an AMR run of equal finest resolution.</p>
+<p>The same case validates <a href="../modules/AMR.html">AMR</a>: <code>validation/sod_amr.py</code> runs it
+with 10×2 patches and 4 levels (pre-refined at t = 0) and on uniform meshes at the two finest
+levels.</p>
 
 <figure>
-<img src="../img/sod_amr_comparison.png" style="width:100%">
-<figcaption>Uniform mesh vs AMR: density profile, cell count and L2 error.</figcaption>
+<img src="../img/sod_amr.png" style="width:100%">
+<figcaption>AMR vs uniform 80×16 and 160×32 meshes at t = 0.2. AMR keeps level 4 around
+the contact and the shock and reaches the error of the 160×32 mesh (L1 1.5e-2 vs 1.4e-2) with
+53% of its cells.</figcaption>
 </figure>
 
 <h2 id="reference">Reference</h2>

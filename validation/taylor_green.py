@@ -1,61 +1,39 @@
 """Taylor-Green vortex: viscous decay and grid convergence against the exact solution.
 
-    python validation/validationTaylorGreen.py
+    python validation/taylor_green.py [--docs]
 
-Runs the C++ solver (build/release/fenice) on the periodic Taylor-Green vortex:
+Runs the solver on the periodic Taylor-Green vortex:
 
 1. 64x64 to t = 5 with snapshots, to compare the kinetic-energy decay KE(t)/KE(0)
    with the exact exp(-4 nu k^2 t), with and without viscous fluxes (the inviscid run
    isolates the scheme's numerical dissipation);
 2. N = 16, 32, 64, 128 to t = 1, for the velocity L2 error against the exact field.
 
-Writes results/taylor_green_validation.png.
+Runs and figure in results/validation/taylor_green/: taylor_green_validation.png.
 """
-import glob
-import os
-import subprocess
-import tempfile
-import xml.etree.ElementTree as ET
-
-import matplotlib.pyplot as plt
 import numpy as np
-import fenice
-from fenice import vtk_array
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = fenice.exe()
+import fenice
+from fenice import study
+
+STUDY, CASE = "taylor_green", "Taylor-Green Vortex"
 MU, L = 0.02, 2.0 * np.pi
 K = 2.0 * np.pi / L
 
 
-def run(out_root, *sets):
-    cmd = [EXE, "--case", "Taylor-Green Vortex", "--no-logo", "--set", f"output_root={out_root}"]
-    for s in sets:
-        cmd += ["--set", s]
-    subprocess.run(cmd, check=True, capture_output=True, text=True)
-
-
-def read_vtr(path):
-    root = ET.parse(path).getroot()
-    arr = lambda name: vtk_array(root.find(f'.//DataArray[@Name="{name}"]'))
-    vel = arr("Velocity").reshape(-1, 3)
-    return arr("Density"), vel[:, 0], vel[:, 1]
-
-
-def ke_history(case_dir):
-    pvd = ET.parse(glob.glob(os.path.join(case_dir, "*.pvd"))[0]).getroot()
+def ke_history(run_dir):
     t, ke = [], []
-    for ds in pvd.iter("DataSet"):
-        rho, u, v = read_vtr(os.path.join(case_dir, ds.attrib["file"]))
-        t.append(float(ds.attrib["timestep"]))
-        ke.append(np.sum(0.5 * rho * (u ** 2 + v ** 2)))
+    for ti, path in fenice.read_pvd(study.case_output(run_dir)):
+        f = fenice.read_vtr(path)
+        t.append(ti)
+        ke.append(np.sum(0.5 * f["Density"] * (f["Velocity"][..., 0] ** 2 + f["Velocity"][..., 1] ** 2)))
     return np.array(t), np.array(ke) / ke[0]
 
 
-def velocity_error(n, t_end, tmp):
-    dump = os.path.join(tmp, f"tgv_{n}.npz")
-    run(tmp, f"nx={n}", f"ny={n}", f"mu={MU}", f"t_end={t_end}", "save_interval=1000000000", f"dump_state={dump}")
-    U = np.load(dump)["U"]
+def velocity_error(n, t_end, args):
+    d = study.run_cached(STUDY, f"n{n}", CASE, f"nx={n}", f"ny={n}", f"mu={MU}", f"t_end={t_end}",
+                         "save_interval=1000000000", mpi=args.mpi, force=args.force)
+    U = fenice.read_dump(d / "final.npz")["U"]
     xc = (np.arange(n) + 0.5) * L / n
     X, Y = np.meshgrid(xc, xc)
     F = np.exp(-2.0 * MU * K ** 2 * t_end)
@@ -65,26 +43,25 @@ def velocity_error(n, t_end, tmp):
 
 
 def main():
-    tmp = tempfile.mkdtemp(prefix="fv_tgv_")
+    args = study.parser(__doc__.splitlines()[0]).parse_args()
+    plt = study.use_style()
     print("[1/2] Kinetic-energy decay, 64x64 ...")
-    run(os.path.join(tmp, "visc"), "save_interval=20")
-    run(os.path.join(tmp, "invisc"), "save_interval=20", "use_viscous=false")
-    t_v, ke_v = ke_history(os.path.join(tmp, "visc", "taylor-green_vortex"))
-    t_i, ke_i = ke_history(os.path.join(tmp, "invisc", "taylor-green_vortex"))
+    t_v, ke_v = ke_history(study.run_cached(STUDY, "decay_viscous", CASE, "save_interval=20",
+                                            mpi=args.mpi, force=args.force))
+    t_i, ke_i = ke_history(study.run_cached(STUDY, "decay_inviscid", CASE, "save_interval=20", "use_viscous=false",
+                                            mpi=args.mpi, force=args.force))
     nu_eff = -np.polyfit(t_v, np.log(ke_v), 1)[0] / (4 * K ** 2)
     nu_num = -np.polyfit(t_i, np.log(ke_i), 1)[0] / (4 * K ** 2)
     print(f"      nu = {MU}: fitted total {nu_eff:.5f}, numerical {nu_num:.5f}, physical {nu_eff - nu_num:.5f}")
 
     print("[2/2] Grid convergence, t = 1 ...")
     ns = np.array([16, 32, 64, 128])
-    errs = np.array([velocity_error(n, 1.0, tmp) for n in ns])
+    errs = np.array([velocity_error(n, 1.0, args) for n in ns])
     orders = np.log2(errs[:-1] / errs[1:])
     for n, e in zip(ns, errs):
         print(f"      N = {n:4d}: velocity L2 error {e:.3e}")
     print("      observed orders:", " ".join(f"{o:.2f}" for o in orders))
 
-    plt.rcParams.update({"font.family": "serif", "mathtext.fontset": "cm", "axes.labelsize": 12,
-                         "axes.titlesize": 13, "legend.fontsize": 10, "figure.dpi": 150})
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(13, 5))
     fig.suptitle(r"Taylor-Green vortex ($\nu = %.2f$, periodic $2\pi \times 2\pi$)" % MU, fontsize=15, fontweight="bold")
     tt = np.linspace(0, t_v[-1], 200)
@@ -109,10 +86,7 @@ def main():
     a2.grid(True, which="both", ls="--", alpha=0.5)
     a2.legend(frameon=True)
     plt.tight_layout()
-    out = os.path.join(ROOT, "results", "taylor_green_validation.png")
-    os.makedirs(os.path.dirname(out), exist_ok=True)
-    plt.savefig(out, dpi=200, bbox_inches="tight")
-    print(f"[PLOT] {out}")
+    study.save(fig, STUDY, "taylor_green_validation.png", args.docs, dpi=200)
 
 
 if __name__ == "__main__":

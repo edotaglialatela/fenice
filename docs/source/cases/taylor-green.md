@@ -34,7 +34,7 @@ the incompressible limit. The boundaries are periodic on all four sides.
 
 ```powershell
 build\release\fenice.exe --case "Taylor-Green Vortex"
-python validation\validationTaylorGreen.py
+python validation\taylor_green.py
 ```
 
 ## Default parameters

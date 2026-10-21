@@ -24,8 +24,7 @@ which makes it a good target for `HLLC (Low-Mach Thornber)` and `BDF2 Dual Time`
 ```powershell
 build\release\fenice.exe --case "Poiseuille Flow"
 build\release\fenice.exe --case "Poiseuille Flow" --set time_scheme=bdf2
-python validation\validationPoiseuille.py
-python validation\mpiComparison.py      # serial vs MPI (results/poiseuille_flow[_mpi])
+python validation\poiseuille.py     # grid convergence + serial vs 4 MPI ranks
 ```
 
 ## Default parameters
@@ -35,11 +34,13 @@ python validation\mpiComparison.py      # serial vs MPI (results/poiseuille_flow
 ## Validation results
 
 <figure>
-<img src="{{root}}img/convergence_poiseuille.png" style="width:100%">
-<figcaption>L2 error of the velocity profile against the Poiseuille parabola as a function of grid resolution.</figcaption>
+<img src="{{root}}img/poiseuille_convergence.png" style="width:100%">
+<figcaption>Velocity profile at x = 0.95 L<sub>x</sub> on n<sub>y</sub> = 10, 20, 40 and the
+relative L2 error against the parabola: second order (observed 2.10 and 1.93).</figcaption>
 </figure>
 
 <figure>
-<img src="{{root}}img/poiseuille_mpi_comparison.png" style="width:100%">
-<figcaption>Serial vs 4-rank MPI after 19 214 steps: the profiles are identical (maximum difference 0).</figcaption>
+<img src="{{root}}img/poiseuille_mpi.png" style="width:100%">
+<figcaption>Serial vs 4 MPI ranks (y-strips, dotted): the fields agree to 1.8e-15, the
+round-off of the all-reduced mass-flow inlet average.</figcaption>
 </figure>

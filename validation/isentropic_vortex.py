@@ -1,23 +1,19 @@
 """Isentropic vortex: advection accuracy and order of convergence.
 
-    python validation/validationIsentropicVortex.py
+    python validation/isentropic_vortex.py [--docs]
 
-Runs the C++ solver (build/release/fenice) on the periodic isentropic vortex for one
+Runs the solver on the periodic isentropic vortex for one
 full period (t = 10, the vortex returns to its start) at N = 20, 40, 80, 160, and
 compares the density with the exact solution.  Also compares the four TVD limiters at
-N = 80.  Writes results/isentropic_vortex_validation.png.
+N = 80. Runs and figure in results/validation/isentropic_vortex/:
+isentropic_vortex_validation.png.
 """
-import os
-import subprocess
-import tempfile
-
-import matplotlib.pyplot as plt
 import numpy as np
 
 import fenice
+from fenice import study
 
-ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-EXE = fenice.exe()
+STUDY = "isentropic_vortex"
 L, GAMMA, BETA, T_END = 10.0, 1.4, 5.0, 10.0
 
 
@@ -28,23 +24,23 @@ def exact_rho(x, y, t):
     return T ** (1.0 / (GAMMA - 1.0))
 
 
-def run(n, tmp, limiter="MC"):
-    dump = os.path.join(tmp, f"vortex_{n}_{limiter.replace(' ', '')}.npz")
-    subprocess.run([EXE, "--case", "Isentropic Vortex", "--no-logo", "--set", f"nx={n}", "--set", f"ny={n}",
-                    "--set", f"t_end={T_END}", "--set", f"muscl_limiter={limiter}", "--set", "save_interval=1000000000",
-                    "--set", f"output_root={tmp}", "--set", f"dump_state={dump}"], check=True, capture_output=True)
-    rho = np.load(dump)["U"][:, 0].reshape(n, n)
+def run(n, args, limiter="MC"):
+    d = study.run_cached(STUDY, f"n{n}_{limiter.replace(' ', '').lower()}", "Isentropic Vortex", f"nx={n}", f"ny={n}",
+                         f"t_end={T_END}", f"muscl_limiter={limiter}", "save_interval=1000000000",
+                         mpi=args.mpi, force=args.force)
+    rho = fenice.read_dump(d / "final.npz")["U"][:, 0].reshape(n, n)
     xc = (np.arange(n) + 0.5) * L / n
     X, Y = np.meshgrid(xc, xc)
     return xc, rho, exact_rho(X, Y, T_END)
 
 
 def main():
-    tmp = tempfile.mkdtemp(prefix="fv_vortex_")
+    args = study.parser(__doc__.splitlines()[0]).parse_args()
+    plt = study.use_style()
     ns = np.array([20, 40, 80, 160])
     errs, profiles = [], {}
     for n in ns:
-        xc, rho, ex = run(n, tmp)
+        xc, rho, ex = run(n, args)
         errs.append(np.mean(np.abs(rho - ex)))
         profiles[n] = (xc, rho[n // 2, :], ex[n // 2, :])
         print(f"N = {n:4d}: L1 density error {errs[-1]:.3e}")
@@ -53,12 +49,10 @@ def main():
     print("observed orders:", " ".join(f"{o:.2f}" for o in orders))
     lim_err = {}
     for lim in ("Minmod", "Van Leer", "Koren", "MC"):
-        _, rho, ex = run(80, tmp, lim)
+        _, rho, ex = run(80, args, lim)
         lim_err[lim] = np.mean(np.abs(rho - ex))
         print(f"limiter {lim:8s} (N = 80): L1 error {lim_err[lim]:.3e}")
 
-    plt.rcParams.update({"font.family": "serif", "mathtext.fontset": "cm", "axes.labelsize": 12,
-                         "axes.titlesize": 13, "legend.fontsize": 10, "figure.dpi": 150})
     fig, (a1, a2) = plt.subplots(1, 2, figsize=(13, 5))
     fig.suptitle(r"Isentropic vortex after one period ($t = 10$, MUSCL MC, SSP-RK2)", fontsize=15, fontweight="bold")
     xf = np.linspace(0, L, 400)
@@ -88,10 +82,7 @@ def main():
     a2.grid(True, which="both", ls="--", alpha=0.5)
     a2.legend(frameon=True)
     plt.tight_layout()
-    out = os.path.join(ROOT, "results", "isentropic_vortex_validation.png")
-    os.makedirs(os.path.dirname(out), exist_ok=True)
-    plt.savefig(out, dpi=200, bbox_inches="tight")
-    print(f"[PLOT] {out}")
+    study.save(fig, STUDY, "isentropic_vortex_validation.png", args.docs, dpi=200)
 
 
 if __name__ == "__main__":

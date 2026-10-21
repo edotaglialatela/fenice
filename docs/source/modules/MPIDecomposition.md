@@ -48,9 +48,9 @@ checkpoint. Each rank uses one OpenMP thread unless `--threads` or `OMP_NUM_THRE
 asks for more.
 
 <figure style="margin:1em 0;">
-<img src="{{root}}img/poiseuille_mpi_comparison.png" style="width:100%">
-<figcaption>Hagen-Poiseuille flow (viscous, mass-flow inlet, 60×20) after 19 214 steps: serial vs
-4-rank MPI. The difference is exactly zero.</figcaption>
+<img src="{{root}}img/poiseuille_mpi.png" style="width:100%">
+<figcaption>Hagen-Poiseuille flow (viscous, mass-flow inlet, 60×20, t = 80): serial vs 4-rank
+MPI. The fields agree to 1.8e-15, the round-off of the inlet sum.</figcaption>
 </figure>
 
 {{widget:mpiDecomposition}}

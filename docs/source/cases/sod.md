@@ -18,7 +18,8 @@ boundaries and slip walls at the bottom and top, so the problem stays one-dimens
 ```powershell
 build\release\fenice.exe --case "Sod Shock Tube"
 build\release\fenice.exe --case "Sod Shock Tube" --set use_muscl=true --set time_scheme=ssprk2
-python validation\validationSod.py
+python validation\sod.py           # exact solution, orders, limiters
+python validation\sod_amr.py       # AMR vs uniform meshes
 ```
 
 ## Default parameters
@@ -28,26 +29,32 @@ python validation\validationSod.py
 ## Validation results
 
 <figure>
-<img src="{{root}}img/SOD_mpi_1stOrder.png" style="width:100%">
-<figcaption>Density at t = 0.2 s: HLLC, 1st-order Godunov, MPI parallel run.</figcaption>
+<img src="{{root}}img/sod_exact.png" style="width:100%">
+<figcaption>1st-order Godunov (HLLC, 200 cells) against the exact solution at t = 0.2:
+L1 density error 1.1e-2.</figcaption>
 </figure>
 
 <figure>
-<img src="{{root}}img/Sod_1st_vs_2nd_Order.png" style="width:100%">
-<figcaption>1st-order vs 2nd-order MUSCL.</figcaption>
+<img src="{{root}}img/sod_orders.png" style="width:100%">
+<figcaption>1st-order Godunov vs MUSCL (Van Leer) + SSP-RK2: the L1 density error drops
+from 1.1e-2 to 3.0e-3, mostly at the contact and the rarefaction corners.</figcaption>
 </figure>
 
 <figure>
-<img src="{{root}}img/Sod_Limiters_Comparison.png" style="width:100%">
-<figcaption>Limiter comparison (Minmod / Van Leer / MC / Koren).</figcaption>
+<img src="{{root}}img/sod_limiters.png" style="width:100%">
+<figcaption>The four MUSCL limiters (L1 density error in the legend): Minmod is the most
+diffusive, MC the sharpest, with a small temperature overshoot at the contact.</figcaption>
 </figure>
 
-The same case validates [AMR]({{root}}modules/AMR.html): `validation/amrComparisonSod.py`
-compares a uniform mesh with an AMR run of equal finest resolution.
+The same case validates [AMR]({{root}}modules/AMR.html): `validation/sod_amr.py` runs it
+with 10×2 patches and 4 levels (pre-refined at t = 0) and on uniform meshes at the two finest
+levels.
 
 <figure>
-<img src="{{root}}img/sod_amr_comparison.png" style="width:100%">
-<figcaption>Uniform mesh vs AMR: density profile, cell count and L2 error.</figcaption>
+<img src="{{root}}img/sod_amr.png" style="width:100%">
+<figcaption>AMR vs uniform 80×16 and 160×32 meshes at t = 0.2. AMR keeps level 4 around
+the contact and the shock and reaches the error of the 160×32 mesh (L1 1.5e-2 vs 1.4e-2) with
+53% of its cells.</figcaption>
 </figure>
 
 ## Reference

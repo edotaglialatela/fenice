@@ -571,7 +571,8 @@ The Strouhal number of the shedding frequency $f$ is</p>
 
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="n">build</span><span class="p">\</span><span class="n">release</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;IBM Flow over Cylinder&quot;</span>          <span class="c"># uses MPI (16 ranks) by default</span>
-<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">aeroCoeffCylinder</span><span class="p">.</span><span class="n">py</span>
+<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">ibm_loads</span><span class="p">.</span><span class="n">py</span> <span class="n">cylinder</span>                <span class="c"># loads, Strouhal number</span>
+<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">cylinder_mesh_transition</span><span class="p">.</span><span class="n">py</span>         <span class="c"># hot start 400×200 -&gt; 800×400</span>
 </code></pre>
 </div>
 
@@ -720,30 +721,35 @@ animations.</p>
 <h2 id="aerodynamic-coefficients">Aerodynamic coefficients</h2>
 
 <p>Once the flow reaches periodic shedding, the lift and drag coefficients
-$C_L(t)$ and $C_D(t)$ are obtained by integrating the pressure on a circle just outside the
-cylinder ($r = D/2 + 0.015$; viscous stresses are not included):</p>
+The solver writes the <a href="../modules/Physics.html#immersed-boundary-method">IBM loads</a>
+(pressure and viscous stresses) to the monitor:</p>
 
 <p>$$C_L = \frac{F_y}{\tfrac12\rho u_{\rm in}^2 D}, \qquad C_D = \frac{F_x}{\tfrac12\rho u_{\rm in}^2 D}$$</p>
 
-<p>The Strouhal number is the dominant frequency of $C_L(t)$, found by FFT. The results below
-use the 1200×600 mesh, <a href="../modules/SolutionMapping.html">hot-started</a> from a developed
-400×200 street and run for 8 time units; the spectrum starts at t = 1, after the hot-start
-transient.</p>
+<p>The Strouhal number is the dominant frequency of $C_L(t)$: the peak of its windowed,
+zero-padded spectrum, which is accurate to a fraction of the 1/window bin even over a few
+shedding periods.</p>
 
 <figure>
-<img src="../img/strouhal_fft_fine.png" style="width:100%">
-<figcaption>Energy content in the frequency domain: shedding frequency and Strouhal number.</figcaption>
+<img src="../img/cylinder_loads.png" style="width:100%">
+<figcaption>Default 400×200 mesh to t = 6: vorticity and loads. Over t ≥ 2,
+C<sub>d</sub> = 1.43, C<sub>l</sub> = ±0.37 and St = 0.178, against 1.33-1.35, ±0.33 and
+0.164-0.166 in the literature for Re = 100.</figcaption>
 </figure>
 
 <figure>
 <img src="../img/aero_coeff_fine.gif" style="width:100%">
-<figcaption>C_L and C_D over time, 1200×600 mesh.</figcaption>
+<figcaption>C_L and C_D over time on a 1200×600 mesh, from the pressure integrated on a
+circle just outside the cylinder (no viscous stresses).</figcaption>
 </figure>
 
 <figure>
-<img src="../img/aero_coeff_meshTransition.gif" style="width:100%">
-<figcaption>Aerodynamic coefficients across the mesh mapping: 400×200 to t = 10 (a small
-transverse-velocity kick behind the cylinder starts the shedding), then 1200×600.</figcaption>
+<img src="../img/cylinder_mesh_transition.gif" style="width:100%">
+<figcaption>Loads across a hot start: 400×200 to t = 6, then 800×400 mapped from its
+checkpoint. Shedding carries on without a new start-up transient; after a short drag
+spike while the field adapts to the finer mask, C<sub>l</sub> keeps its amplitude (0.37)
+and C<sub>d</sub> settles at 1.46 (1.43 on the coarse mesh)
+(<code>validation/cylinder_mesh_transition.py</code>).</figcaption>
 </figure>
 
 <figure>

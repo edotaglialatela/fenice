@@ -104,19 +104,28 @@ MPI runs oversubscribe them (Open MPI environment variables in the workflow).
 
 ## Physical validation (`validation/`)
 
-The scripts read the VTK output of a run and compare it with analytical or reference
-solutions. The figures on the [test-case pages]({{root}}modules/TestCases.html) were
-produced this way:
+Each script is one study: it runs the solver into `results/validation/<study>/`, compares
+the result with an analytical or reference solution, prints the errors and saves its figures
+there. Runs that already finished are reused, so a second call only redraws the figures
+(`--force` re-runs them). Every script takes `--docs`, which also copies the figures into
+`docs/img/`: the figures on the [test-case pages]({{root}}modules/TestCases.html) are made
+this way. The shared helpers are in the `fenice` Python package (`python/fenice/`).
+
+```powershell
+python validation\run_all.py                  # the quick studies (minutes)
+python validation\run_all.py --all --docs     # every study, refresh docs/img (hours: long MPI runs)
+python validation\sod.py --force              # one study, re-running its simulations
+```
 
 | Script | Compares |
 |---|---|
-| `validationSod.py`, `comparisonSecondOrder.py` | Sod vs the exact Riemann solution; 1st vs 2nd order, limiters |
-| `amrComparisonSod.py` | uniform vs AMR Sod (cells vs L2 error) |
-| `validationPoiseuille.py`, `mpiComparison.py` | Poiseuille parabola; serial vs MPI |
-| `validationDrivenCavity.py` | cavity profiles vs Ghia (1982) |
-| `validationShuOsher.py` | Shu-Osher density |
-| `aeroCoeffCylinder.py` | cylinder C_L / C_D and Strouhal number |
-| `meshMappingAnimation.py` | hot-start mapping animation |
-| `validationTaylorGreen.py` | Taylor-Green kinetic-energy decay and grid convergence (runs the solver) |
-| `validationIsentropicVortex.py` | isentropic-vortex convergence and limiter comparison (runs the solver) |
-| `validationTaylorGreen3D.py` | 3-D Taylor-Green energy, dissipation and vorticity at 32³ / 64³ (runs the solver) |
+| `sod.py` | Sod vs the exact Riemann solution; 1st vs 2nd order; the four limiters |
+| `sod_amr.py` | AMR vs uniform meshes at the two finest levels (cells and L1 error) |
+| `shu_osher.py` | Shu-Osher density, MC vs Minmod, convergence against a 6400-cell reference |
+| `isentropic_vortex.py` | isentropic-vortex convergence and limiter comparison |
+| `taylor_green.py` | Taylor-Green kinetic-energy decay and grid convergence |
+| `poiseuille.py` | Poiseuille parabola, grid convergence; serial vs 4 MPI ranks |
+| `cavity.py` | cavity centrelines and vortex vs Ghia (1982), 32²-128², both orders |
+| `taylor_green_3d.py` | 3-D Taylor-Green energy, dissipation, vorticity, Q-criterion animation |
+| `ibm_loads.py cylinder` / `airfoil` | IBM loads from the monitor, Strouhal number |
+| `cylinder_mesh_transition.py` | cylinder loads across a 400×200 → 800×400 hot start (animation) |
