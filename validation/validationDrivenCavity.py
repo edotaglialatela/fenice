@@ -1,98 +1,172 @@
-# --- File: validation/validationCavityConvergence.py ---
-import sys, os, glob
-import numpy as np
+"""Lid-driven cavity at Re = 400 against Ghia, Ghia & Shin (1982), with grid convergence.
+
+    python validation/validationDrivenCavity.py                 # 32^2, 64^2, 128^2; 1st and 2nd order
+    python validation/validationDrivenCavity.py --grids 32 64 128 256 --orders 2 --mpi 16
+
+Runs the C++ solver (cpp/build/fenice) on the "Lid Driven Cavity" case to a steady state
+(t_end = 40, checked from the kinetic energy of the monitor) for each grid and spatial order
+(1: Godunov, 2: MUSCL), then compares
+
+* u on the vertical centreline and v on the horizontal centreline with Ghia's 17-point
+  tables (Re = 400), as the RMS error over the interior points;
+* the primary vortex: minimum of the stream function and its position.
+
+Writes results/cavity_validation.png (profiles, error vs grid) and results/cavity_streamlines.png.
+"""
+import argparse
+import os
+import subprocess
+import tempfile
+
 import matplotlib.pyplot as plt
-import xml.etree.ElementTree as ET
-from vtkio import vtk_array
+import numpy as np
 
-ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-if ROOT_DIR not in sys.path: sys.path.insert(0, ROOT_DIR)
+ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+EXE = os.path.join(ROOT, "cpp", "build", "fenice.exe" if os.name == "nt" else "fenice")
+CASE, PREFIX = "Lid Driven Cavity", "lid_driven_cavity"
+G = 1.4
 
-def validate_cavity_convergence():
-    FOLDERS = ["lid_driven_cavity_0", "lid_driven_cavity_1", "lid_driven_cavity_2", "lid_driven_cavity_3"]
-    BASE_RESULTS_DIR = os.path.normpath(os.path.join(os.path.dirname(__file__), "..", "results"))
-    profiles_data = []
+# Ghia, Ghia & Shin (1982), Re = 400: Table I (u on x = 0.5) and Table II (v on y = 0.5)
+GHIA_Y = np.array([1.0000, 0.9766, 0.9688, 0.9609, 0.9531, 0.8516, 0.7344, 0.6172, 0.5000,
+                   0.4531, 0.2813, 0.1719, 0.1016, 0.0703, 0.0625, 0.0547, 0.0000])
+GHIA_U = np.array([1.00000, 0.75837, 0.68439, 0.61756, 0.55892, 0.29093, 0.16256, 0.02135, -0.11477,
+                   -0.17119, -0.32726, -0.24299, -0.14612, -0.10338, -0.09266, -0.08186, 0.00000])
+GHIA_X = np.array([1.0000, 0.9688, 0.9609, 0.9531, 0.9453, 0.9063, 0.8594, 0.8047, 0.5000,
+                   0.2344, 0.2266, 0.1563, 0.0938, 0.0781, 0.0703, 0.0625, 0.0000])
+GHIA_V = np.array([0.00000, -0.12146, -0.15663, -0.19254, -0.22847, -0.23827, -0.44993, -0.38598, 0.05186,
+                   0.30174, 0.30203, 0.28124, 0.22965, 0.20920, 0.19713, 0.18360, 0.00000])
+GHIA_VORTEX = (0.5547, 0.6055, -0.113909)   # primary vortex centre and stream function there
+# Table II's v = -0.23827 at x = 0.9063 cannot lie on a smooth profile between its neighbours
+# (-0.44993 at 0.8594, -0.22847 at 0.9453); every grid converges to about -0.39 there. It looks
+# like a misprint: it is plotted but left out of the error norm.
+V_SUSPECT = np.isclose(GHIA_X, 0.9063)
+MPI_RANKS = 1
 
-    # for folder in FOLDERS:
-    #     vtr = sorted(glob.glob(os.path.join(BASE_RESULTS_DIR, folder, "*.vtr")))[-1]
-    #     root = ET.parse(vtr).getroot()
-    #     extent_vals = list(map(int, root.find('.//Piece').attrib['Extent'].split()))
-    #     nx = extent_vals[1] - extent_vals[0]
-    #     ny = extent_vals[3] - extent_vals[2]
-        
-    #     vel = vtk_array(root.find('.//CellData/DataArray[@Name="Velocity"]')).reshape((ny, nx, 3))
-    #     u, v = vel[:, :, 0], vel[:, :, 1]
-        
-    #     # Divergenza calcolata numericamente con differenze finite centrali
-    #     du_dx = (u[:, 2:] - u[:, :-2]) / (2.0 / nx)
-    #     dv_dy = (v[2:, :] - v[:-2, :]) / (2.0 / ny)
-    #     div_u = np.abs(du_dx[1:-1, :] + dv_dy[:, 1:-1])
-    #     print(f"[{folder}] Max |div(u)|: {np.max(div_u):.4e}")
-        
-    #     profiles_data.append({'u': u[:, nx//2], 'v': v[ny//2, :], 'ny': ny, 'nx': nx})
 
-    # Ghia Reference Data
-    ghia_y, ghia_u = np.array([1.0, 0.9766, 0.9688, 0.8516, 0.7344, 0.5, 0.2813, 0.1016, 0.0]), np.array([1.0, 0.5808, 0.4724, 0.1712, 0.0519, -0.1148, -0.3273, -0.2139, 0.0])
-    ghia_x, ghia_v = np.array([1.0, 0.9688, 0.9063, 0.8594, 0.5, 0.2344, 0.0938, 0.0]), np.array([0.0, -0.1215, -0.2383, -0.2245, 0.0519, 0.3020, 0.2222, 0.0])
+def run(out_root, n, order):
+    dump = os.path.join(out_root, f"n{n}_o{order}.npz")
+    if os.path.isfile(dump):
+        return dump
+    cmd = [EXE, "--case", CASE, "--no-logo", "--set", f"output_root={os.path.join(out_root, f'n{n}_o{order}')}",
+           "--set", f"nx={n}", "--set", f"ny={n}", "--set", "t_end=40", "--set", "save_interval=1000000000",
+           "--set", "monitor_interval=50", "--set", f"use_muscl={'true' if order == 2 else 'false'}",
+           "--set", f"dump_state={dump}"]
+    if MPI_RANKS > 1:
+        cmd = ["mpiexec", "-n", str(MPI_RANKS)] + cmd + ["--set", "use_mpi=true", "--set", f"n_cpus={MPI_RANKS}",
+                                                         "--mpi-child"]
+    print(f"[RUN] {n}^2, order {order} ...", flush=True)
+    subprocess.run(cmd, check=True, capture_output=True, text=True)
+    return dump
 
-    for folder in FOLDERS:
-        vtr = sorted(glob.glob(os.path.join(BASE_RESULTS_DIR, folder, "*.vtr")))[-1]
-        root = ET.parse(vtr).getroot()
-        extent = list(map(int, root.find('.//Piece').attrib['Extent'].split()))
-        nx, ny = extent[1] - extent[0], extent[3] - extent[2]
-        
-        vel_flat = vtk_array(root.find('.//CellData/DataArray[@Name="Velocity"]'))
-        vel_3d = vel_flat.reshape((ny, nx, 3))
-        profiles_data.append({'u': vel_3d[:, :, 0], 'v': vel_3d[:, :, 1], 'ny': ny, 'nx': nx})
 
-    # Error Calculation
-    err_ghia = []
-    for p in profiles_data:
-        u_interp = np.interp(ghia_y, np.linspace(0, 1, p['ny']), p['u'][:, p['nx']//2][::-1])
-        err_ghia.append((p['ny'], np.sqrt(np.mean((u_interp - ghia_u)**2))))
-    
-    err_self = []
-    ref = profiles_data[-1]
-    for p in profiles_data[:-1]:
-        u_interp = np.interp(np.linspace(0, 1, ref['ny']), np.linspace(0, 1, p['ny']), p['u'][:, p['nx']//2])
-        err_self.append((p['ny'], np.sqrt(np.mean((u_interp - ref['u'][:, ref['nx']//2])**2))))
+def fields(dump, n):
+    U = np.load(dump)["U"]
+    rho = U[:, 0].reshape(n, n)
+    return U[:, 1].reshape(n, n) / rho, U[:, 2].reshape(n, n) / rho   # [j, i], row 0 at y = 0
 
-    # --- 3. PLOTTING ---
-    plt.rcParams.update({'font.family': 'serif', 'mathtext.fontset': 'cm'})
-    
-    # FIG 1: Comparison vs Ghia and numerical convergence
-    fig1 = plt.figure(figsize=(18, 6))
-    gs = fig1.add_gridspec(1, 3)
-    ax1, ax2, ax3 = fig1.add_subplot(gs[0, 0]), fig1.add_subplot(gs[0, 1]), fig1.add_subplot(gs[0, 2])
-    
-    ax1.plot(ghia_u, ghia_y, 'k-', lw=2, label='Ghia (1982)')
-    ax2.plot(ghia_x, ghia_v, 'k-', lw=2, label='Ghia (1982)')
-    colors = plt.cm.Blues(np.linspace(0.5, 1.0, len(profiles_data)))
-    for p, col in zip(profiles_data, colors):
-        ax1.plot(p['u'][:, p['nx']//2], np.linspace(0,1,p['ny']), 'o', mfc='none', mec=col, ms=5, label=f'Ny={p["ny"]}')
-        ax2.plot(np.linspace(0,1,p['nx']), p['v'][p['ny']//2, :], 'o', mfc='none', mec=col, ms=5, label=f'Nx={p["nx"]}')
-    
-    # Errors
-    ax3.loglog([e[0] for e in err_ghia], [e[1] for e in err_ghia], 's-', color='darkred', label='vs Ghia')
-    ax3.loglog([e[0] for e in err_self], [e[1] for e in err_self], 'o-', color='darkblue', label='Self-Conv')
-    ax3.set_title("L2 Norm Error")
-    
-    for ax in [ax1, ax2, ax3]: ax.grid(True, linestyle='--', alpha=0.5); ax.legend()
+
+def centrelines(u, v, n):
+    """u(y) on x = 0.5 and v(x) on y = 0.5 at the cell centres, plus the wall values."""
+    c = (np.arange(n) + 0.5) / n
+    mid = lambda a, axis: a.take(n // 2, axis) if n % 2 else 0.5 * (a.take(n // 2 - 1, axis) + a.take(n // 2, axis))
+    y = np.concatenate([[0.0], c, [1.0]])
+    uc = np.concatenate([[0.0], mid(u, 1), [1.0]])     # lid: u = 1
+    vc = np.concatenate([[0.0], mid(v, 0), [0.0]])
+    return y, uc, vc
+
+
+def stream_function(u, n):
+    """psi(x, y) = integral of u dy from the bottom wall (cell-centre values, psi = 0 on the walls)."""
+    h = 1.0 / n
+    psi = np.cumsum(u, axis=0) * h - 0.5 * u * h
+    return psi
+
+
+def main():
+    ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
+    ap.add_argument("--grids", type=int, nargs="+", default=[32, 64, 128])
+    ap.add_argument("--orders", type=int, nargs="+", default=[1, 2], choices=[1, 2])
+    ap.add_argument("--reuse", metavar="DIR", help="keep the runs in DIR; existing ones are reused")
+    ap.add_argument("--mpi", type=int, default=1, metavar="N", help="run the solver on N MPI ranks")
+    args = ap.parse_args()
+    global MPI_RANKS
+    MPI_RANKS = args.mpi
+    tmp = args.reuse or tempfile.mkdtemp(prefix="cavity_")
+    os.makedirs(tmp, exist_ok=True)
+
+    inner = slice(1, -1)   # Ghia points without the wall values
+    res = {}
+    for order in args.orders:
+        for n in args.grids:
+            u, v = fields(run(tmp, n, order), n)
+            y, uc, vc = centrelines(u, v, n)
+            eu = np.sqrt(np.mean((np.interp(GHIA_Y[inner], y, uc) - GHIA_U[inner]) ** 2))
+            vk = ~V_SUSPECT
+            vk[0] = vk[-1] = False   # walls
+            ev = np.sqrt(np.mean((np.interp(GHIA_X[vk], y, vc) - GHIA_V[vk]) ** 2))
+            psi = stream_function(u, n)
+            j, i = np.unravel_index(np.argmin(psi), psi.shape)
+            vortex = ((i + 0.5) / n, (j + 0.5) / n, psi[j, i])
+            res[(order, n)] = dict(y=y, uc=uc, vc=vc, eu=eu, ev=ev, vortex=vortex, u=u, v=v)
+            print(f"      order {order}, {n:4d}^2: RMS error u {eu:.4f}, v {ev:.4f}; vortex at "
+                  f"({vortex[0]:.4f}, {vortex[1]:.4f}), psi_min {vortex[2]:.5f}")
+    print(f"      Ghia: vortex at ({GHIA_VORTEX[0]}, {GHIA_VORTEX[1]}), psi_min {GHIA_VORTEX[2]}")
+
+    plt.rcParams.update({"font.family": "serif", "mathtext.fontset": "cm", "axes.labelsize": 12,
+                         "axes.titlesize": 13, "legend.fontsize": 9, "figure.dpi": 150})
+    fig, (a1, a2, a3) = plt.subplots(1, 3, figsize=(17, 5.6))
+    fig.suptitle(r"Lid-driven cavity, $Re = 400$: centreline velocities against Ghia et al. (1982)", fontsize=15,
+                 fontweight="bold")
+    shades = {1: plt.cm.Oranges(np.linspace(0.45, 0.95, len(args.grids))),
+              2: plt.cm.Blues(np.linspace(0.45, 0.95, len(args.grids)))}
+    for order in args.orders:
+        for k, n in enumerate(args.grids):
+            r = res[(order, n)]
+            ls = "-" if order == 2 else "--"
+            lab = f"{n}$^2$, {'MUSCL' if order == 2 else '1st order'}"
+            a1.plot(r["uc"], r["y"], ls, color=shades[order][k], lw=1.6, label=lab)
+            a2.plot(r["y"], r["vc"], ls, color=shades[order][k], lw=1.6, label=lab)
+    for a, xs, ys in ((a1, GHIA_U, GHIA_Y), (a2, GHIA_X[~V_SUSPECT], GHIA_V[~V_SUSPECT])):
+        a.plot(xs, ys, "o", ms=6, mfc="white", mec="k", mew=1.4, label="Ghia et al. (1982)", zorder=5)
+        a.grid(True, ls="--", alpha=0.5)
+    a2.plot(GHIA_X[V_SUSPECT], GHIA_V[V_SUSPECT], "x", ms=8, mew=2, color="#c0392b", zorder=5,
+            label="Ghia, x = 0.9063 (likely misprint;\nnot in the error)")
+    a2.legend(loc="lower left")
+    a1.set_xlabel("$u$ on $x = 0.5$"); a1.set_ylabel("$y$"); a1.set_title("Vertical centreline")
+    a2.set_xlabel("$x$"); a2.set_ylabel("$v$ on $y = 0.5$"); a2.set_title("Horizontal centreline")
+    a1.legend(loc="lower right")
+    grids = np.array(args.grids, dtype=float)
+    for order in args.orders:
+        e = np.array([0.5 * (res[(order, n)]["eu"] + res[(order, n)]["ev"]) for n in args.grids])
+        a3.loglog(grids, e, "o-" if order == 2 else "s--", color=shades[order][-1], lw=2,
+                  label=f"{'MUSCL' if order == 2 else '1st order'} (slope {np.polyfit(np.log(grids), np.log(e), 1)[0]:.2f})")
+    a3.loglog(grids, (grids / grids[0]) ** -1.0 * e[0], ":", color="gray", label="slope $-1$")
+    a3.loglog(grids, (grids / grids[0]) ** -2.0 * e[0], "-.", color="gray", label="slope $-2$")
+    a3.set_xlabel("Cells per side"); a3.set_ylabel("RMS error vs Ghia (u and v)"); a3.set_title("Grid convergence")
+    a3.grid(True, which="both", ls="--", alpha=0.5)
+    a3.legend()
     plt.tight_layout()
-    fig1.savefig(os.path.join(BASE_RESULTS_DIR, "validation_profiles.pdf"), dpi=300)
-    print(f"[PDF] Salvato: validation_profiles.pdf")
+    out1 = os.path.join(ROOT, "results", "cavity_validation.png")
+    os.makedirs(os.path.dirname(out1), exist_ok=True)
+    plt.savefig(out1, dpi=170, bbox_inches="tight")
+    print(f"[PLOT] {out1}")
 
-    # FIG 2: Streamlines
-    fig2 = plt.figure(figsize=(10, 8))
-    ax4 = fig2.add_subplot(1, 1, 1)
-    p_ref = profiles_data[-1]
-    X, Y = np.meshgrid(np.linspace(0, 1, p_ref['nx']), np.linspace(0, 1, p_ref['ny']))
-    strm = ax4.streamplot(X, Y, p_ref['u'], p_ref['v'], color=np.sqrt(p_ref['u']**2 + p_ref['v']**2), cmap='viridis', density=1.5)
-    ax4.set_title(f"Streamlines (Resolution {p_ref['nx']}x{p_ref['ny']})")
-    plt.colorbar(strm.lines, ax=ax4, label='Velocity Magnitude')
-    
-    fig2.savefig(os.path.join(BASE_RESULTS_DIR, "validation_streamlines.pdf"), dpi=300)
-    print(f"[PDF] Salvato: validation_streamlines.pdf")
+    order, n = max(args.orders), max(args.grids)
+    r = res[(order, n)]
+    c = (np.arange(n) + 0.5) / n
+    fig, ax = plt.subplots(figsize=(7.2, 6.4))
+    speed = np.hypot(r["u"], r["v"])
+    ax.imshow(speed, origin="lower", extent=(0, 1, 0, 1), cmap="magma", alpha=0.85)
+    ax.streamplot(c, c, r["u"], r["v"], color="white", density=2.2, linewidth=0.7, arrowsize=0.7)
+    ax.plot(*r["vortex"][:2], "o", ms=8, mfc="#2ecc71", mec="white", label="vortex centre (Fenice)")
+    ax.plot(*GHIA_VORTEX[:2], "+", ms=14, mew=2.2, color="#3498db", label="Ghia et al. (1982)")
+    ax.set_xlim(0, 1); ax.set_ylim(0, 1); ax.set_xlabel("$x$"); ax.set_ylabel("$y$")
+    ax.set_title(rf"Streamlines and $|\mathbf{{u}}|$, {n}$^2$, {'MUSCL' if order == 2 else '1st order'}")
+    ax.legend(loc="lower left", fontsize=9)
+    out2 = os.path.join(ROOT, "results", "cavity_streamlines.png")
+    plt.savefig(out2, dpi=170, bbox_inches="tight")
+    print(f"[PLOT] {out2}")
+
 
 if __name__ == "__main__":
-    validate_cavity_convergence()
+    main()

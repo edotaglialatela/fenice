@@ -29,8 +29,8 @@ jobs:
           - { name: "Linux ARM64 (GCC, Open MPI)", os: ubuntu-24.04-arm }
           - { name: "macOS arm64 (Apple clang, libomp, Open MPI)", os: macos-latest }
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - name: Dependencies (Linux)
@@ -45,7 +45,11 @@ jobs:
           cmake -S cpp -B cpp/build -DCMAKE_BUILD_TYPE=Release 2>&1 | tee configure.log
           grep -q "Found OpenMP" configure.log || { echo "::error::OpenMP not found"; exit 1; }
           grep -q "MPI enabled" configure.log || { echo "::error::MPI not found"; exit 1; }
-          cmake --build cpp/build -j
+          # Compiler errors become annotations (visible in the run summary without the full log)
+          cmake --build cpp/build -j 4 > build.log 2>&1 || {
+            grep -E "error|Error" build.log | head -20 | while IFS= read -r line; do echo "::error::$line"; done
+            tail -40 build.log; exit 1; }
+          grep -cE "warning" build.log | xargs -I{} echo "{} compiler warning lines"
       - name: Unit tests
         run: ./cpp/build/fenice_tests
       - name: Regression (serial)
@@ -58,8 +62,8 @@ jobs:
     runs-on: windows-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
         with:
           python-version: "3.12"
       - uses: mpi4py/setup-mpi@v1

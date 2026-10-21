@@ -65,4 +65,10 @@ the whole domain. Under MPI they are all-reduced, so the file matches the serial
 monitor is much cheaper than snapshots for integral histories. The 3-D Taylor-Green
 validation computes its dissipation rate $-dE_k/dt$ from it.
 
+With an immersed body (`use_ibm`) five columns follow: `Fx,Fy,Cd,Cl,Cm`, the loads of the
+fluid on the body and their coefficients (see
+[Physics]({{root}}modules/Physics.html#loads-on-the-body)). They are computed from one extra
+residual evaluation of the current state at each monitor step, so they do not change the
+solution.
+
 {{api}}

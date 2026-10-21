@@ -37,6 +37,7 @@ short alias shown in brackets.
 |---|---|---|
 | `use_viscous` | `false` | Navier-Stokes viscous and heat fluxes |
 | `mu` | `1e-3` | Dynamic viscosity [Pa s] |
+| `reynolds` | `0` | If > 0, sets `mu` = `rho_in` `u_in` L / `reynolds`, with L the IBM chord (airfoil) or diameter (cylinder, sphere); 0 keeps `mu` |
 | `pr` | `0.72` | Prandtl number |
 | `use_bodyforce` | `false` | Constant body force |
 | `gx`, `gy` | `0.0`, `-9.81` | Body-force acceleration [m/s²] |
@@ -80,7 +81,7 @@ override them. See the [BC formulas]({{root}}modules/Boundaries.html).
 | `output_root` | `<repo>/results` | Parent of the per-case output folder |
 | `max_steps` | `0` | Stop after N steps (≤ 0: run to `t_end`) |
 | `dump_state` | *(empty)* | Write the final state to this `.npz` (regression tests) |
-| `monitor_interval` | `0` | Append domain averages (mass, kinetic and total energy) to `<case>_monitor.csv` every N steps (0: off) |
+| `monitor_interval` | `0` | Append domain averages (mass, kinetic and total energy), and with IBM the body loads (Fx, Fy, Cd, Cl, Cm), to `<case>_monitor.csv` every N steps (0: off) |
 | `vtk_format` | `binary` | VTK data arrays: `binary` (inline base64 Float32: about half the size, faster to write) or `ascii` (plain text). Both are valid XML; `validation/vtkio.py` reads either |
 
 ## Parallelism
@@ -97,9 +98,12 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 | Key | Default | Meaning |
 |---|---|---|
 | `use_ibm` | `false` | Enable the immersed obstacle |
-| `ibm_shape` | `Cylinder` | `Cylinder` or `Sphere` (case-insensitive): identical in 2-D; in 3-D a ball, or a cylinder through the whole depth |
-| `ibm_radius` | `0.1` | Radius [m] |
-| `ibm_cx`, `ibm_cy` | `0.5`, `0.5` | Centre [m] |
+| `ibm_shape` | `Cylinder` | `Cylinder` or `Sphere` (identical in 2-D; in 3-D a ball, or a cylinder through the whole depth), `NACA dddd` (4-digit section, e.g. `NACA 2412`) or `Airfoil` (from `ibm_file`); case-insensitive. Airfoils are extruded along z in 3-D |
+| `ibm_radius` | `0.1` | Radius [m] (cylinder, sphere) |
+| `ibm_cx`, `ibm_cy` | `0.5`, `0.5` | Centre [m]; for an airfoil, the quarter-chord point |
+| `ibm_file` | (empty) | `Airfoil`: Selig or Lednicer coordinate file (UIUC format); a relative path is looked up next to the case's `case.toml`, then in the current folder |
+| `ibm_chord` | `1.0` | Airfoil chord [m] (the file is normalised to unit chord first) |
+| `ibm_aoa` | `0.0` | Airfoil angle of attack [deg], positive nose up for a flow along +x; rotation about the quarter chord |
 | `ibm_cz` | `0.5` | Sphere centre z [m] (3-D only) |
 
 ## Solution mapping (hot start)

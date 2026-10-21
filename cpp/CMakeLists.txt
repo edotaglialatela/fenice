@@ -14,6 +14,7 @@ option(FV_BUILD_TESTS "Build the C++ unit tests" ON)
 add_library(fenice_core STATIC
   src/CaseFile.cpp
   src/Core.cpp
+  src/Geometry.cpp
   src/Boundaries.cpp
   src/Schemes.cpp
   src/Physics.cpp

@@ -269,6 +269,87 @@ TEST(nonreflecting_outlet) {
     }
 }
 
+TEST(airfoil_geometry) {
+    // NACA 0012: symmetric, 12 % thick at 30 % chord, closed trailing edge
+    const Polygon2D naca = naca4("0012");
+    CHECK(naca_digits("NACA 0012") == "0012" && naca_digits("naca2412") == "2412" && naca_digits("Cylinder").empty());
+    CHECK(naca.contains(0.3, 0.0) && naca.contains(0.3, 0.055) && !naca.contains(0.3, 0.065) && !naca.contains(-0.01, 0.0));
+    double area = 0.0;   // shoelace; NACA 4-digit: 0.6851 t c^2
+    for (size_t i = 0, j = naca.pts.size() - 1; i < naca.pts.size(); j = i++)
+        area += naca.pts[j][0] * naca.pts[i][1] - naca.pts[i][0] * naca.pts[j][1];
+    CHECK_NEAR(std::abs(area) / 2.0, 0.6851 * 0.12, 2e-3);
+    // Cambered 2412: more of the section above the chord line
+    CHECK(naca4("2412").contains(0.4, 0.07) && !naca.contains(0.4, 0.07));
+    // Placement: quarter chord at (2, 1), chord 2, 10 deg nose up -> leading edge above the trailing edge
+    const Polygon2D placed = place_airfoil(naca, 2.0, 10.0, 2.0, 1.0);
+    CHECK(placed.contains(2.0, 1.0));
+    double y_le = 0.0, y_te = 0.0, x_min = 1e9, x_max = -1e9;
+    for (const auto& q : placed.pts) {
+        if (q[0] < x_min) { x_min = q[0]; y_le = q[1]; }
+        if (q[0] > x_max) { x_max = q[0]; y_te = q[1]; }
+    }
+    CHECK(y_le > 1.0 && y_te < 1.0);
+    CHECK_NEAR(y_le - 1.0, 0.5 * std::sin(10.0 * 3.14159265358979 / 180.0), 0.02);
+
+    // Coordinate files: Selig (name line, closed loop) and Lednicer (counts, two blocks)
+    const fs::path dir = tmp_dir() / "airfoils";
+    fs::create_directories(dir);
+    {
+        std::ofstream sel((dir / "selig.dat").string());
+        sel << "NACA 0012 (Selig)\n";
+        for (const auto& q : naca.pts) sel << 2.0 * q[0] + 5.0 << " " << 2.0 * q[1] << "\n";   // chord 2, shifted
+        sel << 2.0 * naca.pts[0][0] + 5.0 << " " << 2.0 * naca.pts[0][1] << "\n";
+        std::ofstream led((dir / "lednicer.dat").string());
+        const int n = 200;   // naca4's upper surface: pts[0..n] from TE to LE
+        led << "NACA 0012 (Lednicer)\n" << n + 1 << ". " << n << ".\n\n";
+        for (int i = n; i >= 0; --i) led << naca.pts[i][0] << " " << naca.pts[i][1] << "\n";
+        led << "\n" << naca.pts[n][0] << " " << naca.pts[n][1] << "\n";   // lower: LE ...
+        for (size_t i = n + 1; i < naca.pts.size(); ++i) led << naca.pts[i][0] << " " << naca.pts[i][1] << "\n";
+    }
+    for (const char* f : {"selig.dat", "lednicer.dat"}) {
+        const Polygon2D a = load_airfoil((dir / f).string());
+        bool same = a.pts.size() == naca.pts.size() || a.pts.size() + 1 == naca.pts.size();
+        for (const double x : {0.05, 0.3, 0.7, 0.95})
+            for (const double y : {-0.05, -0.02, 0.0, 0.02, 0.05})
+                same = same && a.contains(x, y) == naca.contains(x, y);
+        CHECK(same);
+    }
+    bool threw = false;
+    { std::ofstream bad((dir / "bad.dat").string()); bad << "name\n0 0\n1 x\n"; }
+    try { load_airfoil((dir / "bad.dat").string()); } catch (const std::runtime_error& e) {
+        threw = std::string(e.what()).find("bad.dat:3") != std::string::npos;
+    }
+    CHECK(threw);
+
+    // IBM mask of a placed section: area within 2 % of the polygon's on 100 cells per chord
+    const Mesh m = generate_cartesian_mesh(2.0, 1.0, 200, 100);
+    const ImmersedBoundary ib(m, place_airfoil(naca, 1.0, 0.0, 0.75, 0.5), 1.0, 1.0);
+    CHECK_NEAR(ib.solid_count() * m.dx * m.dy, 0.6851 * 0.12, 0.02 * 0.6851 * 0.12);
+}
+
+TEST(reynolds_and_ibm_loads) {
+    // reynolds sets mu = rho_in u_in L / Re (cylinder: L = diameter)
+    const SimParams sp = params_for("IBM Flow over Cylinder", {{"reynolds", "250"}, {"use_mpi", "false"}});
+    CHECK_NEAR(sp.mu, 1.0 * 1.0 * 0.2 / 250.0, 1e-15);
+    // Loads: the cylinder in its free stream feels a drag along +x and, symmetric, no lift
+    Simulation sim;
+    sim.setup(params_for("IBM Flow over Cylinder", {{"nx", "160"}, {"ny", "80"}, {"use_mpi", "false"}}), false);
+    sim.initialize_field();
+    const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
+    double t = 0.0;
+    for (int k = 0; k < 200; ++k) {
+        t += sim.scheme->step(sim.U, res, sim.dt_length, t, 1e9).dt;
+        sim.ibm->apply_solid_reset(sim.U, sim.fluid);
+    }
+    Field R;
+    sim.residual(sim.U, R);
+    const auto loads = sim.ibm_loads(sim.mesh, *sim.ibm, sim.U, R);
+    std::printf("    cylinder after 200 steps: Fx %.4f, Fy %.2e, Mz %.2e\n", loads[0], loads[1], loads[2]);
+    CHECK(loads[0] > 0.0);
+    CHECK(std::abs(loads[1]) < 1e-3 * loads[0]);
+    CHECK(std::abs(loads[2]) < 1e-3 * loads[0]);
+}
+
 TEST(bc_parse_labels) {
     CHECK(parse_bc("Inviscid Wall (Slip)") == BCType::Wall);
     CHECK(parse_bc("Mass Flow Inlet") == BCType::MassflowInlet);
@@ -1637,9 +1718,9 @@ state = { p = 9.0 }
 }
 
 TEST(builtin_cases_and_save_case) {
-    // The shipped case files: names, order and flags as before the move to cases/
+    // The shipped case files: names, order and flags
     const std::vector<std::string> names = {"Sod Shock Tube", "Poiseuille Flow", "Lid Driven Cavity",
-                                            "IBM Flow over Cylinder", "Shu-Osher Test",
+                                            "IBM Flow over Cylinder", "IBM Airfoil", "Shu-Osher Test",
                                             "IBM Supersonic Flow over Cylinder", "Taylor-Green Vortex",
                                             "Isentropic Vortex", "Taylor-Green Vortex 3D"};
     std::vector<std::string> got;

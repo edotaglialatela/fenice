@@ -24,7 +24,8 @@ GUI, validation scripts and full documentation.
 - **Riemann solvers:** HLLC, Low-Mach HLLC (Thornber) and preconditioned HLLC (Weiss-Smith).
 - **Reconstruction:** 2nd-order MUSCL with Minmod, Van Leer, MC and Koren limiters.
 - **Physics:** ideal and stiffened-gas equations of state, Navier-Stokes viscous and heat
-  fluxes, body forces, and an immersed boundary method (cylinder or sphere).
+  fluxes, body forces, and an immersed boundary method (cylinder, sphere, or an airfoil from
+  the NACA 4-digit formulas or a coordinate file), with lift / drag monitoring.
 - **Time integration:** Explicit Euler, SSP-RK2, RK4, and BDF2 with dual time stepping.
 - **Meshes:** uniform 2-D (`nz = 1`) or 3-D (`nz > 1`) grids, plus block-structured AMR in
   2-D with subcycling, refluxing and 2:1 balance.
@@ -158,6 +159,7 @@ conditions, so adding a case needs no C++ and no recompilation. The shipped case
 | Poiseuille Flow | Viscous fluxes, inlet / outlet BCs, BDF2 |
 | Lid Driven Cavity | 2-D Navier-Stokes at Re = 400 vs Ghia et al. (1982) |
 | IBM Flow over Cylinder | IBM, vortex shedding at Re = 100, hot start |
+| IBM Airfoil | NACA 4-digit or any coordinate file, Re = 1000, lift / drag / moment |
 | Shu-Osher Test | Shock / entropy-wave interaction |
 | IBM Supersonic Flow over Cylinder | IBM at Mach 2, bow shock |
 | Taylor-Green Vortex | Viscous decay vs the exact solution |
@@ -174,8 +176,8 @@ conditions, so adding a case needs no C++ and no recompilation. The shipped case
 Copy an existing case, edit it, run it:
 
 ```bash
-./cpp/build/fenice --new-case "Shock Bubble" --from "Sod Shock Tube"   # -> cases/shock_bubble/case.toml
-./cpp/build/fenice --case "Shock Bubble"
+./cpp/build/fenice --new-case "Shock Hot Spot" --from "Sod Shock Tube"   # -> cases/shock_hot_spot/case.toml
+./cpp/build/fenice --case "Shock Hot Spot"
 ```
 
 In the GUI, **Save as case…** saves the configured run as a new case. Initial conditions
@@ -193,7 +195,7 @@ point = [0.3, 0.0]
 normal = [-1.0, 0.0]
 state = { rho = 1.0, p = 1.0 }
 
-[[initial.region]]                 # light bubble
+[[initial.region]]                 # hot spot: same gas, same pressure, lower density
 shape = "sphere"
 center = [0.55, "Ly/2"]
 radius = 0.1
@@ -211,7 +213,7 @@ cpp/build/fenice_tests                   # unit tests (fenice_tests.exe on Windo
 python cpp/tests/regression.py --mpi 4   # compare against the stored reference states
 ```
 
-`cpp/tests/reference/` holds the final states of 27 reference configurations; every
+`cpp/tests/reference/` holds the final states of 28 reference configurations; every
 change to the code must reproduce them (serial and on MPI ranks).
 
 ## Documentation

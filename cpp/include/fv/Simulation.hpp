@@ -53,6 +53,8 @@ public:
 
     // results/<case>/<case>_restart.npz
     std::string checkpoint_path() const;
+    // ibm_file resolved: absolute, else next to the case.toml, else the current folder.
+    std::string airfoil_file_path() const;
     // Atomic checkpoint: U, t, step, nx, ny, Lx, Ly and the .pvd index.
     void        save_checkpoint(int step);
     // Load the checkpoint (if any); returns the step to resume from (0 if missing).
@@ -63,6 +65,11 @@ public:
     void        dump_final_state(int step) const;
     // Volume averages of the field: mass, kinetic energy, total energy (all ranks under MPI).
     std::array<double, 3> volume_averages(const Field& U_part, long long n_global) const;
+    // Loads of the fluid on the IBM body over the cells of `m`: {Fx, Fy, Mz}, Mz about
+    // (ibm_cx, ibm_cy), counter-clockwise positive. The net momentum flux into the solid cells,
+    // i.e. the sum of their residuals R (from residual(U, R)) times the cell volume, body force
+    // excluded: pressure and viscous parts together, for any shape. Per unit depth in 2-D.
+    std::array<double, 3> ibm_loads(const Mesh& m, const ImmersedBoundary& ib, const Field& U, const Field& R) const;
 
     // Shared residual assembly for a (sub)domain, optionally with MPI halos.
     double assemble(const Mesh& m, const BoundaryManager& bm, const ImmersedBoundary* ib,
@@ -98,7 +105,9 @@ private:
     void solve_amr();
     // Monitor CSV (rank 0): header on open, one row per call.
     std::FILE* open_monitor() const;
-    void monitor_row(std::FILE* f, int step, const std::array<double, 3>& v) const;
+    // `loads`: {Fx, Fy, Mz} of the IBM body (adds Fx, Fy, Cd, Cl, Cm), nullptr without IBM.
+    void monitor_row(std::FILE* f, int step, const std::array<double, 3>& v,
+                     const std::array<double, 3>* loads = nullptr) const;
 
     // Scratch buffers reused across residual evaluations
     Field Uf_, UL_, UR_, F_, Upad_, gX_, gY_, Rv_;

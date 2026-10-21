@@ -12,6 +12,7 @@
 #include <omp.h>
 #endif
 
+#include "fv/Geometry.hpp"
 #include "fv/SolutionMapping.hpp"
 #ifdef FV_USE_MPI
 #include "fv/MPIDecomposition.hpp"
@@ -248,6 +249,16 @@ void print_logo(int colors) {
 // Setup
 // ---------------------------------------------------------------------------
 
+std::string Simulation::airfoil_file_path() const {
+    const fs::path f(p.ibm_file);
+    if (f.is_absolute()) return f.string();
+    const fs::path in_case = fs::path(test_case->source).parent_path() / f;   // next to the case.toml
+    if (fs::exists(in_case)) return in_case.string();
+    if (fs::exists(f)) return f.string();
+    throw std::runtime_error("Airfoil file '" + p.ibm_file + "' not found (looked in " +
+                             in_case.parent_path().string() + " and the current folder)");
+}
+
 void Simulation::setup(const SimParams& params, bool verbose) {
     p = params;
     test_case = &get_test_case(p.test_case);
@@ -273,11 +284,24 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     else                                  fluid = EOS::stiffened(p.gamma, p.p_inf);
 
     if (p.use_ibm) {
-        ibm = std::make_unique<ImmersedBoundary>(mesh, p.ibm_shape, p.ibm_radius, p.ibm_cx, p.ibm_cy, p.rho_in, p.p_out,
-                                                 p.ibm_cz);
-        if (verbose)
-            std::printf("[IBM] %s at (%g, %g) r=%g -> %d solid cells\n", p.ibm_shape.c_str(), p.ibm_cx, p.ibm_cy,
-                        p.ibm_radius, ibm->solid_count());
+        const std::string digits = naca_digits(p.ibm_shape);
+        if (!digits.empty() || lower(p.ibm_shape) == "airfoil") {
+            const Polygon2D unit = digits.empty() ? load_airfoil(airfoil_file_path()) : naca4(digits);
+            ibm = std::make_unique<ImmersedBoundary>(
+                mesh, place_airfoil(unit, p.ibm_chord, p.ibm_aoa, p.ibm_cx, p.ibm_cy), p.rho_in, p.p_out);
+            if (verbose)
+                std::printf("[IBM] %s, chord %g, %g deg, quarter chord at (%g, %g) -> %d solid cells\n",
+                            digits.empty() ? airfoil_file_path().c_str() : p.ibm_shape.c_str(), p.ibm_chord,
+                            p.ibm_aoa, p.ibm_cx, p.ibm_cy, ibm->solid_count());
+        } else {
+            ibm = std::make_unique<ImmersedBoundary>(mesh, p.ibm_shape, p.ibm_radius, p.ibm_cx, p.ibm_cy, p.rho_in,
+                                                     p.p_out, p.ibm_cz);
+            if (verbose)
+                std::printf("[IBM] %s at (%g, %g) r=%g -> %d solid cells\n", p.ibm_shape.c_str(), p.ibm_cx, p.ibm_cy,
+                            p.ibm_radius, ibm->solid_count());
+        }
+        if (ibm->solid_count() == 0) std::printf("[WARNING] The IBM body covers no cell: check its size and position\n");
+        if (verbose && p.reynolds > 0.0) std::printf("[PHYSICS] Re = %g -> mu = %g\n", p.reynolds, p.mu);
     }
 
     boundaries = BoundaryManager(mesh, fluid);
@@ -854,14 +878,47 @@ std::FILE* Simulation::open_monitor() const {
     if (p.monitor_interval <= 0) return nullptr;
     const std::string path = (fs::path(exporter.output_dir()) / (file_prefix + "_monitor.csv")).string();
     std::FILE* f = std::fopen(path.c_str(), start_step > 0 ? "a" : "w");
-    if (f && start_step == 0) std::fprintf(f, "step,t,mass,kinetic_energy,total_energy\n");
+    if (f && start_step == 0)
+        std::fprintf(f, "step,t,mass,kinetic_energy,total_energy%s\n", p.use_ibm ? ",Fx,Fy,Cd,Cl,Cm" : "");
     return f;
 }
 
-void Simulation::monitor_row(std::FILE* f, int step, const std::array<double, 3>& v) const {
+void Simulation::monitor_row(std::FILE* f, int step, const std::array<double, 3>& v,
+                             const std::array<double, 3>* loads) const {
     if (!f) return;
-    std::fprintf(f, "%d,%.10e,%.15e,%.15e,%.15e\n", step, t, v[0], v[1], v[2]);
+    std::fprintf(f, "%d,%.10e,%.15e,%.15e,%.15e", step, t, v[0], v[1], v[2]);
+    if (loads) {
+        // Coefficients on q A (2-D: per unit depth, A = L; 3-D: L Lz, or pi r^2 for a sphere);
+        // L = chord (airfoil) or diameter; Cm about (ibm_cx, ibm_cy), nose-up positive
+        const bool airfoil = !naca_digits(p.ibm_shape).empty() || lower(p.ibm_shape) == "airfoil";
+        const double L = airfoil ? p.ibm_chord : 2.0 * p.ibm_radius;
+        const double A = !mesh.is3d() ? L
+                       : (lower(p.ibm_shape) == "sphere" ? 3.14159265358979323846 * p.ibm_radius * p.ibm_radius
+                                                         : L * mesh.Lz);
+        const double qA = 0.5 * p.rho_in * p.u_in * p.u_in * A;
+        const double Fx = (*loads)[0], Fy = (*loads)[1], Mz = (*loads)[2];
+        std::fprintf(f, ",%.10e,%.10e,%.10e,%.10e,%.10e", Fx, Fy, qA > 0 ? Fx / qA : 0.0, qA > 0 ? Fy / qA : 0.0,
+                     qA > 0 ? -Mz / (qA * L) : 0.0);
+    }
+    std::fprintf(f, "\n");
     std::fflush(f);
+}
+
+std::array<double, 3> Simulation::ibm_loads(const Mesh& m, const ImmersedBoundary& ib, const Field& U,
+                                            const Field& R) const {
+    const std::vector<char>& solid = ib.mask();
+    const double vol = m.is3d() ? m.cell_volume() : m.cell_area();
+    double fx = 0.0, fy = 0.0, mz = 0.0;
+    for (int c = 0; c < m.num_cells(); ++c) {
+        if (!solid[c]) continue;
+        double rx = R[c][1], ry = R[c][2];
+        if (body_force) { rx -= U[c][0] * body_force->gx; ry -= U[c][0] * body_force->gy; }   // not a load
+        const double ex = rx * vol, ey = ry * vol;
+        fx += ex;
+        fy += ey;
+        mz += (m.xc(c % m.nx) - p.ibm_cx) * ey - (m.yc((c / m.nx) % m.ny) - p.ibm_cy) * ex;
+    }
+    return {fx, fy, mz};
 }
 
 // ---------------------------------------------------------------------------
@@ -880,7 +937,16 @@ void Simulation::solve() {
     const ResidualFn res = [this](const Field& Uin, Field& R) { return residual(Uin, R); };
     std::FILE* mon = open_monitor();
     const long long n_all = mesh.num_cells();
-    if (mon && step == 0) monitor_row(mon, step, volume_averages(U, n_all));
+    Field R_loads;
+    auto row = [&](int st) {   // averages, plus the IBM loads from a residual of the current state
+        std::array<double, 3> loads{};
+        if (p.use_ibm) {
+            residual(U, R_loads);
+            loads = ibm_loads(mesh, *ibm, U, R_loads);
+        }
+        monitor_row(mon, st, volume_averages(U, n_all), p.use_ibm ? &loads : nullptr);
+    };
+    if (mon && step == 0) row(step);
     const auto t0 = Clock::now();
     bool interrupted = false;
     while (t < p.t_end) {
@@ -888,7 +954,7 @@ void Simulation::solve() {
         if (p.use_ibm) ibm->apply_solid_reset(U, fluid);
         t += r.dt;
         ++step;
-        if (mon && step % p.monitor_interval == 0) monitor_row(mon, step, volume_averages(U, n_all));
+        if (mon && step % p.monitor_interval == 0) row(step);
 
         if (step % p.save_interval == 0) {
             exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
@@ -905,7 +971,7 @@ void Simulation::solve() {
     const double loop_wall = seconds_since(t0);
 
     if (mon) {
-        if (step % p.monitor_interval != 0) monitor_row(mon, step, volume_averages(U, n_all));
+        if (step % p.monitor_interval != 0) row(step);
         std::fclose(mon);
     }
     if (interrupted) {
@@ -1182,10 +1248,18 @@ void Simulation::run_mpi(MPI_Comm comm) {
     std::FILE* mon = root ? open_monitor() : nullptr;
     const bool monitoring = p.monitor_interval > 0;
     const long long n_all = static_cast<long long>(p.nx) * p.ny * p.nz;
-    if (monitoring && step == 0) {
+    Field R_loads;
+    auto row = [&](int st) {   // collective: every rank calls it
         const auto v = volume_averages(U_local, n_all);
-        monitor_row(mon, step, v);
-    }
+        std::array<double, 3> loads{};
+        if (p.use_ibm) {   // IBM loads: residual of the current state, summed over the strips
+            res(U_local, R_loads);
+            const std::array<double, 3> mine = ibm_loads(lm, *local_ibm, U_local, R_loads);
+            MPI_Allreduce(mine.data(), loads.data(), 3, MPI_DOUBLE, MPI_SUM, comm);
+        }
+        monitor_row(mon, st, v, p.use_ibm ? &loads : nullptr);
+    };
+    if (monitoring && step == 0) row(step);
     const auto t0 = Clock::now();
     bool interrupted = false;
     while (t < p.t_end) {
@@ -1193,10 +1267,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
         if (p.use_ibm) solid_reset(U_local);
         t += sr.dt;
         ++step;
-        if (monitoring && step % p.monitor_interval == 0) {
-            const auto v = volume_averages(U_local, n_all);   // collective: every rank calls it
-            monitor_row(mon, step, v);
-        }
+        if (monitoring && step % p.monitor_interval == 0) row(step);
 
         if (step % p.save_interval == 0) {
             Field g = decomp.gather(U_local);
@@ -1215,10 +1286,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     }
     const double loop_wall = seconds_since(t0);
 
-    if (monitoring && step % p.monitor_interval != 0) {
-        const auto v = volume_averages(U_local, n_all);
-        monitor_row(mon, step, v);
-    }
+    if (monitoring && step % p.monitor_interval != 0) row(step);
     if (mon) std::fclose(mon);
     Field g = decomp.gather(U_local);
     if (root) {

@@ -21,9 +21,9 @@ cases/
 The fastest way to start is to copy an existing case:
 
 ```powershell
-cpp\build\fenice.exe --new-case "Shock Bubble" --from "Sod Shock Tube"   # writes cases/shock_bubble/case.toml
-# edit cases/shock_bubble/case.toml, then
-cpp\build\fenice.exe --case "Shock Bubble"
+cpp\build\fenice.exe --new-case "Shock Hot Spot" --from "Sod Shock Tube"   # writes cases/shock_hot_spot/case.toml
+# edit cases/shock_hot_spot/case.toml, then
+cpp\build\fenice.exe --case "Shock Hot Spot"
 ```
 
 In the GUI, configure a run and press **Save as case…**, which does the same with the
@@ -31,13 +31,17 @@ dialog's settings (see [GUI]({{root}}guide/gui.html)).
 
 ## A complete example
 
-A shock wave hitting a light circular bubble. This is the Sod case, with a bubble added:
+A shock wave hitting a hot spot: a circle of the same gas at lower density, in pressure
+equilibrium, hence hotter. Fenice models a single gas, so this is not a bubble of another
+fluid (that needs a multi-component model with its own $\gamma$); the density jump across the
+spot's edge still makes the shock deposit vorticity, $\nabla\rho \times \nabla p \neq 0$, and
+the spot rolls up into a vortex pair. This is the Sod case, with the spot added:
 
 ```toml
-# cases/shock_bubble/case.toml
+# cases/shock_hot_spot/case.toml
 [case]
-name = "Shock Bubble"                       # what --case and the GUI list show
-description = "Shock wave hitting a light circular bubble"
+name = "Shock Hot Spot"                     # what --case and the GUI list show
+description = "Shock wave hitting a hot, low-density spot"
 order = 100                                 # position in the case list
 
 [mesh]
@@ -71,7 +75,7 @@ point = [0.3, 0.0]
 normal = [-1.0, 0.0]
 state = { rho = 1.0, p = 1.0 }
 
-[[initial.region]]          # light bubble, in pressure equilibrium with its surroundings
+[[initial.region]]          # hot spot: same pressure, 1/6 of the density, so 6x the temperature
 shape = "sphere"            # a circle in 2-D
 center = [0.55, "Ly/2"]
 radius = 0.1
@@ -79,8 +83,8 @@ state = { rho = 0.02 }
 ```
 
 Anything a case file leaves out takes its default from the
-[Parameters]({{root}}guide/parameters.html) page. `--config` files and `--set` still
-override the case file, as before: `fenice --case "Shock Bubble" --set nx=600 --set ny=300`.
+[Parameters]({{root}}guide/parameters.html) page. `--config` files and `--set` override the
+case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 
 ## Sections
 

@@ -12,7 +12,8 @@ domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz 
 * **Spatial schemes:** HLLC, Low-Mach HLLC (Thornber) and preconditioned HLLC
   (Weiss-Smith) Riemann solvers, with 2nd-order MUSCL and four TVD limiters.
 * **Physics:** ideal and stiffened-gas EOS, Navier-Stokes viscous fluxes, body
-  forces, and an immersed boundary method for circular / spherical obstacles.
+  forces, and an immersed boundary method for cylinders, spheres and airfoils (NACA
+  4-digit or any coordinate file), with lift / drag / moment monitoring.
 * **Time integration:** Explicit Euler, SSP-RK2, RK4, and BDF2 with dual time stepping.
 * **Mesh:** uniform 2-D or 3-D Cartesian grids. Block-structured AMR (2-D only) adds
   subcycling, refluxing and 2:1 balance.

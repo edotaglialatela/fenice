@@ -90,6 +90,13 @@ pulse, a cylindrical wave and an isentropic vortex leaving the domain (MUSCL, SS
 | isentropic vortex exit | 8.3 % | 3.8 % |
 | mean pressure, tube open at both ends | drifts | relaxes to $p_{\rm out}$ |
 
+`nonreflecting` is meant for **subsonic** outlets (the cylinder, the airfoil, acoustics). Keep
+`transmissive` for sides that carry supersonic flow or are crossed by shocks: on the Mach 2
+cylinder, whose bow shock leaves through the top and bottom sides, the relaxation towards
+$p_{\rm out}$ (the free-stream pressure) pulls the post-shock pressure next to those sides down
+by up to 20 % of $p_\infty$, and two non-reflecting sides meeting at a corner leave a local
+pressure dip (corners get no special NSCBC treatment). The drag of the cylinder is unchanged.
+
 The derivatives along the boundary use the strip halos across MPI interfaces (central
 differences, one-sided at the ends of a side, wrapped on periodic axes), so MPI runs are
 identical to serial ones.

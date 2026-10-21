@@ -551,7 +551,7 @@ figcaption {
 </ul>
 
     
-    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/writing-cases.html"><strong>Writing a test case</strong></a></li><li><a href="../guide/performance.html">Performance</a></li><li><a href="../guide/gui.html">GUI</a></li><li><a href="../guide/testing.html">Testing</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/CaseFile.html">CaseFile</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html">Lid-driven cavity</a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
+    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/writing-cases.html"><strong>Writing a test case</strong></a></li><li><a href="../guide/performance.html">Performance</a></li><li><a href="../guide/gui.html">GUI</a></li><li><a href="../guide/testing.html">Testing</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/CaseFile.html">CaseFile</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html">Lid-driven cavity</a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/airfoil.html">Airfoil (IBM, Re = 1000)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
   </div>
 </nav>
 <main class="pdoc">
@@ -575,9 +575,9 @@ recompilation. The approach follows ECOGEN's input files and OpenFOAM's case fol
 <p>The fastest way to start is to copy an existing case:</p>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-new-case</span> <span class="s2">&quot;Shock Bubble&quot;</span> <span class="p">-</span><span class="n">-from</span> <span class="s2">&quot;Sod Shock Tube&quot;</span>   <span class="c"># writes cases/shock_bubble/case.toml</span>
-<span class="c"># edit cases/shock_bubble/case.toml, then</span>
-<span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Shock Bubble&quot;</span>
+<pre><span></span><code><span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-new-case</span> <span class="s2">&quot;Shock Hot Spot&quot;</span> <span class="p">-</span><span class="n">-from</span> <span class="s2">&quot;Sod Shock Tube&quot;</span>   <span class="c"># writes cases/shock_hot_spot/case.toml</span>
+<span class="c"># edit cases/shock_hot_spot/case.toml, then</span>
+<span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Shock Hot Spot&quot;</span>
 </code></pre>
 </div>
 
@@ -586,13 +586,17 @@ dialog's settings (see <a href="../guide/gui.html">GUI</a>).</p>
 
 <h2 id="a-complete-example">A complete example</h2>
 
-<p>A shock wave hitting a light circular bubble. This is the Sod case, with a bubble added:</p>
+<p>A shock wave hitting a hot spot: a circle of the same gas at lower density, in pressure
+equilibrium, hence hotter. Fenice models a single gas, so this is not a bubble of another
+fluid (that needs a multi-component model with its own $\gamma$); the density jump across the
+spot's edge still makes the shock deposit vorticity, $\nabla\rho \times \nabla p \neq 0$, and
+the spot rolls up into a vortex pair. This is the Sod case, with the spot added:</p>
 
 <div class="pdoc-code codehilite">
-<pre><span></span><code><span class="c1"># cases/shock_bubble/case.toml</span>
+<pre><span></span><code><span class="c1"># cases/shock_hot_spot/case.toml</span>
 <span class="k">[case]</span>
-<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Shock Bubble&quot;</span><span class="w">                       </span><span class="c1"># what --case and the GUI list show</span>
-<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Shock wave hitting a light circular bubble&quot;</span>
+<span class="n">name</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Shock Hot Spot&quot;</span><span class="w">                     </span><span class="c1"># what --case and the GUI list show</span>
+<span class="n">description</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;Shock wave hitting a hot, low-density spot&quot;</span>
 <span class="n">order</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mi">100</span><span class="w">                                 </span><span class="c1"># position in the case list</span>
 
 <span class="k">[mesh]</span>
@@ -626,7 +630,7 @@ dialog's settings (see <a href="../guide/gui.html">GUI</a>).</p>
 <span class="n">normal</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="mf">-1.0</span><span class="p">,</span><span class="w"> </span><span class="mf">0.0</span><span class="p">]</span>
 <span class="n">state</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">{</span><span class="w"> </span><span class="n">rho</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mf">1.0</span><span class="p">,</span><span class="w"> </span><span class="n">p</span><span class="w"> </span><span class="p">=</span><span class="w"> </span><span class="mf">1.0</span><span class="w"> </span><span class="p">}</span>
 
-<span class="k">[[initial.region]]</span><span class="w">          </span><span class="c1"># light bubble, in pressure equilibrium with its surroundings</span>
+<span class="k">[[initial.region]]</span><span class="w">          </span><span class="c1"># hot spot: same pressure, 1/6 of the density, so 6x the temperature</span>
 <span class="n">shape</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="s2">&quot;sphere&quot;</span><span class="w">            </span><span class="c1"># a circle in 2-D</span>
 <span class="n">center</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="p">[</span><span class="mf">0.55</span><span class="p">,</span><span class="w"> </span><span class="s2">&quot;Ly/2&quot;</span><span class="p">]</span>
 <span class="n">radius</span><span class="w"> </span><span class="o">=</span><span class="w"> </span><span class="mf">0.1</span>
@@ -635,8 +639,8 @@ dialog's settings (see <a href="../guide/gui.html">GUI</a>).</p>
 </div>
 
 <p>Anything a case file leaves out takes its default from the
-<a href="../guide/parameters.html">Parameters</a> page. <code>--config</code> files and <code>--set</code> still
-override the case file, as before: <code>fenice --case "Shock Bubble" --set nx=600 --set ny=300</code>.</p>
+<a href="../guide/parameters.html">Parameters</a> page. <code>--config</code> files and <code>--set</code> override the
+case file: <code>fenice --case "Shock Hot Spot" --set nx=600 --set ny=300</code>.</p>
 
 <h2 id="sections">Sections</h2>
 

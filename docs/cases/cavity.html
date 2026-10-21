@@ -544,7 +544,7 @@ figcaption {
 </ul>
 
     
-    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/writing-cases.html">Writing a test case</a></li><li><a href="../guide/performance.html">Performance</a></li><li><a href="../guide/gui.html">GUI</a></li><li><a href="../guide/testing.html">Testing</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/CaseFile.html">CaseFile</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html"><strong>Lid-driven cavity</strong></a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
+    <div class="fv-pagelist"><h2>Pages</h2><h3>Guide</h3><ul><li><a href="../index.html">Overview</a></li><li><a href="../guide/getting-started.html">Getting started</a></li><li><a href="../guide/parameters.html">Parameters</a></li><li><a href="../guide/writing-cases.html">Writing a test case</a></li><li><a href="../guide/performance.html">Performance</a></li><li><a href="../guide/gui.html">GUI</a></li><li><a href="../guide/testing.html">Testing</a></li></ul><h3>Modules</h3><ul><li><a href="../modules/Core.html">Core (mesh, EOS)</a></li><li><a href="../modules/Boundaries.html">Boundaries</a></li><li><a href="../modules/Schemes.html">Schemes</a></li><li><a href="../modules/Physics.html">Physics</a></li><li><a href="../modules/TimeScheme.html">TimeScheme</a></li><li><a href="../modules/AMR.html">AMR</a></li><li><a href="../modules/SolutionMapping.html">SolutionMapping</a></li><li><a href="../modules/IO.html">IO</a></li><li><a href="../modules/MPIDecomposition.html">MPIDecomposition</a></li><li><a href="../modules/Simulation.html">Simulation</a></li><li><a href="../modules/CaseFile.html">CaseFile</a></li><li><a href="../modules/TestCases.html">Test cases (registry)</a></li></ul><h3>Test cases</h3><ul><li><a href="../cases/sod.html">Sod shock tube</a></li><li><a href="../cases/poiseuille.html">Poiseuille flow</a></li><li><a href="../cases/cavity.html"><strong>Lid-driven cavity</strong></a></li><li><a href="../cases/cylinder.html">Cylinder (IBM, Re = 100)</a></li><li><a href="../cases/airfoil.html">Airfoil (IBM, Re = 1000)</a></li><li><a href="../cases/shu-osher.html">Shu-Osher</a></li><li><a href="../cases/supersonic-cylinder.html">Supersonic cylinder (Mach 2)</a></li><li><a href="../cases/taylor-green.html">Taylor-Green vortex</a></li><li><a href="../cases/isentropic-vortex.html">Isentropic vortex</a></li><li><a href="../cases/taylor-green-3d.html">Taylor-Green vortex 3-D</a></li></ul></div>
   </div>
 </nav>
 <main class="pdoc">
@@ -565,9 +565,13 @@ walls are no-slip, and the lid is a <code>moving_wall</code> with velocity <code
 
 <div class="pdoc-code codehilite">
 <pre><span></span><code><span class="n">cpp</span><span class="p">\</span><span class="n">build</span><span class="p">\</span><span class="n">fenice</span><span class="p">.</span><span class="n">exe</span> <span class="p">-</span><span class="n">-case</span> <span class="s2">&quot;Lid Driven Cavity&quot;</span>
-<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">validationDrivenCavity</span><span class="p">.</span><span class="n">py</span>
+<span class="n">python</span> <span class="n">validation</span><span class="p">\</span><span class="n">validationDrivenCavity</span><span class="p">.</span><span class="n">py</span> <span class="p">-</span><span class="n">-reuse</span> <span class="n">results</span><span class="p">\</span><span class="n">validation</span><span class="p">\</span><span class="n">cavity</span>   <span class="c"># 32², 64², 128², both orders</span>
 </code></pre>
 </div>
+
+<p>The validation script runs every grid to the steady state ($t = 40$), with 1st-order
+Godunov and with MUSCL, and compares the centreline velocities with Ghia's tables and the
+primary vortex with Ghia's stream function.</p>
 
 <h2 id="default-parameters">Default parameters</h2>
 
@@ -672,27 +676,91 @@ walls are no-slip, and the lid is a <code>moving_wall</code> with velocity <code
 
 <h2 id="validation-results">Validation results</h2>
 
-<div style="display:flex; gap:1em; align-items:flex-start; flex-wrap:wrap;">
-<figure style="margin:0; flex:1 1 45%;">
-<img src="../img/streamlines_cavity_1stOrder.png" style="width:100%">
-<figcaption>Streamlines: 1st-order Godunov.</figcaption>
+<figure>
+<img src="../img/cavity_validation.png" style="width:100%">
+<figcaption>Left and centre: u on the vertical centreline and v on the horizontal one, against
+Ghia et al. (1982). Right: RMS difference from Ghia's points over the grids; MUSCL converges
+at 2nd order (slope −2.1), Godunov at 1st order (slope −1.0).</figcaption>
 </figure>
-<figure style="margin:0; flex:1 1 45%;">
-<img src="../img/streamlines_cavity_2ndOrder.png" style="width:100%">
-<figcaption>Streamlines: 2nd-order MUSCL.</figcaption>
-</figure>
-</div>
 
-<div style="display:flex; gap:1em; align-items:flex-start; flex-wrap:wrap; margin-top:1em;">
-<figure style="margin:0; flex:1 1 45%;">
-<img src="../img/convergence_cavity_1stOrder.png" style="width:100%">
-<figcaption>Grid convergence: 1st order.</figcaption>
+<table>
+<thead>
+<tr>
+  <th>Grid</th>
+  <th>Scheme</th>
+  <th style="text-align:right;">RMS error u</th>
+  <th style="text-align:right;">RMS error v</th>
+  <th>Vortex centre</th>
+  <th style="text-align:right;">ψ<sub>min</sub></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+  <td>32²</td>
+  <td>1st order</td>
+  <td style="text-align:right;">0.064</td>
+  <td style="text-align:right;">0.078</td>
+  <td>(0.609, 0.641)</td>
+  <td style="text-align:right;">−0.0847</td>
+</tr>
+<tr>
+  <td>128²</td>
+  <td>1st order</td>
+  <td style="text-align:right;">0.018</td>
+  <td style="text-align:right;">0.020</td>
+  <td>(0.559, 0.605)</td>
+  <td style="text-align:right;">−0.1056</td>
+</tr>
+<tr>
+  <td>32²</td>
+  <td>MUSCL</td>
+  <td style="text-align:right;">0.024</td>
+  <td style="text-align:right;">0.028</td>
+  <td>(0.547, 0.609)</td>
+  <td style="text-align:right;">−0.1057</td>
+</tr>
+<tr>
+  <td>64²</td>
+  <td>MUSCL</td>
+  <td style="text-align:right;">0.0052</td>
+  <td style="text-align:right;">0.0045</td>
+  <td>(0.555, 0.602)</td>
+  <td style="text-align:right;">−0.1123</td>
+</tr>
+<tr>
+  <td>128²</td>
+  <td>MUSCL</td>
+  <td style="text-align:right;"><strong>0.0013</strong></td>
+  <td style="text-align:right;"><strong>0.0016</strong></td>
+  <td><strong>(0.551, 0.605)</strong></td>
+  <td style="text-align:right;"><strong>−0.1136</strong></td>
+</tr>
+<tr>
+  <td>Ghia et al.</td>
+  <td></td>
+  <td style="text-align:right;"></td>
+  <td style="text-align:right;"></td>
+  <td>(0.5547, 0.6055)</td>
+  <td style="text-align:right;">−0.1139</td>
+</tr>
+</tbody>
+</table>
+
+<p>At 128² with MUSCL the primary vortex sits within one cell of Ghia's and its stream
+function within 0.3 %. One point of Ghia's v table, −0.238 at x = 0.9063, is left out of the
+v error: it cannot lie on a smooth profile between its neighbours (−0.450 at 0.8594, −0.228 at
+0.9453), and every grid converges to about −0.39 there, so it looks like a misprint. It is
+still plotted (red cross).</p>
+
+<figure>
+<img src="../img/cavity_streamlines.png" style="width:70%; display:block; margin:0 auto;">
+<figcaption>Streamlines and speed at 128² (MUSCL): the primary vortex, its centre against
+Ghia's, and the secondary vortex in the bottom-right corner.</figcaption>
 </figure>
-<figure style="margin:0; flex:1 1 45%;">
-<img src="../img/convergence_cavity_2ndOrder.png" style="width:100%">
-<figcaption>Grid convergence: 2nd order.</figcaption>
-</figure>
-</div>
+
+<p>The 1st-order runs show why the default 30 × 30 grid is a quick check, not a converged
+answer: numerical viscosity weakens the vortex (ψ<sub>min</sub> = −0.085 at 32²) and pushes it
+towards the top-right. Use MUSCL and 64² or more for quantitative work.</p>
 
 <h2 id="reference">Reference</h2>
 

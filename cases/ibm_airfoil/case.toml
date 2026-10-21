@@ -1,0 +1,57 @@
+# Flow past an airfoil (immersed boundary) at Re = 1000, Ma = 0.2: a NACA 4-digit section,
+# or any Selig / Lednicer coordinate file put in this folder (ibm_shape = "Airfoil",
+# ibm_file = "my_airfoil.dat"). Chord 1, quarter chord at (3, 3) in a 12 x 6 box; the
+# Reynolds number fixes mu, so another chord keeps Re. Lift, drag and moment coefficients
+# go to <case>_monitor.csv.
+[case]
+name = "IBM Airfoil"
+description = "IBM airfoil (NACA 4-digit or a coordinate file), Re = 1000, lift and drag"
+order = 45
+requires_viscous = true
+
+[mesh]
+Lx = 12.0
+Ly = 6.0
+nx = 720
+ny = 360
+
+[physics]
+use_viscous = true
+reynolds = 1000.0
+use_bodyforce = false
+
+[boundaries]
+bc_left = "vel_inlet"
+bc_right = "nonreflecting"
+bc_bottom = "wall"
+bc_top = "wall"
+u_in = 1.0
+rho_in = 1.0
+p_out = 17.857142857142858   # 1/(gamma Ma^2) at Ma = 0.2: sound speed 5
+
+[numerics]
+riemann_solver = "HLLC (Low-Mach Thornber)"
+use_muscl = true
+muscl_limiter = "Van Leer"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.5
+
+[run]
+t_end = 20.0
+save_interval = 500
+monitor_interval = 20
+
+[parallel]
+use_mpi = true
+n_cpus = 16
+
+[ibm]
+use_ibm = true
+ibm_shape = "NACA 0012"
+ibm_chord = 1.0
+ibm_aoa = 10.0
+ibm_cx = 3.0
+ibm_cy = 3.0
+
+[initial]
+state = { rho = 1.0, u = 1.0, v = 0.0, p = 17.857142857142858 }

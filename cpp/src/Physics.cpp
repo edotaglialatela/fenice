@@ -1,5 +1,6 @@
 #include "fv/Physics.hpp"
 
+#include <algorithm>
 #include <cctype>
 #include <stdexcept>
 
@@ -344,6 +345,22 @@ ImmersedBoundary::ImmersedBoundary(const Mesh& mesh, const std::string& shape, d
                                          : dxc * dxc + dyc * dyc;
                 mask_[mesh.cell(i, j, k)] = std::sqrt(r2) <= radius;
             }
+}
+
+ImmersedBoundary::ImmersedBoundary(const Mesh& mesh, const Polygon2D& section, double rho_ref, double p_ref)
+    : nx_(mesh.nx), ny_(mesh.ny), nz_(mesh.nz), rho_ref_(rho_ref), p_ref_(p_ref),
+      mask_(static_cast<size_t>(mesh.num_cells()), 0) {
+    double x0 = 1e300, x1 = -1e300, y0 = 1e300, y1 = -1e300;   // bounding box: skip the far cells
+    for (const auto& p : section.pts) {
+        x0 = std::min(x0, p[0]); x1 = std::max(x1, p[0]);
+        y0 = std::min(y0, p[1]); y1 = std::max(y1, p[1]);
+    }
+    for (int j = 0; j < ny_; ++j)
+        for (int i = 0; i < nx_; ++i) {
+            const double x = mesh.xc(i), y = mesh.yc(j);
+            if (x < x0 || x > x1 || y < y0 || y > y1 || !section.contains(x, y)) continue;
+            for (int k = 0; k < nz_; ++k) mask_[mesh.cell(i, j, k)] = 1;
+        }
 }
 
 int ImmersedBoundary::solid_count() const {

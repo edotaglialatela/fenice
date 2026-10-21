@@ -87,13 +87,15 @@ CASES = {
     "tgv3d_nrbc":          ("Taylor-Green Vortex 3D", dict(nx=16, ny=16, nz=8, t_end=0.3, bc_left="transmissive",
                                                        bc_right="nonreflecting", bc_front="nonreflecting",
                                                        bc_back="nonreflecting")),
+    # IBM airfoil (NACA 0012 at 10 deg, mu from reynolds; geometry checked by fenice_tests airfoil_geometry)
+    "naca0012_ibm":        ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.1, use_mpi=False)),
 }
 # Cases also run under MPI (AMR is serial-only); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
 MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodic_x", "poiseuille_bdf2",
              "cylinder_ibm_visc", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
-             "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc"]
+             "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm"]
 
 
 def run_cpp(name, tmp, n_mpi=0):

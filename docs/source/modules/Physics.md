@@ -81,10 +81,21 @@ The energy component is the power delivered by the force, $\mathbf u\cdot\rho\ma
 
 ## Immersed boundary method
 
-A direct-forcing IBM with a circular obstacle. A cell is **solid** when its centre lies
-inside the shape. In 2-D `Cylinder` and `Sphere` are the same circle. In 3-D, `Sphere` is a
-ball centred at (`ibm_cx`, `ibm_cy`, `ibm_cz`), and `Cylinder` is a circular cylinder
-running through the whole depth along z.
+A direct-forcing IBM. A cell is **solid** when its centre lies inside the body:
+
+* **Circle / sphere.** In 2-D `Cylinder` and `Sphere` are the same circle. In 3-D, `Sphere`
+  is a ball centred at (`ibm_cx`, `ibm_cy`, `ibm_cz`), and `Cylinder` is a circular
+  cylinder running through the whole depth along z.
+* **Airfoil.** A closed polygon (`Geometry.hpp`): a `NACA dddd` section from the 4-digit
+  formulas (closed trailing edge, 200 cosine-spaced points per surface), or `Airfoil` read
+  from `ibm_file` in the Selig or Lednicer format of the UIUC database. The section is
+  normalised to unit chord, scaled to `ibm_chord`, rotated by `ibm_aoa` (nose up) about its
+  quarter chord and placed with the quarter chord at (`ibm_cx`, `ibm_cy`); the point test is
+  the even-odd rule. In 3-D it is extruded along z.
+
+The mask is a staircase: the wall is known to within half a cell. A sharp trailing edge is
+only a few cells thick, so airfoil lift converges slowly with the grid; resolve the chord
+with at least ~60 cells.
 
 * **Forcing** (`apply_forcing`) runs inside every residual evaluation, so it applies
   at every Runge-Kutta stage. It zeroes the velocity of solid cells and leaves
@@ -106,6 +117,25 @@ pressure discontinuities, which the Riemann solver amplifies into spurious shock
 Under MPI the fringe test sees the neighbours across rank interfaces
 (`SolidResetHalo`), and the mask is cut from the global mask, so the obstacle is
 identical for any number of ranks. The 3-D fringe test also looks at the z-neighbours.
+
+### Loads on the body
+
+The force of the fluid on the body is the net momentum flux into the solid cells: summing
+their residuals, the fluxes through faces between two solid cells cancel and only the faces
+on the body surface remain,
+
+$$\mathbf F = \sum_{c\ \in\ \rm solid} \mathbf R_c\,V_c, \qquad
+M_z = \sum_{c\ \in\ \rm solid} (\mathbf x_c - \mathbf x_{\rm ref}) \times \mathbf R_c\,V_c,$$
+
+with $\mathbf R$ the momentum residual of the forced state (body force removed) and
+$\mathbf x_{\rm ref}$ = (`ibm_cx`, `ibm_cy`). It contains the pressure and the viscous
+stresses alike, for any shape. With `monitor_interval` the monitor gets $F_x$, $F_y$ and
+$C_d = F_x/(q A)$, $C_l = F_y/(q A)$, $C_m = -M_z/(q A L)$ (nose-up positive), with
+$q = \tfrac12\rho_{\rm in}u_{\rm in}^2$, $L$ the chord or diameter and $A = L$ per unit depth
+in 2-D ($L L_z$ in 3-D, $\pi r^2$ for a sphere). On the cylinder at Re = 100 (400 × 200) this
+gives $\overline{C_d} = 1.43$, a lift amplitude of 0.37 and St = 0.177, against
+$C_d \approx 1.35$ and $C_l' \approx 0.33$ for an unconfined cylinder; the 10 % blockage of the
+channel raises both.
 
 {{widget:IBM}}
 

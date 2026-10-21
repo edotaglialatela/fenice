@@ -1,7 +1,10 @@
 #include "fv/Params.hpp"
 
+#include "fv/Geometry.hpp"
+
 #include <cctype>
 #include <cmath>
+#include <cstdio>
 #include <fstream>
 #include <stdexcept>
 #include <utility>
@@ -106,6 +109,7 @@ Params baseline_defaults() {
         {"resume", "false"}, {"use_mpi", "false"}, {"n_cpus", "2"},
         {"use_ibm", "false"}, {"ibm_shape", "Cylinder"}, {"ibm_radius", "0.1"},
         {"ibm_cx", "0.5"}, {"ibm_cy", "0.5"}, {"ibm_cz", "0.5"},
+        {"ibm_file", ""}, {"ibm_chord", "1.0"}, {"ibm_aoa", "0.0"}, {"reynolds", "0"},
         {"use_muscl", "false"}, {"muscl_limiter", "Van Leer"},
         {"dt_phys", "0.1"}, {"max_inner_iter", "50"}, {"inner_tol_rel", "1e-3"},
         {"use_hot_start", "false"}, {"hot_start_file", ""},
@@ -165,6 +169,10 @@ SimParams SimParams::from(const Params& p) {
     s.ibm_cx         = p.num("ibm_cx", 0.5);
     s.ibm_cy         = p.num("ibm_cy", 0.5);
     s.ibm_cz         = p.num("ibm_cz", 0.5);
+    s.ibm_file       = p.str("ibm_file", "");
+    s.ibm_chord      = p.num("ibm_chord", 1.0);
+    s.ibm_aoa        = p.num("ibm_aoa", 0.0);
+    s.reynolds       = p.num("reynolds", 0.0);
     s.use_muscl      = p.flag("use_muscl");
     s.muscl_limiter  = p.str("muscl_limiter", "Van Leer");
     s.dt_phys        = p.num("dt_phys", s.t_end / 100.0);
@@ -213,6 +221,25 @@ SimParams SimParams::from(const Params& p) {
     if (!(s.cfl > 0.0)) throw std::invalid_argument("cfl must be positive");
     if (!(s.t_end > 0.0)) throw std::invalid_argument("t_end must be positive");
     if (!(s.gamma > 1.0)) throw std::invalid_argument("gamma must be greater than 1");
+    const std::string shape = lower(s.ibm_shape);
+    const bool airfoil = shape == "airfoil" || !naca_digits(s.ibm_shape).empty();
+    if (shape != "cylinder" && shape != "sphere" && !airfoil)
+        throw std::invalid_argument("Unknown ibm_shape: '" + s.ibm_shape + "' (use Cylinder, Sphere, Airfoil or NACA dddd)");
+    if (s.use_ibm && shape == "airfoil" && s.ibm_file.empty())
+        throw std::invalid_argument("ibm_shape = Airfoil needs ibm_file (a Selig or Lednicer coordinate file)");
+    if (s.use_ibm && airfoil && !(s.ibm_chord > 0.0)) throw std::invalid_argument("ibm_chord must be positive");
+    if (s.reynolds < 0.0) throw std::invalid_argument("reynolds must be >= 0 (0: use mu)");
+    if (s.reynolds > 0.0) {
+        // mu from the Reynolds number on the body: rho_in u_in L / mu, L = chord or diameter
+        if (!s.use_ibm) throw std::invalid_argument("reynolds needs an IBM body for its length scale (or set mu)");
+        if (!(s.u_in > 0.0) || !(s.rho_in > 0.0))
+            throw std::invalid_argument("reynolds needs positive u_in and rho_in");
+        const double L = airfoil ? s.ibm_chord : 2.0 * s.ibm_radius;
+        s.mu = s.rho_in * s.u_in * L / s.reynolds;
+        char buf[32];
+        std::snprintf(buf, sizeof(buf), "%.17g", s.mu);
+        s.source.set("mu", buf);   // expressions in the case file see the same mu
+    }
     if (s.use_viscous && (!(s.mu >= 0.0) || !(s.pr > 0.0)))
         throw std::invalid_argument("mu must be >= 0 and pr > 0 with use_viscous");
     return s;

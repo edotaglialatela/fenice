@@ -4,6 +4,7 @@
 #pragma once
 
 #include "fv/Core.hpp"
+#include "fv/Geometry.hpp"
 
 namespace fv {
 
@@ -87,6 +88,9 @@ public:
     // is a sphere, "Cylinder" an infinite cylinder along z.  Case-insensitive; other shapes throw.
     ImmersedBoundary(const Mesh& mesh, const std::string& shape, double radius, double cx, double cy,
                      double rho_ref, double p_ref, double cz = 0.0);
+    // Body bounded by a closed polygon in the x-y plane (an airfoil section): a cell is solid
+    // when its centre is inside. 3-D: the section extruded along z (a wing of infinite span).
+    ImmersedBoundary(const Mesh& mesh, const Polygon2D& section, double rho_ref, double p_ref);
     // From a precomputed mask (MPI strips cut from the global mask).
     ImmersedBoundary(int nx, int ny, std::vector<char> mask, double rho_ref, double p_ref, int nz = 1)
         : nx_(nx), ny_(ny), nz_(nz), rho_ref_(rho_ref), p_ref_(p_ref), mask_(std::move(mask)) {}

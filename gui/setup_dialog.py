@@ -352,7 +352,8 @@ class SetupDialog(QDialog):
         f_ibm = QFormLayout()
         
         self.check_ibm = QCheckBox("Enable Immersed Boundary Method")
-        self.combo_shape = QComboBox(); self.combo_shape.addItems(["Cylinder", "Sphere"])
+        self.combo_shape = QComboBox(); self.combo_shape.addItems(["Cylinder", "Sphere", "NACA 0012", "Airfoil"])
+        self.combo_shape.setEditable(True)   # any "NACA dddd"; Airfoil reads the case's ibm_file
         self.input_radius = QLineEdit("0.1"); self.input_cx = QLineEdit("0.5"); self.input_cy = QLineEdit("0.5")
         self.input_cz = QLineEdit("0.5"); self.l_cz = QLabel("CZ (3-D):")
         
@@ -622,6 +623,7 @@ class SetupDialog(QDialog):
         def set_combo(combo, text):
             idx = combo.findText(str(text))
             if idx >= 0: combo.setCurrentIndex(idx)
+            elif combo.isEditable(): combo.setEditText(str(text))
         setters = {
             'Lx': lambda v: self.input_Lx.setText(str(v)), 'Ly': lambda v: self.input_Ly.setText(str(v)),
             'nx': lambda v: self.input_nx.setText(str(v)), 'ny': lambda v: self.input_ny.setText(str(v)),
