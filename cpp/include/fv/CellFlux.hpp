@@ -19,6 +19,7 @@
 
 namespace fv {
 
+// Stencils, boundary closure and face fluxes of a CellMesh; see the file header.
 class CellFluxEngine {
 public:
     // `muscl` = nullptr: first-order Godunov.  `bc` supplies the boundary types, their parameters and the ghost

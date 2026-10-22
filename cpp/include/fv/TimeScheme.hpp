@@ -38,11 +38,11 @@ public:
     // the first stage.  Default: first-order Euler.
     virtual double advance_fixed_dt(Field& U, const ResidualFn& res, double dt);
 
-    // What advance_fixed_dt does, stage by stage: U_new = U + dt * sum_i weights[i] * R_i, and R_i is evaluated at
-    // time t + offsets[i] * dt (offsets are 0, 1/2 or 1; the stage time is t + 0.5 * dt, t + dt as in step()).
-    // The cell-based AMR uses them to accumulate the fine fluxes seen by a coarse neighbour. The base class is
-    // forward Euler.
+    // What advance_fixed_dt does, stage by stage: U_new = U + dt * sum_i weights[i] * R_i. The cell-based AMR uses
+    // the weights to accumulate the fine fluxes seen by a coarse neighbour. The base class is forward Euler.
     virtual std::vector<double> stage_weights() const { return {1.0}; }
+    // Time of the residual R_i evaluated by advance_fixed_dt: t + offsets[i] * dt (0, 1/2 or 1; the stage time
+    // is t, t + 0.5 * dt or t + dt exactly as in step()).
     virtual std::vector<double> stage_offsets() const { return {0.0}; }
 
     // Inner pseudo-time iterations of the last step (BDF2 only), else -1.

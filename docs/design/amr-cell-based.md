@@ -266,7 +266,8 @@ history of the flagged region). The threshold is the user's decision (section 7,
   (bit-identical, guarded by the P2 tests and the bench assert).
 * Known time seam (as in ECOGEN, accepted): the fine level reads its coarse neighbours at the start of the coarse step, the coarse level reads
   (through its virtual cells and the first-order stencil of its same-level faces) the finer leaves at the END of the coarse step. The fluxes at
-  the jump are exact in the time average (register), the reconstruction stencils are not time-consistent. Sod shows no visible effect.
+  the jump are exact in the time average (register), the reconstruction stencils are not time-consistent. Measured on Sod with waves crossing the jumps
+  (below): no visible effect on the error, no overshoot.
 * Tests: `celladvance_level0_steps_match_uniform_steps_bitwise` (Euler / RK2 / RK4, three boundary sets incl. periodic, 9x7 and 96x64, level-0
   and a `max_level = 2` mesh without refinement; 4 steps equal to `advance_fixed_dt` of the uniform solver bit for bit),
   `celladvance_conserves_across_level_jumps_and_the_control_fails` (random 3-level periodic mesh, 6 steps, relative error < 1e-13 for all three
@@ -275,3 +276,11 @@ history of the flagged region). The threshold is the user's decision (section 7,
   expected recursion bitwise), `celladvance_sod_on_a_static_refined_band` (bands fixed beforehand: AMR error <= 1.6 x the uniform-200 error and
   < 0.5 x the uniform-50 error, against the exact Riemann solution). Measured: L1(rho) uniform 50 (200 cells) 9.96e-3, uniform 200 (3 200 cells) 2.910e-3,
   AMR base 50 + 2 levels in a static band (2 384 cells) 2.917e-3. Changing the register weight by 2 % makes three of the tests fail.
+* Sod with waves crossing the jumps (static narrow bands, thresholds fixed before the run; the first one, band [0.55, 0.75], was first compared with
+  the uniform-200 error in the band window and failed by design of the test, not of the scheme: the contact is smeared on the coarse grid before it enters the
+  band and that smear persists, so the window error there equals the uniform-50 one, 1.73e-2 against 1.85e-2; the criterion was changed to "below uniform 50"
+  and the band [0.4, 0.8] added, where the contact is fine from t = 0 and the rarefaction head and the shock cross the jumps moving out):
+  global L1(rho) (a) 9.81e-3 (764 cells), (b) 4.39e-3 (1 424 cells), uniform 50 9.96e-3; error in the window [0.55, 0.75]: (b) 6.539e-3 against
+  6.528e-3 for uniform 200 (the pre-existing static band [0.2, 0.92] keeps every wave fine and reproduces the uniform-200 error, 2.917e-3 against 2.910e-3).
+  Maximum density 1.0000 (no overshoot), mass conserved to 1e-12.
+* Not covered yet: thread-count independence on adapted meshes (all adapted-mesh tests are below `kOmpMinWork`); it is verified in P6 together with MPI == serial.

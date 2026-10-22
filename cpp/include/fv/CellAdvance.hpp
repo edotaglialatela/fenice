@@ -20,6 +20,7 @@
 
 namespace fv {
 
+// Subcycled time stepping of a CellMesh; see the file header.
 class CellAdvance {
 public:
     // The mesh, engine (built for this mesh) and scheme must outlive the object.  Explicit schemes only.

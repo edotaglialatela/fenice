@@ -23,7 +23,7 @@ double CellAdvance::advance(int l, double dt, double t) {
 }
 
 double CellAdvance::advance_own(int l, double dt, double t) {
-    const int b = mesh_.level_begin[l], e = mesh_.level_begin[l + 1], n = e - b;
+    const int b = mesh_.level_begin[l], e = mesh_.level_begin[l + 1];
     const std::vector<double> weights = scheme_.stage_weights(), offsets = scheme_.stage_offsets();
     if (weights.size() != offsets.size()) throw std::logic_error("CellAdvance: inconsistent stage tables");
     size_t stage = 0;
@@ -44,7 +44,6 @@ double CellAdvance::advance_own(int l, double dt, double t) {
     const double S = scheme_.advance_fixed_dt(Ul, res, dt);
     if (stage != weights.size()) throw std::logic_error("CellAdvance: the scheme made fewer stages than it declares");
     std::copy(Ul.begin(), Ul.end(), mesh_.U.begin() + b);   // the result, not the last stage's input
-    (void)n;
     return S;
 }
 

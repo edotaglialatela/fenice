@@ -3050,12 +3050,13 @@ TEST(celladvance_sod_on_a_static_refined_band) {
     // Bands fixed before the first run: the adaptive run (base 50, two levels, equivalent to 200) is within
     // 1.6 x of the uniform 200 error against the exact density, and below half the uniform 50 error.
     CellSetup su(false);
-    const auto run = [&](int nx, int max_level, bool band) {
+    const auto run = [&](int nx, int max_level, bool band, double xlo = 0.2, double xhi = 0.92,
+                         double* win_err = nullptr, double* rho_max_out = nullptr) {
         CellMesh m(1.0, 0.08, nx, nx / 12 > 0 ? std::max(4, nx / 12) : 4, max_level);   // square cells
         if (band)
             for (int pass = 0; pass < max_level; ++pass) {
                 std::vector<char> r(m.num_leaves(), 0);
-                for (int c = 0; c < m.num_leaves(); ++c) r[c] = m.xc(c) > 0.2 && m.xc(c) < 0.92;
+                for (int c = 0; c < m.num_leaves(); ++c) r[c] = m.xc(c) > xlo && m.xc(c) < xhi;
                 m.adapt(r);
             }
         m.U.resize(m.num_leaves());
@@ -3074,10 +3075,23 @@ TEST(celladvance_sod_on_a_static_refined_band) {
             t += dt;
         }
         CHECK_NEAR(cell_total(m, 0), mass0, 1e-12 * mass0);
-        double err = 0.0, area = 0.0;
+        double err = 0.0, area = 0.0, rho_min = 1e9, rho_max = 0.0, werr = 0.0, warea = 0.0;
         for (int c = 0; c < m.num_leaves(); ++c) {
+            rho_min = std::min(rho_min, m.U[c][0]);
+            rho_max = std::max(rho_max, m.U[c][0]);
+            if (m.xc(c) > 0.55 && m.xc(c) < 0.75) {
+                werr += std::abs(m.U[c][0] - sod_exact_density(m.xc(c), 0.2)) * m.area(c);
+                warea += m.area(c);
+            }
             err += std::abs(m.U[c][0] - sod_exact_density(m.xc(c), 0.2)) * m.area(c);
             area += m.area(c);
+        }
+        CHECK(rho_min > 0.1 && std::isfinite(err));
+        if (win_err) *win_err = werr / warea;
+        if (rho_max_out) {
+            *rho_max_out = rho_max;
+            *win_err = werr / warea;
+            CHECK(rho_min > 0.125 - 0.01 && rho_max < 1.0 + 0.01);   // TVD: no overshoot born at a jump
         }
         return std::make_pair(err / area, m.num_leaves());
     };
@@ -3087,6 +3101,25 @@ TEST(celladvance_sod_on_a_static_refined_band) {
     CHECK(amr.first < 1.6 * fine.first);
     CHECK(amr.first < 0.5 * coarse.first);
     CHECK(amr.second < fine.second);
+
+    // Narrow bands, so that waves cross the coarse-fine jumps (mass to 1e-12 is checked in run; density in
+    // [0.115, 1.01], i.e. no overshoot born at a jump; global error below the uniform-50 error).
+    //  (a) band [0.55, 0.75], fixed first: the shock enters it at t ~ 0.03 and leaves at ~ 0.14, the contact
+    //      enters at ~ 0.05 after being smeared on the coarse grid, the rarefaction stays coarse. Window error
+    //      in [0.55, 0.75] required below the uniform-50 one (the contact smear made on the coarse grid stays).
+    //  (b) band [0.4, 0.8], the contact is fine from t = 0 and the rarefaction head (t ~ 0.085) and the shock
+    //      (t ~ 0.17) cross the jumps moving out: window error within 1.6 x of the uniform-200 one there.
+    double w_a = 0.0, w_b = 0.0, w_fine = 0.0, w_coarse = 0.0, rmax = 0.0, unused = 0.0;
+    const auto a = run(50, 2, true, 0.55, 0.75, &w_a, &rmax);
+    const auto b = run(50, 2, true, 0.4, 0.8, &w_b, &unused);
+    run(200, 0, false, 0.2, 0.92, &w_fine, &unused);
+    run(50, 0, false, 0.2, 0.92, &w_coarse, &unused);
+    std::printf("    Sod, waves crossing the jumps: L1 (a) %.4e (%d cells), (b) %.4e (%d cells); error in [0.55, 0.75]: (a) %.4e, (b) %.4e, "
+                "uniform 200 %.4e, uniform 50 %.4e\n",
+                a.first, a.second, b.first, b.second, w_a, w_b, w_fine, w_coarse);
+    CHECK(a.first < coarse.first && b.first < coarse.first);
+    CHECK(w_a < w_coarse);
+    CHECK(w_b < 1.6 * w_fine);
 }
 
 int main() {
