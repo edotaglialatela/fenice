@@ -29,15 +29,6 @@ after interpolation.
 (`method='linear'`, `bounds_error=False`, `fill_value=None`). The same interpolator fills
 AMR ghost layers from coarser neighbours.
 
-<figure style="margin:1em 0;">
-<img src="{{root}}img/cylinder_mesh_transition.gif" style="width:100%">
-<figcaption>Loads across a hot start: 400×200 to t = 6, then 800×400 mapped from its
-checkpoint. Shedding carries on without a new start-up transient; after a short drag
-spike while the field adapts to the finer mask, C<sub>l</sub> keeps its amplitude (0.37)
-and C<sub>d</sub> settles at 1.46 (1.43 on the coarse mesh)
-(<code>cases/validation/features/cylinder_mesh_transition.py</code>).</figcaption>
-</figure>
-
 ## Conservative restriction
 
 `restrict_patch` averages a fine patch onto a coarser one covering the same subdomain.

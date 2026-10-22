@@ -129,7 +129,7 @@ give $\eta = 0$.
 
 ## Immersed boundary, viscous terms and body force
 
-The [airfoil]({{root}}cases/airfoil.html#adaptive-mesh-refinement) case shows it: with 18 % of
+The [airfoil]({{root}}cases/airfoil.html#adaptive-mesh-refinement) case shows it: with 19 % of
 the cells of the uniform mesh at the body's resolution, AMR gives the same drag and lift
 history in 10 % of the time.
 

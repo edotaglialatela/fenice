@@ -133,7 +133,8 @@ stresses alike, for any shape. With `monitor_interval` the monitor gets $F_x$, $
 $C_d = F_x/(q A)$, $C_l = F_y/(q A)$, $C_m = -M_z/(q A L)$ (nose-up positive), with
 $q = \tfrac12\rho_{\rm in}u_{\rm in}^2$, $L$ the chord or diameter and $A = L$ per unit depth
 in 2-D ($L L_z$ in 3-D, $\pi r^2$ for a sphere). On the cylinder at Re = 100 (400 × 200) this
-gives $\overline{C_d} = 1.43$, a lift amplitude of 0.37 and St = 0.177, against
+gives $\overline{C_d} = 1.41$, a lift amplitude of 0.28 (0.34 at its peak) and St = 0.175 over
+$50 \le t \le 80$, against
 $C_d \approx 1.35$ and $C_l' \approx 0.33$ for an unconfined cylinder; the 10 % blockage of the
 channel raises both.
 

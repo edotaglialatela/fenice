@@ -26,7 +26,6 @@ $$\mathrm{St} = \frac{f\,D}{u_{\rm in}} \approx 0.165 \quad (\mathrm{Re} = 100)$
 ```powershell
 build\release\fenice.exe --case "IBM Flow over Cylinder"          # uses MPI (16 ranks) by default
 python cases\validation\benchmarks\ibm_loads.py cylinder                # loads, Strouhal number
-python cases\validation\features\cylinder_mesh_transition.py         # hot start 400×200 -> 800×400
 ```
 
 ## Default parameters
@@ -52,6 +51,10 @@ animations.
 
 ## Aerodynamic coefficients
 
+The default run ends at $t = 12$, before the shedding has grown: a symmetric body in a symmetric
+domain only sheds once the tiny numerical asymmetry has been amplified, which takes about 20 time units
+(100 diameters at $u_{m in} = 1$). `ibm_loads.py cylinder` runs to $t = 80$ and measures from $t = 50$.
+
 Once the flow reaches periodic shedding, the lift and drag coefficients
 The solver writes the [IBM loads]({{root}}modules/Physics.html#immersed-boundary-method)
 (pressure and viscous stresses) to the monitor:
@@ -64,22 +67,17 @@ shedding periods.
 
 <figure>
 <img src="{{root}}img/cylinder_loads.png" style="width:100%">
-<figcaption>Default 400×200 mesh to t = 6: vorticity and loads. Over t ≥ 2,
-C<sub>d</sub> = 1.43, C<sub>l</sub> = ±0.37 and St = 0.178, against 1.33-1.35, ±0.33 and
-0.164-0.166 in the literature for Re = 100.</figcaption>
+<figcaption>Default 400×200 mesh to $t = 80$: vorticity at the end and loads. The flow stays symmetric
+until about $t = 20$ and starts to shed from numerical noise around $t = 25$; over $t \ge 50$,
+C<sub>d</sub> = 1.41, C<sub>l</sub> = ±0.28 (still decaying from ±0.34 at $t \approx 35$, so
+not yet a limit cycle) and St = 0.175, against 1.33-1.35, ±0.33 and 0.164-0.166 in the literature for
+Re = 100 (unbounded domain; the 4×2 box with slip walls blocks 10 % of the channel, which raises both
+C<sub>d</sub> and St). The run is <code>benchmarks/ibm_loads.py cylinder</code>.</figcaption>
 </figure>
 <figure>
 <img src="{{root}}img/cylinder_loads_1200x600.gif" style="width:100%">
 <figcaption>C_L and C_D over time on a 1200×600 mesh, from the pressure integrated on a
 circle just outside the cylinder (no viscous stresses).</figcaption>
-</figure>
-<figure>
-<img src="{{root}}img/cylinder_mesh_transition.gif" style="width:100%">
-<figcaption>Loads across a hot start: 400×200 to t = 6, then 800×400 mapped from its
-checkpoint. Shedding carries on without a new start-up transient; after a short drag
-spike while the field adapts to the finer mask, C<sub>l</sub> keeps its amplitude (0.37)
-and C<sub>d</sub> settles at 1.46 (1.43 on the coarse mesh)
-(<code>cases/validation/features/cylinder_mesh_transition.py</code>).</figcaption>
 </figure>
 <figure>
 <img src="{{root}}img/cylinder_no_shedding.gif" style="width:100%">

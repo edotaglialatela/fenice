@@ -149,6 +149,7 @@ uncertainty of the reference too.
 | `shu_osher.py` | Shu-Osher density, MC vs Minmod, convergence against a 6400-cell reference |
 | `cavity.py` | cavity centrelines and vortex vs Ghia (1982), 32²-128², both orders |
 | `taylor_green_3d.py` | 3-D Taylor-Green energy, dissipation, vorticity, Q-criterion animation |
+| `gci.py` | observed order, Grid Convergence Index and Richardson extrapolation of the cavity, airfoil and 3-D Taylor-Green results |
 | `ibm_loads.py cylinder` / `airfoil` | IBM loads from the monitor, Strouhal number |
 
 **`amr/`: does the adaptive mesh keep the answer and save the cost?**
@@ -165,6 +166,65 @@ uncertainty of the reference too.
 | Script | Shows |
 |---|---|
 | `cylinder_mesh_transition.py` | cylinder loads across a 400×200 → 800×400 hot start (animation) |
+
+### Grid convergence of the benchmarks (`benchmarks/gci.py`)
+
+A benchmark without an exact solution gets an error band from a systematic grid refinement,
+following Roache (2009, chapter 5). For three solutions $f_1, f_2, f_3$ (fine to coarse) on grids of
+size $h_1 < h_2 < h_3$ the script computes
+
+* the **apparent order** $p$ from $\varepsilon_{23}/(r_{23}^p - 1) = r_{12}^p\,\varepsilon_{12}/(r_{12}^p - 1)$, with
+  $\varepsilon_{ij} = f_j - f_i$ (a closed form for a constant ratio, a damped iteration otherwise);
+* the **fine-grid GCI**, $F_s\,|\varepsilon_{12}/f_1|/(r_{12}^p - 1)$, and the Richardson-extrapolated value
+  $f_1 + (f_1 - f_2)/(r_{12}^p - 1)$;
+* the **asymptotic-range check** $\mathrm{GCI}_{23}/(r_{12}^p\,\mathrm{GCI}_{12})$, which is 1 in the asymptotic range.
+
+The factor of safety is $F_s = 1.25$ when the three grids give an apparent order within 25 % of the formal
+one and 3 otherwise; an order above the formal one is replaced by the formal one. A triplet whose
+differences do not shrink monotonically, or whose apparent order is not positive, gets no GCI: such grids are not
+in the asymptotic range, and a number would be misleading. The refinement ratio is the same in every direction, the
+loads are averaged over the same time window on every grid, and the time step shrinks with the mesh at a fixed CFL, so
+the study measures the combined space-time convergence.
+
+<figure>
+<img src="{{root}}img/gci.png" style="width:100%">
+<figcaption>Value against grid size for each functional of the finest triplet: the solver, the
+Richardson-extrapolated value, the GCI band on the finest grid and the reference where there is one.
+The star is the AMR airfoil run at its effective grid size (indicative only: changing thresholds is not a
+systematic refinement).</figcaption>
+</figure>
+
+| study | quantity | grids (coarse to fine) | $p_{obs}$ | $F_s$ | fine-grid GCI | extrapolated | asymptotic ratio | reference |
+|---|---|---|---:|---:|---:|---:|---:|---|
+| cavity, MUSCL | $\psi_{\min}$ | -0.1058, -0.1123, -0.1136 | 2.24 | 1.25 | 0.5 % | -0.1141 | 1.18 | Ghia (1982) -0.1139; fine - ref = +2.70e-04, inside the GCI band |
+| cavity, MUSCL | $u_{\min}$ on $x = 0.5$ | -0.2997, -0.3232, -0.3277 | 2.38 | 1.25 | 0.573 % | -0.3292 | 1.30 | Ghia (1982) -0.3273; fine - ref = -4.39e-04, inside the GCI band |
+| cavity, MUSCL | $v_{\max}$ on $y = 0.5$ | 0.2725, 0.2975, 0.3025 | 2.30 | 1.25 | 0.7 % | 0.3042 | 1.23 | Ghia (1982) 0.302; fine - ref = +5.14e-04, inside the GCI band |
+| cavity, MUSCL | $v_{\min}$ on $y = 0.5$ | -0.4073, -0.4447, -0.4519 | 2.38 | 1.25 | 0.663 % | -0.4543 | 1.30 | Ghia (1982) -0.4499; fine - ref = -1.94e-03, inside the GCI band |
+| cavity, 1st order | $\psi_{\min}$ | -0.08475, -0.09796, -0.1056 | 0.79 | 1.25 | 12.5 % | -0.1161 | 1.00 | Ghia (1982) -0.1139; fine - ref = +8.30e-03, inside the GCI band |
+| cavity, 1st order | $u_{\min}$ on $x = 0.5$ | -0.1982, -0.254, -0.2885 | 0.69 | 3 | 58.3 % | -0.3446 | 1.00 | Ghia (1982) -0.3273; fine - ref = +3.87e-02, inside the GCI band |
+| cavity, 1st order | $v_{\max}$ on $y = 0.5$ | 0.1934, 0.2426, 0.2716 | 0.76 | 1.25 | 19.2 % | 0.3133 | 1.00 | Ghia (1982) 0.302; fine - ref = -3.04e-02, inside the GCI band |
+| cavity, 1st order | $v_{\min}$ on $y = 0.5$ | -0.3193, -0.3829, -0.4177 | 0.87 | 1.25 | 12.6 % | -0.4597 | 1.00 | Ghia (1982) -0.4499; fine - ref = +3.22e-02, inside the GCI band |
+| IBM airfoil, Re = 1000 | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1492, 0.1788, 0.1712 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
+| IBM airfoil, Re = 1000 | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1094, 0.292, 0.3607 | 1.41 | 3 | 34.4 % | 0.402 | 1.00 | observed order 1.41 far from the formal 2: Fs = 3 |
+| 3-D Taylor-Green, Re = 1600 | $E_k(20)/E_k(0)$ | 0.2312, 0.2064, 0.1883 | -0.41 | 3 | - | - | - | apparent order -0.41 <= 0: the solutions do not converge on these grids, no GCI |
+| 3-D Taylor-Green, Re = 1600 | peak $\varepsilon$ | 0.01102, 0.01132, 0.01248 | -3.69 | 3 | - | - | - | DNS 512$^3$ 0.0127; fine - ref = -2.17e-04, no GCI band |
+
+What the table says:
+
+* **Cavity, second order.** The apparent orders (2.2 to 2.4) are close to the formal 2, so $F_s = 1.25$ and the
+  fine-grid GCI is 0.5 to 0.7 %. All four of Ghia's values lie inside the band of the 128² solution, so the
+  remaining difference to the benchmark is covered by the numerical uncertainty (Ghia's tables are samples of
+  the extrema, so the centreline values are compared with the extremum of a local parabola through the solver's
+  profile). The asymptotic ratio of 1.2 to 1.3 says the 32²-64²-128² triplet is close to, not exactly in, the
+  asymptotic range.
+* **Cavity, first order.** The apparent orders are 0.7 to 0.9 and the bands 12 to 58 %: the first-order scheme
+  needs far finer grids, which is why the second-order scheme is the default.
+* **IBM airfoil.** The mean drag is not monotone over 192×96, 384×192, 768×384 and the mean lift converges at
+  order 1.4 with a 34 % band: a staircase body on an impulsive start is not in the asymptotic range on these
+  grids, and the table says so. The AMR run lies between the two finest uniform meshes.
+* **3-D Taylor-Green.** The energy at $t = 20$ and the peak dissipation do not converge on 32³, 64³ and 96³
+  (negative apparent orders): the vortex is under-resolved, the peak rises towards the DNS value 0.0127
+  (0.0125 at 96³) but no band can be given.
 
 ### References
 

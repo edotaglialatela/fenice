@@ -64,12 +64,10 @@ u k^2 t}$ while keeping its shape, and at $t = 10$ the vorticity differs from th
 $8 \cdot 10^{-4}$ (peak value 0.27).</figcaption>
 </figure>
 
-The animation runs at CFL 0.25. At this viscosity the default of 0.5 is not stable enough: the
-time step is the smaller of the convective and the viscous limit, not a combination of the two,
-and a slowly growing mode removes energy after $t pprox 2$ ($E_k$ at $t = 10$ is 0.0037 instead of
-0.0183); at $
-u = 0.2$ the velocity error is already 37 % at $t = 1$. At the case's own $
-u = 0.02$ the default is fine.
+The explicit time step uses the convective and the viscous stability limits together
+([TimeScheme]({{root}}modules/TimeScheme.html)), so the default CFL of 0.5 is stable and accurate
+also at high viscosity: the unit test `taylor_green_viscous_time_step_budget` checks the velocity error
+at $\nu = 0.1$ and $0.2$.
 
 The automated checks in `fenice_tests` run smaller versions:
 

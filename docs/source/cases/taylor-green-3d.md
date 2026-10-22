@@ -58,7 +58,7 @@ is all a kinetic-energy history needs.
 <img src="{{root}}img/taylor_green_3d_validation.png" style="width:100%">
 <figcaption>Left: kinetic energy. Right: total dissipation rate −dE<sub>k</sub>/dt from the monitor,
 the resolved physical part 2νζ (enstrophy) from the 32³ and 96³ snapshots, and the DNS peak.
-Peak dissipation: 0.0110 at t = 6.6 (32³), 0.0113 at t = 8.5 (64³) and 0.0125 at t = 8.3 (96³),
+Peak dissipation: 0.0110 at t = 6.6 (32³), 0.0113 at t = 8.6 (64³) and 0.0125 at t = 8.3 (96³),
 against 0.0127 at t ≈ 9 for the DNS; E<sub>k</sub>(20)/E<sub>k</sub>(0) = 0.23, 0.21 and 0.19.</figcaption>
 </figure>
 
