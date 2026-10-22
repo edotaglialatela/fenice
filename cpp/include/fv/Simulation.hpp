@@ -78,7 +78,8 @@ public:
     // Bilinear mapping of a checkpoint (any resolution) onto this run's mesh.
     Field       load_hot_start(const std::string& path);
     // Write the final state to `dump_state` (if set) for regression checks.
-    void        dump_final_state(int step) const;
+    // `amr_all`: the AMR leaves' state in leaf order, when it is not in the tree (distributed runs).
+    void        dump_final_state(int step, const Field* amr_all = nullptr) const;
     // Volume averages of the field: mass, kinetic energy, total energy (all ranks under MPI).
     std::array<double, 3> volume_averages(const Field& U_part, long long n_global) const;
     // Loads of the fluid on the IBM body over the cells of `m`: {Fx, Fy, Mz}, Mz about

@@ -173,7 +173,8 @@ void VTKExporter::export_vtr(const std::string& prefix, const EOS& eos, const Fi
     collection.push_back({time, name});
 }
 
-void VTKExporter::export_amr(const std::string& prefix, const EOS& eos, const AMRTree& tree, double time, int step) {
+void VTKExporter::export_amr(const std::string& prefix, const EOS& eos, const AMRTree& tree, double time, int step,
+                             int rank, int size, const std::function<void()>& sync) {
     const std::string block_dir = step_name(prefix, step, "");
     fs::create_directories(fs::path(dir_) / block_dir);
 
@@ -182,10 +183,15 @@ void VTKExporter::export_amr(const std::string& prefix, const EOS& eos, const AM
     for (const AMRPatch* patch : tree.leaves()) {
         char base[32];
         std::snprintf(base, sizeof(base), "p%04d.vtr", idx++);
-        write_file_atomic(fs::path(dir_) / block_dir / base,
-                          build_vtr(eos, patch->U, patch->nx(), patch->ny(), patch->xmin, patch->xmax,
-                                    patch->ymin, patch->ymax, patch->level, binary_));
+        if (size == 1 || patch->owner == rank)
+            write_file_atomic(fs::path(dir_) / block_dir / base,
+                              build_vtr(eos, patch->U, patch->nx(), patch->ny(), patch->xmin, patch->xmax,
+                                        patch->ymin, patch->ymax, patch->level, binary_));
         leaf_files.push_back(block_dir + "/" + base);
+    }
+    if (size > 1) {
+        if (sync) sync();   // all leaves are on disk before the index points at them
+        if (rank != 0) return;
     }
 
     // Group this snapshot's leaves into one multi-block file; only the .vtm is

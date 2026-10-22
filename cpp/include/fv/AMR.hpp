@@ -151,6 +151,12 @@ struct AMRParallel {
 // Every owner sends the state of its leaves to the ranks that hold a halo copy (after the owners changed
 // them outside advance_amr_level, e.g. the solid reset).
 void refresh_halos(AMRTree& tree, const AMRParallel& par);
+// `width` doubles per leaf, computed by the owner of each leaf with `fn(leaf, out)`; the result holds every
+// leaf's values in leaf order on all ranks. With par == nullptr this rank computes them all.
+std::vector<double> allgather_leaf_values(AMRTree& tree, const AMRParallel* par, int width,
+                                          const std::function<void(AMRPatch&, double*)>& fn);
+// The state of every leaf concatenated in leaf order, on rank 0 only (empty on the others).
+Field gather_leaves_on_root(AMRTree& tree, const AMRParallel& par);
 // Refresh the copies of the leaves this rank neither owns nor holds as halo from their owners
 // (a full allgather; the remesh, the solid reset and the output still read every leaf).
 void gather_leaf_state(AMRTree& tree, const AMRParallel& par);

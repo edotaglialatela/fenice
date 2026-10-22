@@ -1096,7 +1096,7 @@ Field Simulation::load_hot_start(const std::string& path) {
     return U3;
 }
 
-void Simulation::dump_final_state(int step) const {
+void Simulation::dump_final_state(int step, const Field* amr_all) const {
     if (p.dump_state.empty()) return;
     NpzArchive a;
     a["t"]    = NpyArray::from_double(t);
@@ -1105,10 +1105,10 @@ void Simulation::dump_final_state(int step) const {
         Field all;
         std::vector<double> meta;
         for (const AMRPatch* lf : amr_tree->leaves()) {
-            all.insert(all.end(), lf->U.begin(), lf->U.end());
+            if (!amr_all) all.insert(all.end(), lf->U.begin(), lf->U.end());
             meta.insert(meta.end(), {lf->xmin, lf->xmax, lf->ymin, lf->ymax, static_cast<double>(lf->level)});
         }
-        a["U"] = field_to_npy(all);
+        a["U"] = field_to_npy(amr_all ? *amr_all : all);
         a["leaf_meta"] = NpyArray::from_doubles(meta, {static_cast<int64_t>(meta.size() / 5), 5});
     } else {
         a["U"] = field_to_npy(U, mesh.is3d() ? kNVar : 4);
@@ -1296,7 +1296,12 @@ void Simulation::solve_amr() {
     const bool root = !par || par->rank == 0;
     if (par) assign_ownership(tree, par->rank, par->size);
 
-    if (step == 0 && root) exporter.export_amr(file_prefix, fluid, tree, t, step);
+    // Every rank writes its own leaves; the barrier lets rank 0 index them once they are all on disk
+    const auto export_leaves = [&](int st) {
+        if (par) exporter.export_amr(file_prefix, fluid, tree, t, st, par->rank, par->size, [&] { par->allreduce_max(0.0); });
+        else     exporter.export_amr(file_prefix, fluid, tree, t, st);
+    };
+    if (step == 0) export_leaves(step);
 
     const PatchResidualFn pres = [this](AMRPatch& patch, AMRTree& tr, const Field& Uin, Field& R, Field& fx, Field& fy) {
         return patch_residual(patch, tr, Uin, R, fx, fy);
@@ -1307,37 +1312,47 @@ void Simulation::solve_amr() {
     double S_max = 0.0;
     {
         Field R, fx, fy;
-        for (AMRPatch* leaf : tree.leaves()) S_max = std::max(S_max, patch_residual(*leaf, tree, leaf->U, R, fx, fy));
+        for (AMRPatch* leaf : tree.leaves())
+            if (!par || leaf->owner == par->rank) S_max = std::max(S_max, patch_residual(*leaf, tree, leaf->U, R, fx, fy));
+        if (par) S_max = par->allreduce_max(S_max);
     }
 
-    // Monitor: area-weighted means over the leaves; IBM loads summed over the leaves in tree order
+    // Monitor: area-weighted means over the leaves; IBM loads summed over the leaves in tree order. Every
+    // rank computes the partial sums of its own leaves (a collective call), all of them add the partial
+    // sums up in leaf order, so the result does not depend on the number of ranks.
     std::FILE* mon = root ? open_monitor() : nullptr;
+    const bool monitoring = p.monitor_interval > 0;
     auto row = [&](int st) {
+        const auto parts = allgather_leaf_values(tree, par, 7, [&](AMRPatch& leaf, double* o) {
+            const double a = leaf.mesh.cell_area();
+            double s0 = 0.0, s1 = 0.0, s2 = 0.0, area = 0.0;
+            for (const State& c : leaf.U) {
+                s0 += c[0] * a;
+                s1 += 0.5 * (c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0] * a;
+                s2 += c[3] * a;
+                area += a;
+            }
+            o[0] = s0; o[1] = s1; o[2] = s2; o[3] = area;
+            o[4] = o[5] = o[6] = 0.0;
+            if (p.use_ibm) {
+                AMRPatch& lf = leaf;
+                Field R, fx, fy;
+                ensure_patch_masks(lf);
+                patch_residual(lf, tree, lf.U, R, fx, fy);
+                const auto l = ibm_loads(lf.mesh, ImmersedBoundary(lf.nx(), lf.ny(), lf.solid, p.rho_in, p.p_out), lf.U, R);
+                for (int q = 0; q < 3; ++q) o[4 + q] = l[q];
+            }
+        });
         double sums[3] = {0.0, 0.0, 0.0}, area_tot = 0.0;
         std::array<double, 3> loads{};
-        Field R, fx, fy;
-        for (AMRPatch* leaf : tree.leaves()) {
-            const double a = leaf->mesh.cell_area();
-            for (const State& c : leaf->U) {
-                sums[0] += c[0] * a;
-                sums[1] += 0.5 * (c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0] * a;
-                sums[2] += c[3] * a;
-                area_tot += a;
-            }
-            if (p.use_ibm) {
-                patch_residual(*leaf, tree, leaf->U, R, fx, fy);
-                const auto l = ibm_loads(leaf->mesh, ImmersedBoundary(leaf->nx(), leaf->ny(), leaf->solid, p.rho_in, p.p_out),
-                                         leaf->U, R);
-                for (int q = 0; q < 3; ++q) loads[q] += l[q];
-            }
+        for (size_t k = 0; k < parts.size(); k += 7) {
+            for (int q = 0; q < 3; ++q) { sums[q] += parts[k + q]; loads[q] += parts[k + 4 + q]; }
+            area_tot += parts[k + 3];
         }
         monitor_row(mon, st, {sums[0] / area_tot * mesh.cell_area(), sums[1] / area_tot * mesh.cell_area(),
                               sums[2] / area_tot * mesh.cell_area()}, p.use_ibm ? &loads : nullptr);
     };
-    if (mon && step == 0) {
-        if (p.use_ibm) for (AMRPatch* leaf : tree.leaves()) ensure_patch_masks(*leaf);
-        row(step);
-    }
+    if (monitoring && step == 0) row(step);
 
     const auto t0 = Clock::now();
     bool interrupted = false;
@@ -1364,11 +1379,11 @@ void Simulation::solve_amr() {
             if (par) assign_ownership(tree, par->rank, par->size);
         }
 
-        if (mon && step % p.monitor_interval == 0) row(step);
+        if (monitoring && step % p.monitor_interval == 0) row(step);
 
-        if (step % p.save_interval == 0 && root) {
-            exporter.export_amr(file_prefix, fluid, tree, t, step);
-            std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | patches = %zu | wall = %s\n", step, t,
+        if (step % p.save_interval == 0) {
+            export_leaves(step);
+            if (root) std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | patches = %zu | wall = %s\n", step, t,
                         dt, S_max, tree.leaves().size(), format_elapsed(seconds_since(t0)).c_str());
             std::fflush(stdout);
         }
@@ -1377,15 +1392,16 @@ void Simulation::solve_amr() {
     }
     const double loop_wall = seconds_since(t0);
 
-    if (mon) {
+    if (monitoring) {
         if (step % p.monitor_interval != 0) row(step);
-        std::fclose(mon);
+        if (mon) std::fclose(mon);
     }
+    if (root && interrupted) std::printf("\n[INTERRUPTED] Stopping AMR simulation...\n");
+    export_leaves(step);
+    const Field all = par ? gather_leaves_on_root(tree, *par) : Field();
     if (!root) return;
-    if (interrupted) std::printf("\n[INTERRUPTED] Stopping AMR simulation...\n");
-    exporter.export_amr(file_prefix, fluid, tree, t, step);
     exporter.write_pvd(file_prefix);
-    dump_final_state(step);
+    dump_final_state(step, par ? &all : nullptr);
     std::printf("=== DONE  - open '%s.pvd' in ParaView ===  (time loop %.3f s, %d steps)\n", file_prefix.c_str(),
                 loop_wall, step - start_step);
 }

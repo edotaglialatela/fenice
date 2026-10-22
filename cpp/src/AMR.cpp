@@ -583,6 +583,59 @@ void exchange_reflux(AMRTree& tree, int level, const AMRParallel& par) {
 
 }  // namespace
 
+std::vector<double> allgather_leaf_values(AMRTree& tree, const AMRParallel* par, int width,
+                                          const std::function<void(AMRPatch&, double*)>& fn) {
+    const auto lv = tree.leaves();
+    std::vector<double> out(lv.size() * width, 0.0);
+    if (!par || par->size == 1) {
+        for (size_t k = 0; k < lv.size(); ++k) fn(*lv[k], out.data() + k * width);
+        return out;
+    }
+    std::vector<int> counts(par->size, 0), displs(par->size, 0);
+    for (const AMRPatch* p : lv) counts[p->owner] += width;
+    for (int r = 1; r < par->size; ++r) displs[r] = displs[r - 1] + counts[r - 1];
+    std::vector<double> send, recv(out.size());
+    for (AMRPatch* p : lv)
+        if (p->owner == par->rank) {
+            send.resize(send.size() + width);
+            fn(*p, send.data() + send.size() - width);
+        }
+    par->allgatherv(send.data(), static_cast<int>(send.size()), recv.data(), counts.data(), displs.data());
+    std::vector<size_t> pos(displs.begin(), displs.end());
+    for (size_t k = 0; k < lv.size(); ++k) {
+        std::copy(recv.begin() + pos[lv[k]->owner], recv.begin() + pos[lv[k]->owner] + width, out.begin() + k * width);
+        pos[lv[k]->owner] += width;
+    }
+    return out;
+}
+
+Field gather_leaves_on_root(AMRTree& tree, const AMRParallel& par) {
+    const auto lv = tree.leaves();
+    std::vector<std::vector<double>> send(par.size), recv(par.size);
+    for (const AMRPatch* p : lv) {
+        const size_t n = static_cast<size_t>(p->nx()) * p->ny() * kNVar;
+        if (p->owner == par.rank && par.rank != 0)
+            for (const State& st : p->U) send[0].insert(send[0].end(), st.begin(), st.end());
+        else if (par.rank == 0 && p->owner != 0)
+            recv[p->owner].resize(recv[p->owner].size() + n);
+    }
+    par.exchange(send, recv);
+    Field all;
+    if (par.rank != 0) return all;
+    std::vector<size_t> pos(par.size, 0);
+    for (const AMRPatch* p : lv) {
+        if (p->owner == 0) { all.insert(all.end(), p->U.begin(), p->U.end()); continue; }
+        const size_t n = static_cast<size_t>(p->nx()) * p->ny();
+        for (size_t c = 0; c < n; ++c) {
+            State st;
+            std::copy(recv[p->owner].begin() + pos[p->owner], recv[p->owner].begin() + pos[p->owner] + kNVar, st.begin());
+            pos[p->owner] += kNVar;
+            all.push_back(st);
+        }
+    }
+    return all;
+}
+
 void refresh_halos(AMRTree& tree, const AMRParallel& par) {
     const auto lv = tree.leaves();
     push_fields(par, lv, dest_of(lv, false), Kind::State);
