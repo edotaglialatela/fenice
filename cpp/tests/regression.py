@@ -13,6 +13,7 @@ their exact solutions (see the fenice_tests checks of the same names).
     python cpp/tests/regression.py --mpi 4     # also C++ MPI (4 ranks) vs references
     python cpp/tests/regression.py --only amr
     python cpp/tests/regression.py --create-missing   # write references for NEW cases only
+    python cpp/tests/regression.py --update CASE...   # overwrite these references (deliberate, validated change)
 
 Only numpy is needed.  Exit code 0 when everything matches.
 """
@@ -152,6 +153,9 @@ def main():
     ap.add_argument("--tol", type=float, default=1e-8, help="max relative difference (default 1e-8)")
     ap.add_argument("--create-missing", action="store_true",
                     help="write references for cases that have none (never overwrites existing ones)")
+    ap.add_argument("--update", nargs="+", metavar="CASE", choices=list(CASES),
+                    help="overwrite the references of these cases with the current results, printing how far they "
+                         "moved; only after a deliberate change of the numerics that was validated physically")
     args = ap.parse_args()
     if not os.path.isfile(EXE):
         sys.exit(f"Solver not built: {EXE}\nRun .\\cpp\\build.ps1 first.")
@@ -165,6 +169,11 @@ def main():
             U, meta, steps, _ = run_cpp(name, tmp)
             np.savez(path, U=U, step=steps, **({} if meta is None else {"leaf_meta": meta}))
             print(f"created reference {name} ({steps} steps, {U.shape[0]} cells)")
+    for name in args.update or []:
+        U, meta, steps, _ = run_cpp(name, tmp)
+        _, diff, old_steps = compare(name, U, meta, steps, args.tol)
+        np.savez(os.path.join(REF, f"{name}.npz"), U=U, step=steps, **({} if meta is None else {"leaf_meta": meta}))
+        print(f"updated reference {name}: {old_steps} -> {steps} steps, max rel change {diff:.2e}")
     runs = [(n, 0) for n in CASES if args.only in n]
     if args.mpi:
         runs += [(n, args.mpi) for n in MPI_CASES if args.only in n]

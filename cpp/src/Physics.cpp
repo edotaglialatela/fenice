@@ -76,8 +76,6 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
     double* dudy = dudx + n;
     double* dvdx = dudy + n;
     double* dvdy = dvdx + n;
-    double rho_min = 1e300;
-    for (int c = 0; c < n; ++c) rho_min = std::min(rho_min, W[c][0]);
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int c = 0; c < n; ++c) {
         const double rho = W[c][0], u = W[c][1], v = W[c][2];
@@ -193,17 +191,29 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
         }
     }
 
-    // Parabolic CFL limit: dt <= 0.25 * min(dx,dy)^2 / max(nu, alpha_th)
-    const double nu_kin = mu_ / rho_min;
-    const double alpha_th = k_cond / (rho_min * (gamma / (gamma - 1.0)));
-    return 0.25 * std::min(dx * dx, dy * dy) / (std::max(nu_kin, alpha_th) + 1e-12);
+    // Speed that bounds the explicit time step. The convective eigenvalue (2 S / L) and the viscous one, from the
+    // parabolic limit dt_visc = 1 / (2 max(nu, alpha_th) (1/dx^2 + 1/dy^2)) (0.25 h^2 / nu on square cells), share
+    // one stability budget: dt (2 S / L + 1 / dt_visc) <= 2 CFL, so the solver divides CFL L by
+    // S = (|u| + c) + L / (2 dt_visc) of the worst cell. A maximum over cells is the same on any partition (MPI
+    // strips, AMR patches), and it stays below the face wave speed as the viscosity goes to zero.
+    const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
+    double s_max = 0.0;
+    for (int c = 0; c < n; ++c) {
+        const double rho = W[c][0];
+        const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+        const double s =
+            std::max(std::abs(W[c][1]), std::abs(W[c][2])) + eos_.sound_speed(W[c][3], rho) + L * inv_h2 * nu_eff;
+        s_max = std::max(s_max, s);
+    }
+    return s_max;
 }
 
 // 3-D viscous residual.  For a face normal to axis d the velocity-gradient tensor
 // G[a][b] = du_a/dx_b uses compact differences across the face for b == d and
 // face averages of the cell-centre gradients otherwise (the "cross" terms).
 double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const Field& gY, const Field& gZ,
-                                         const Mesh& m, const Field& U_pad, Field& Rv, const CrossGhosts* cg) const {
+                                         const Mesh& m, const Field& U_pad, Field& Rv, const CrossGhosts* cg,
+                                         double length) const {
     constexpr double MU_DIAG = 4.0 / 3.0;
     constexpr double MU_OFF = 2.0 / 3.0;
     const int nx = m.nx, ny = m.ny, nz = m.nz, n = nx * ny * nz;
@@ -224,8 +234,6 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
     double* G[3][3];
     for (int a = 0; a < 3; ++a)
         for (int b = 0; b < 3; ++b) G[a][b] = scratch_.data() + (4 + 3 * a + b) * static_cast<size_t>(n);
-    double rho_min = 1e300;
-    for (int cc = 0; cc < n; ++cc) rho_min = std::min(rho_min, W[cc][0]);
     const Field* grads[3] = {&gX, &gY, &gZ};
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int cc = 0; cc < n; ++cc) {
@@ -374,12 +382,20 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
         }
     }
 
-    const double nu_kin = mu_ / rho_min;
-    const double alpha_th = k_cond / (rho_min * (gamma / (gamma - 1.0)));
-    // Parabolic limit of the 3-D heat equation, dt <= 1 / (2 nu sum 1/h^2) (h^2/6nu on cubes); the 2-D
-    // 0.25 min(h)^2 / nu is the same bound for square cells
+    // Speed that bounds the explicit time step, as in the 2-D version. The parabolic limit of the 3-D heat
+    // equation is dt_visc = 1 / (2 nu sum 1/h^2) (h^2/6nu on cubes; the 2-D 0.25 min(h)^2 / nu is the same
+    // bound for square cells) and the convective length is L = 2 / sum(1/h), so L / (2 dt_visc) = L nu sum 1/h^2.
     const double inv_h2 = 1.0 / (m.dx * m.dx) + 1.0 / (m.dy * m.dy) + 1.0 / (m.dz * m.dz);
-    return 0.5 / (inv_h2 * (std::max(nu_kin, alpha_th) + 1e-12));
+    const double L = length > 0.0 ? length : 2.0 / (1.0 / m.dx + 1.0 / m.dy + 1.0 / m.dz);
+    double s_max = 0.0;
+    for (int cc = 0; cc < n; ++cc) {
+        const double rho = W[cc][0];
+        const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+        const double s = std::max({std::abs(W[cc][1]), std::abs(W[cc][2]), std::abs(W[cc][4])}) +
+                         eos_.sound_speed(W[cc][3], rho) + L * inv_h2 * nu_eff;
+        s_max = std::max(s_max, s);
+    }
+    return s_max;
 }
 
 // ---------------------------------------------------------------------------

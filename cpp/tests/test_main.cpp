@@ -1651,6 +1651,23 @@ TEST(taylor_green_convergence) {
     CHECK(o2 > 1.7);
 }
 
+TEST(taylor_green_viscous_time_step_budget) {
+    // With a large viscosity the convective and the viscous eigenvalues must share the stability budget of the
+    // time step. Taking only the smaller of the two limits let CFL 0.5 go unstable here (velocity error 0.37
+    // at t = 1 for nu = 0.2, the energy decaying too fast for nu = 0.1), the combined limit keeps it exact.
+    for (const double mu : {0.1, 0.2}) {
+        const std::string mus = std::to_string(mu);
+        const SimParams sp = params_for("Taylor-Green Vortex", {{"nx", "64"}, {"ny", "64"}, {"mu", mus.c_str()}});
+        Simulation s;
+        s.setup(sp, false);
+        const double err = tgv_velocity_error(
+            run_to(sp, get_test_case("Taylor-Green Vortex").initialize(s.mesh, s.fluid, s.p.source), 2.0), s.mesh,
+            s.fluid, 2.0, mu);
+        std::printf("    nu = %.1f: velocity error %.2e at t = 2\n", mu, err);
+        CHECK(err < 5e-3);
+    }
+}
+
 TEST(isentropic_vortex_convergence) {
     // Smooth inviscid advection: MUSCL + SSP-RK2 must converge at (close to) 2nd order
     const double e20 = vortex_density_error(20, 1.0), e40 = vortex_density_error(40, 1.0),
@@ -1731,7 +1748,7 @@ TEST(extrusion_matches_2d) {
         for (const auto& kv : c.ov) p2.set(kv.first, kv.second);
         Params p3 = p2;
         p3.set("nz", "3");
-        p3.set("Lz", "30.0");   // deep cells: dz must not set the CFL step
+        p3.set("Lz", "3.0e5");   // deep cells: dz must neither set the CFL step nor add to the viscous one
         const Simulation a = run_case(SimParams::from(p2), c.steps);
         const Simulation b = run_case(SimParams::from(p3), c.steps, a.dt_length);
         double diff = 0.0, wmax = 0.0;
@@ -1761,9 +1778,17 @@ TEST(taylor_green_rotated_planes) {
     for (int plane = 0; plane < 2; ++plane) {   // 0: x-z plane, 1: y-z plane
         const char* nx = plane == 0 ? "16" : "3";
         const char* ny = plane == 0 ? "3" : "16";
-        const SimParams p3 = params_for(
-            "Taylor-Green Vortex 3D",
-            {{"nx", nx}, {"ny", ny}, {"nz", "16"}, {"mu", "0.05"}, {"riemann_solver", "HLLC (Low-Mach Thornber)"}});
+        // The 3-cell direction is made very long: its 1/h^2 would otherwise add to the viscous time-step limit
+        const char* lx = plane == 0 ? "6.283185307179586" : "6.283185307179586e5";
+        const char* ly = plane == 0 ? "6.283185307179586e5" : "6.283185307179586";
+        const SimParams p3 = params_for("Taylor-Green Vortex 3D",
+                                        {{"nx", nx},
+                                         {"ny", ny},
+                                         {"nz", "16"},
+                                         {"Lx", lx},
+                                         {"Ly", ly},
+                                         {"mu", "0.05"},
+                                         {"riemann_solver", "HLLC (Low-Mach Thornber)"}});
         Simulation s3;
         s3.setup(p3, false);
         const Mesh& m = s3.mesh;

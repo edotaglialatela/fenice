@@ -615,13 +615,12 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
                 cg.hi_b = hi_b.data();
             }
         }
-        const double dt_visc = ns->viscous_residual(*Uc, gX_, gY_, m, Upad_, Rv_, &cg);
+        const double s_visc = ns->viscous_residual(*Uc, gX_, gY_, m, Upad_, Rv_, &cg);
         const int n = static_cast<int>(R.size());
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
         for (int c = 0; c < n; ++c)
             for (int q = 0; q < kNVar; ++q) R[c][q] += Rv_[c][q];
-        const double min_delta = std::min(m.dx, m.dy);
-        S = std::max(S, p.cfl * min_delta / (dt_visc + 1e-12));
+        S = std::max(S, s_visc);
     }
 
     if (body_force) body_force->add_to(*Uc, R);
@@ -766,12 +765,12 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
             }
         }
         compute_gradients_3d(Upad_, m, gX_, gY_, gZ_);
-        const double dt_visc = ns->viscous_residual_3d(Uv, gX_, gY_, gZ_, m, Upad_, Rv_, &cg);
+        const double s_visc = ns->viscous_residual_3d(Uv, gX_, gY_, gZ_, m, Upad_, Rv_, &cg, dt_length);
         const int n = static_cast<int>(R.size());
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
         for (int cc = 0; cc < n; ++cc)
             for (int q = 0; q < kNVar; ++q) R[cc][q] += Rv_[cc][q];
-        S = std::max(S, p.cfl * dt_length / (dt_visc + 1e-12));
+        S = std::max(S, s_visc);
     }
 
     if (body_force) body_force->add_to(Uv, R);
@@ -1073,13 +1072,13 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
             cg.y_hi_b = gb[3].data();
         }
 
-        const double dt_visc = nsl.viscous_residual(Uc, gX, gY, m, Pad, Rv, &cg, &vff);
+        const double s_visc = nsl.viscous_residual(Uc, gX, gY, m, Pad, Rv, &cg, &vff);
         // Total flux = convective - viscous, so that R = -div(flux) and the reflux sees both
         for (size_t f = 0; f < flux_x.size(); ++f)
             for (int q = 0; q < kNVar; ++q) flux_x[f][q] -= vff.fx[f][q];
         for (size_t f = 0; f < flux_y.size(); ++f)
             for (int q = 0; q < kNVar; ++q) flux_y[f][q] -= vff.fy[f][q];
-        S = std::max(S, p.cfl * std::min(m.dx, m.dy) / (dt_visc + 1e-12));
+        S = std::max(S, s_visc);
     }
 
     R.resize(Uc.size());

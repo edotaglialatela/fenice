@@ -22,6 +22,20 @@ so a CFL that is stable in 2-D stays stable in 3-D. Using $\min(\Delta x,\Delta 
 instead would allow a sum of $3\,\mathrm{CFL}$: the default 3-D Taylor-Green run (CFL 0.5)
 blows up after about 30 steps that way.
 
+**Viscous flows.** The convective and the viscous (diffusive) eigenvalues of the explicit operator
+share one stability budget, so the step must satisfy
+$\Delta t\,(2 S_{\rm adv}/h + 1/\Delta t_{\rm visc}) \le 2\,\mathrm{CFL}$, with the parabolic limit
+$\Delta t_{\rm visc} = 1/(2\,\nu \sum_d \Delta x_d^{-2})$ ($\Delta x^2/4\nu$ on a square 2-D cell). The residual
+callback folds it into the speed, cell by cell,
+
+$$S = \max_d|u_d| + c + \frac{h}{2\,\Delta t_{\rm visc}}, \qquad \nu = \max\!\Bigl(\frac{\mu}{\rho}, \frac{k}{\rho\, c_p}\Bigr),$$
+
+and takes the maximum over the cells, so it is the same on every MPI strip and AMR patch. A viscosity
+that goes to zero leaves $S$ at the convective wave speed. Taking only the smaller of the two
+limits is not enough: at CFL 0.5 the convective part alone uses the whole 2-D budget, and a viscous
+flow with a cell Reynolds number of order one (Taylor-Green at $\nu = 0.1$) then loses energy too fast
+or goes unstable.
+
 It is clamped so that the run ends exactly at `t_end`. $S_{\max}$ is taken from the first
 stage of each step. `advance_fixed_dt` instead advances by an imposed $\Delta t$; the
 [AMR]({{root}}modules/AMR.html) subcycling uses it, because each level's step is dictated

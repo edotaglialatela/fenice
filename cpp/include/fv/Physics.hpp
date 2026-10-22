@@ -57,15 +57,18 @@ public:
     // Dynamic viscosity `mu` [Pa s] and Prandtl number `Pr`.
     NavierStokes(const EOS& eos, double mu, double Pr) : eos_(eos), mu_(mu), Pr_(Pr) {}
 
-    // Writes the viscous residual into R_visc and returns the parabolic
-    // time-scale limit dt_visc.  U_pad is the BC-aware padded state.
+    // Writes the viscous residual into R_visc and returns the wave speed that bounds the explicit time
+    // step: the maximum over cells of |u| + c + L / (2 dt_visc), with dt_visc the parabolic limit of the
+    // cell. The solver takes S = max(S_convective, this), so the convective and the viscous eigenvalues
+    // share one stability budget. U_pad is the BC-aware padded state.
     double viscous_residual(const Field& U, const Field& grad_x, const Field& grad_y, const Mesh& mesh,
                             const Field& U_pad, Field& R_visc, const CrossGhosts* cross = nullptr,
                             ViscousFaceFluxes* faces = nullptr) const;
-    // 3-D version: full stress tensor tau_ij = mu (du_i/dx_j + du_j/dx_i) - 2/3 mu delta_ij div u.
+    // 3-D version: full stress tensor tau_ij = mu (du_i/dx_j + du_j/dx_i) - 2/3 mu delta_ij div u. `length`
+    // is the time-step length L of the solver (0: 2 / sum(1/h)).
     double viscous_residual_3d(const Field& U, const Field& grad_x, const Field& grad_y, const Field& grad_z,
                                const Mesh& mesh, const Field& U_pad, Field& R_visc,
-                               const CrossGhosts* cross = nullptr) const;
+                               const CrossGhosts* cross = nullptr, double length = 0.0) const;
 
     // Dynamic viscosity.
     double mu() const { return mu_; }
