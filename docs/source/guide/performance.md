@@ -12,6 +12,7 @@ Every kernel is native C++. Three levels of parallelism combine:
 | Loop | OpenMP `parallel for` over faces / cells | Riemann fluxes, MUSCL, BCs, gradients, viscous terms, time-scheme updates |
 | AMR patch | OpenMP over the patches of one refinement level | AMR runs |
 | Domain | MPI strips with halo exchange | large uniform meshes, multiple nodes |
+| AMR leaves | MPI over the patches, cut along a Morton curve; each rank stores only its patches and their neighbours | AMR runs that do not fit one node's cores or memory |
 
 **Loop parallelism.** Loops shorter than `kOmpMinWork` (4096 items) run on one thread,
 because OpenMP fork/join would cost more than the work. All reductions, such as the
@@ -22,6 +23,14 @@ therefore **bit-identical for any thread count**.
 updates are independent. They run concurrently, with one time-scheme clone (scratch
 buffers) per thread. The OpenMP loops inside a patch are serial because they fall below
 `kOmpMinWork`.
+
+**AMR on MPI.** Under MPI the patches of each level are distributed over the ranks along a
+Morton (Z-order) curve, and the memory is distributed with them: a rank allocates the state
+of its own patches and of the neighbours it reads, nothing else. Interior patches of the
+tree carry no state, the initial condition is evaluated only on the owned patches, and a
+remesh moves a patch only to the ranks that newly need it. The result is identical to the
+serial one for any number of ranks. OpenMP threads are still faster on one node; see
+[AMR]({{root}}modules/AMR.html) for the timings and the memory per rank.
 
 **MPI.** Each rank runs one OpenMP thread by default, to avoid oversubscription. Pass
 `--threads N` or set `OMP_NUM_THREADS` for hybrid MPI + OpenMP runs. The MPI result is

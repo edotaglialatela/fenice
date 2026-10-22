@@ -162,7 +162,8 @@ cells). The patch size must be even and divide `nx` and `ny`.
 numbers per patch), so all ranks take the same remeshing and 2:1-balance decisions, but the
 state of a patch exists only on the rank that owns it and on the ranks that need a copy of
 it. Each level is cut into contiguous blocks along a Morton (Z-order) curve through the
-patch positions, so a rank's patches are compact in space and few of its neighbours live
+patch positions (Morton, 1966; the same space-filling-curve partition as in p4est, Burstedde
+et al., 2011), so a rank's patches are compact in space and few of its neighbours live
 elsewhere. A rank keeps a copy of every patch within two of its own cells of a patch it owns
 (corners included); which ranks those are is computed from the tree on every rank, so
 nothing is negotiated. The owner of a patch sends it point to point to the ranks holding a
@@ -172,6 +173,13 @@ coarse owner. After a remesh the patches that changed owner are moved, and the r
 that they hold the same tree. Every rank writes the VTK files of its own patches. A patch's
 arithmetic does not depend on its rank, so the result is identical to the serial run for
 any number of ranks, including more ranks than patches.
+
+**Memory.** Only the owned patches and their halo copies are allocated on a rank. A parent
+patch keeps no state (a derefinement rebuilds it from its children), a tree created under
+MPI starts without any state, the initial condition and the hot-start seeding run on the
+owned patches only, and after a remesh a patch is sent only to the ranks that newly need it
+and freed on the ranks that no longer do. The `Step` lines of a distributed run report the
+largest number of cells a rank stores.
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/amr_mpi.png" style="width:100%">
@@ -209,5 +217,9 @@ finest levels: the error of the finest uniform mesh with 53% of its cells
   toolkit. *Comput. Phys. Commun.* 126(3), 330-354.
 * Löhner, R. (1987). An adaptive finite element scheme for transient problems in CFD.
   *Comput. Methods Appl. Mech. Eng.* 61(3), 323-338.
+* Morton, G. M. (1966). A computer oriented geodetic data base and a new technique in file
+  sequencing. Technical report, IBM Ltd., Ottawa.
+* Burstedde, C., Wilcox, L. C. & Ghattas, O. (2011). p4est: scalable algorithms for parallel
+  adaptive mesh refinement on forests of octrees. *SIAM J. Sci. Comput.* 33(3), 1103-1133.
 
 {{api}}

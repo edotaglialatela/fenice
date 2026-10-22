@@ -107,6 +107,10 @@ MPI runs oversubscribe them (Open MPI environment variables in the workflow).
 
 ## Physical validation (`cases/validation/`)
 
+The vocabulary follows Roache (2009): *verification* asks whether the equations are solved
+correctly (exact solutions, order of accuracy, grid convergence), *validation* whether the
+right equations are solved (reference data).
+
 Each script is one study: it runs the solver into `results/validation/<study>/`, compares
 the result with an analytical or reference solution, prints the errors and saves its figures
 there. Runs that already finished are reused, so a second call only redraws the figures
@@ -135,3 +139,8 @@ python cases\validation\sod.py --force              # one study, re-running its 
 | `amr_mpi.py` | AMR airfoil on OpenMP threads and MPI ranks: states identical to serial, time and cells per rank |
 | `ibm_loads.py cylinder` / `airfoil` | IBM loads from the monitor, Strouhal number |
 | `cylinder_mesh_transition.py` | cylinder loads across a 400×200 → 800×400 hot start (animation) |
+
+### References
+
+* Roache, P. J. (2009). *Fundamentals of Verification and Validation*. Hermosa Publishers,
+  Socorro, New Mexico. ISBN 978-0-913478-12-7.
