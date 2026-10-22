@@ -1,6 +1,6 @@
 # Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
 
-Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13). The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
+Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13); jump closure (b) and the parent-level join done (sections 14-15), the second-order coarse side (c) is an experiment waiting for the user's decision. The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
 `main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
 
 ## 1. Why
@@ -460,3 +460,11 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
   | 0.10 | 3.22e-3, 696 (4.33e-3, 570) | 3.12e-3, 783 (4.56e-3, 643) | 3.10e-3, 983 (3.43e-3, 797) |
 
   Uniform 200 (3 200 cells): 2.91e-3. The contact that the default 0.1 missed before is now kept refined.
+
+## 16. Check of the second-order coarse side (c) on the other tests (default flipped to on, suite run, flipped back)
+* Whole suite with `coarse_side_second_order = true`: all tests pass (102). Sod with waves crossing the jumps improves (global L1 9.91e-3 -> 9.36e-3 for the narrow band (a), window error
+  1.78e-2 -> 1.36e-2), the maximum density stays below 1.01 and the minimum above 0.115 (checked in the test), dynamic Sod is unchanged (3.22e-3 -> 3.23e-3), conservation with and without
+  viscosity and the free stream are unaffected (shared fluxes, zero slopes).
+* The acceptance bound fixed before the first P4 run (adaptive manufactured-solution error below 0.75 x the coarse one, section 12), failed by injection (1.12 / 1.27 x), is MET with
+  (b) + (c): steady viscous 1.049e-3 against 1.465e-3 (0.72 x), unsteady Euler 1.075e-3 against 1.534e-3 (0.70 x).
+* `fenice_tests` takes 10.3 s (8.9 s before the closure study of four closures).
