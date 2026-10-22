@@ -44,6 +44,7 @@ struct CellNeighbour {
     int b = -1;   // Finer only: the upper one
 };
 
+// Leaf cells of a 2-D adaptive mesh, their faces and the gather lists; see the file header.
 class CellMesh {
 public:
     // Base mesh nx x ny on [x0, x0+Lx] x [y0, y0+Ly]; levels 0..max_level.  A periodic axis wraps its two edges.
@@ -60,16 +61,19 @@ public:
     // Conservative state of every leaf; empty = no state (adapt then skips the transfer).
     Field U;
 
-    // Cell size in x / y at level l (exact halving of the base size).
+    // Cell size in x at level l (exact halving of the base size).
     double dx(int l) const { return dx0_ / static_cast<double>(1 << l); }
+    // Cell size in y at level l.
     double dy(int l) const { return dy0_ / static_cast<double>(1 << l); }
     // Area of a leaf.
     double area(int leaf) const { return dx(level[leaf]) * dy(level[leaf]); }
-    // Global coordinates of the centre of a leaf; at level 0 equal to Mesh::xc / yc.
+    // Global x of the centre of a leaf; at level 0 equal to Mesh::xc.
     double xc(int leaf) const { return (ci[leaf] + 0.5) * dx(level[leaf]) + x0; }
+    // Same for y.
     double yc(int leaf) const { return (cj[leaf] + 0.5) * dy(level[leaf]) + y0; }
-    // Cells per axis at level l.
+    // Cells in x at level l.
     int nx_at(int l) const { return nx << l; }
+    // Cells in y at level l.
     int ny_at(int l) const { return ny << l; }
 
     // Leaf with exactly these coordinates, or -1.  (A lookup, never used in a time loop.)
@@ -80,6 +84,7 @@ public:
     // --- faces (rebuilt after every adapt) ---
     // All faces, non-decreasing in level; face_level_begin[l] is the first of level l (size max_level + 2).
     std::vector<CellFace> faces;
+    // First face of each level.
     std::vector<int> face_level_begin;
     // Cell -> faces gather list: the faces on side s (Face::Left..Top) of leaf c are
     // side_face[side_ptr[4 c + s] .. side_ptr[4 c + s + 1]): one, or two (finer neighbours) ordered by increasing

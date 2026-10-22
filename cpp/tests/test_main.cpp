@@ -2473,6 +2473,7 @@ void check_cell_mesh(const CellMesh& m) {
                     const long long ox = std::min(A.x1, B.x1) - std::max(A.x0, B.x0);   // overlap; 0 = touching
                     const long long oy = std::min(A.y1, B.y1) - std::max(A.y0, B.y0);
                     if (ox < 0 || oy < 0) continue;
+                    CHECK(!(ox > 0 && oy > 0));   // no overlap
                     CHECK(std::abs(A.level - B.level) <= 1);   // corner 2:1 balance for every touching pair
                     const int kind = A.level == B.level ? 0 : 1, lev = std::max(A.level, B.level);
                     const LeafBox& fine = A.level >= B.level ? box[a] : box[b];
