@@ -29,7 +29,8 @@ built solver (`.\cpp\build.ps1`). Set `FENICE_EXE` to use an executable other th
 * **Solution Mapping.** Hot start from a checkpoint `.npz`. The source grid size is read
   from the file; legacy files without metadata ask for Nx / Ny.
 * **AMR.** Refinement levels, patch size (must be even), thresholds, remesh interval,
-  initial levels and buffer rings. MPI is disabled when AMR is on, and AMR requires Nz = 1.
+  initial levels and buffer rings. AMR can run on MPI ranks (the patches are distributed over
+  them; on one node OpenMP threads are usually faster), and it requires Nz = 1.
 
 ## Saving a case
 

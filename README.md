@@ -31,8 +31,9 @@ GUI, validation scripts and full documentation.
   2-D with subcycling, refluxing and 2:1 balance.
 - **Boundary conditions:** slip and no-slip walls, moving walls, velocity and mass-flow
   inlets, pressure outlets, transmissive and periodic.
-- **Parallelism:** OpenMP everywhere, plus MPI strips whose results match the serial run
-  exactly.
+- **Parallelism:** OpenMP everywhere, plus MPI (strips of rows or columns; for AMR, the
+  patches distributed over the ranks along a Morton curve). MPI results match the serial run
+  exactly for any number of ranks.
 - **I/O:** VTK output for ParaView, `.npz` checkpoints with restart, and hot start that maps
   a solution onto a different resolution.
 
