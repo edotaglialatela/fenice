@@ -257,7 +257,9 @@ def main(argv=None) -> int:
             sol.write_cases(cases)
             print(f"wrote {path} ({n} characters of source terms)")
         elif args.check:
-            ok = path.exists() and path.read_bytes() == text
+            ok = path.exists() and path.read_bytes().replace(b"
+", b"
+") == text   # git may check out CRLF
             print(f"{'OK ' if ok else 'DIFFERENT'} {path}")
             bad += 0 if ok else 1
         else:

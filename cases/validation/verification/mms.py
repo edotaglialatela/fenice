@@ -84,7 +84,9 @@ def check_generator():
     ok = True
     for sol in mms.default_solutions():
         path = cases / sol.folder() / "case.toml"
-        same = path.exists() and path.read_bytes() == sol.case_toml().encode("utf8")
+        same = path.exists() and path.read_bytes().replace(b"
+", b"
+") == sol.case_toml().encode("utf8")   # CRLF checkout
         ok = ok and same
         print(f"      {sol.name():28s} case file {'matches the generator' if same else 'DIFFERS: run python -m fenice.mms --write'}")
     return ok
