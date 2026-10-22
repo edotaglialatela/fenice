@@ -744,6 +744,7 @@ void remesh(AMRTree& tree, const AMRErrorIndicator& ind, const AMRParallel* par)
     if (!dist) return;
 
     assign_ownership(tree, par->rank, par->size);
+    check_same_tree(tree, *par);   // before any exchange that relies on every rank having the same tree
 
     // Move the data: every rank that now needs a leaf (owner or halo) and does not hold it gets it from
     // the lowest rank that does
@@ -775,7 +776,6 @@ void remesh(AMRTree& tree, const AMRErrorIndicator& ind, const AMRParallel* par)
             std::vector<char>().swap(l->solid_ext);
         }
     }
-    check_same_tree(tree, *par);
 }
 
 double advance_amr_level(AMRTree& tree, int level, double dt, double current_time, double max_time,

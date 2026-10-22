@@ -71,6 +71,11 @@ CASES = {
     "amr_sod_few_roots":   ("Sod Shock Tube", dict(Lx=1.0, nx=32, ny=4, Ly=0.125, t_end=0.15, use_amr=True,
                                                    amr_patch_nx=16, amr_patch_ny=4, amr_max_level=3, amr_refine_every=2,
                                                    amr_buffer_layers=1)),
+    # AMR seeded from a uniform hot-start field: owned leaves interpolate it, the halos are pushed
+    "amr_hot_start":       ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.03, use_hot_start=True,
+                                                   hot_start_file="{REF}/hot_source.npz", use_muscl=True, use_amr=True,
+                                                   amr_patch_nx=10, amr_patch_ny=4, amr_max_level=2, amr_refine_every=3,
+                                                   amr_buffer_layers=1)),
     # Added 2026-10-20 (C++ references, validated against the exact solutions)
     "taylor_green_visc":   ("Taylor-Green Vortex", dict(nx=32, ny=32, t_end=0.5, mu=0.05)),
     "isentropic_vortex":   ("Isentropic Vortex", dict(nx=40, ny=40, t_end=1.0)),
@@ -107,7 +112,7 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodi
              "cylinder_ibm_visc", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
-             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots"]
+             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start"]
 
 
 def run_cpp(name, tmp, n_mpi=0):

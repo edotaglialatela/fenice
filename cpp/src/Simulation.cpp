@@ -331,9 +331,10 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         body_force.reset();
     }
 
-    // AMR (serial only: AMR and MPI are mutually exclusive)
+    // AMR (with several MPI ranks the leaves are distributed over them: see AMRParallel)
     amr_tree.reset();
     amr_indicator.reset();
+    amr_dist = false;
     if (p.use_amr) {
         amr_tree = std::make_unique<AMRTree>(p.Lx, p.Ly, p.amr_patch_nx, p.amr_patch_ny, p.amr_max_level,
                                              p.nx / p.amr_patch_nx, p.ny / p.amr_patch_ny);
@@ -346,7 +347,6 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         if (verbose)
             std::printf("[AMR] Enabled - max_level=%d, patch_size=%dx%d, subcycling active\n", p.amr_max_level,
                         p.amr_patch_nx, p.amr_patch_ny);
-        amr_dist = false;
 #ifdef FV_USE_MPI
         int init = 0, size = 1;
         MPI_Initialized(&init);
@@ -379,6 +379,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                 return g;
             };
             amr_tree->store_state = false;   // a leaf's state exists only on the ranks that hold it
+            for (AMRPatch* root : amr_tree->roots) Field().swap(root->U);   // created before the switch
         }
 #endif
     }
@@ -1406,7 +1407,7 @@ void Simulation::solve_amr() {
     }
     if (root && interrupted) std::printf("\n[INTERRUPTED] Stopping AMR simulation...\n");
     export_leaves(step);
-    const Field all = par ? gather_leaves_on_root(tree, *par) : Field();
+    const Field all = par && !p.dump_state.empty() ? gather_leaves_on_root(tree, *par) : Field();   // only for the dump
     if (!root) return;
     exporter.write_pvd(file_prefix);
     dump_final_state(step, par ? &all : nullptr);
