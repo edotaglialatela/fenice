@@ -10,10 +10,11 @@ header: Simulation.hpp
 
 ```text
 setup(params)        mesh, EOS, BCs, Riemann solver, MUSCL, Navier-Stokes, body force,
-                     IBM, time scheme, AMR tree, exporter, test case
+                     IBM, time scheme, AMR leaf mesh and engine, exporter, test case
 initialize_field()   test-case initializer or hot start -> IBM forcing -> case BCs
-                     -> AMR seeding -> checkpoint (when resuming)
-solve()              serial / AMR time loop          run_mpi(comm)   MPI time loop
+                     -> AMR initial adaptation -> checkpoint (when resuming)
+solve()              serial time loop                run_mpi(comm)   MPI time loop (uniform)
+solve_amr()          AMR time loop, serial / OpenMP / MPI
 ```
 
 `fenice` (`cpp/apps/main.cpp`) resolves the parameters and calls these in order.
@@ -47,10 +48,8 @@ z halos and the 3-D viscous residual.
 
 The function returns $S_{\max}$; under MPI it is all-reduced.
 
-`patch_residual` is the AMR counterpart for one leaf patch. Domain-edge faces use the
-case's BCs, and internal faces are filled from the neighbouring leaves (see
-[AMR]({{root}}modules/AMR.html)). It also returns the face fluxes needed for refluxing.
-The AMR path applies the same physics as the uniform path (viscous, IBM, body force); see `patch_residual` and `amr_solid_reset`.
+The AMR residual is the face-list engine of the [AMR]({{root}}modules/AMR.html) page: the same physics
+(convective, viscous, IBM, body force, sources) through the same expressions, evaluated per face.
 
 ## Time loops
 
@@ -59,16 +58,16 @@ The AMR path applies the same physics as the uniform path (viscous, IBM, body fo
   `monitor_interval` steps). A final snapshot, the checkpoint
   and the `.pvd` index are written at the end.
 * **AMR.** The coarse $\Delta t$ comes from the previous step's $S_{\max}$ (a one-step
-  lag, bootstrapped from all leaves at $t = 0$). `advance_amr_level(0)` subcycles the
-  hierarchy, and every `amr_refine_every` steps the tree is remeshed (mark, refine,
-  derefine, balance).
+  lag, bootstrapped from all leaves at $t = 0$). The recursion of `CellAdvance` subcycles the
+  hierarchy, and every `amr_refine_every` steps the mesh is remeshed (indicator, flags, adaptation,
+  face-list rebuild). Under MPI every rank advances its owned leaves and exchanges halos.
 * **MPI.** Rank 0 builds the initial field and scatters it. Every rank advances its strip
   with halo exchanges inside each residual. Snapshots and checkpoints are gathered to
   rank 0. A Ctrl+C on any rank is agreed by all-reduce, so no rank is left waiting in a
   collective.
 
 The progress line reports step, time, $\Delta t$, $S_{\max}$ (and the BDF2 inner
-iterations or the AMR patch count) and the wall time. The final line gives the
+iterations or the number of AMR leaves) and the wall time. The final line gives the
 time-loop duration.
 
 {{api}}

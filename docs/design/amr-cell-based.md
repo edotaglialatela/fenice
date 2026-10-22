@@ -1,6 +1,6 @@
 # Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
 
-Status: P1-P6 done (P6 = MPI, section 18); P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13); jump closure (b) and the parent-level join done (sections 14-15), the second-order coarse side (c) is now the default (decision of the user, section 17). The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
+Status: P1-P7 done (P6 = MPI, section 18; P7 = the engine behind the CLI, section 19); P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13); jump closure (b) and the parent-level join done (sections 14-15), the second-order coarse side (c) is now the default (decision of the user, section 17). The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
 `main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
 
 ## 1. Why
@@ -539,3 +539,23 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
   P8 order of work: (1) do not replicate the remesh: the indicator over a distributed state, an incremental `adapt` and engine rebuild (only where leaves changed; churn is small after the parent-level join),
   (2) shrink `partition`, (3) distributed storage.
 * `fenice_tests` takes 11.1 s now (8.9 s before P6: the multi-rank emulation).
+
+## 19. P7 as built (the cell engine behind the CLI; the patch engine is gone)
+* `use_amr` runs `Simulation::solve_amr` (setup builds `CellMesh`, `CellFluxEngine`, the physics, `CellIndicator`, `CellAdaptor`, the MPI hooks; `initialize_field` does the uniform
+  pre-refinements, the initial adaptation, the solid reset and the partition). The patch engine (`AMR.cpp/hpp`, `restrict_patch`, the patch fields of `CrossGhosts` and `ViscousFaceFluxes`,
+  `patch_residual`, `amr_patch_nx/ny`, `amr_buffer_layers`) and the development driver `cell_amr_demo` are removed. Removed keys give an error that names the replacement.
+* Keys: `amr_max_level`, `amr_indicator` (variables joined by `+`), `amr_criterion`, `amr_refine_threshold` (0.15), `amr_derefine_threshold` (0.1, must not exceed the refine threshold),
+  `amr_diffusion`, `amr_refine_every`, `amr_init_levels`, `amr_refine_ibm`. Periodic and mass-flow boundaries and source terms (not with the IBM) are now allowed with AMR; BDF2 is not.
+* Output: `.vtu` (single rank) or per-rank `.vtu` + `.pvtu` (`export_cells`), `AMR_Level` field; `fenice.read_vtu`. Checkpoint: leaf list, `U`, `t`, step, lagged wave-speed bound, `.pvd` collection;
+  resume is bitwise, also with another rank count; hot start interpolates at the leaf centres. `dump_state` / `final.npz`: per-leaf `U` and `leaf_meta`.
+* **References.** The six AMR regression references were regenerated (their own commit) after the validation: each case against the uniform run at its finest level (relative L1 density difference
+  of the AMR run / of the base mesh: sod_1st 3.3e-3 / 1.8e-2, sod_muscl_init 1.1e-3 / 1.3e-2, square_rk4 1.2e-2 / 5.0e-2, sod_few_roots 3.1e-3 / 3.8e-2, naca0012 1.9e-4 / 5.6e-4), the Sod and
+  airfoil studies through the CLI, MPI == serial bitwise on 1-7 ranks and bitwise restart. The other 32 references are unchanged and match.
+* **Studies through the CLI.** Sod, 10x2 base, 4 levels, remeshed every 2 steps: 2 312 leaves, L1 1.51e-2 (uniform 160x32: 5 120 cells, 1.43e-2; uniform 80x16: 2.20e-2). With the default remesh
+  interval (10) the contact is under-resolved (848 leaves, 2.6e-2, and the criterion hardly matters), so the study sets 2. Airfoil, 192x96 + 2 levels, t = 6: 23 526 leaves, 14.2 s, rms error of
+  Cd / Cl against the 768x384 run 0.011 / 0.054 (uniform 192x96: 0.034 / 0.36; 768x384: 294 912 cells, 244 s; criterion 0.03 and 0.05 change the errors by less than 1 %).
+  The patch engine had 52 224 cells, 22 s, 0.007 / 0.039 (cached figures of `main`): the cell engine uses 2.2x fewer cells and 1.5x less time, with a larger error in the loads. This is reported, not
+  resolved; mean Cl is 5-6 % high for both engines (section 13).
+* **Real-MPI check**: `amr_mpi.py --check`: dynamic Sod, airfoil, viscous periodic MMS and unsteady MMS, serial and 1-7 ranks, bit for bit.
+* **Scaling with the final code** (`amr_mpi.py`, 720x360, 2 levels, 50 steps, noisy machine): serial 11.5 s (remesh 2.9); OpenMP 2/4/8/16: 7.3/5.3/4.7/6.0 s; MPI 2/4/8/16: 9.1/8.7/14.2/29.9 s (remesh
+  4.1/5.0/7.3/10.7). The patch engine's MPI was faster from 4 ranks on. This is the P8 problem and the next piece of work: a distributed or incremental remesh and distributed storage.

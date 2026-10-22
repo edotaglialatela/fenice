@@ -1,210 +1,166 @@
 ---
-title: AMR - block-structured adaptive mesh refinement
+title: AMR - adaptive mesh refinement on leaf cells
 nav: AMR
 section: Modules
 order: 60
-header: AMR.hpp
+header: CellMesh.hpp
 ---
 
-A **block-structured quad-tree** AMR layer. Each *leaf patch* is a small uniform sub-mesh with
-its own state. Refining a patch replaces it with four children of half the linear
-size:
+The adaptive mesh is a set of **leaf cells**, each a square-ish cell of the level-0 mesh
+split $\ell$ times by two in each direction (size $h_\ell = h_0/2^\ell$). There are no
+patches: the base mesh is the `nx × ny` grid of the case (any sizes), and a single cell is
+refined or joined at a time. Leaves are stored in flat arrays sorted by level and Morton
+(Z-order) key within the level, so cells that are close in space are close in memory and
+in the MPI partition.
 
 ```text
-Level 0  ┌───────────────┐
-         │  root  (L0)   │
-         └───────────────┘
-                 │ refine_patch()
-Level 1  ┌───────┬───────┐
-         │ TL(L1)│ TR(L1)│
-         ├───────┼───────┤
-         │ BL(L1)│ BR(L1)│
-         └───────┴───────┘
-              │ refine_patch(BL)
-Level 2  ┌───────┬───────┐
-         │ TL(L1)│ TR(L1)│
-         ├───┬───┼───────┤
-         │TLL│TLR│ BR(L1)│   2:1 balance satisfied
-         ├───┼───┤       │
-         │BLL│BLR│       │
-         └───┴───┴───────┘
+Level 0   ┌───────┬───────┬───────┐
+          │       │ ┌─┬─┐ │       │
+          │       │ ├─┼─┤ │       │      2:1 balance: leaves that touch
+          ├───────┼─┴─┴─┴─┼───────┤      (also at a corner) differ by
+          │       │       │       │      at most one level
+          └───────┴───────┴───────┘
 ```
 
-All patches share the same **block size** (`amr_patch_nx × amr_patch_ny` cells). The
-cell size halves per level, $h_\ell = h_0/2^\ell$. The block dimensions **must be
-even**: 2 fine cells tile 1 coarse cell only if the half-domain boundary lands on a
-coarse cell boundary, and `AMRTree` rejects odd sizes.
+## Faces and the residual
 
-The level-0 patches **tile the mesh**: `nx / amr_patch_nx` by `ny / amr_patch_ny` roots
-(both must divide exactly), so the base grid is exactly the `nx × ny` mesh and the
-refinement granularity is one patch. A 192×96 mesh with 16×16 patches has 12×6 roots and
-refines in blocks of 16×16 cells at every level. With one root (`nx = amr_patch_nx`) the
-tree is the quad-tree drawn above. Neighbour, point and ghost lookups go through a slot
-grid at the footprint of the finest patches, rebuilt after every refine or derefine.
+The solver does not sweep cells; it works on a **face list** (`CellFluxEngine`). Every face
+is one of
 
-## Prolongation and restriction
+* an **interior** face between two leaves of the same level,
+* a **coarse-fine** face between a leaf and the finer leaves on its other side (one face
+  per fine leaf),
+* a **boundary** face on the edge of the domain.
 
-* **Refinement** copies each coarse cell into its 2×2 fine block (piecewise-constant
-  injection). This is exactly mass-conservative and monotone: no over- or undershoots.
-* **Derefinement** restricts the children by area-weighted averaging,
-  $U_c = \tfrac14\sum U_f$, the exact inverse.
-* **Initial condition.** At $t = 0$ every leaf evaluates the case's initial condition at its
-  own cell centres, so refined leaves see exact discontinuities. A hot start is instead
-  interpolated bilinearly onto the leaves.
+A face computes its flux once (HLLC in any of its variants, MUSCL reconstruction from the
+same limiters as the uniform solver, the viscous flux, the immersed-body and boundary
+treatment) and adds it, with opposite signs, to the two cells it separates. Conservation
+therefore follows from the data layout, not from a correction. The MUSCL stencil of a face
+takes the cell on each side and one more beyond it. Where a stencil point falls on a
+different level it is a **virtual cell**: the mean of the finer leaves under it, or an
+interpolation of the coarser leaf. The level-0 mesh reproduces the uniform solver bit for
+bit (the same expressions in the same order), so refinement is switched on without a second
+implementation of the physics. Periodic axes are supported at level 0 and at every level
+(the stencil wraps), the other boundary conditions use the same ghost states as the uniform
+solver. The one boundary that cannot be used with AMR is the BDF2 dual time step.
 
-## Ghost cells between patches
+### Jump closure
 
-Every ghost cell outside a patch comes from one routine, a function of the ghost cell and
-of the patch's level only:
+At a coarse-fine face the fine side is evaluated with the fine leaf's own (second order)
+reconstruction against the interpolated coarse state, and the coarse side with a second-order
+reconstruction from the virtual cells under it (`interpolate_jumps`, `coarse_side_second_order`,
+both on). With the unreconstructed coarse state the scheme loses an order of accuracy
+across every level jump (the manufactured-solution test would not reach the bound on the
+adaptive mesh); this closure keeps it.
 
-* **Same-level neighbour.** The neighbour's cell.
-* **Finer neighbour.** The mean of the 2×2 fine cells under the ghost cell.
-* **Coarser neighbour.** Linear interpolation of the coarse state.
-* **Domain edge.** The case's boundary condition; at the corner of an interface and a
-  boundary, the boundary condition applied to the ghost cell next to it.
+## Subcycling and flux replacement
 
-The same ghost cells feed the Riemann states on the interface faces, the two MUSCL halo
-layers (so a seam between equal-level patches is reconstructed as in the uniform solver),
-the padded state of the viscous flux, and the halos of the non-reflecting outlet. Both
-patches sharing a face therefore compute the same flux, which keeps a viscous closed box
-conservative. Solid cells of an immersed body are held at rest in the ghost cells too.
-
-A level advances as **one concatenated state**: every Runge-Kutta stage reads the current
-stage of its same-level neighbours (as the uniform solver does), while coarser and finer
-leaves are read from a snapshot taken when the level starts. A tiling of equal-level
-patches is therefore the uniform solver bit for bit, for every time scheme.
-
-The periodic and mass-flow inlet boundaries act on a whole boundary and are rejected with
-AMR.
-
-## Subcycling and refluxing
-
-Fine patches advance at $\Delta t_\ell = \Delta t_0/2^\ell$, each level at its own CFL
-limit. `advance_amr_level` is recursive:
+A level $\ell$ advances with $\Delta t_\ell = \Delta t_0/2^\ell$, the finer level first:
 
 ```text
-advance_amr_level(L, dt):
-    if a finer level exists:
-        init_reflux_registers(L+1)
-        2x { advance_amr_level(L+1, dt/2);  accumulate fine face fluxes * dt/2 }
-    advance every leaf at level L by dt   (one state, stages synchronised; other levels frozen)
-    if a finer level exists:
-        apply_reflux(L);  restrict children -> parents
+advance(L, dt):
+    if a finer level exists: advance(L+1, dt/2); advance(L+1, dt/2)
+    advance every leaf of level L by dt  (the time scheme's stages, other levels frozen)
 ```
 
-**Refluxing** works between neighbouring leaves. Each
-coarse cell next to a coarse-fine face is corrected by
-$\pm(\sum F_{\rm fine} - F_{\rm coarse}\Delta t)/A$, so both sides transport the same
-amount across the interface. The registers hold the total flux, so the viscous flux is
-corrected too. With Explicit Euler this is exactly conservative; multi-stage schemes keep a
-small $O(\Delta t^2)$ interface term, because the coarse-fine ghost cells are not
-interpolated in time.
+Time is not interpolated: the coarse leaves are held at their value at the start of the
+coarse step while the fine levels run. At a coarse-fine face the fine side accumulates its
+flux over the sub-steps with the time scheme's stage weights; when the coarse level advances
+it **replaces** the flux it would have used by that accumulated one (the registers), so the
+coarse cell and the fine cells exchange exactly the same amount. Mass, momentum and energy are
+conserved to roundoff with every time scheme, including the multi-stage ones.
 
-## Error indicator and marking
+## Error indicator
 
-The Löhner (1987) second-derivative sensor is the ratio of second to first density
-differences (`amr_indicator = density`, the default; `velocity` takes the speed instead and
-`density+velocity` the larger of the two, which is needed for a nearly incompressible wake):
+The indicator looks at the variation of the solution across faces, level by level (`CellIndicator`).
+On the cells of a level (the leaves, plus the split ancestors of the deeper leaves, each holding the
+mean of its children):
 
-$$\eta = \max_{\rm cells}\frac{\sqrt{(\Delta^2_x\rho)^2 + (\Delta^2_y\rho)^2}}
-  {|\Delta^+_x\rho| + |\Delta^-_x\rho| + |\Delta^+_y\rho| + |\Delta^-_y\rho| + \varepsilon\,\rho_{\max}}$$
+1. $\xi = 0$ everywhere.
+2. For every face and every variable of `amr_indicator` (density, pressure, speed) with values
+   $c_l$, $c_r$ on the two sides, $v = |c_r - c_l| / \max(\min(|c_l|, |c_r|), \text{floor})$.
+   If $v \ge$ `amr_criterion`, both cells get $\xi = 1$.
+3. `amr_diffusion` times: across every face where one cell has $\xi > 0.05$, add 0.1 to the cells on
+   both sides. The refined band thus extends a few cells beyond the feature, so it holds a moving feature
+   between two remeshes.
+4. A leaf is **refined** when $\xi \ge$ `amr_refine_threshold` (below `amr_max_level`). Four sibling
+   leaves are **joined** when the $\xi$ of their **parent** cell, evaluated at the parent's own level,
+   is below `amr_derefine_threshold`. Judging the parent rather than the four children is what keeps a
+   marginal gradient from flickering: a refined child sees half the variation per face, and would
+   fall under the threshold the moment it is refined.
 
-It is $\approx 0$ on smooth gradients such as rarefaction fans, and $\approx 1$ at
-shocks and contacts, which keeps refinement focused on discontinuities. Patch edges use
-anti-symmetric extension, $\rho_g = 2\rho_{\rm edge} - \rho_{\rm in}$, so linear ramps
-give $\eta = 0$.
+Refinement ripples: a leaf that must be refined next to a coarser one first refines that neighbour
+(2:1 balance, including diagonal neighbours). A relative variation floor (0.01 for density and pressure,
+0.1 for the speed) keeps the indicator quiet where the variable is near zero. Use `density+velocity` for a
+wake, where the density barely varies, and add `pressure` for shocks in a flow with little density change.
 
-* **Refine** a leaf when $\eta > \theta_r$ (default 0.3) and it is below `max_level`.
-  `amr_buffer_layers` rings of face neighbours are added as well. This lookahead
-  keeps a moving feature inside the refined band between remeshes.
-* **Derefine** a parent when all four children are leaves with $\eta < \theta_d$
-  (default 0.1), unless a child is in the buffered refine set (anti-thrash guard).
-* **2:1 balance.** `enforce_2to1_balance` runs after every remesh, so no two
-  neighbouring leaves differ by more than one level.
-* **Immersed bodies.** With `use_ibm` and `amr_refine_ibm` (default), every leaf whose box,
-  grown by one cell, overlaps the body's bounding box is refined to `max_level` from
-  $t = 0$ and never coarsened. The test is geometric, so a thin trailing edge cannot slip
+* **Initial condition.** At $t = 0$ each leaf evaluates the case's initial condition at its own cell
+  centre, so a refined leaf sees the exact discontinuity. `amr_init_levels` first refines uniformly; the
+  initial adaptation then repeats indicator and remesh until nothing changes. A hot start is
+  interpolated at the leaf centres.
+* **Immersed bodies.** With `use_ibm` and `amr_refine_ibm` (default) every leaf whose footprint touches the
+  body, or the cells around it that the solid reset treats (the fringe), is kept at the finest level from
+  $t = 0$ and never joined. The test is on the finest-level mask, so a thin trailing edge cannot slip
   between cell centres.
+* **Remeshing** happens every `amr_refine_every` coarse steps. A remesh that changes no leaf costs only the
+  indicator.
 
-## Immersed boundary, viscous terms and body force
+## Physics on the adaptive mesh
 
-The [airfoil]({{root}}cases/airfoil.html#adaptive-mesh-refinement) case shows it: with 18 % of
-the cells of the uniform mesh at the body's resolution, AMR gives the same drag and lift
-history in 9 % of the time.
-
-The leaf residual `patch_residual` adds, when enabled, the viscous flux, a body force and
-the immersed-boundary forcing to the convective flux. Each leaf builds its solid mask,
-with a two-cell ghost ring, from the body geometry. The velocity of solid cells is zeroed
-in every residual, and the fringe and deep-solid reset runs once per complete step on a
-snapshot of all leaves, so it does not depend on the leaf order. The total flux
-(convective minus viscous) is what the reflux registers store. The monitor file gets the
-area-weighted means and the loads Fx, Fy, Cd, Cl, Cm summed over the leaves.
-
-## Output and performance
-
-Each snapshot writes one `.vtr` per leaf into `<case>_<step>/`, grouped by a
-`<case>_<step>.vtm` multi-block file. Only the `.vtm` is registered in the `.pvd`,
-because ParaView's PVD reader takes one file per time step. The `AMR_Level` cell field
-colours the refinement level.
-
-The patches of each level advance concurrently on all OpenMP threads.
-
-**Choosing the patch size.** Aim for patches of about 16 to 30 cells per side, so that there
-are several hundred of them (at least some 20 per thread or rank). Smaller patches cost a
-little more per cell (more interfaces and halo copies); larger ones refine whole blocks,
-which keeps cells the flow does not need, and leave too few patches to share out. On the
-720×360 airfoil, 50 steps on 16 threads, 12², 20², 24², 30², 40², 60² and 90² cells took
-3.5, 3.1, 3.1, 3.1, 3.4, 4.7 and 8.8 s (2211 down to 68 patches, 318 000 up to 551 000
-cells). The patch size must be even and divide `nx` and `ny`.
-
-**MPI.** With `use_mpi`, every rank holds the whole tree (extents, levels, owners: a few
-numbers per patch), so all ranks take the same remeshing and 2:1-balance decisions, but the
-state of a patch exists only on the rank that owns it and on the ranks that need a copy of
-it. Each level is cut into contiguous blocks along a Morton (Z-order) curve through the
-patch positions (Morton, 1966), so a rank's patches are compact in space and few of its neighbours live
-elsewhere. A rank keeps a copy of every patch within two of its own cells of a patch it owns
-(corners included); which ranks those are is computed from the tree on every rank, so
-nothing is negotiated. The owner of a patch sends it point to point to the ranks holding a
-copy: the same-level neighbours after every Runge-Kutta stage, the patches of a level
-once the level is final (after the reflux), the reflux registers from the fine to the
-coarse owner. After a remesh the patches that changed owner are moved, and the ranks check
-that they hold the same tree. Every rank writes the VTK files of its own patches. A patch's
-arithmetic does not depend on its rank, so the result is identical to the serial run for
-any number of ranks, including more ranks than patches.
-
-**Memory.** Only the owned patches and their halo copies are allocated on a rank. A parent
-patch keeps no state (a derefinement rebuilds it from its children), a tree created under
-MPI starts without any state, the initial condition and the hot-start seeding run on the
-owned patches only, and after a remesh a patch is sent only to the ranks that newly need it
-and freed on the ranks that no longer do. The `Step` lines of a distributed run report the
-largest number of cells a rank stores.
-
-<figure style="margin:1em 0;">
-<img src="{{root}}img/amr_mpi.png" style="width:100%">
-<figcaption>AMR airfoil on a 720×360 base mesh with 24×24 patches, 50 steps, 16 logical processors
-(<code>cases/validation/amr/amr_mpi.py</code>). Left: wall time on OpenMP threads and on MPI ranks.
-Right: cells stored by the busiest rank. Every final state is bit for bit the serial one.</figcaption>
-</figure>
-
-| run | wall time | speed-up | cells on the busiest rank |
-|---|---:|---:|---:|
-| serial, 1 thread | 16.4 s | 1.0 | 100 % |
-| OpenMP, 2 / 4 / 8 / 16 threads | 8.8 / 5.1 / 3.2 / 2.9 s | 1.9 / 3.2 / 5.2 / 5.6 | 100 % |
-| MPI, 2 / 4 / 8 / 16 ranks | 8.9 / 5.2 / 4.0 / 4.6 s | 1.8 / 3.2 / 4.1 / 3.5 | 61 / 41 / 26 / 20 % |
-
-On one node OpenMP is still the faster choice (threads share the memory and need no halo
-copies): the MPI run matches it up to 4 ranks and falls behind beyond that, where the
-halo exchanges and the 16 logical processors of this machine (8 cores) limit it. MPI is for
-runs that do not fit one node's cores or memory. A rank stores its patches plus the halo
-copies of their neighbours; the halo is a perimeter, so the share falls towards 1/N as the
-number of patches per rank grows (here 621 patches; with 249 patches of 16×16 the busiest of
-2 / 4 / 8 / 16 ranks holds 78 / 60 / 42 / 27 % of the cells).
+Viscous terms, the body force, the immersed-boundary forcing, manufactured-solution sources
+(steady and time dependent) and every boundary condition except the BDF2 dual time step run on the
+face list. The immersed boundary forcing acts in every residual, the solid reset once per complete step.
+A closed viscous box conserves energy to roundoff, and the airfoil study below uses the full
+Navier-Stokes + IBM path.
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/sod_amr.png" style="width:100%">
-<figcaption>Sod shock tube with 10×2 patches and 4 levels against uniform meshes at the two
-finest levels: the error of the finest uniform mesh with 53% of its cells
-(<code>cases/validation/amr/sod_amr.py</code>).</figcaption>
+<figcaption>Sod shock tube, base 10×2 and 4 levels, remeshed every 2 steps, against uniform meshes at the
+two finest levels (<code>cases/validation/amr/sod_amr.py</code>): the error of the 160×32 mesh with
+45 % of its cells.</figcaption>
+</figure>
+
+## Output, checkpoints, restart
+
+Each snapshot is one `<case>_<step>.vtu` (an unstructured grid with one quad per leaf, cell fields
+Density, Pressure, Temperature_nondim, Mach, Velocity and `AMR_Level`). Under MPI each rank writes the `.vtu` of
+its owned leaves and rank 0 a `<case>_<step>.pvtu` that lists them; the `.pvd` series points at the
+`.vtu` or `.pvtu`. `python/fenice` reads both with `fenice.read_vtu`.
+
+The checkpoint `<case>_restart.npz` holds the leaf list (level, `i`, `j`), the state of every leaf, `t`, the step
+number and the lagged wave-speed bound, so a restarted run continues the same trajectory bit for bit, also on a different
+number of ranks. The final state (`dump_state`) is the per-leaf `U` plus `leaf_meta` with columns `x0, x1, y0, y1, level`.
+A hot start from a uniform or an adaptive checkpoint interpolates the source at the leaf centres.
+
+## Parallel runs
+
+OpenMP threads share the face loops of a level. With `use_mpi` every rank holds the whole mesh
+topology (leaves, faces, stencils) and each level is cut into contiguous blocks of equal leaf count along its Morton order;
+a rank advances its owned leaves. The state of a leaf is valid on its owner and on the ranks that read it (the halo is whatever the
+face list reads: stencil points, virtual cells, gradients). The owners exchange the halo after each stage, the final state of a level
+after it advanced, and the registers of the coarse-fine faces. A same-level face is computed by both owners with the same inputs, a coarse-fine face
+by the owner of the fine leaf. The result is identical to the serial run for any number of ranks (1 to 7 are checked in
+`amr_mpi.py --check`, on cases with remeshing, an immersed body, viscosity, a non-reflecting outlet and a time-dependent source).
+
+**Known limits.** The remesh (indicator, flags, adaptation, rebuild of the face list) is replicated on every
+rank after the state is gathered, and every rank stores the whole mesh and state array. The remesh is therefore a serial
+fraction of the run (25 to 40 % of the time loop on the airfoil below), the MPI speed-up flattens beyond a few ranks and the
+run gets slower beyond that, and the memory per rank does not fall with the number of ranks. On one node OpenMP is the better choice;
+MPI is correct for any rank count but is not yet a way to run faster.
+
+| run (720×360, 2 levels, 50 steps, 268 362 leaves) | wall time | of which remesh |
+|---|---:|---:|
+| serial, 1 thread | 11.5 s | 2.9 s |
+| OpenMP, 2 / 4 / 8 / 16 threads | 7.3 / 5.3 / 4.7 / 6.0 s | 2.7 / 2.5 / 2.5 / 3.0 s |
+| MPI, 2 / 4 / 8 / 16 ranks | 9.1 / 8.7 / 14.2 / 29.9 s | 4.1 / 5.0 / 7.3 / 10.7 s |
+
+The machine has 8 cores (16 logical processors); the times vary by tens of percent from run to run, and the 16-rank row is oversubscribed.
+
+<figure style="margin:1em 0;">
+<img src="{{root}}img/amr_mpi.png" style="width:100%">
+<figcaption>AMR airfoil on a 720×360 base mesh with 2 levels, 50 steps, 16 logical processors
+(<code>cases/validation/amr/amr_mpi.py</code>). Left: wall time on OpenMP threads and on MPI ranks.
+Right: time stepping and remesh. Every final state is bit for bit the serial one.</figcaption>
 </figure>
 
 {{widget:AMR}}

@@ -28,9 +28,9 @@ built solver (`.\cpp\build.ps1`). Set `FENICE_EXE` to use an executable other th
 * **Immersed Boundaries.** Obstacle shape, radius and centre (CZ appears for 3-D).
 * **Solution Mapping.** Hot start from a checkpoint `.npz`. The source grid size is read
   from the file; legacy files without metadata ask for Nx / Ny.
-* **AMR.** Refinement levels, patch size (must be even), thresholds, remesh interval,
-  initial levels and buffer rings. AMR can run on MPI ranks (the patches are distributed over
-  them; on one node OpenMP threads are usually faster), and it requires Nz = 1.
+* **AMR.** Refinement levels, indicator variables, the relative variation that flags a cell, the
+  refine and join thresholds, smoothing iterations, remesh interval and initial levels. AMR can run on MPI ranks
+  (the leaves are distributed over them; on one node OpenMP threads are usually faster), and it requires Nz = 1.
 
 ## Saving a case
 

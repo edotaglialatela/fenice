@@ -112,8 +112,8 @@ mpiexec -n 8 build\release\fenice.exe --case "IBM Supersonic Flow over Cylinder"
 
 Each rank owns a strip of rows or columns; see
 [MPIDecomposition]({{root}}modules/MPIDecomposition.html). The MPI result is
-identical to the serial one, also for AMR (every rank holds the tree, the patches of each
-level are distributed over the ranks; see [AMR]({{root}}modules/AMR.html)).
+identical to the serial one, also for AMR (the leaves of each level are distributed over
+the ranks; see [AMR]({{root}}modules/AMR.html)).
 
 ### GUI
 
@@ -128,7 +128,7 @@ Each run writes to `<output_root>/<case>/`. The default `output_root` is
 | File | Content |
 |---|---|
 | `<case>_<step>.vtr` | Snapshot (VTK XML RectilinearGrid, ASCII): `Density`, `Pressure`, `Temperature_nondim`, `Mach`, `Velocity` |
-| `<case>_<step>.vtm` + `<case>_<step>/p*.vtr` | AMR snapshot: one block per leaf patch, plus an `AMR_Level` field |
+| `<case>_<step>.vtu` (`.pvtu` + one `.vtu` per rank under MPI) | AMR snapshot: one quad per leaf, plus an `AMR_Level` field |
 | `<case>.pvd` | Time-series index (open this in ParaView) |
 | `<case>_restart.npz` | Checkpoint for `resume` and `use_hot_start` |
 

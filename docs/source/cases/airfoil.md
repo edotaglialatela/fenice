@@ -44,10 +44,10 @@ frequency is f c/U ≈ 1.21.</figcaption>
 ## Adaptive mesh refinement
 
 The case `IBM Airfoil AMR` is the same flow on a 192×96 base mesh with
-[AMR]({{root}}modules/AMR.html): 16×16 patches, two refinement levels, the airfoil kept at the
+[AMR]({{root}}modules/AMR.html): two refinement levels, the airfoil kept at the
 finest level (the resolution of a 768×384 mesh, chord = 64 cells) and the wake followed by the
-indicator: `amr_indicator = "density+velocity"` takes the Löhner ratio of the speed as well as of the
-density, because at Ma = 0.2 the density hardly varies in the wake (the default, density only, would
+indicator: the default `amr_indicator = "density+velocity"` tests the speed as well as the
+density, because at Ma = 0.2 the density hardly varies in the wake (the density alone would
 leave it coarse).
 
 ```powershell
@@ -58,19 +58,19 @@ python cases\validation\amr\airfoil_amr.py --docs                  # AMR against
 <figure style="margin:1em 0;">
 <img src="{{root}}img/airfoil_amr.png" style="width:100%">
 <figcaption>NACA 0012 at 10°, Re = 1000, up to $t = 6$ (<code>cases/validation/amr/airfoil_amr.py</code>).
-Top: vorticity with the patches of the AMR run, which follow the airfoil and the wake. Bottom: drag and lift of the AMR run and of
+Top: vorticity with the refined leaves of the AMR run, which follow the airfoil and the wake. Bottom: drag and lift of the AMR run and of
 uniform 192×96 and 768×384 meshes, and the cost of the three runs on 16 OpenMP threads.</figcaption>
 </figure>
 
 | run | cells | wall time | rms error of $C_d$ | rms error of $C_l$ |
 |---|---:|---:|---:|---:|
-| uniform 192×96 | 18 432 | 2.2 s | 0.034 | 0.36 |
+| uniform 192×96 | 18 432 | 2.5 s | 0.034 | 0.36 |
 | uniform 768×384 | 294 912 | 244 s | (reference) | (reference) |
-| AMR, 192×96 + 2 levels | 52 224 | 22 s | 0.007 | 0.039 |
+| AMR, 192×96 + 2 levels | 23 526 | 14 s | 0.011 | 0.054 |
 
 The errors are rms differences of $C_d(t)$ and $C_l(t)$ from the 768×384 run over
 $1 \le t \le 6$ (this is the impulsive start of the flow, not a statistically steady state).
-AMR reproduces the loads of the fine mesh with 18 % of its cells and 9 % of its time. The
+AMR reproduces the loads of the fine mesh with 8 % of its cells and 6 % of its time. The
 base mesh alone misses most of the lift.
 
 ## Using your own airfoil

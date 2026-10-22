@@ -27,12 +27,12 @@ GUI, validation scripts and full documentation.
   fluxes, body forces, and an immersed boundary method (cylinder, sphere, or an airfoil from
   the NACA 4-digit formulas or a coordinate file), with lift / drag monitoring.
 - **Time integration:** Explicit Euler, SSP-RK2, RK4, and BDF2 with dual time stepping.
-- **Meshes:** uniform 2-D (`nz = 1`) or 3-D (`nz > 1`) grids, plus block-structured AMR in
-  2-D with subcycling, refluxing and 2:1 balance.
+- **Meshes:** uniform 2-D (`nz = 1`) or 3-D (`nz > 1`) grids, plus cell-based AMR in
+  2-D with subcycling, conservative flux replacement and 2:1 balance.
 - **Boundary conditions:** slip and no-slip walls, moving walls, velocity and mass-flow
   inlets, pressure outlets, transmissive and periodic.
 - **Parallelism:** OpenMP everywhere, plus MPI (strips of rows or columns; for AMR, the
-  patches distributed over the ranks along a Morton curve). MPI results match the serial run
+  leaves distributed over the ranks along a Morton curve). MPI results match the serial run
   exactly for any number of ranks.
 - **I/O:** VTK output for ParaView, `.npz` checkpoints with restart, and hot start that maps
   a solution onto a different resolution.
@@ -141,7 +141,7 @@ The PyQt6 setup dialog configures a run and launches the solver. Its tabs:
   viscosity, body forces, boundary conditions, numerical schemes, output and MPI ranks.
 - **Immersed Boundaries:** obstacle shape, radius and position.
 - **Solution Mapping:** hot start from a saved checkpoint.
-- **AMR:** refinement levels, patch size and thresholds.
+- **AMR:** refinement levels, indicator variables and thresholds.
 
 The list of test cases and their defaults come from the solver itself, so new cases appear
 in the GUI automatically. Build the solver first, then:

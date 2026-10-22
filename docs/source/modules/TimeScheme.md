@@ -30,7 +30,7 @@ callback folds it into the speed, cell by cell,
 
 $$S = \max_d|u_d| + c + \frac{h}{\Delta t_{\rm visc}}, \qquad \nu = \max\!\Bigl(\frac{\mu}{\rho}, \frac{k}{\rho\, c_p}\Bigr),$$
 
-and takes the maximum over the cells, so it is the same on every MPI strip and AMR patch. A viscosity
+and takes the maximum over the cells, so it is the same on every MPI strip and AMR rank. A viscosity
 that goes to zero leaves $S$ at the convective wave speed. Taking only the smaller of the two
 limits is not enough: at CFL 0.5 the convective part alone uses the whole 2-D budget, and a viscous
 flow with a cell Reynolds number of order one (Taylor-Green at $\nu = 0.1$) then loses energy too fast

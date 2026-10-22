@@ -16,11 +16,11 @@ the run is interrupted mid-write.
   cell fields `Density`, `Pressure`, `Temperature_nondim` ($p/\rho$), `Mach` and
   `Velocity` (3 components). A 2-D grid is one cell layer (z extent `0 0`, $w = 0$); a 3-D grid
   has the z coordinates $0 \ldots L_z$ and the real $w$.
-* **AMR.** One `.vtr` per leaf patch in a step subfolder (`<case>_<step>/p0000.vtr`, …),
-  grouped by `<case>_<step>.vtm` (`vtkMultiBlockDataSet`). The extra `AMR_Level` field
-  holds the refinement level.
+* **AMR.** One `UnstructuredGrid` `<case>_<step>.vtu` with a quad per leaf and the same cell
+  fields (`export_cells`), plus `AMR_Level`. Under MPI every rank writes the `.vtu` of its owned leaves and
+  rank 0 a `.pvtu` that lists them.
 * **Time series.** `write_pvd` writes `<case>.pvd` with one entry per snapshot (the
-  `.vtr` or the `.vtm`).
+  `.vtr`, `.vtu` or `.pvtu`).
 
 Values are sanitised for ParaView's float32 parser: NaN becomes 0, ±Inf becomes
 ±$10^{30}$, and $|x| < 10^{-30}$ becomes 0. The `cases/validation/` scripts parse these files

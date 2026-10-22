@@ -38,11 +38,4 @@ over the last two time units, where it is still decaying slowly) and C<sub>d</su
 (<code>cases/validation/features/cylinder_mesh_transition.py</code>).</figcaption>
 </figure>
 
-## Conservative restriction
-
-`restrict_patch` averages a fine patch onto a coarser one covering the same subdomain.
-Each coarse cell receives the mean of the $r_x \times r_y$ fine cells it contains (the
-ratio must be an integer, 2:1 for AMR), so mass, momentum and energy are conserved
-exactly.
-
 {{api}}

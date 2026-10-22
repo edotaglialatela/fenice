@@ -13,8 +13,7 @@ $[x_0, x_0+L_x]\times[y_0, y_0+L_y]\times[z_0, z_0+L_z]$ with $\Delta x = L_x/n_
 $\Delta y = L_y/n_y$ and $\Delta z = L_z/n_z$. With $n_z = 1$ (`is3d()` false) the mesh is
 2-D: there are no z-faces, the cell "volume" is the area $\Delta x\,\Delta y$ and the
 face "area" is the edge length. The topology is implicit, so no per-face arrays are stored
-and the same code serves the full domain, the MPI strips and the AMR patches. Strips and
-patches differ only in their origin. `generate_cartesian_mesh_3d` builds either kind
+and the same code serves the full domain, the MPI strips and the level-0 mesh of the AMR run. `generate_cartesian_mesh_3d` builds either kind
 (`generate_cartesian_mesh` is its 2-D shorthand).
 
 **Cell indexing** is row-major, `cell(i, j, k) = (k*ny + j)*nx + i`, with column $i$ (x),

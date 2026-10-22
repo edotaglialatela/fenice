@@ -47,25 +47,25 @@ diffusive, MC the sharpest, with a small temperature overshoot at the contact.</
 </figure>
 
 The same case validates [AMR]({{root}}modules/AMR.html): `cases/validation/amr/sod_amr.py` runs it
-with 10×2 patches and 4 levels (pre-refined at t = 0) and on uniform meshes at the two finest
-levels.
+on a 10×2 base mesh with 4 levels (pre-refined at t = 0, remeshed every 2 steps) and on uniform meshes at the two
+finest levels.
 
 <figure>
 <img src="{{root}}img/sod_amr.png" style="width:100%">
 <figcaption>AMR vs uniform 80×16 and 160×32 meshes at t = 0.2. AMR keeps level 4 around
 the contact and the shock and reaches the error of the 160×32 mesh (L1 1.5e-2 vs 1.4e-2) with
-53% of its cells.</figcaption>
+45% of its cells.</figcaption>
 </figure>
 
-The refinement follows the waves. `cases/validation/amr/sod_amr_animation.py` runs a 40×4 base mesh with 8×2
-patches and three levels, remeshing every two steps: the finest patches sit on the contact and the
-shock, the rarefaction fan is refined where it is steepest, and each patch is released once the wave has
+The refinement follows the waves. `cases/validation/amr/sod_amr_animation.py` runs a 40×4 base mesh with
+three levels, remeshing every two steps: the finest cells sit on the contact and the
+shock, the rarefaction fan is refined where it is steepest, and each cell is joined again once the wave has
 moved on.
 
 <figure>
 <img src="{{root}}img/sod_amr_animation.gif" style="width:100%">
-<figcaption>Density at the AMR cells (coloured by level) against the exact solution, and the
-patches below and the mesh with its cell edges at the bottom, for $0 < t \le 0.2$. At $t = 0.1$ the 178 patches hold 2 848 cells instead of the
+<figcaption>Density at the AMR cells (coloured by level) against the exact solution, the levels
+below and the mesh with its cell edges at the bottom, for $0 < t \le 0.2$. At $t = 0.1$ the mesh has 2 248 cells instead of the
 10 240 of the uniform finest mesh.</figcaption>
 </figure>
 

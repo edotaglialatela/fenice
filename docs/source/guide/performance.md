@@ -10,27 +10,24 @@ Every kernel is native C++. Three levels of parallelism combine:
 | Level | Mechanism | Used for |
 |---|---|---|
 | Loop | OpenMP `parallel for` over faces / cells | Riemann fluxes, MUSCL, BCs, gradients, viscous terms, time-scheme updates |
-| AMR patch | OpenMP over the patches of one refinement level | AMR runs |
+| AMR faces | OpenMP over the faces and leaves of one refinement level | AMR runs |
 | Domain | MPI strips with halo exchange | large uniform meshes, multiple nodes |
-| AMR leaves | MPI over the patches, cut along a Morton curve; each rank stores only its patches and their neighbours | AMR runs that do not fit one node's cores or memory |
+| AMR leaves | MPI over the leaves of each level, cut along a Morton curve | AMR runs (correct on any rank count; see the limits below) |
 
 **Loop parallelism.** Loops shorter than `kOmpMinWork` (4096 items) run on one thread,
 because OpenMP fork/join would cost more than the work. All reductions, such as the
 maximum wave speed and the BDF2 residual norm, are order-independent maxima. Results are
 therefore **bit-identical for any thread count**.
 
-**AMR.** Within one level every patch reads the frozen neighbour snapshot, so the patch
-updates are independent. They run concurrently, with one time-scheme clone (scratch
-buffers) per thread. The OpenMP loops inside a patch are serial because they fall below
-`kOmpMinWork`.
+**AMR.** A level advances with the other levels frozen, so the face and leaf loops of a level are
+ordinary OpenMP loops (and, like the others, serial below `kOmpMinWork`). The result does not depend on
+the thread count.
 
-**AMR on MPI.** Under MPI the patches of each level are distributed over the ranks along a
-Morton (Z-order) curve, and the memory is distributed with them: a rank allocates the state
-of its own patches and of the neighbours it reads, nothing else. Interior patches of the
-tree carry no state, the initial condition is evaluated only on the owned patches, and a
-remesh moves a patch only to the ranks that newly need it. The result is identical to the
-serial one for any number of ranks. OpenMP threads are still faster on one node; see
-[AMR]({{root}}modules/AMR.html) for the timings and the memory per rank.
+**AMR on MPI.** Under MPI the leaves of each level are distributed over the ranks along a Morton
+(Z-order) curve. The result is identical to the serial one for any number of ranks, but the speed-up is
+limited: the remesh (indicator, adaptation, rebuild of the face list) is repeated on every rank, and every
+rank stores the whole mesh. OpenMP threads are faster on one node; see [AMR]({{root}}modules/AMR.html) for the
+timings.
 
 **MPI.** Each rank runs one OpenMP thread by default, to avoid oversubscription. Pass
 `--threads N` or set `OMP_NUM_THREADS` for hybrid MPI + OpenMP runs. The MPI result is
@@ -46,7 +43,6 @@ Time-loop wall time on a 16-thread workstation.
 | Supersonic IBM 400×400 | 20 | 0.843 s | 0.191 s | 0.222 s | 4.4× |
 | Shu-Osher 4000×2 | 200 | 0.455 s | 0.206 s | 0.122 s | 2.2× |
 | Lid cavity RK4 128×128 | 20 | 0.260 s | 0.042 s | 0.072 s | 6.2× |
-| AMR Sod, max_level 3 | 13 | 0.113 s | 0.024 s | – | 4.7× |
 
 The Shu-Osher mesh is small (8 000 cells), so thread fork/join overhead weighs more and it
 scales least with threads; MPI strips suit it better.

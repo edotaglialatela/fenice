@@ -51,7 +51,7 @@ centre), `pi`, `e`, the time `t` and the numeric run parameters, added to the re
 evaluated once (steady); with `t` it is evaluated at the time of each stage of the time scheme, in absolute simulation
 time. They exist for code verification by the method of manufactured solutions, see
 [Manufactured solutions]({{root}}cases/manufactured-solution.html); the cases of that page set them. Not available
-with AMR or the immersed boundary.
+with the immersed boundary.
 
 | Key | Default | Meaning |
 |---|---|---|
@@ -94,7 +94,7 @@ override them. See the [BC formulas]({{root}}modules/Boundaries.html).
 |---|---|---|
 | `t_end` | `0.005` | End time [s] |
 | `save_interval` | `1` | Snapshot + checkpoint every N steps |
-| `resume` | `false` | Continue from `<case>_restart.npz` (not with AMR, which writes no checkpoint) |
+| `resume` | `false` | Continue from `<case>_restart.npz` (also with AMR: the leaves are restored exactly) |
 | `output_root` | `<repo>/results` | Parent of the per-case output folder |
 | `max_steps` | `0` | Stop after N steps (≤ 0: run to `t_end`) |
 | `dump_state` | *(empty)* | Write the final state to this `.npz` (regression tests) |
@@ -135,15 +135,15 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `use_amr` | `false` | Block-structured AMR (2-D only: rejected when `nz > 1`; no periodic or mass-flow boundaries, no BDF2). IBM, viscous terms, body force and MPI are supported. The level-0 patches tile the mesh: `nx` and `ny` must be multiples of `amr_patch_nx` and `amr_patch_ny`, and refinement splits one patch into four, so smaller patches refine more locally |
-| `amr_max_level` | `2` | Refinement levels above the root |
-| `amr_patch_nx`, `amr_patch_ny` | `8`, `8` | Cells per patch; must be **even** when `amr_max_level > 0` |
-| `amr_refine_threshold` | `0.3` | Refine when the Löhner indicator η exceeds this |
-| `amr_derefine_threshold` | `0.1` | Derefine when η of all four siblings is below this |
+| `use_amr` | `false` | Adaptive mesh refinement on leaf cells (2-D only: rejected when `nz > 1`; no BDF2). Periodic and mass-flow boundaries, IBM, viscous terms, body force, source terms and MPI are supported. `nx` and `ny` are the level-0 mesh (any size) |
+| `amr_max_level` | `2` | Refinement levels above the base mesh |
+| `amr_indicator` | `density+velocity` | Variables whose variation across faces drives the refinement: `density`, `velocity` (the speed), `pressure`, or several joined by `+`. Use the speed for vortical, nearly incompressible flow such as a wake, where the density hardly varies |
+| `amr_criterion` | `0.1` | Relative variation of a variable across a face that flags both cells |
+| `amr_refine_threshold` | `0.15` | Refine a leaf when its smoothed indicator reaches this |
+| `amr_derefine_threshold` | `0.1` | Join four siblings when the indicator of their parent cell is below this (must not exceed the refine threshold) |
+| `amr_diffusion` | `2` | Smoothing iterations of the indicator: the refined band extends about this many cells beyond the flagged ones |
 | `amr_refine_every` | `10` | Remesh every N coarse steps |
 | `amr_init_levels` | `0` | Uniform pre-refinement levels at t = 0 |
-| `amr_buffer_layers` | `1` | Rings of neighbours refined around flagged patches |
-| `amr_refine_ibm` | `true` | With `use_ibm`: leaves whose box (grown by one cell) overlaps the body's bounding box are refined to `amr_max_level` from t = 0 and never coarsened |
-| `amr_indicator` | `density` | Field of the Löhner refinement indicator: `density`, `velocity` (the speed) or `density+velocity` (the larger of the two). Use the speed for vortical, nearly incompressible flow such as a wake, where the density hardly varies |
+| `amr_refine_ibm` | `true` | With `use_ibm`: leaves touching the body, and the cells around it that the solid reset uses, are refined to `amr_max_level` from t = 0 and never joined |
 
 {{api}}

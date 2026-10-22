@@ -15,8 +15,8 @@ domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz 
   forces, and an immersed boundary method for cylinders, spheres and airfoils (NACA
   4-digit or any coordinate file), with lift / drag / moment monitoring.
 * **Time integration:** Explicit Euler, SSP-RK2, RK4, and BDF2 with dual time stepping.
-* **Mesh:** uniform 2-D or 3-D Cartesian grids. Block-structured AMR (2-D only) adds
-  subcycling, refluxing and 2:1 balance.
+* **Mesh:** uniform 2-D or 3-D Cartesian grids. Cell-based AMR (2-D only) refines single
+  cells and adds subcycling, conservative flux replacement and 2:1 balance.
 * **I/O:** VTK output for ParaView, plus `.npz` checkpoints with restart and
   hot-start mapping between resolutions.
 * **GUI:** a PyQt6 setup dialog that configures and launches the solver.
@@ -59,8 +59,8 @@ keeps its original layout; in 2-D it stays exactly zero.
 
 1. **Ghost cells** ([Boundaries]({{root}}modules/Boundaries.html)). Each boundary
    face receives a ghost state from its BC. Under MPI, faces on a rank interface
-   take the neighbour's halo instead. AMR patch faces take the neighbouring
-   leaf's state.
+   take the neighbour's halo instead. AMR faces between levels use the virtual
+   cells of the face list.
 2. **Reconstruction** ([Schemes]({{root}}modules/Schemes.html)). Optional MUSCL
    reconstruction of the primitive variables lifts the face states to 2nd order.
 3. **Riemann fluxes**, then the flux divergence per cell.
