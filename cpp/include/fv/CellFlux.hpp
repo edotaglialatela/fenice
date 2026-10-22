@@ -167,6 +167,7 @@ private:
     Field Wint_;                          // their primitive state
     std::vector<int> nbr_raw_;            // like nbr_ but injecting coarser neighbours (the slopes of the coarse leaves)
     void eval_interp();
+    void force_all(const CellMesh& m, const Field& U);   // every leaf (the full residual, whatever the partition)
     void rebuild_lists(const CellMesh& m, const Partition* part);
     void mark_code(int code, std::vector<char>& mask) const;
     void mark_tree(int code, std::vector<char>& mask) const;

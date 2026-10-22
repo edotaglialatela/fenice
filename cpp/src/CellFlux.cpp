@@ -318,6 +318,20 @@ void CellFluxEngine::force_state(const CellMesh& m, const Field& U) {
     for (int l = 0; l <= m.max_level; ++l) force_level(m, U, l);   // the leaves this rank holds
 }
 
+void CellFluxEngine::force_all(const CellMesh& m, const Field& U) {
+    if (!has_body()) return;
+    forced_.resize(static_cast<size_t>(m.num_leaves()));
+    for (int c = 0; c < m.num_leaves(); ++c) {
+        State W = eos_.cons_to_prim(U[c]);
+        if (solid_[c]) {
+            W[1] = 0.0;
+            W[2] = 0.0;
+            W[4] = 0.0;
+        }
+        forced_[c] = eos_.prim_to_cons(W);
+    }
+}
+
 void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
     if (!has_body()) return;
     const std::vector<int>& held = lheld_[static_cast<size_t>(l)];
@@ -338,7 +352,7 @@ void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
 void CellFluxEngine::prepare(const CellMesh& m, const Field& U, int level) {
     if (has_body()) {
         if (level < 0)
-            force_state(m, U);
+            force_all(m, U);
         else
             force_level(m, U, level);
         us_ = &forced_;

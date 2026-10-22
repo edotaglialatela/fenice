@@ -1,6 +1,6 @@
 # Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
 
-Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13); jump closure (b) and the parent-level join done (sections 14-15), the second-order coarse side (c) is now the default (decision of the user, section 17). The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
+Status: P1-P6 done (P6 = MPI, section 18); P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13); jump closure (b) and the parent-level join done (sections 14-15), the second-order coarse side (c) is now the default (decision of the user, section 17). The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
 `main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
 
 ## 1. Why
@@ -475,3 +475,48 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
 * The indicator defaults are confirmed: criterion 0.1, density + velocity (density alone in the struct default; the demo and the studies use density + velocity for the airfoil), 2 diffusion
   iterations of 0.1 above 0.05, split 0.15, join 0.10, joins on the parent's xi.
 * Default configuration on the airfoil (criterion 0.1, density + velocity, base 192 x 96 + 2 levels, t = 6): Cd mean 0.1482, Cl mean 0.2268 (reference 0.1498 / 0.2171), 23.5 k leaves, 14 s.
+
+## 18. P6 as built (`CellParallel`, `cpp/include/fv/CellParallel.hpp`)
+* **Replicated topology, distributed state.** Every rank holds the whole `CellMesh` (leaves, faces, stencils); the state of a leaf is valid on its owner and on the ranks that read it. Ownership: each
+  level is cut into contiguous blocks of equal leaf count along its Morton order (per-level balance: every level is advanced separately by the recursion). The partition is deterministic
+  from the mesh, so no communication is needed to agree on it.
+* **Work.** A rank advances its owned leaves. A same-level face is computed by the owners of both its leaves (redundantly, same inputs, same bits); a coarse-fine face and a boundary face by the
+  owner of the finer leaf. The coarse owner receives the registers (convective and viscous, time averaged) of its coarse-fine faces from the fine owners once per coarse step, before the
+  coarse level advances (`exchange_registers`), so it never recomputes fine-level faces. Every rank runs the same recursion and calls every exchange at the same point, also a rank that owns nothing
+  at a level (its `advance_fixed_dt` runs on an empty array and makes the declared number of residual calls).
+* **Halo = what the engine reads.** `CellFluxEngine::face_dependencies` marks the leaves read by a face (stencil points, virtual cells and their leaves, the interpolated cells and the neighbours of
+  their coarse leaf, the cell gradients of both cells, the non-reflecting tangential neighbours, the coarse side of a coarse-fine face); `CellParallel::partition` applies it to the faces of each rank,
+  per level (`stage` lists: the owned leaves of a level other ranks read in that level's faces, pushed every stage) and overall (`final` lists, pushed when a level has advanced). The mass-flow
+  inlet's side leaves are held on every rank at every stage (the average is summed in position order on each rank, never as partial sums), the solid reset's neighbours are in the final lists.
+  The forced (immersed-body) copy is refreshed for the received leaves.
+* **Remesh.** The state of every leaf is gathered on every rank (`gather_state`), the indicator, the flags, `adapt` and the engine rebuild run replicated (identical decisions, nothing to
+  agree on), then `partition` again. This is O(N) per rank per remesh and does not shrink with the number of ranks: it caps the speed-up (see below); its optimisation (distributed indicator,
+  incremental rebuild) is a P8 item.
+* **Tests (`fenice_tests`, no MPI needed).** Ranks are emulated by threads with an in-process stand-in for the collectives (`FakeHub`; a message whose size differs from what the receiver expects
+  throws, so asymmetric lists are caught). `cellparallel_equals_serial_bitwise_for_any_rank_count`: six cases (Euler periodic; viscous + body force + sources periodic with remesh; unsteady source with a
+  no-slip / moving-wall mix; walls + outlet + non-reflecting + viscous with remesh; mass-flow inlet + velocity inlet; immersed body with viscosity, solid reset and remesh) on 1, 2, 3, 5 and 7
+  ranks, 6 steps on random 3-level meshes, with the state of every leaf a rank does not hold set to NaN and re-poisoned after every remesh: the final state equals the serial one bit for bit, every rank
+  agrees, a rank on 5-7 holds fewer leaves than the mesh and has a halo. Removing the register exchange, or the gradient neighbours from the dependencies, makes the test fail. Levels with fewer leaves
+  than ranks, ranks without leaves at a level and periodic faces between ranks occur in these runs. `cell_engine_result_does_not_depend_on_the_thread_count`: an adapted mesh above `kOmpMinWork` with
+  all the physics, 3 steps with 1 thread and with 8 threads, bit-identical (the promise of section 10).
+* **Real MPI** (`python cases/validation/amr/cell_amr_mpi.py`, the demo under `mpiexec` with `--poison`; not part of the CI since the cell engine is not behind the CLI yet): dynamic Sod, the airfoil
+  (immersed body, viscosity, non-reflecting outlet), and two periodic manufactured solutions (viscous, and unsteady Euler with a time-dependent source) with remesh: serial and 1..7 ranks give a
+  byte-identical final state (`final.bin`) in all four cases.
+* **Balance** (airfoil, 720 x 360, 2 levels, 50 steps; the demo prints it): owned leaves per level are equal across ranks to within one leaf, work max / mean (sum of 2^l N_l) 1.000 on 2, 4, 8, 16
+  ranks, 2 ranks on the 268 362 leaves at the end: 134 181 owned each, 2 109 / 1 941 halo leaves (1.6 % / 1.4 %), 136 290 / 136 122 held.
+* **Scaling** (same study as `amr_mpi.py` in P0, but the cell engine; 8-core machine, 16 logical processors; wall time of the time loop including the remesh; the final state is bitwise the serial one in all
+  rows):
+
+  | run | wall [s] | speed-up | of which remesh [s] | max leaves held by a rank |
+  |---|---|---|---|---|
+  | serial (1 thread) | 10.99 | 1.00 | 2.84 | |
+  | OpenMP 2 / 4 / 8 / 16 threads | 6.89 / 5.00 / 4.31 / 4.22 | 1.60 / 2.20 / 2.55 / 2.60 | 2.52 / 2.41 / 2.37 / 2.47 | |
+  | MPI 2 ranks | 7.96 | 1.38 | 3.57 | 136 290 |
+  | MPI 4 ranks | 6.35 | 1.73 | 3.75 | 69 721 |
+  | MPI 8 ranks | 6.74 | 1.63 | 4.54 | 35 878 |
+  | MPI 16 ranks | 10.67 | 1.03 | 7.33 | 18 892 |
+
+  For comparison the patch engine on `main` (P0, section 5): serial 16.4 s; OpenMP 2 / 4 / 8 / 16: 8.8 / 5.1 / 3.2 / 2.9 s; MPI 2 / 4 / 8 / 16: 8.9 / 5.2 / 4.0 / 4.6 s. The cell engine is 1.5x faster in serial
+  but scales worse, and the reason is the remesh: it takes 2.8 s in serial (26 % of the loop) and does not shrink with the ranks, it grows (the gather, and `partition`, which builds one need mask per rank
+  and level, O(ranks x levels x leaves)). The time stepping alone (wall minus remesh) scales: 8.15 s serial, 4.39 / 2.60 / 2.20 / 3.34 s on 2 / 4 / 8 / 16 ranks (the last one oversubscribes the
+  machine). OpenMP is limited by the same serial remesh (2.4 s of the 4.2 s at 16 threads). Making the remesh parallel / incremental is the first thing to do in P8.
