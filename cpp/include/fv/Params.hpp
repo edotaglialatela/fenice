@@ -81,11 +81,14 @@ struct SimParams {
     std::string hot_start_file;
     int hot_start_src_nx, hot_start_src_ny;
     bool use_amr;
-    int amr_max_level, amr_patch_nx, amr_patch_ny;
-    double amr_refine_threshold, amr_derefine_threshold;
-    int amr_refine_every, amr_init_levels, amr_buffer_layers;
-    bool amr_refine_ibm = true;              // keep the immersed body at the finest level
-    std::string amr_indicator = "density";   // fields of the refinement indicator: density, velocity, density+velocity
+    int amr_max_level;
+    double amr_criterion = 0.1;             // relative variation of an indicator variable across a face that flags its two cells
+    double amr_refine_threshold = 0.15;     // a leaf is refined when its smoothed indicator reaches this
+    double amr_derefine_threshold = 0.10;   // four siblings are joined when the indicator of their parent is below this
+    int amr_diffusion = 2;                  // smoothing iterations of the indicator
+    int amr_refine_every, amr_init_levels;
+    bool amr_refine_ibm = true;                      // keep the immersed body at the finest level
+    std::string amr_indicator = "density+velocity";   // variables of the indicator: density, velocity, pressure, joined by '+'
 
     // C++-only extras
     std::string output_root;   // parent of the per-case results folder

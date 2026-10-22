@@ -88,11 +88,20 @@ Field uniform_field(const EOS& eos, int n, double rho, double u, double v, doubl
     return Field(static_cast<size_t>(n), eos.prim_to_cons({rho, u, v, p}));
 }
 
-double total(const AMRTree& tree, int q) {
-    double s = 0.0;
-    for (const AMRPatch* lf : tree.leaves())
-        for (const State& c : lf->U) s += c[q] * lf->mesh.cell_area();
-    return s;
+// Smooth, non-trivial state with nonzero velocity everywhere (also inside an immersed body)
+State test_state(const EOS& eos, double x, double y) {
+    return eos.prim_to_cons({1.0 + 0.1 * std::sin(1.3 * x) * std::cos(0.9 * y), 1.0 + 0.2 * std::sin(0.7 * y),
+                             0.15 * std::cos(1.1 * x), 17.0 + 0.5 * std::cos(0.6 * x + 0.4 * y)});
+}
+
+SimParams airfoil_params(std::initializer_list<std::pair<const char*, const char*>> kv) {
+    Params pr = baseline_defaults();
+    pr.merge(get_test_case("IBM Airfoil").defaults);
+    pr.set("test_case", "IBM Airfoil");
+    pr.set("output_root", tmp_dir().string());
+    pr.set("use_mpi", "false");
+    for (const auto& e : kv) pr.set(e.first, e.second);
+    return SimParams::from(pr);
 }
 
 double max_abs(const Field& R) {
@@ -555,576 +564,6 @@ TEST(ibm_mask_and_reset) {
 }
 
 // ---------------------------------------------------------------------------
-// AMR
-// ---------------------------------------------------------------------------
-
-TEST(amr_refine_derefine_conservative) {
-    AMRTree tree(1.0, 1.0, 8, 8, 2);
-    for (int j = 0; j < 8; ++j)
-        for (int i = 0; i < 8; ++i) tree.root->U[j * 8 + i] = {1.0 + i + 3.0 * j, 0.1 * i, 0.2, 2.0 + j};
-    const double m0 = total(tree, 0), e0 = total(tree, 3);
-    tree.refine_patch(tree.root);
-    CHECK(tree.leaves().size() == 4);
-    CHECK_NEAR(total(tree, 0), m0, 1e-12);
-    tree.refine_patch(tree.leaves()[0]);
-    tree.enforce_2to1_balance();
-    CHECK_NEAR(total(tree, 0), m0, 1e-12);
-    tree.derefine_patch(tree.root->children[0]);
-    tree.derefine_patch(tree.root);
-    CHECK(tree.leaves().size() == 1);
-    CHECK_NEAR(total(tree, 0), m0, 1e-12);
-    CHECK_NEAR(total(tree, 3), e0, 1e-12);
-    bool odd_rejected = false;
-    try {
-        AMRTree bad(1.0, 1.0, 5, 8, 1);
-    } catch (const std::invalid_argument&) { odd_rejected = true; }
-    CHECK(odd_rejected);
-}
-
-TEST(amr_2to1_balance) {
-    AMRTree tree(1.0, 1.0, 4, 4, 3);
-    tree.refine_patch(tree.root);
-    AMRPatch* bl = tree.leaves()[0];
-    tree.refine_patch(bl);
-    tree.refine_patch(bl->children[3]);   // level 3 in the middle of the domain
-    tree.enforce_2to1_balance();
-    for (AMRPatch* p : tree.leaves())
-        for (Face f : kAllFaces)
-            for (AMRPatch* nb : tree.neighbour_leaves(p, f)) CHECK(std::abs(p->level - nb->level) <= 1);
-}
-
-TEST(amr_ownership_and_halo) {
-    AMRTree tree(1.0, 1.0, 4, 4, 3, 2, 2);
-    for (AMRPatch* p : tree.leaves()) tree.refine_patch(p);
-    tree.refine_patch(tree.leaves()[0]);
-    tree.enforce_2to1_balance();
-    for (int size : {1, 2, 3, 7}) {
-        std::vector<std::vector<int>> owners(size), held(size);
-        for (int rank = 0; rank < size; ++rank) {
-            assign_ownership(tree, rank, size);
-            for (AMRPatch* p : tree.leaves()) {
-                owners[rank].push_back(p->owner);
-                held[rank].push_back(p->held);
-                if (p->owner == rank) CHECK(p->held);
-                // everything an owned leaf can read is held
-                if (p->owner == rank)
-                    for (AMRPatch* nb : tree.leaves_near(p, 2)) CHECK(nb->held);
-            }
-        }
-        for (int rank = 1; rank < size; ++rank) CHECK(owners[rank] == owners[0]);   // same partition everywhere
-        // per level the blocks differ by at most one patch
-        for (int level = 0; level <= tree.max_level; ++level) {
-            std::vector<int> count(size, 0);
-            for (AMRPatch* p : tree.leaves())
-                if (p->level == level) ++count[p->owner];
-            const int lo = *std::min_element(count.begin(), count.end()),
-                      hi = *std::max_element(count.begin(), count.end());
-            CHECK(hi - lo <= 1);
-        }
-    }
-}
-
-TEST(amr_error_indicator) {
-    AMRTree tree(1.0, 1.0, 8, 8, 1);
-    for (int j = 0; j < 8; ++j)
-        for (int i = 0; i < 8; ++i) tree.root->U[j * 8 + i] = {1.0 + 0.3 * i, 0, 0, 1};
-    const AMRErrorIndicator ind;
-    CHECK(ind.indicator(*tree.root) < 1e-12);   // linear ramp
-    for (int j = 0; j < 8; ++j)
-        for (int i = 0; i < 8; ++i) tree.root->U[j * 8 + i][0] = i < 4 ? 1.0 : 0.125;
-    CHECK(ind.indicator(*tree.root) > 0.3);   // discontinuity
-    // A shear layer: uniform density, speed jump. Only the speed indicator sees it.
-    const EOS eos = EOS::ideal(1.4);
-    for (int j = 0; j < 8; ++j)
-        for (int i = 0; i < 8; ++i) tree.root->U[j * 8 + i] = eos.prim_to_cons({1.0, i < 4 ? 0.0 : 1.0, 0.0, 1.0});
-    AMRErrorIndicator speed;
-    speed.use_density = false;
-    speed.use_speed = true;
-    CHECK(ind.indicator(*tree.root) < 1e-12);
-    CHECK(speed.indicator(*tree.root) > 0.3);
-}
-
-namespace {
-SimParams amr_params(const char* scheme = "SSP Runge-Kutta 2", const char* bcs = "transmissive") {
-    return params_for("Sod Shock Tube", {{"Lx", "1.0"},
-                                         {"Ly", "1.0"},
-                                         {"nx", "8"},
-                                         {"ny", "8"},
-                                         {"bc_left", bcs},
-                                         {"bc_right", bcs},
-                                         {"bc_bottom", "wall"},
-                                         {"bc_top", "wall"},
-                                         {"time_scheme", scheme},
-                                         {"use_amr", "true"},
-                                         {"amr_max_level", "2"},
-                                         {"amr_patch_nx", "8"},
-                                         {"amr_patch_ny", "8"}});
-}
-AMRPatch* sorted_leaf(AMRTree& tree, int k) {
-    auto lv = tree.leaves();
-    std::sort(lv.begin(), lv.end(),
-              [](AMRPatch* a, AMRPatch* b) { return a->ymin != b->ymin ? a->ymin < b->ymin : a->xmin < b->xmin; });
-    return lv[k];
-}
-}   // namespace
-
-TEST(amr_sample_leaf_state) {
-    AMRTree tree(1.0, 1.0, 4, 4, 1);
-    tree.root->U.assign(16, State{0, 0, 0, 0});
-    for (int c = 0; c < 16; ++c) tree.root->U[c][0] = c;
-    const State* s = sample_leaf_state(tree, 2.5 / 4, 1.5 / 4);
-    CHECK(s && (*s)[0] == 6.0);
-    CHECK(sample_leaf_state(tree, -0.1, 0.5) == nullptr);
-}
-
-TEST(amr_patch_coupling) {
-    Simulation sim;
-    sim.setup(amr_params(), false);
-    AMRTree& tree = *sim.amr_tree;
-    tree.refine_patch(tree.root);
-    AMRPatch *bl = sorted_leaf(tree, 0), *br = sorted_leaf(tree, 1), *tl = sorted_leaf(tree, 2),
-             *tr = sorted_leaf(tree, 3);
-    const int n = bl->mesh.num_cells();
-    // Uniform state everywhere -> zero residual across internal faces
-    for (AMRPatch* p : tree.leaves()) p->U = uniform_field(sim.fluid, n, 1.0, 0, 0, 1.0);
-    Field R, fx, fy;
-    sim.patch_residual(*bl, tree, bl->U, R, fx, fy);
-    CHECK(max_abs(R) < 1e-8);
-    // High | low across the shared vertical face: only that column is driven
-    br->U = uniform_field(sim.fluid, n, 0.125, 0, 0, 0.1);
-    tr->U = br->U;
-    (void)tl;
-    sim.patch_residual(*bl, tree, bl->U, R, fx, fy);
-    double right_col = 0.0, left_col = 0.0;
-    for (int j = 0; j < bl->ny(); ++j) {
-        right_col = std::max(right_col, std::abs(R[j * bl->nx() + bl->nx() - 1][1]));
-        left_col = std::max(left_col, max_abs(Field{R[j * bl->nx()]}));
-    }
-    CHECK(right_col > 1e-8);
-    CHECK(left_col < 1e-8);
-    // Coarse-fine: refine br; bl must still couple to the finer side
-    tree.refine_patch(br);
-    tree.enforce_2to1_balance();
-    for (AMRPatch* p : tree.leaves())
-        if (p != bl) p->U = uniform_field(sim.fluid, n, 0.125, 0, 0, 0.1);
-    sim.patch_residual(*bl, tree, bl->U, R, fx, fy);
-    right_col = 0.0;
-    for (int j = 0; j < bl->ny(); ++j) right_col = std::max(right_col, std::abs(R[j * bl->nx() + bl->nx() - 1][1]));
-    CHECK(right_col > 1e-8);
-}
-
-namespace {
-void seed_blast(AMRTree& tree, const EOS& eos) {
-    for (AMRPatch* p : tree.leaves())
-        for (int j = 0; j < p->ny(); ++j)
-            for (int i = 0; i < p->nx(); ++i) {
-                const double dx = p->mesh.xc(i) - 0.45, dy = p->mesh.yc(j) - 0.25;
-                p->U[j * p->nx() + i] =
-                    eos.prim_to_cons({1.0, 0, 0, 1.0 + 2.0 * std::exp(-(dx * dx + dy * dy) / 0.01)});
-            }
-}
-void run_closed_box(double& m0, double& m1, double& e0, double& e1) {
-    Simulation sim;
-    sim.setup(amr_params("Explicit Euler", "wall"), false);
-    AMRTree& tree = *sim.amr_tree;
-    tree.refine_patch(tree.root);
-    tree.refine_patch(sorted_leaf(tree, 0));
-    tree.enforce_2to1_balance();
-    seed_blast(tree, sim.fluid);
-    m0 = total(tree, 0);
-    e0 = total(tree, 3);
-    const PatchResidualFn pr = [&](AMRPatch& p, AMRTree& t, const Field& U, Field& R, Field& fx, Field& fy) {
-        return sim.patch_residual(p, t, U, R, fx, fy);
-    };
-    double finest = 1e9, S0 = 0.0;
-    Field R, fx, fy;
-    for (AMRPatch* lf : tree.leaves()) {
-        finest = std::min(finest, lf->mesh.Lx / lf->nx());
-        S0 = std::max(S0, sim.patch_residual(*lf, tree, lf->U, R, fx, fy));
-    }
-    const double dt = 0.3 * finest / (S0 + 1e-12);
-    double t = 0.0;
-    for (int k = 0; k < 15; ++k) {
-        advance_amr_level(tree, 0, dt, t, 1e9, pr, *sim.scheme);
-        t += dt;
-    }
-    m1 = total(tree, 0);
-    e1 = total(tree, 3);
-}
-}   // namespace
-
-TEST(amr_reflux_conservation) {
-    double m0, m1, e0, e1;
-    run_closed_box(m0, m1, e0, e1);
-    CHECK(std::abs(m1 - m0) / m0 < 1e-10);
-    CHECK(std::abs(e1 - e0) / e0 < 1e-10);
-    // Negative control: without refluxing the coarse-fine seam leaks mass
-    g_amr_disable_reflux = true;
-    run_closed_box(m0, m1, e0, e1);
-    g_amr_disable_reflux = false;
-    CHECK(std::abs(m1 - m0) / m0 > 1e-9);
-}
-
-// ---------------------------------------------------------------------------
-// AMR with IBM / viscous terms / body force
-// ---------------------------------------------------------------------------
-
-namespace {
-// Smooth, non-trivial state with nonzero velocity everywhere (also inside the body)
-State test_state(const EOS& eos, double x, double y) {
-    return eos.prim_to_cons({1.0 + 0.1 * std::sin(1.3 * x) * std::cos(0.9 * y), 1.0 + 0.2 * std::sin(0.7 * y),
-                             0.15 * std::cos(1.1 * x), 17.0 + 0.5 * std::cos(0.6 * x + 0.4 * y)});
-}
-
-SimParams airfoil_params(std::initializer_list<std::pair<const char*, const char*>> kv) {
-    Params pr = baseline_defaults();
-    pr.merge(get_test_case("IBM Airfoil").defaults);
-    pr.set("test_case", "IBM Airfoil");
-    pr.set("output_root", tmp_dir().string());
-    pr.set("use_mpi", "false");
-    for (const auto& e : kv) pr.set(e.first, e.second);
-    return SimParams::from(pr);
-}
-}   // namespace
-
-TEST(amr_root_patch_matches_uniform_residual) {
-    // One root patch (no interfaces) must reproduce the uniform-mesh residual: IBM forcing,
-    // viscous flux, MUSCL and the physical BCs all go through the AMR kernel.
-    for (const char* gy : {"0.0", "-0.3"}) {
-        const bool gravity = std::string(gy) != "0.0";
-        Simulation uni, amr;
-        uni.setup(
-            airfoil_params({{"nx", "192"}, {"ny", "96"}, {"use_bodyforce", gravity ? "true" : "false"}, {"gy", gy}}),
-            false);
-        amr.setup(airfoil_params({{"nx", "192"},
-                                  {"ny", "96"},
-                                  {"use_bodyforce", gravity ? "true" : "false"},
-                                  {"gy", gy},
-                                  {"use_amr", "true"},
-                                  {"amr_patch_nx", "192"},
-                                  {"amr_patch_ny", "96"},
-                                  {"amr_max_level", "0"}}),
-                  false);
-        uni.initialize_field();
-        amr.initialize_field();
-        CHECK(uni.ibm->solid_count() > 20);
-        AMRPatch& root = *amr.amr_tree->root;
-        for (int j = 0; j < uni.mesh.ny; ++j)
-            for (int i = 0; i < uni.mesh.nx; ++i)
-                uni.U[j * uni.mesh.nx + i] = root.U[j * uni.mesh.nx + i] =
-                    test_state(uni.fluid, uni.mesh.xc(i), uni.mesh.yc(j));
-        Field Ru, Ra, fx, fy;
-        const double Su = uni.residual(uni.U, Ru);
-        const double Sa = amr.patch_residual(root, *amr.amr_tree, root.U, Ra, fx, fy);
-        double d = 0.0, m = 0.0;
-        for (size_t c = 0; c < Ru.size(); ++c)
-            for (int q = 0; q < 4; ++q) {
-                d = std::max(d, std::abs(Ru[c][q] - Ra[c][q]));
-                m = std::max(m, std::abs(Ru[c][q]));
-            }
-        CHECK(m > 1e-3);
-        CHECK(d <= 1e-12 * m);
-        CHECK_NEAR(Sa, Su, 1e-12 * Su);
-        // Solid reset: identical to the uniform one
-        uni.ibm->apply_solid_reset(uni.U, uni.fluid);
-        amr.amr_solid_reset(*amr.amr_tree);
-        double dr = 0.0;
-        for (size_t c = 0; c < uni.U.size(); ++c)
-            for (int q = 0; q < 4; ++q) dr = std::max(dr, std::abs(uni.U[c][q] - root.U[c][q]));
-        CHECK(dr < 1e-14);
-    }
-}
-
-TEST(amr_ibm_masks_and_reset_across_patches) {
-    // The body straddles the patch interfaces: the patch masks must tile the uniform mask, and the
-    // reset (fringe cells read across interfaces) must not depend on how the domain is split.
-    Simulation uni, sim;
-    uni.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}}), false);
-    sim.setup(airfoil_params({{"nx", "96"},
-                              {"ny", "48"},
-                              {"ibm_cx", "6.0"},
-                              {"ibm_cy", "3.0"},
-                              {"use_amr", "true"},
-                              {"amr_patch_nx", "48"},
-                              {"amr_patch_ny", "24"},
-                              {"amr_max_level", "1"},
-                              {"amr_refine_ibm", "false"}}),
-              false);
-    uni.initialize_field();
-    sim.initialize_field();
-    AMRTree& tree = *sim.amr_tree;
-    CHECK(tree.roots.size() == 4);   // four 48 x 24 root patches: the 96 x 48 uniform grid
-    int solid = 0;
-    for (AMRPatch* lf : tree.leaves()) {
-        sim.ensure_patch_masks(*lf);
-        const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
-        const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
-        for (int j = 0; j < lf->ny(); ++j)
-            for (int i = 0; i < lf->nx(); ++i) {
-                CHECK(lf->solid[j * lf->nx() + i] == uni.ibm->mask()[(j0 + j) * uni.mesh.nx + i0 + i]);
-                solid += lf->solid[j * lf->nx() + i];
-                lf->U[j * lf->nx() + i] = test_state(uni.fluid, lf->mesh.xc(i), lf->mesh.yc(j));
-                uni.U[(j0 + j) * uni.mesh.nx + i0 + i] = lf->U[j * lf->nx() + i];
-            }
-    }
-    CHECK(solid == uni.ibm->solid_count());
-    uni.ibm->apply_solid_reset(uni.U, uni.fluid);
-    sim.amr_solid_reset(tree);
-    double d = 0.0;
-    for (AMRPatch* lf : tree.leaves()) {
-        const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
-        const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
-        for (int j = 0; j < lf->ny(); ++j)
-            for (int i = 0; i < lf->nx(); ++i)
-                for (int q = 0; q < 4; ++q)
-                    d = std::max(d, std::abs(lf->U[j * lf->nx() + i][q] - uni.U[(j0 + j) * uni.mesh.nx + i0 + i][q]));
-    }
-    CHECK(d < 1e-14);
-}
-
-TEST(amr_same_level_patches_match_uniform_residual) {
-    // Four same-level patches tiling the uniform grid, the body on their common corner, with the
-    // airfoil BCs (velocity inlet, non-reflecting outlet, walls): every patch residual equals the
-    // uniform one, so interface ghosts, corner BC ghosts and solid ghosts are exact (1st order:
-    // MUSCL has a 1st-order seam at patch interfaces).
-    Simulation uni, sim;
-    uni.setup(
-        airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}, {"use_muscl", "false"}}),
-        false);
-    sim.setup(airfoil_params({{"nx", "96"},
-                              {"ny", "48"},
-                              {"ibm_cx", "6.0"},
-                              {"ibm_cy", "3.0"},
-                              {"use_muscl", "false"},
-                              {"use_amr", "true"},
-                              {"amr_patch_nx", "48"},
-                              {"amr_patch_ny", "24"},
-                              {"amr_max_level", "1"},
-                              {"amr_refine_ibm", "false"}}),
-              false);
-    uni.initialize_field();
-    sim.initialize_field();
-    AMRTree& tree = *sim.amr_tree;
-    for (int j = 0; j < uni.mesh.ny; ++j)
-        for (int i = 0; i < uni.mesh.nx; ++i)
-            uni.U[j * uni.mesh.nx + i] = test_state(uni.fluid, uni.mesh.xc(i), uni.mesh.yc(j));
-    for (AMRPatch* lf : tree.leaves()) {
-        const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
-        const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
-        for (int j = 0; j < lf->ny(); ++j)
-            for (int i = 0; i < lf->nx(); ++i) lf->U[j * lf->nx() + i] = uni.U[(j0 + j) * uni.mesh.nx + i0 + i];
-    }
-    Field Ru;
-    const double Su = uni.residual(uni.U, Ru);
-    double m = 0.0;
-    for (const State& r : Ru)
-        for (int q = 0; q < 4; ++q) m = std::max(m, std::abs(r[q]));
-    double d = 0.0, Smax = 0.0;
-    for (AMRPatch* lf : tree.leaves()) {
-        Field R, fx, fy;
-        Smax = std::max(Smax, sim.patch_residual(*lf, tree, lf->U, R, fx, fy));
-        const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
-        const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
-        for (int j = 0; j < lf->ny(); ++j)
-            for (int i = 0; i < lf->nx(); ++i)
-                for (int q = 0; q < 4; ++q)
-                    d = std::max(d, std::abs(R[j * lf->nx() + i][q] - Ru[(j0 + j) * uni.mesh.nx + i0 + i][q]));
-    }
-    CHECK(m > 1e-3);
-    CHECK(d <= 1e-12 * m);
-    CHECK_NEAR(Smax, Su, 1e-12 * Su);
-}
-
-TEST(amr_body_kept_at_max_level) {
-    // Tiled root, airfoil: after seeding every leaf that touches the body is at max_level, the tree is
-    // 2:1 balanced, and a remesh (which sees a uniform flow, eta = 0) never coarsens the body
-    Simulation sim;
-    sim.setup(airfoil_params({{"nx", "192"},
-                              {"ny", "96"},
-                              {"use_amr", "true"},
-                              {"amr_patch_nx", "16"},
-                              {"amr_patch_ny", "16"},
-                              {"amr_max_level", "2"}}),
-              false);
-    sim.initialize_field();
-    AMRTree& tree = *sim.amr_tree;
-    auto check = [&] {
-        int body = 0;
-        for (AMRPatch* lf : tree.leaves()) {
-            if (sim.patch_touches_body(*lf)) {
-                CHECK(lf->level == tree.max_level);
-                ++body;
-            }
-            for (Face f : kAllFaces)
-                for (AMRPatch* nb : tree.neighbour_leaves(lf, f)) CHECK(std::abs(nb->level - lf->level) <= 1);
-        }
-        CHECK(body > 4);
-    };
-    check();
-    std::vector<AMRPatch*> to_ref, to_der;
-    for (int pass = 0; pass < 3; ++pass) {
-        sim.amr_indicator->mark(tree, to_ref, to_der);
-        for (AMRPatch* p : to_ref)
-            if (p->is_leaf() && p->level < tree.max_level) tree.refine_patch(p);
-        for (AMRPatch* par : to_der) {
-            bool kids = !par->is_leaf();
-            for (AMRPatch* c : par->children) kids = kids && c->is_leaf();
-            if (kids) tree.derefine_patch(par);
-        }
-        tree.enforce_2to1_balance();
-        check();
-    }
-}
-
-namespace {
-// Largest difference between a tiled (single-level) AMR run and the uniform solver after `nsteps` fixed-dt steps
-double tiled_vs_uniform(const char* scheme, const char* muscl, int nsteps, bool ibm_visc) {
-    std::vector<std::pair<const char*, const char*>> base = {
-        {"nx", "96"}, {"ny", "48"}, {"time_scheme", scheme}, {"use_muscl", muscl}};
-    auto make = [&](bool amr) {
-        Params pr = baseline_defaults();
-        if (ibm_visc) {
-            pr.merge(get_test_case("IBM Airfoil").defaults);
-            pr.set("test_case", "IBM Airfoil");
-            pr.set("ibm_cx", "6.0");
-            pr.set("ibm_cy", "3.0");
-        } else {
-            pr.merge(get_test_case("Sod Shock Tube").defaults);
-            pr.set("test_case", "Sod Shock Tube");
-            pr.set("Lx", "12.0");
-            pr.set("Ly", "6.0");
-        }
-        pr.set("output_root", tmp_dir().string());
-        pr.set("use_mpi", "false");
-        for (const auto& e : base) pr.set(e.first, e.second);
-        if (amr) {
-            pr.set("use_amr", "true");
-            pr.set("amr_patch_nx", "48");
-            pr.set("amr_patch_ny", "24");
-            pr.set("amr_max_level", "0");
-        }
-        return SimParams::from(pr);
-    };
-    Simulation uni, sim;
-    uni.setup(make(false), false);
-    uni.initialize_field();
-    sim.setup(make(true), false);
-    sim.initialize_field();
-    AMRTree& tree = *sim.amr_tree;
-    for (int j = 0; j < uni.mesh.ny; ++j)
-        for (int i = 0; i < uni.mesh.nx; ++i)
-            uni.U[j * uni.mesh.nx + i] = test_state(uni.fluid, uni.mesh.xc(i), uni.mesh.yc(j));
-    auto scatter = [&] {
-        for (AMRPatch* lf : tree.leaves()) {
-            const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
-            const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
-            for (int j = 0; j < lf->ny(); ++j)
-                for (int i = 0; i < lf->nx(); ++i) lf->U[j * lf->nx() + i] = uni.U[(j0 + j) * uni.mesh.nx + i0 + i];
-        }
-    };
-    scatter();
-    const PatchResidualFn pr = [&](AMRPatch& p, AMRTree& t, const Field& U, Field& R, Field& fx, Field& fy) {
-        return sim.patch_residual(p, t, U, R, fx, fy);
-    };
-    const ResidualFn res = [&](const Field& Uin, Field& R) { return uni.residual(Uin, R); };
-    const double dt = 2e-3;
-    double t = 0.0;
-    for (int k = 0; k < nsteps; ++k) {
-        uni.scheme->advance_fixed_dt(uni.U, res, dt);
-        if (ibm_visc) uni.ibm->apply_solid_reset(uni.U, uni.fluid);
-        advance_amr_level(tree, 0, dt, t, 1e9, pr, *sim.scheme);
-        if (ibm_visc) sim.amr_solid_reset(tree);
-        t += dt;
-    }
-    double d = 0.0;
-    for (AMRPatch* lf : tree.leaves()) {
-        const int i0 = static_cast<int>(std::lround(lf->xmin / uni.mesh.dx));
-        const int j0 = static_cast<int>(std::lround(lf->ymin / uni.mesh.dy));
-        for (int j = 0; j < lf->ny(); ++j)
-            for (int i = 0; i < lf->nx(); ++i)
-                for (int q = 0; q < 4; ++q)
-                    d = std::max(d, std::abs(lf->U[j * lf->nx() + i][q] - uni.U[(j0 + j) * uni.mesh.nx + i0 + i][q]));
-    }
-    return d;
-}
-}   // namespace
-
-TEST(amr_tiled_matches_uniform_steps) {
-    // A level-0 tiling must be the uniform solver: the same fixed-dt steps give the same state, for every
-    // time scheme (stage-synchronised ghosts) with and without MUSCL (reconstruction across patch seams)
-    for (const char* sch : {"Explicit Euler", "SSP Runge-Kutta 2", "Runge-Kutta 4"}) {
-        CHECK(tiled_vs_uniform(sch, "false", 3, false) < 1e-15);
-        CHECK(tiled_vs_uniform(sch, "true", 3, false) < 1e-15);
-        CHECK(tiled_vs_uniform(sch, "true", 3, true) < 1e-12);   // airfoil: IBM, viscous, NRBC, solid reset
-    }
-}
-
-namespace {
-void run_viscous_box(double& e0, double& e1, double& m0, double& m1) {
-    Simulation sim;
-    sim.setup(params_for("Lid Driven Cavity", {{"Lx", "1.0"},
-                                               {"Ly", "1.0"},
-                                               {"nx", "8"},
-                                               {"ny", "8"},
-                                               {"use_mpi", "false"},
-                                               {"bc_top", "no_slip"},
-                                               {"time_scheme", "Explicit Euler"},
-                                               {"use_muscl", "false"},
-                                               {"mu", "0.02"},
-                                               {"use_amr", "true"},
-                                               {"amr_max_level", "2"},
-                                               {"amr_patch_nx", "8"},
-                                               {"amr_patch_ny", "8"}}),
-              false);
-    AMRTree& tree = *sim.amr_tree;
-    tree.refine_patch(tree.root);
-    tree.refine_patch(sorted_leaf(tree, 0));
-    tree.enforce_2to1_balance();
-    for (AMRPatch* lf : tree.leaves())
-        for (int j = 0; j < lf->ny(); ++j)
-            for (int i = 0; i < lf->nx(); ++i) {
-                const double x = lf->mesh.xc(i), y = lf->mesh.yc(j);
-                lf->U[j * lf->nx() + i] =
-                    sim.fluid.prim_to_cons({1.0 + 0.2 * std::exp(-30 * ((x - 0.3) * (x - 0.3) + (y - 0.3) * (y - 0.3))),
-                                            0.5 * std::sin(3.14159 * x) * std::sin(2 * 3.14159 * y),
-                                            0.3 * std::sin(2 * 3.14159 * x) * std::sin(3.14159 * y), 1.0});
-            }
-    e0 = total(tree, 3);
-    m0 = total(tree, 0);
-    const PatchResidualFn pr = [&](AMRPatch& p, AMRTree& t, const Field& U, Field& R, Field& fx, Field& fy) {
-        return sim.patch_residual(p, t, U, R, fx, fy);
-    };
-    double finest = 1e9, S0 = 0.0;
-    Field R, fx, fy;
-    for (AMRPatch* lf : tree.leaves()) {
-        finest = std::min(finest, lf->mesh.Lx / lf->nx());
-        S0 = std::max(S0, sim.patch_residual(*lf, tree, lf->U, R, fx, fy));
-    }
-    const double dt = 0.3 * finest / (S0 + 1e-12);
-    double t = 0.0;
-    for (int k = 0; k < 20; ++k) {
-        advance_amr_level(tree, 0, dt, t, 1e9, pr, *sim.scheme);
-        t += dt;
-    }
-    e1 = total(tree, 3);
-    m1 = total(tree, 0);
-}
-}   // namespace
-
-TEST(amr_viscous_reflux_conservation) {
-    // Closed no-slip box: viscous work only heats the gas, so total energy and mass are conserved.
-    // Only the viscous flux across the coarse-fine seams can break it, which refluxing must repair.
-    double e0, e1, m0, m1;
-    run_viscous_box(e0, e1, m0, m1);
-    CHECK(std::abs(e1 - e0) / e0 < 1e-12);
-    CHECK(std::abs(m1 - m0) / m0 < 1e-12);
-    g_amr_disable_reflux = true;
-    run_viscous_box(e0, e1, m0, m1);
-    g_amr_disable_reflux = false;
-    CHECK(std::abs(e1 - e0) / e0 > 1e-9);
-}
-
-// ---------------------------------------------------------------------------
 // Mapping / IO
 // ---------------------------------------------------------------------------
 
@@ -1376,59 +815,6 @@ TEST(time_scheme_stages_and_bdf2) {
     CHECK(capped.inner_iter_last() == 7);
 }
 
-TEST(amr_tree_structure) {
-    AMRTree tree(2.0, 1.0, 4, 4, 2);
-    CHECK(tree.leaves().size() == 1 && tree.root->level == 0);
-    CHECK(tree.root->xmax == 2.0 && tree.root->ymax == 1.0);
-    auto kids = tree.refine_patch(tree.root);
-    CHECK(kids.size() == 4);
-    double area = 0.0;
-    for (AMRPatch* k : kids) {
-        CHECK(k->level == 1);
-        area += (k->xmax - k->xmin) * (k->ymax - k->ymin);
-    }
-    CHECK_NEAR(area, 2.0, 1e-14);
-    bool threw = false;
-    try {
-        tree.refine_patch(tree.root);
-    } catch (const std::invalid_argument&) { threw = true; }
-    CHECK(threw);   // non-leaf
-    tree.refine_patch(kids[1]);
-    threw = false;
-    try {
-        tree.refine_patch(kids[1]->children[0]);
-    } catch (const std::invalid_argument&) { threw = true; }
-    CHECK(threw);   // at max_level
-    // A coarse face sees the two finer leaves across it; domain edges have none
-    CHECK(tree.neighbour_leaves(kids[0], Face::Right).size() == 2);
-    CHECK(tree.neighbour_leaves(kids[0], Face::Left).empty());
-    CHECK(tree.neighbour_leaves(kids[0], Face::Top).size() == 1);
-    AMRTree no_refine(1.0, 1.0, 5, 5, 0);   // odd dims are fine without refinement
-    CHECK(no_refine.leaves().size() == 1);
-}
-
-TEST(amr_marking_and_buffer) {
-    AMRTree tree(1.0, 1.0, 8, 8, 2);
-    tree.refine_patch(tree.root);
-    for (AMRPatch* p : tree.leaves()) p->U.assign(64, State{1, 0, 0, 2.5});
-    const AMRErrorIndicator ind(0.3, 0.1, 1);
-    std::vector<AMRPatch*> ref, der;
-    ind.mark(tree, ref, der);
-    CHECK(ref.empty());
-    CHECK(der.size() == 1 && der[0] == tree.root);   // uniform siblings collapse
-    AMRPatch* bl = sorted_leaf(tree, 0);
-    for (int j = 0; j < 8; ++j)
-        for (int i = 0; i < 8; ++i) bl->U[j * 8 + i][0] = i < 4 ? 1.0 : 0.125;   // discontinuity
-    ind.mark(tree, ref, der);
-    CHECK(std::find(ref.begin(), ref.end(), bl) != ref.end());
-    CHECK(ref.size() == 3);   // + the two face neighbours (buffer ring)
-    CHECK(der.empty());       // guard: buffered child protects the parent
-    ind.mark(tree, ref, der);
-    const AMRErrorIndicator tight(0.3, 0.1, 0);
-    tight.mark(tree, ref, der);
-    CHECK(ref.size() == 1);
-}
-
 TEST(vtk_export_layout) {
     const fs::path dir = tmp_dir() / "vtk";
     fs::remove_all(dir);
@@ -1459,25 +845,35 @@ TEST(vtk_export_layout) {
     std::ifstream pin((dir / "case.pvd").string());
     const std::string pvd((std::istreambuf_iterator<char>(pin)), std::istreambuf_iterator<char>());
     CHECK(pvd.find("timestep=\"5.000000e-01\"") != std::string::npos);
-    // AMR: one .vtr per leaf in the step folder, only .vtm + .pvd at top level
-    AMRTree tree(1.0, 1.0, 4, 4, 1);
-    tree.root->U.assign(16, eos.prim_to_cons({1, 0, 0, 1}));
-    tree.refine_patch(tree.root);
+    // adaptive mesh: one .vtu of VTK_QUAD cells (several ranks: a piece per rank and a .pvtu)
+    CellMesh cm(1.0, 1.0, 4, 4, 1);
+    std::vector<char> refine(static_cast<size_t>(cm.num_leaves()), 0);
+    refine[static_cast<size_t>(cm.find(0, 1, 1))] = 1;
+    cm.adapt(refine);
+    cm.U.assign(static_cast<size_t>(cm.num_leaves()), eos.prim_to_cons({1, 0, 0, 1}));
+    std::vector<int> all_leaves(static_cast<size_t>(cm.num_leaves()));
+    for (int c = 0; c < cm.num_leaves(); ++c) all_leaves[static_cast<size_t>(c)] = c;
     const fs::path adir = tmp_dir() / "vtk_amr";
     fs::remove_all(adir);
-    VTKExporter ea(adir.string(), false);
-    ea.export_amr("amr", eos, tree, 0.0, 3);
+    VTKExporter ea(adir.string(), false, false);
+    ea.export_cells("amr", eos, cm, all_leaves, 0.0, 3);
     ea.write_pvd("amr");
-    int top_vtr = 0, leaf_vtr = 0, tmp_files = 0;
-    for (const auto& e : fs::recursive_directory_iterator(adir)) {
-        if (e.path().extension() == ".tmp") ++tmp_files;
-        if (e.path().extension() == ".vtr") (e.path().parent_path() == adir ? top_vtr : leaf_vtr) += 1;
-    }
-    CHECK(top_vtr == 0 && leaf_vtr == 4 && tmp_files == 0);
-    CHECK(fs::exists(adir / "amr_00003.vtm") && ea.collection.size() == 1);
-    std::ifstream lin((adir / "amr_00003" / "p0000.vtr").string());
+    CHECK(fs::exists(adir / "amr_00003.vtu") && ea.collection.size() == 1);
+    std::ifstream lin((adir / "amr_00003.vtu").string());
     const std::string leaf((std::istreambuf_iterator<char>(lin)), std::istreambuf_iterator<char>());
-    CHECK(leaf.find("Name=\"AMR_Level\"") != std::string::npos);
+    CHECK(leaf.find("NumberOfPoints=\"76\" NumberOfCells=\"19\"") != std::string::npos);
+    CHECK(leaf.find("Name=\"AMR_Level\"") != std::string::npos && leaf.find("Name=\"types\"") != std::string::npos);
+    std::vector<int> half_a, half_b;
+    for (int c = 0; c < cm.num_leaves(); ++c) (c % 2 ? half_b : half_a).push_back(c);
+    VTKExporter ep(adir.string(), false, false);
+    ep.export_cells("par", eos, cm, half_b, 0.0, 5, 1, 2);   // rank 1 first: only its piece
+    CHECK(ep.collection.empty() && fs::exists(adir / "par_00005" / "r0001.vtu"));
+    ep.export_cells("par", eos, cm, half_a, 0.0, 5, 0, 2);
+    CHECK(ep.collection.size() == 1 && fs::exists(adir / "par_00005.pvtu") && fs::exists(adir / "par_00005" / "r0000.vtu"));
+    int tmp_files = 0;
+    for (const auto& e : fs::recursive_directory_iterator(adir))
+        if (e.path().extension() == ".tmp") ++tmp_files;
+    CHECK(tmp_files == 0);
 }
 
 TEST(checkpoint_edge_cases) {
@@ -1805,18 +1201,13 @@ TEST(source_time_dependence_is_detected_by_identifier) {
 }
 
 TEST(source_terms_are_rejected_where_unsupported) {
-    bool amr_throws = false, ibm_throws = false;
-    try {
-        params_for("Sod Shock Tube", {{"use_amr", "true"}, {"source_rho", "1"}});
-    } catch (const std::invalid_argument&) {
-        amr_throws = true;
-    }
+    bool ibm_throws = false;
+    CHECK(params_for("Sod Shock Tube", {{"use_amr", "true"}, {"source_rho", "1"}}).use_source);   // sources work on adaptive meshes
     try {
         params_for("IBM Flow over Cylinder", {{"source_mx", "x"}});
     } catch (const std::invalid_argument&) {
         ibm_throws = true;
     }
-    CHECK(amr_throws);
     CHECK(ibm_throws);
     CHECK(!params_for("Sod Shock Tube", {}).use_source);
     CHECK(!params_for("Sod Shock Tube", {{"source_rho", "0.0"}}).use_source);   // a zero number is no source
@@ -2155,10 +1546,18 @@ TEST(parameter_validation) {
     CHECK(error_of({{"eos_type", "ideal"}}).find("eos_type") != std::string::npos);
     CHECK(error_of({{"bc_left", "periodic"}}).find("in pairs") != std::string::npos);
     CHECK(error_of({{"bc_left", "Periodic"}, {"bc_right", "periodic"}}).empty());
-    CHECK(error_of({{"use_amr", "true"}, {"resume", "true"}}).find("AMR") != std::string::npos);
-    CHECK(error_of({{"use_amr", "true"}, {"nx", "100"}}).find("multiples") != std::string::npos);   // patch 8
-    CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}, {"bc_left", "periodic"}, {"bc_right", "periodic"}})
-              .find("periodic") != std::string::npos);
+    // adaptive mesh: any base mesh, resume, periodic and mass-flow boundaries and sources are fine now
+    CHECK(error_of({{"use_amr", "true"}, {"resume", "true"}}).empty());
+    CHECK(error_of({{"use_amr", "true"}, {"nx", "100"}}).empty());
+    CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}, {"bc_left", "periodic"}, {"bc_right", "periodic"}}).empty());
+    CHECK(error_of({{"use_amr", "true"}, {"bc_left", "massflow_inlet"}}).empty());
+    CHECK(error_of({{"amr_patch_nx", "16"}}).find("removed") != std::string::npos);
+    CHECK(error_of({{"amr_patch_ny", "16"}}).find("level-0 grid") != std::string::npos);
+    CHECK(error_of({{"amr_buffer_layers", "1"}}).find("amr_diffusion") != std::string::npos);
+    CHECK(error_of({{"amr_indicator", "density+vorticity"}}).find("amr_indicator") != std::string::npos);
+    CHECK(error_of({{"amr_indicator", "pressure+density+velocity"}}).empty());
+    CHECK(error_of({{"amr_derefine_threshold", "0.3"}, {"amr_refine_threshold", "0.2"}}).find("derefine") != std::string::npos);
+    CHECK(error_of({{"use_amr", "true"}, {"amr_criterion", "0"}}).find("amr_criterion") != std::string::npos);
     CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}, {"time_scheme", "BDF2 Dual Time"}}).find("BDF2") !=
           std::string::npos);
     CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}}).empty());

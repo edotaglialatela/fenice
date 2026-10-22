@@ -103,6 +103,12 @@ public:
     // returns whether the leaves changed.
     bool adapt(const std::vector<char>& refine, const std::vector<char>& coarsen = {});
 
+    // Replace the leaves by the given ones (a restart): level and integer coordinates of every leaf, in any order; `state`,
+    // if given, holds the state in the same order and is reordered with them. Throws if the leaves do not tile the domain or
+    // break the corner 2:1 balance. Rebuilds the faces.
+    void assign_leaves(const std::vector<int>& levels, const std::vector<int>& is, const std::vector<int>& js,
+                       Field* state = nullptr);
+
     // --- mesh data ---
     double Lx, Ly;
     int nx, ny, max_level;

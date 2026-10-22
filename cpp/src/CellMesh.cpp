@@ -196,6 +196,41 @@ void CellMesh::rebuild() {
             std::swap(side_face[side_ptr[k]], side_face[side_ptr[k] + 1]);
 }
 
+void CellMesh::assign_leaves(const std::vector<int>& lv, const std::vector<int>& ii, const std::vector<int>& jj, Field* state) {
+    const size_t n = lv.size();
+    if (ii.size() != n || jj.size() != n || (state && state->size() != n))
+        throw std::invalid_argument("CellMesh::assign_leaves: the arrays differ in length");
+    long long area = 0;   // in cells of the finest level
+    for (size_t k = 0; k < n; ++k) {
+        if (lv[k] < 0 || lv[k] > max_level || ii[k] < 0 || ii[k] >= nx_at(lv[k]) || jj[k] < 0 || jj[k] >= ny_at(lv[k]))
+            throw std::invalid_argument("CellMesh::assign_leaves: a leaf is outside the mesh or deeper than max_level");
+        area += 1ll << (2 * (max_level - lv[k]));
+    }
+    if (area != static_cast<long long>(nx) * ny * (1ll << (2 * max_level)))
+        throw std::invalid_argument("CellMesh::assign_leaves: the leaves do not tile the domain");
+    std::vector<SortKey> keys(n);
+    for (size_t k = 0; k < n; ++k) keys[k] = {lv[k], morton_key(static_cast<uint32_t>(ii[k]), static_cast<uint32_t>(jj[k]))};
+    std::vector<int> order(n);
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(), [&](int a, int b) { return keys[a] < keys[b]; });
+    for (size_t k = 1; k < n; ++k)
+        if (!(keys[order[k - 1]] < keys[order[k]])) throw std::invalid_argument("CellMesh::assign_leaves: a leaf is given twice");
+    level.resize(n);
+    ci.resize(n);
+    cj.resize(n);
+    Field reordered;
+    if (state) reordered.resize(n);
+    for (size_t k = 0; k < n; ++k) {
+        level[k] = lv[order[k]];
+        ci[k] = ii[order[k]];
+        cj[k] = jj[order[k]];
+        if (state) reordered[k] = (*state)[static_cast<size_t>(order[k])];
+    }
+    if (state) U = std::move(reordered);
+    else U.clear();
+    rebuild();
+}
+
 bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>& coarsen_in) {
     const int N = num_leaves();
     if ((!refine_in.empty() && static_cast<int>(refine_in.size()) != N) ||

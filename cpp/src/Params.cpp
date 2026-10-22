@@ -157,15 +157,14 @@ Params baseline_defaults() {
         {"hot_start_src_ny", "0"},
         {"use_amr", "false"},
         {"amr_max_level", "2"},
-        {"amr_patch_nx", "8"},
-        {"amr_patch_ny", "8"},
-        {"amr_refine_threshold", "0.3"},
+        {"amr_criterion", "0.1"},
+        {"amr_refine_threshold", "0.15"},
         {"amr_derefine_threshold", "0.1"},
+        {"amr_diffusion", "2"},
         {"amr_refine_every", "10"},
         {"amr_init_levels", "0"},
-        {"amr_buffer_layers", "1"},
         {"amr_refine_ibm", "true"},
-        {"amr_indicator", "density"},
+        {"amr_indicator", "density+velocity"},
         {"output_root", FV_PROJECT_ROOT "/results"},
         {"dump_state", ""},
         {"max_steps", "0"},
@@ -259,15 +258,14 @@ SimParams SimParams::from(const Params& p) {
     s.hot_start_src_ny = p.integer("hot_start_src_ny", 0);
     s.use_amr = p.flag("use_amr");
     s.amr_max_level = p.integer("amr_max_level", 2);
-    s.amr_patch_nx = p.integer("amr_patch_nx", 8);
-    s.amr_patch_ny = p.integer("amr_patch_ny", 8);
-    s.amr_refine_threshold = p.num("amr_refine_threshold", 0.3);
+    s.amr_criterion = p.num("amr_criterion", 0.1);
+    s.amr_refine_threshold = p.num("amr_refine_threshold", 0.15);
     s.amr_derefine_threshold = p.num("amr_derefine_threshold", 0.1);
+    s.amr_diffusion = p.integer("amr_diffusion", 2);
     s.amr_refine_every = std::max(1, p.integer("amr_refine_every", 10));
     s.amr_init_levels = p.integer("amr_init_levels", 0);
-    s.amr_buffer_layers = p.integer("amr_buffer_layers", 1);
     s.amr_refine_ibm = p.flag("amr_refine_ibm");
-    s.amr_indicator = lower(p.str("amr_indicator", "density"));
+    s.amr_indicator = lower(p.str("amr_indicator", "density+velocity"));
     s.output_root = p.str("output_root", "results");
     s.dump_state = p.str("dump_state");
     s.max_steps = p.integer("max_steps", 0);
@@ -277,34 +275,33 @@ SimParams SimParams::from(const Params& p) {
     if (s.nx <= 0 || s.ny <= 0 || s.nz <= 0) throw std::invalid_argument("nx, ny and nz must be positive");
     if (s.Lx <= 0 || s.Ly <= 0 || s.Lz <= 0) throw std::invalid_argument("Lx, Ly and Lz must be positive");
     if (s.use_amr && s.nz > 1) throw std::invalid_argument("AMR is 2-D only (nz must be 1 when use_amr is on)");
-    if (s.use_source && s.use_amr) throw std::invalid_argument("source terms (source_*) are not supported with AMR");
     if (s.use_source && s.use_ibm) throw std::invalid_argument("source terms (source_*) are not supported with the IBM");
-    if (s.use_amr && (s.nx % s.amr_patch_nx != 0 || s.ny % s.amr_patch_ny != 0))
-        throw std::invalid_argument("AMR: nx and ny must be multiples of amr_patch_nx and amr_patch_ny (the level-0 "
-                                    "patches tile the mesh): nx = " +
-                                    std::to_string(s.nx) + ", ny = " + std::to_string(s.ny) + ", patch " +
-                                    std::to_string(s.amr_patch_nx) + " x " + std::to_string(s.amr_patch_ny));
-    if (s.amr_indicator != "density" && s.amr_indicator != "velocity" && s.amr_indicator != "density+velocity")
-        throw std::invalid_argument("amr_indicator must be density, velocity or density+velocity (got '" +
-                                    s.amr_indicator + "')");
+    {   // amr_indicator: variables joined by '+', each one of density, velocity, pressure
+        const std::string& ind = s.amr_indicator;
+        size_t b = 0;
+        bool ok = !ind.empty();
+        while (ok && b <= ind.size()) {
+            size_t e = ind.find('+', b);
+            if (e == std::string::npos) e = ind.size();
+            const std::string v = ind.substr(b, e - b);
+            ok = v == "density" || v == "velocity" || v == "pressure";
+            b = e + 1;
+        }
+        if (!ok)
+            throw std::invalid_argument("amr_indicator must be density, velocity or pressure, or several of them joined by "
+                                        "'+' (e.g. density+velocity); got '" + ind + "'");
+    }
+    if (s.use_amr && !(s.amr_criterion > 0.0)) throw std::invalid_argument("amr_criterion must be positive");
+    if (!(s.amr_derefine_threshold <= s.amr_refine_threshold))
+        throw std::invalid_argument("amr_derefine_threshold must not exceed amr_refine_threshold (else a refined cell "
+                                    "would be joined and refined again)");
+    if (s.use_amr && s.amr_diffusion < 0) throw std::invalid_argument("amr_diffusion must be >= 0");
     if (s.use_amr) {
         const std::string ts = lower(s.time_scheme);
         if (ts == "bdf2 dual time" || ts == "bdf2")
             throw std::invalid_argument("AMR does not support the BDF2 dual-time scheme (use Explicit Euler, SSP "
                                         "Runge-Kutta 2 or Runge-Kutta 4)");
-        for (const std::string* bc : {&s.bc_left, &s.bc_right, &s.bc_bottom, &s.bc_top}) {
-            const std::string b = lower(*bc);
-            if (b == "periodic")
-                throw std::invalid_argument(
-                    "AMR does not support periodic boundaries yet (a patch would wrap onto itself)");
-            if (b == "massflow_inlet" || b == "mass flow inlet")
-                throw std::invalid_argument(
-                    "AMR does not support the mass-flow inlet (its density average is per patch)");
-        }
     }
-    if (s.use_amr && s.resume)
-        throw std::invalid_argument("resume is not available with AMR (AMR runs write no checkpoint); "
-                                    "use a hot start from a uniform-mesh checkpoint instead");
     const std::string eos = lower(s.eos_type);
     if (eos != "ideal gas" && eos != "stiffened gas")
         throw std::invalid_argument("Unknown eos_type: '" + s.eos_type + "' (use Ideal Gas or Stiffened Gas)");

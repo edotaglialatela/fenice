@@ -47,8 +47,6 @@ use_mpi = false
 
 [amr]
 use_amr = true
-amr_patch_nx = 16
-amr_patch_ny = 16
 amr_max_level = 2
 amr_refine_every = 5
 amr_refine_ibm = true

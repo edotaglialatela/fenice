@@ -10,7 +10,7 @@
 
 namespace fv {
 
-class AMRTree;
+class CellMesh;
 
 // ---------------------------------------------------------------------------
 // VTK exporter
@@ -32,11 +32,12 @@ public:
 
     // One .vtr snapshot (RectilinearGrid: Density, Pressure, Temperature_nondim, Mach, Velocity).
     void export_vtr(const std::string& prefix, const EOS& eos, const Field& U, const Mesh& mesh, double time, int step);
-    // One .vtm multi-block snapshot of all AMR leaves (+ per-leaf .vtr in a subfolder). On `size` > 1
-    // ranks every rank calls this: each writes the leaves it owns, `sync` is a barrier, and rank 0
-    // writes the .vtm (and is the only one to record the snapshot in `collection`).
-    void export_amr(const std::string& prefix, const EOS& eos, const AMRTree& tree, double time, int step, int rank = 0,
-                    int size = 1, const std::function<void()>& sync = {});
+    // One snapshot of the given leaves of an adaptive mesh (a VTK_QUAD each: the fields of export_vtr and AMR_Level).
+    // One rank: one .vtu. On `size` > 1 ranks every rank calls this with the leaves it owns: each writes a .vtu piece in a
+    // subfolder, `sync` is a barrier, and rank 0 writes the .pvtu that lists the pieces (and is the only one to record the
+    // snapshot in `collection`).
+    void export_cells(const std::string& prefix, const EOS& eos, const CellMesh& mesh, const std::vector<int>& leaves,
+                      double time, int step, int rank = 0, int size = 1, const std::function<void()>& sync = {});
     // .pvd time-series index of every snapshot written so far.
     void write_pvd(const std::string& prefix) const;
 

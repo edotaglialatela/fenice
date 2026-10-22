@@ -49,8 +49,8 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& section_tab
          {"use_ibm", "ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz", "ibm_file", "ibm_chord", "ibm_aoa"}},
         {"hot_start", {"use_hot_start", "hot_start_file", "hot_start_src_nx", "hot_start_src_ny"}},
         {"amr",
-         {"use_amr", "amr_max_level", "amr_patch_nx", "amr_patch_ny", "amr_refine_threshold", "amr_derefine_threshold",
-          "amr_refine_every", "amr_init_levels", "amr_buffer_layers", "amr_refine_ibm", "amr_indicator"}},
+         {"use_amr", "amr_max_level", "amr_indicator", "amr_criterion", "amr_refine_threshold", "amr_derefine_threshold",
+          "amr_diffusion", "amr_refine_every", "amr_init_levels", "amr_refine_ibm"}},
     };
     return t;
 }
@@ -395,6 +395,12 @@ std::string param_section(const std::string& key) {
 void check_parameter_keys(const Params& p, const std::string& where) {
     for (const auto& kv : p.values()) {
         if (kv.first == "test_case" || !param_section(kv.first).empty()) continue;
+        if (kv.first == "amr_patch_nx" || kv.first == "amr_patch_ny")
+            throw std::invalid_argument(where + ": '" + kv.first +
+                                        "' was removed: the base mesh (nx x ny) is the level-0 grid, there are no patches");
+        if (kv.first == "amr_buffer_layers")
+            throw std::invalid_argument(where + ": 'amr_buffer_layers' was removed: the indicator is smoothed by "
+                                                "amr_diffusion iterations instead");
         throw std::invalid_argument(where + ": unknown parameter '" + kv.first + "'" +
                                     hint(kv.first, all_param_keys()));
     }

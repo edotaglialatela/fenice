@@ -189,15 +189,6 @@ void slab_tangential_derivs(const EOS& eos, const BoundaryManager& bm, const Mes
 }
 }   // namespace
 
-// State of the leaf cell containing (x, y), or nullptr outside every leaf.
-const State* sample_leaf_state(const AMRTree& tree, double x, double y) {
-    const AMRPatch* leaf = tree.leaf_at(x, y);
-    if (!leaf) return nullptr;
-    const int i = std::min(std::max(static_cast<int>((x - leaf->xmin) / leaf->mesh.dx), 0), leaf->nx() - 1);
-    const int j = std::min(std::max(static_cast<int>((y - leaf->ymin) / leaf->mesh.dy), 0), leaf->ny() - 1);
-    return &leaf->ghost_source()[j * leaf->nx() + i];
-}
-
 std::string format_elapsed(double s) {
     char buf[32];
     if (s < 60)
@@ -300,13 +291,6 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         if (!digits.empty() || lower(p.ibm_shape) == "airfoil") {
             const Polygon2D unit = digits.empty() ? load_airfoil(airfoil_file_path()) : naca4(digits);
             const Polygon2D placed = place_airfoil(unit, p.ibm_chord, p.ibm_aoa, p.ibm_cx, p.ibm_cy);
-            ibm_bbox = {1e300, -1e300, 1e300, -1e300};
-            for (const auto& q : placed.pts) {
-                ibm_bbox[0] = std::min(ibm_bbox[0], q[0]);
-                ibm_bbox[1] = std::max(ibm_bbox[1], q[0]);
-                ibm_bbox[2] = std::min(ibm_bbox[2], q[1]);
-                ibm_bbox[3] = std::max(ibm_bbox[3], q[1]);
-            }
             ibm_factory = [placed, rho = p.rho_in, pout = p.p_out](const Mesh& m) {
                 return ImmersedBoundary(m, placed, rho, pout);
             };
@@ -316,8 +300,6 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                             digits.empty() ? airfoil_file_path().c_str() : p.ibm_shape.c_str(), p.ibm_chord, p.ibm_aoa,
                             p.ibm_cx, p.ibm_cy, ibm->solid_count());
         } else {
-            ibm_bbox = {p.ibm_cx - p.ibm_radius, p.ibm_cx + p.ibm_radius, p.ibm_cy - p.ibm_radius,
-                        p.ibm_cy + p.ibm_radius};
             ibm_factory = [shape = p.ibm_shape, r = p.ibm_radius, cx = p.ibm_cx, cy = p.ibm_cy, rho = p.rho_in,
                            pout = p.p_out, cz = p.ibm_cz](const Mesh& m) {
                 return ImmersedBoundary(m, shape, r, cx, cy, rho, pout, cz);
@@ -373,58 +355,76 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         body_force.reset();
     }
 
-    // AMR (with several MPI ranks the leaves are distributed over them: see AMRParallel)
-    amr_tree.reset();
-    amr_indicator.reset();
-    amr_dist = false;
+    // AMR: the adaptive mesh and its engine; on several MPI ranks the leaves are distributed over them (CellParallel)
+    cells.reset();
+    cell_engine.reset();
+    cell_adaptor.reset();
+    cell_par.reset();
+    hot_interp_.reset();
+    cell_comm = CellComm{};
     if (p.use_amr) {
-        amr_tree = std::make_unique<AMRTree>(p.Lx, p.Ly, p.amr_patch_nx, p.amr_patch_ny, p.amr_max_level,
-                                             p.nx / p.amr_patch_nx, p.ny / p.amr_patch_ny);
-        amr_indicator =
-            std::make_unique<AMRErrorIndicator>(p.amr_refine_threshold, p.amr_derefine_threshold, p.amr_buffer_layers);
-        amr_indicator->use_density = p.amr_indicator != "velocity";
-        amr_indicator->use_speed = p.amr_indicator != "density";
-        if (p.use_ibm && p.amr_refine_ibm)
-            amr_indicator->force_refine = [this](const AMRPatch& patch) { return patch_touches_body(patch); };
+        const bool per_x = boundaries.type(Face::Left) == BCType::Periodic;
+        const bool per_y = boundaries.type(Face::Bottom) == BCType::Periodic;
+        cells = std::make_unique<CellMesh>(p.Lx, p.Ly, p.nx, p.ny, p.amr_max_level, per_x, per_y);
+        cell_physics = CellPhysics{};
+        cell_physics.ns = ns.get();
+        cell_physics.body = body_force.get();
+        if (p.use_source) {
+            cell_physics.source = &p.source;
+            cell_physics.source_unsteady = p.source_unsteady;
+            cell_physics.source_mesh = &mesh;
+        }
+        if (p.use_ibm) cell_physics.ibm_factory = ibm_factory;
+        cell_engine = std::make_unique<CellFluxEngine>(fluid, riemann, muscl.get(), boundaries);
+        cell_engine->set_physics(cell_physics);
+        cell_indicator = CellIndicator{};
+        cell_indicator.criterion = p.amr_criterion;
+        cell_indicator.split = p.amr_refine_threshold;
+        cell_indicator.join = p.amr_derefine_threshold;
+        cell_indicator.diffusion = p.amr_diffusion;
+        cell_indicator.use_density = p.amr_indicator.find("density") != std::string::npos;
+        cell_indicator.use_velocity = p.amr_indicator.find("velocity") != std::string::npos;
+        cell_indicator.use_pressure = p.amr_indicator.find("pressure") != std::string::npos;
+        cell_adaptor = std::make_unique<CellAdaptor>(*cells, *cell_engine, fluid, cell_indicator);
+        if (p.use_ibm && p.amr_refine_ibm) cell_adaptor->set_body(ibm_factory, 2);
         if (verbose)
-            std::printf("[AMR] Enabled - max_level=%d, patch_size=%dx%d, subcycling active\n", p.amr_max_level,
-                        p.amr_patch_nx, p.amr_patch_ny);
+            std::printf("[AMR] Enabled - %d levels, indicator %s (variation %g, refine at %g, join below %g, %d smoothing "
+                        "iterations), subcycling active\n",
+                        p.amr_max_level, p.amr_indicator.c_str(), p.amr_criterion, p.amr_refine_threshold,
+                        p.amr_derefine_threshold, p.amr_diffusion);
 #ifdef FV_USE_MPI
         int init = 0, size = 1;
         MPI_Initialized(&init);
         if (init) MPI_Comm_size(MPI_COMM_WORLD, &size);
         if (size > 1) {
-            amr_dist = true;
-            amr_par.size = size;
-            MPI_Comm_rank(MPI_COMM_WORLD, &amr_par.rank);
-            amr_par.allgatherv = [](const double* send, int n, double* recv, const int* counts, const int* displs) {
+            cell_comm.size = size;
+            MPI_Comm_rank(MPI_COMM_WORLD, &cell_comm.rank);
+            cell_comm.allgatherv = [](const double* send, int n, double* recv, const int* counts, const int* displs) {
                 MPI_Allgatherv(send, n, MPI_DOUBLE, recv, counts, displs, MPI_DOUBLE, MPI_COMM_WORLD);
             };
-            amr_par.exchange = [](const std::vector<std::vector<double>>& send,
-                                  std::vector<std::vector<double>>& recv) {
+            cell_comm.allreduce_max = [](double v) {
+                double g = v;
+                MPI_Allreduce(&v, &g, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+                return g;
+            };
+            cell_comm.exchange = [](const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) {
                 std::vector<MPI_Request> req;
                 req.reserve(send.size() + recv.size());
                 for (size_t r = 0; r < recv.size(); ++r)
                     if (!recv[r].empty()) {
                         req.emplace_back();
-                        MPI_Irecv(recv[r].data(), static_cast<int>(recv[r].size()), MPI_DOUBLE, static_cast<int>(r), 77,
+                        MPI_Irecv(recv[r].data(), static_cast<int>(recv[r].size()), MPI_DOUBLE, static_cast<int>(r), 91,
                                   MPI_COMM_WORLD, &req.back());
                     }
                 for (size_t r = 0; r < send.size(); ++r)
                     if (!send[r].empty()) {
                         req.emplace_back();
-                        MPI_Isend(send[r].data(), static_cast<int>(send[r].size()), MPI_DOUBLE, static_cast<int>(r), 77,
+                        MPI_Isend(send[r].data(), static_cast<int>(send[r].size()), MPI_DOUBLE, static_cast<int>(r), 91,
                                   MPI_COMM_WORLD, &req.back());
                     }
                 MPI_Waitall(static_cast<int>(req.size()), req.data(), MPI_STATUSES_IGNORE);
             };
-            amr_par.allreduce_max = [](double v) {
-                double g = v;
-                MPI_Allreduce(&v, &g, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-                return g;
-            };
-            amr_tree->store_state = false;   // a leaf's state exists only on the ranks that hold it
-            for (AMRPatch* root : amr_tree->roots) Field().swap(root->U);   // created before the switch
+            cell_par = std::make_unique<CellParallel>(*cells, *cell_engine, cell_comm);
         }
 #endif
     }
@@ -439,60 +439,69 @@ void Simulation::initialize_field() {
     if (test_case->requires_viscosity && !ns)
         std::printf("[WARNING] This test case requires Navier-Stokes - viscous physics is off!\n");
 
-    // Distributed AMR evaluates the initial condition on the leaves a rank owns: no global field
-    const bool global_field = !amr_dist || p.use_hot_start;
+    // An adaptive run needs a global field only for a hot start (interpolated onto the leaves)
+    const bool global_field = !cells || p.use_hot_start;
     if (global_field) U = p.use_hot_start ? load_hot_start(p.hot_start_file) : initial_field();
     start_step = 0;
     if (p.resume) start_step = load_checkpoint();
 
     // A fresh start (also resume without a checkpoint) is forced; a restored state already is
-    if (p.use_ibm && start_step == 0 && global_field) ibm->apply_forcing(U, fluid);
+    if (p.use_ibm && start_step == 0 && !cells) ibm->apply_forcing(U, fluid);
+    if (!cells) return;
 
-    if (amr_tree) {
-        for (int k = 0; k < p.amr_init_levels; ++k)
-            for (AMRPatch* patch : amr_tree->leaves())
-                if (patch->level < amr_tree->max_level) amr_tree->refine_patch(patch);
-        if (p.use_ibm && p.amr_refine_ibm) refine_body_patches();
-        if (amr_dist) {
-            assign_ownership(*amr_tree, amr_par.rank, amr_par.size);
-            allocate_held(*amr_tree);
-        }
-        const auto owned = [&](const AMRPatch* patch) { return !amr_dist || patch->owner == amr_par.rank; };
-        if (p.use_hot_start) {
-            // Seed every leaf by sampling the hot-start field at the leaf's global cell centroids
-            // (bilinear, extrapolating at the edges).
-            const double dx_s = mesh.Lx / mesh.nx, dy_s = mesh.Ly / mesh.ny;
-            const GridInterp2D interp(linspace(dx_s / 2.0, mesh.Lx - dx_s / 2.0, mesh.nx),
-                                      linspace(dy_s / 2.0, mesh.Ly - dy_s / 2.0, mesh.ny), U);
-            for (AMRPatch* patch : amr_tree->leaves())
-                if (owned(patch))
-                    for (int j = 0; j < patch->ny(); ++j)
-                        for (int i = 0; i < patch->nx(); ++i)
-                            patch->U[j * patch->nx() + i] = interp(patch->mesh.xc(i), patch->mesh.yc(j));
-        } else {
-            // Evaluate the initial condition at each leaf's own resolution, so refined leaves see the
-            // exact initial discontinuities rather than their interpolation from the base grid
-            for (AMRPatch* patch : amr_tree->leaves()) {
-                if (!owned(patch)) continue;
-                Mesh pm =
-                    patch->mesh;   // cell positions of the patch, but Lx / Ly of the domain (expressions like Lx/2)
-                pm.Lx = mesh.Lx;
-                pm.Ly = mesh.Ly;
-                patch->U = test_case->initialize(pm, fluid, p.source);
-            }
-        }
-        if (p.use_ibm && start_step == 0)
-            for (AMRPatch* patch : amr_tree->leaves()) {
-                if (!owned(patch)) continue;
-                ensure_patch_masks(*patch);
-                ImmersedBoundary(patch->nx(), patch->ny(), patch->solid, p.rho_in, p.p_out)
-                    .apply_forcing(patch->U, fluid);
-            }
-        if (amr_dist) {
-            refresh_halos(*amr_tree, amr_par);   // the halo copies get the owners' initial state
-            Field().swap(U);                     // the global field (hot start) is not needed any more
-        }
+    if (p.use_hot_start) {
+        // Seed every leaf by sampling the hot-start field at the leaf's cell centre (bilinear, extrapolating at the edges)
+        const double dx_s = mesh.Lx / mesh.nx, dy_s = mesh.Ly / mesh.ny;
+        hot_interp_ = std::make_unique<GridInterp2D>(linspace(dx_s / 2.0, mesh.Lx - dx_s / 2.0, mesh.nx),
+                                                     linspace(dy_s / 2.0, mesh.Ly - dy_s / 2.0, mesh.ny), U);
     }
+    if (start_step == 0) {
+        // The initial condition is evaluated at each leaf's own resolution, so refined leaves see the exact initial
+        // discontinuities rather than their interpolation from the base grid
+        fill_cells(*cells);
+        cell_engine->build(*cells);
+        for (int k = 0; k < p.amr_init_levels; ++k) {
+            if (!cells->adapt(std::vector<char>(static_cast<size_t>(cells->num_leaves()), 1))) break;
+            cell_engine->build(*cells);
+            fill_cells(*cells);
+        }
+        cell_adaptor->init_adapt([this](CellMesh& m) { fill_cells(m); });
+        if (p.use_ibm) cell_engine->solid_reset(*cells, cells->U);
+    }
+    if (cell_par) cell_par->partition();
+}
+
+void Simulation::fill_cells(CellMesh& m) const {
+    m.U.assign(static_cast<size_t>(m.num_leaves()), State{});
+    if (hot_interp_) {
+        for (int c = 0; c < m.num_leaves(); ++c) m.U[static_cast<size_t>(c)] = (*hot_interp_)(m.xc(c), m.yc(c));
+        return;
+    }
+    for (int l = 0; l <= m.max_level; ++l) {
+        if (m.level_begin[l + 1] == m.level_begin[l]) continue;
+        const Mesh ml = generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(l), m.ny_at(l), m.x0, m.y0);
+        const Field F = test_case->initialize(ml, fluid, p.source);
+        for (int c = m.level_begin[l]; c < m.level_begin[l + 1]; ++c)
+            m.U[static_cast<size_t>(c)] = F[static_cast<size_t>(m.cj[static_cast<size_t>(c)]) * m.nx_at(l) + m.ci[static_cast<size_t>(c)]];
+    }
+}
+
+std::array<double, 3> Simulation::cell_loads(const CellMesh& m, const Field& R) const {
+    const std::vector<char>& solid = cell_engine->solid();
+    double fx = 0.0, fy = 0.0, mz = 0.0;
+    for (int c = 0; c < m.num_leaves(); ++c) {
+        if (!solid[static_cast<size_t>(c)]) continue;
+        double rx = R[static_cast<size_t>(c)][1], ry = R[static_cast<size_t>(c)][2];
+        if (body_force) {
+            rx -= m.U[static_cast<size_t>(c)][0] * body_force->gx;
+            ry -= m.U[static_cast<size_t>(c)][0] * body_force->gy;
+        }   // not a load
+        const double ex = rx * m.area(c), ey = ry * m.area(c);
+        fx += ex;
+        fy += ey;
+        mz += (m.xc(c) - p.ibm_cx) * ey - (m.yc(c) - p.ibm_cy) * ex;
+    }
+    return {fx, fy, mz};
 }
 
 Field Simulation::initial_field() const {
@@ -811,374 +820,6 @@ double Simulation::residual(const Field& Uin, Field& R) {
     return assemble(mesh, boundaries, p.use_ibm ? ibm.get() : nullptr, muscl.get(), Uin, R, nullptr);
 }
 
-bool Simulation::patch_touches_body(const AMRPatch& patch) const {
-    const double mx = patch.mesh.dx, my = patch.mesh.dy;
-    return patch.xmax + mx >= ibm_bbox[0] && patch.xmin - mx <= ibm_bbox[1] && patch.ymax + my >= ibm_bbox[2] &&
-           patch.ymin - my <= ibm_bbox[3];
-}
-
-void Simulation::refine_body_patches() {
-    for (int pass = 0; pass < amr_tree->max_level; ++pass)
-        for (AMRPatch* patch : amr_tree->leaves())
-            if (patch->level < amr_tree->max_level && patch_touches_body(*patch)) amr_tree->refine_patch(patch);
-    amr_tree->enforce_2to1_balance();
-}
-
-void Simulation::ensure_patch_masks(AMRPatch& patch) const {
-    if (!p.use_ibm || !patch.solid.empty()) return;
-    const Mesh& m = patch.mesh;
-    patch.solid = ibm_factory(m).mask();
-    // Mask of the two-cell ghost ring from the same geometry; 0 outside the domain
-    Mesh me = m;
-    me.nx += 4;
-    me.ny += 4;
-    me.x0 -= 2.0 * m.dx;
-    me.y0 -= 2.0 * m.dy;
-    me.Lx = me.nx * m.dx;
-    me.Ly = me.ny * m.dy;
-    patch.solid_ext = ibm_factory(me).mask();
-    const int PW = m.nx + 4;
-    for (int jj = 0; jj < m.ny + 4; ++jj)
-        for (int ii = 0; ii < PW; ++ii) {
-            const bool interior = ii >= 2 && ii < m.nx + 2 && jj >= 2 && jj < m.ny + 2;
-            const double x = m.x0 + (ii - 1.5) * m.dx, y = m.y0 + (jj - 1.5) * m.dy;
-            const bool inside = x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly;
-            char& c = patch.solid_ext[jj * PW + ii];
-            if (interior)
-                c = patch.solid[(jj - 2) * m.nx + ii - 2];
-            else if (!inside)
-                c = 0;
-        }
-}
-
-double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& Uc_in, Field& R, Field& flux_x,
-                                  Field& flux_y) {
-    // Physical BCs only where the patch touches the domain boundary; internal
-    // faces start transmissive and are overwritten from the neighbouring leaf.
-    constexpr double eps = 1e-10;
-    const bool edge_l = patch.xmin <= eps, edge_r = patch.xmax >= mesh.Lx - eps;
-    const bool edge_b = patch.ymin <= eps, edge_t = patch.ymax >= mesh.Ly - eps;
-    BoundaryManager pb(patch.mesh, fluid);
-    pb.set_boundary_types(edge_l ? boundaries.type(Face::Left) : BCType::Transmissive,
-                          edge_r ? boundaries.type(Face::Right) : BCType::Transmissive,
-                          edge_b ? boundaries.type(Face::Bottom) : BCType::Transmissive,
-                          edge_t ? boundaries.type(Face::Top) : BCType::Transmissive);
-    pb.set_params(boundaries.params());
-    // Per-thread scratch: patches of one AMR level are advanced concurrently.
-    thread_local Field pUL, pUR, pF, pUf;
-
-    const Mesh& m = patch.mesh;
-    const int nx = m.nx, ny = m.ny;
-
-    // IBM: velocity of the solid cells is zeroed in every residual, as in assemble
-    const Field* Up = &Uc_in;
-    if (p.use_ibm) {
-        ensure_patch_masks(patch);
-        pUf = Uc_in;
-        ImmersedBoundary(nx, ny, patch.solid, p.rho_in, p.p_out).apply_forcing(pUf, fluid);
-        Up = &pUf;
-    }
-    const Field& Uc = *Up;
-
-    const double dx = m.dx, dy = m.dy;
-    const bool if_l = patch.xmin > eps, if_r = patch.xmax < mesh.Lx - eps;
-    const bool if_b = patch.ymin > eps, if_t = patch.ymax < mesh.Ly - eps;
-
-    std::map<const AMRPatch*, GridInterp2D> interps;
-    auto leaf_at = [&](double x, double y) -> const AMRPatch* { return tree.leaf_at(x, y); };
-    auto cell_at = [&](const AMRPatch* lf, double x, double y) -> const State& {
-        const int i = std::min(std::max(static_cast<int>((x - lf->xmin) / lf->mesh.dx), 0), lf->nx() - 1);
-        const int j = std::min(std::max(static_cast<int>((y - lf->ymin) / lf->mesh.dy), 0), lf->ny() - 1);
-        return lf->ghost_source()[j * lf->nx() + i];
-    };
-    auto ghost_state = [&](double x, double y) -> const State* {
-        static thread_local State out;
-        const AMRPatch* lf = leaf_at(x, y);
-        if (!lf) return nullptr;
-        if (lf->level == patch.level) {
-            out = cell_at(lf, x, y);
-            return &out;
-        }
-        if (lf->level > patch.level) {   // finer: mean of the 2 x 2 fine cells under the ghost cell
-            out = State{0, 0, 0, 0, 0};
-            for (double sx : {-0.25, 0.25})
-                for (double sy : {-0.25, 0.25}) {
-                    const double fx = x + sx * dx, fy = y + sy * dy;
-                    const AMRPatch* fl = leaf_at(fx, fy);
-                    const State& c = cell_at(fl ? fl : lf, fx, fy);
-                    for (int q = 0; q < kNVar; ++q) out[q] += 0.25 * c[q];
-                }
-            return &out;
-        }
-        auto it = interps.find(lf);   // coarser: linear interpolation
-        if (it == interps.end()) {
-            std::vector<double> xs(lf->nx()), ys(lf->ny());
-            for (int i = 0; i < lf->nx(); ++i) xs[i] = lf->mesh.xc(i);
-            for (int j = 0; j < lf->ny(); ++j) ys[j] = lf->mesh.yc(j);
-            it = interps.emplace(lf, GridInterp2D(xs, ys, lf->ghost_source())).first;
-        }
-        out = it->second(x, y);
-        return &out;
-    };
-    // Ghost-cell state of cell (ix, iy) outside this patch (solid cells at rest); false outside the domain
-    auto ghost_cell = [&](int ix, int iy, State& c) {
-        const double x = m.x0 + (ix + 0.5) * dx, y = m.y0 + (iy + 0.5) * dy;
-        if (!(x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly)) return false;
-        const State* g = ghost_state(x, y);
-        if (!g) return false;
-        c = *g;
-        if (p.use_ibm && patch.ext_solid(ix, iy)) {
-            State W = fluid.cons_to_prim(c);
-            W[1] = 0.0;
-            W[2] = 0.0;
-            W[4] = 0.0;
-            c = fluid.prim_to_cons(W);
-        }
-        return true;
-    };
-
-    // The non-reflecting outlet differentiates along its boundary: where that boundary continues into
-    // another patch, hand it the neighbouring cells as the MPI strip halos do (one pass per direction)
-    const auto nrbc = [&](Face f) { return pb.type(f) == BCType::NonReflecting; };
-    const bool halo_y = (nrbc(Face::Left) || nrbc(Face::Right)) && (if_b || if_t);
-    const bool halo_x = (nrbc(Face::Bottom) || nrbc(Face::Top)) && (if_l || if_r);
-    if (!halo_y && !halo_x) {
-        pb.apply_boundary_conditions(Uc, pUL, pUR);
-    } else {
-        constexpr int D = kHaloDepth;
-        Field ylo(static_cast<size_t>(D) * nx), yhi(ylo.size()), xlo(static_cast<size_t>(D) * ny), xhi(xlo.size());
-        State c;
-        for (int i = 0; i < nx; ++i)
-            for (int d = 0; d < D; ++d) {
-                ylo[d * nx + i] = ghost_cell(i, -1, c) ? c : Uc[i];
-                yhi[d * nx + i] = ghost_cell(i, ny, c) ? c : Uc[(ny - 1) * nx + i];
-            }
-        for (int j = 0; j < ny; ++j)
-            for (int d = 0; d < D; ++d) {
-                xlo[j * D + d] = ghost_cell(-1, j, c) ? c : Uc[j * nx];
-                xhi[j * D + d] = ghost_cell(nx, j, c) ? c : Uc[j * nx + nx - 1];
-            }
-        const TangentialHalos thy{'y', D, if_b ? &ylo : nullptr, if_t ? &yhi : nullptr};
-        const TangentialHalos thx{'x', D, if_l ? &xlo : nullptr, if_r ? &xhi : nullptr};
-        pb.apply_boundary_conditions(Uc, pUL, pUR, halo_y ? &thy : &thx);
-        if (halo_y && halo_x) {   // bottom / top faces from the x pass
-            thread_local Field qL, qR;
-            pb.apply_boundary_conditions(Uc, qL, qR, &thx);
-            for (Face f : {Face::Bottom, Face::Top})
-                for (int k = 0; k < m.boundary_count(f); ++k) {
-                    pUL[m.boundary_face(f, k)] = qL[m.boundary_face(f, k)];
-                    pUR[m.boundary_face(f, k)] = qR[m.boundary_face(f, k)];
-                }
-        }
-    }
-
-    // Interface faces: the Riemann ghost and the two MUSCL halo layers come from the same canonical
-    // ghost cells (same level: the cell; finer: 2 x 2 mean; coarser: interpolation), so a seam between
-    // equal-level patches is reconstructed as in the uniform solver
-    constexpr int HD = kHaloDepth;
-    thread_local Field hl, hr, hb, ht;
-    Halos mh;
-    auto nearest = [&](int ix, int iy, const State& own) {
-        State c;
-        return ghost_cell(ix, iy, c) ? c : own;
-    };
-    if (if_l) {
-        hl.resize(static_cast<size_t>(ny) * HD);
-        for (int j = 0; j < ny; ++j)
-            for (int d = 0; d < HD; ++d) hl[j * HD + d] = nearest(d - HD, j, Uc[j * nx]);
-        for (int j = 0; j < ny; ++j) pUL[m.boundary_face(Face::Left, j)] = hl[j * HD + HD - 1];
-        mh.l = &hl;
-    }
-    if (if_r) {
-        hr.resize(static_cast<size_t>(ny) * HD);
-        for (int j = 0; j < ny; ++j)
-            for (int d = 0; d < HD; ++d) hr[j * HD + d] = nearest(nx + d, j, Uc[j * nx + nx - 1]);
-        for (int j = 0; j < ny; ++j) pUR[m.boundary_face(Face::Right, j)] = hr[j * HD];
-        mh.r = &hr;
-    }
-    if (if_b) {
-        hb.resize(static_cast<size_t>(HD) * nx);
-        for (int d = 0; d < HD; ++d)
-            for (int i = 0; i < nx; ++i) hb[d * nx + i] = nearest(i, d - HD, Uc[i]);
-        for (int i = 0; i < nx; ++i) pUL[m.boundary_face(Face::Bottom, i)] = hb[(HD - 1) * nx + i];
-        mh.b = &hb;
-    }
-    if (if_t) {
-        ht.resize(static_cast<size_t>(HD) * nx);
-        for (int d = 0; d < HD; ++d)
-            for (int i = 0; i < nx; ++i) ht[d * nx + i] = nearest(i, ny + d, Uc[(ny - 1) * nx + i]);
-        for (int i = 0; i < nx; ++i) pUR[m.boundary_face(Face::Top, i)] = ht[i];
-        mh.t = &ht;
-    }
-    if (muscl) muscl->reconstruct(pUL, pUR, Uc, nx, ny, mh);
-    double S = riemann.compute_flux(pUL, pUR, m, pF);
-
-    const int nxf = m.num_xfaces(), nf = m.num_faces();
-    flux_x.resize(nxf);
-    flux_y.resize(nf - nxf);
-    for (int f = 0; f < nxf; ++f)
-        for (int q = 0; q < kNVar; ++q) flux_x[f][q] = pF[f][q] * dy;
-    for (int f = nxf; f < nf; ++f)
-        for (int q = 0; q < kNVar; ++q) flux_y[f - nxf][q] = pF[f][q] * dx;
-
-    if (ns) {
-        // Padded state: physical-BC ghosts from the BoundaryManager; across interfaces (corners
-        // included) a ghost state that depends only on the ghost cell and the level, so both patches
-        // sharing a face see the same cross-derivatives and compute the same viscous flux
-        thread_local Field Pad, gX, gY, Rv;
-        thread_local ViscousFaceFluxes vff;
-        const NavierStokes nsl(fluid, ns->mu(), p.pr);   // own scratch: the shared ns is not thread-safe
-        pb.get_padded_U(Uc, Pad);
-        const int PW = nx + 2, PH = ny + 2;
-        for (int jj = 0; jj < PH; ++jj)
-            for (int ii = 0; ii < PW; ++ii) {
-                State c;
-                if (!(ii >= 1 && ii <= nx && jj >= 1 && jj <= ny) && ghost_cell(ii - 1, jj - 1, c))
-                    Pad[jj * PW + ii] = c;
-            }
-        // Ghost cells at the corner of an interface and a physical boundary: the boundary condition
-        // applied to the ghost cell next to it, as the neighbouring patch does for its own cell
-        auto bc_pad = [&](const State& cell, bool along_y, bool high) {
-            const Mesh m1 = generate_cartesian_mesh(dx, dy, 1, 1);
-            BoundaryManager b1(m1, fluid);
-            b1.set_boundary_types(along_y ? BCType::Transmissive : pb.type(Face::Left),
-                                  along_y ? BCType::Transmissive : pb.type(Face::Right),
-                                  along_y ? pb.type(Face::Bottom) : BCType::Transmissive,
-                                  along_y ? pb.type(Face::Top) : BCType::Transmissive);
-            b1.set_params(boundaries.params());
-            Field one(1, cell), P1;
-            b1.get_padded_U(one, P1);
-            return P1[along_y ? (high ? 7 : 1) : (high ? 5 : 3)];
-        };
-        for (int jj : {0, ny + 1}) {
-            if (!(jj == 0 ? edge_b : edge_t)) continue;
-            for (int ii : {0, nx + 1})
-                if (ii == 0 ? if_l : if_r) Pad[jj * PW + ii] = bc_pad(Pad[(jj == 0 ? 1 : ny) * PW + ii], true, jj != 0);
-        }
-        for (int ii : {0, nx + 1}) {
-            if (!(ii == 0 ? edge_l : edge_r)) continue;
-            for (int jj : {0, ny + 1})
-                if (jj == 0 ? if_b : if_t)
-                    Pad[jj * PW + ii] = bc_pad(Pad[jj * PW + (ii == 0 ? 1 : nx)], false, ii != 0);
-        }
-        compute_gradients(Pad, nx, ny, m.dx, m.dy, gX, gY);
-
-        // du/dy, dv/dy (column) or du/dx, dv/dx (row) of the ghost cells across interfaces
-        thread_local std::vector<double> ga[4], gb[4];
-        CrossGhosts cg;
-        auto ghost_derivs = [&](bool column, int side, std::vector<double>& a, std::vector<double>& b) {
-            const int n = column ? ny : nx;
-            const double h2 = 2.0 * (column ? m.dy : m.dx);
-            a.resize(n);
-            b.resize(n);
-            for (int k = 0; k < n; ++k) {
-                const int c = column ? (k + 1) * PW + (side == 0 ? 0 : nx + 1) : (side == 0 ? 0 : ny + 1) * PW + k + 1;
-                const int step = column ? PW : 1;
-                const State &hi = Pad[c + step], &lo = Pad[c - step];
-                State g;
-                for (int q = 0; q < kNVar; ++q) g[q] = (hi[q] - lo[q]) / h2;
-                const State W = fluid.cons_to_prim(Pad[c]);
-                a[k] = (g[1] - W[1] * g[0]) / W[0];
-                b[k] = (g[2] - W[2] * g[0]) / W[0];
-            }
-        };
-        if (if_l) {
-            ghost_derivs(true, 0, ga[0], gb[0]);
-            cg.x_lo_a = ga[0].data();
-            cg.x_lo_b = gb[0].data();
-        }
-        if (if_r) {
-            ghost_derivs(true, 1, ga[1], gb[1]);
-            cg.x_hi_a = ga[1].data();
-            cg.x_hi_b = gb[1].data();
-        }
-        if (if_b) {
-            ghost_derivs(false, 0, ga[2], gb[2]);
-            cg.y_lo_a = ga[2].data();
-            cg.y_lo_b = gb[2].data();
-        }
-        if (if_t) {
-            ghost_derivs(false, 1, ga[3], gb[3]);
-            cg.y_hi_a = ga[3].data();
-            cg.y_hi_b = gb[3].data();
-        }
-
-        const double s_visc = nsl.viscous_residual(Uc, gX, gY, m, Pad, Rv, &cg, &vff);
-        // Total flux = convective - viscous, so that R = -div(flux) and the reflux sees both
-        for (size_t f = 0; f < flux_x.size(); ++f)
-            for (int q = 0; q < kNVar; ++q) flux_x[f][q] -= vff.fx[f][q];
-        for (size_t f = 0; f < flux_y.size(); ++f)
-            for (int q = 0; q < kNVar; ++q) flux_y[f][q] -= vff.fy[f][q];
-        S = std::max(S, s_visc);
-    }
-
-    R.resize(Uc.size());
-    const double area = m.cell_area();
-    for (int j = 0; j < ny; ++j)
-        for (int i = 0; i < nx; ++i) {
-            const State& fl = flux_x[j * (nx + 1) + i];
-            const State& fr = flux_x[j * (nx + 1) + i + 1];
-            const State& fb = flux_y[j * nx + i];
-            const State& ft = flux_y[(j + 1) * nx + i];
-            State& r = R[j * nx + i];
-            for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 - (fr[q] - fl[q])) - (ft[q] - fb[q])) / area;
-        }
-    if (body_force) body_force->add_to(Uc, R);
-    return S;
-}
-
-void Simulation::amr_solid_reset(AMRTree& tree, const AMRParallel* par) {
-    const auto all = tree.leaves();
-    const bool dist = par && par->size > 1;
-    std::vector<AMRPatch*> leaves;   // the leaves reset by this rank
-    for (AMRPatch* l : all)
-        if (!dist || l->owner == par->rank) leaves.push_back(l);
-    // Snapshot first: every leaf reads its neighbours' pre-reset cells, whatever the order
-    for (AMRPatch* l : all) {
-        if (dist && !l->held) {   // not held: no state here
-            Field().swap(l->U_ghost);
-        } else {
-            if (!dist || l->owner == par->rank) ensure_patch_masks(*l);
-            l->U_ghost = l->U;
-        }
-        l->has_ghost = true;
-    }
-    const int nl = static_cast<int>(leaves.size());
-#pragma omp parallel for schedule(dynamic) if (nl > 1)
-    for (int k = 0; k < nl; ++k) {
-        AMRPatch& patch = *leaves[k];
-        const Mesh& m = patch.mesh;
-        const int nx = m.nx, ny = m.ny, PW = nx + 2, PH = ny + 2;
-        Field E(static_cast<size_t>(PW) * PH);
-        std::vector<char> mask(E.size(), 1);   // outside the domain: "solid", nothing to pull from
-        for (int jj = 0; jj < PH; ++jj)
-            for (int ii = 0; ii < PW; ++ii) {
-                const int e = jj * PW + ii;
-                if (ii >= 1 && ii <= nx && jj >= 1 && jj <= ny) {
-                    E[e] = patch.U[(jj - 1) * nx + ii - 1];
-                    mask[e] = patch.solid[(jj - 1) * nx + ii - 1];
-                    continue;
-                }
-                const double x = m.x0 + (ii - 0.5) * m.dx, y = m.y0 + (jj - 0.5) * m.dy;
-                const State* s =
-                    (x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly) ? sample_leaf_state(tree, x, y) : nullptr;
-                if (s) {
-                    E[e] = *s;
-                    mask[e] = patch.ext_solid(ii - 1, jj - 1);
-                } else {
-                    const int i = std::min(std::max(ii - 1, 0), nx - 1), j = std::min(std::max(jj - 1, 0), ny - 1);
-                    E[e] = patch.U[j * nx + i];
-                }
-            }
-        ImmersedBoundary(PW, PH, std::move(mask), p.rho_in, p.p_out).apply_solid_reset(E, fluid);
-        for (int j = 0; j < ny; ++j)
-            for (int i = 0; i < nx; ++i)
-                if (patch.solid[j * nx + i]) patch.U[j * nx + i] = E[(j + 1) * PW + i + 1];
-    }
-    for (AMRPatch* l : all) l->has_ghost = false;
-    if (dist) refresh_halos(tree, *par);
-}
-
 // ---------------------------------------------------------------------------
 // Checkpoints / hot start
 // ---------------------------------------------------------------------------
@@ -1197,7 +838,24 @@ void Simulation::save_checkpoint(int step) {
         files.push_back(e.filename);
     }
     NpzArchive a;
-    a["U"] = field_to_npy(U, mesh.is3d() ? kNVar : 4);
+    if (cells) {
+        // an adaptive run: the leaves (level and integer coordinates) and their state, and the wave-speed bound the next
+        // time step is taken from
+        const size_t n = static_cast<size_t>(cells->num_leaves());
+        std::vector<double> lev(n), li(n), lj(n);
+        for (size_t c = 0; c < n; ++c) {
+            lev[c] = cells->level[c];
+            li[c] = cells->ci[c];
+            lj[c] = cells->cj[c];
+        }
+        a["U"] = field_to_npy(cells->U);
+        a["leaf_level"] = NpyArray::from_doubles(lev, {static_cast<int64_t>(n)});
+        a["leaf_i"] = NpyArray::from_doubles(li, {static_cast<int64_t>(n)});
+        a["leaf_j"] = NpyArray::from_doubles(lj, {static_cast<int64_t>(n)});
+        a["S"] = NpyArray::from_double(cell_speed_);
+    } else {
+        a["U"] = field_to_npy(U, mesh.is3d() ? kNVar : 4);
+    }
     a["t"] = NpyArray::from_double(t);
     a["step"] = NpyArray::from_int(step);
     a["nx"] = NpyArray::from_int(mesh.nx);
@@ -1219,7 +877,23 @@ int Simulation::load_checkpoint() {
         return 0;
     }
     const NpzArchive a = read_npz(path);
-    U = npy_to_field(a.at("U"));
+    const bool adaptive_file = a.count("leaf_level") > 0;
+    if (adaptive_file != (cells != nullptr))
+        throw std::runtime_error(std::string("The checkpoint ") + path + " is from " +
+                                 (adaptive_file ? "an adaptive (AMR)" : "a uniform-mesh") + " run: resume it with use_amr " +
+                                 (adaptive_file ? "on" : "off") + " (a uniform checkpoint can seed an AMR run with a hot start)");
+    if (cells) {
+        const auto ints = [&](const char* key) {
+            const std::vector<double> d = a.at(key).as_doubles();
+            return std::vector<int>(d.begin(), d.end());
+        };
+        Field Uc = npy_to_field(a.at("U"));
+        cells->assign_leaves(ints("leaf_level"), ints("leaf_i"), ints("leaf_j"), &Uc);
+        cell_engine->build(*cells);
+        cell_speed_ = a.count("S") ? a.at("S").scalar() : 0.0;
+    } else {
+        U = npy_to_field(a.at("U"));
+    }
     t = a.at("t").scalar();
     const int step = static_cast<int>(a.at("step").scalar());
     exporter.collection.clear();
@@ -1285,19 +959,22 @@ Field Simulation::load_hot_start(const std::string& path) {
     return U3;
 }
 
-void Simulation::dump_final_state(int step, const Field* amr_all) const {
+void Simulation::dump_final_state(int step) const {
     if (p.dump_state.empty()) return;
     NpzArchive a;
     a["t"] = NpyArray::from_double(t);
     a["step"] = NpyArray::from_int(step);
-    if (amr_tree) {
-        Field all;
+    if (cells) {
         std::vector<double> meta;
-        for (const AMRPatch* lf : amr_tree->leaves()) {
-            if (!amr_all) all.insert(all.end(), lf->U.begin(), lf->U.end());
-            meta.insert(meta.end(), {lf->xmin, lf->xmax, lf->ymin, lf->ymax, static_cast<double>(lf->level)});
+        meta.reserve(static_cast<size_t>(cells->num_leaves()) * 5);
+        for (int c = 0; c < cells->num_leaves(); ++c) {
+            const size_t k = static_cast<size_t>(c);
+            const int l = cells->level[k];
+            meta.insert(meta.end(), {cells->x0 + cells->ci[k] * cells->dx(l), cells->x0 + (cells->ci[k] + 1) * cells->dx(l),
+                                     cells->y0 + cells->cj[k] * cells->dy(l), cells->y0 + (cells->cj[k] + 1) * cells->dy(l),
+                                     static_cast<double>(l)});
         }
-        a["U"] = field_to_npy(amr_all ? *amr_all : all);
+        a["U"] = field_to_npy(cells->U);
         a["leaf_meta"] = NpyArray::from_doubles(meta, {static_cast<int64_t>(meta.size() / 5), 5});
     } else {
         a["U"] = field_to_npy(U, mesh.is3d() ? kNVar : 4);
@@ -1384,7 +1061,7 @@ std::array<double, 3> Simulation::ibm_loads(const Mesh& m, const ImmersedBoundar
 void Simulation::solve() {
     std::printf("=== TIME-MARCHING  (t_end = %g s) ===\n", p.t_end);
     std::fflush(stdout);
-    if (amr_tree) {
+    if (cells) {
         solve_amr();
         return;
     }
@@ -1451,113 +1128,98 @@ void Simulation::solve() {
 }
 
 void Simulation::solve_amr() {
-    AMRTree& tree = *amr_tree;
-    int step = start_step;
-    const double min_delta_base = std::min(tree.roots[0]->mesh.dx, tree.roots[0]->mesh.dy);
-
-    const AMRParallel* par = amr_dist ? &amr_par : nullptr;
-    const bool root = !par || par->rank == 0;
-
-    // Every rank writes its own leaves; the barrier lets rank 0 index them once they are all on disk
-    const auto export_leaves = [&](int st) {
-        if (par)
-            exporter.export_amr(file_prefix, fluid, tree, t, st, par->rank, par->size,
-                                [&] { par->allreduce_max(0.0); });
-        else
-            exporter.export_amr(file_prefix, fluid, tree, t, st);
+    CellMesh& cm = *cells;
+    CellFluxEngine& eng = *cell_engine;
+    const int nranks = cell_comm.size, rank = cell_comm.rank;
+    const bool root = rank == 0;
+    CellAdvance adv(cm, eng, *scheme);
+    if (cell_par) adv.par = cell_par.get();
+    // after this call every rank holds the state of every leaf (collective)
+    const auto gather = [&]() {
+        if (cell_par) cell_par->gather_state();
     };
-    if (step == 0) export_leaves(step);
 
-    const PatchResidualFn pres = [this](AMRPatch& patch, AMRTree& tr, const Field& Uin, Field& R, Field& fx,
-                                        Field& fy) { return patch_residual(patch, tr, Uin, R, fx, fy); };
+    Field R;
+    // wave-speed bound the time step is taken from, one step old (a restart reads it from the checkpoint)
+    double S = start_step > 0 ? cell_speed_ : eng.residual(cm, cm.U, R);
+    cell_speed_ = S;
+    int step = start_step;
 
-    // Bootstrap S_max over all initial leaves; afterwards advance_amr_level
-    // returns the max over every leaf it advanced (one-step-lag estimate).
-    double S_max = 0.0;
-    {
-        Field R, fx, fy;
-        for (AMRPatch* leaf : tree.leaves())
-            if (!par || leaf->owner == par->rank)
-                S_max = std::max(S_max, patch_residual(*leaf, tree, leaf->U, R, fx, fy));
-        if (par) S_max = par->allreduce_max(S_max);
-    }
+    // Every rank writes the leaves it owns (the whole mesh on one rank)
+    const auto export_state = [&](int st) {
+        std::vector<int> owned;
+        for (int l = 0; l <= cm.max_level; ++l)
+            for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c) owned.push_back(c);
+        exporter.export_cells(file_prefix, fluid, cm, owned, t, st, rank, nranks, [&] {
+            if (cell_par) cell_par->reduce_max(0.0);   // a barrier
+        });
+    };
 
-    // Monitor: area-weighted means over the leaves; IBM loads summed over the leaves in tree order. Every
-    // rank computes the partial sums of its own leaves (a collective call), all of them add the partial
-    // sums up in leaf order, so the result does not depend on the number of ranks.
+    // Monitor: area-weighted means over the leaves and the IBM loads, summed in leaf order on the gathered state, so the
+    // numbers do not depend on the number of ranks
     std::FILE* mon = root ? open_monitor() : nullptr;
     const bool monitoring = p.monitor_interval > 0;
-    auto row = [&](int st) {
-        const auto parts = allgather_leaf_values(tree, par, 7, [&](AMRPatch& leaf, double* o) {
-            const double a = leaf.mesh.cell_area();
-            double s0 = 0.0, s1 = 0.0, s2 = 0.0, area = 0.0;
-            for (const State& c : leaf.U) {
-                s0 += c[0] * a;
-                s1 += 0.5 * (c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0] * a;
-                s2 += c[3] * a;
-                area += a;
-            }
-            o[0] = s0;
-            o[1] = s1;
-            o[2] = s2;
-            o[3] = area;
-            o[4] = o[5] = o[6] = 0.0;
-            if (p.use_ibm) {
-                AMRPatch& lf = leaf;
-                Field R, fx, fy;
-                ensure_patch_masks(lf);
-                patch_residual(lf, tree, lf.U, R, fx, fy);
-                const auto l =
-                    ibm_loads(lf.mesh, ImmersedBoundary(lf.nx(), lf.ny(), lf.solid, p.rho_in, p.p_out), lf.U, R);
-                for (int q = 0; q < 3; ++q) o[4 + q] = l[q];
-            }
-        });
-        double sums[3] = {0.0, 0.0, 0.0}, area_tot = 0.0;
-        std::array<double, 3> loads{};
-        for (size_t k = 0; k < parts.size(); k += 7) {
-            for (int q = 0; q < 3; ++q) {
-                sums[q] += parts[k + q];
-                loads[q] += parts[k + 4 + q];
-            }
-            area_tot += parts[k + 3];
+    const auto row = [&](int st) {
+        gather();
+        double s0 = 0.0, s1 = 0.0, s2 = 0.0, area = 0.0;
+        for (int c = 0; c < cm.num_leaves(); ++c) {
+            const State& u = cm.U[static_cast<size_t>(c)];
+            const double a = cm.area(c);
+            s0 += u[0] * a;
+            s1 += 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4]) / u[0] * a;
+            s2 += u[3] * a;
+            area += a;
         }
-        monitor_row(mon, st,
-                    {sums[0] / area_tot * mesh.cell_area(), sums[1] / area_tot * mesh.cell_area(),
-                     sums[2] / area_tot * mesh.cell_area()},
+        std::array<double, 3> loads{};
+        if (p.use_ibm) {
+            Field Rl;
+            eng.residual(cm, cm.U, Rl);
+            loads = cell_loads(cm, Rl);
+        }
+        monitor_row(mon, st, {s0 / area * mesh.cell_area(), s1 / area * mesh.cell_area(), s2 / area * mesh.cell_area()},
                     p.use_ibm ? &loads : nullptr);
     };
+
+    if (step == 0) export_state(step);
     if (monitoring && step == 0) row(step);
 
-    // Cells with an allocated state on this rank (owned + halo), maximum over the ranks
-    const auto held_cells = [&]() {
-        double n = 0.0;
-        for (const AMRPatch* leaf : tree.leaves()) n += static_cast<double>(leaf->U.size());
-        return par ? par->allreduce_max(n) : n;
-    };
     const auto t0 = Clock::now();
+    double remesh_wall = 0.0;
     bool interrupted = false;
     while (t < p.t_end) {
-        double dt = scheme->cfl * min_delta_base / (S_max + 1e-10);
-        dt = std::min(dt, p.t_end - t);
-        S_max = advance_amr_level(tree, 0, dt, t, p.t_end, pres, *scheme, par);
-        if (p.use_ibm) amr_solid_reset(tree, par);
+        const double dt = std::min(scheme->cfl * std::min(cm.dx(0), cm.dy(0)) / std::max(S, 1e-10), p.t_end - t);
+        S = adv.step(dt, t);
+        cell_speed_ = S;
+        if (p.use_ibm) {
+            eng.solid_reset(cm, cm.U);
+            if (cell_par) cell_par->exchange_solid();
+        }
         t += dt;
         ++step;
 
-        if (step % p.amr_refine_every == 0) { remesh(tree, *amr_indicator, par); }
-
+        if (step % p.amr_refine_every == 0) {
+            const auto r0 = Clock::now();
+            gather();   // the indicator looks at every leaf
+            if (cell_adaptor->remesh()) {
+                S = eng.residual(cm, cm.U, R);   // the wave-speed bound follows the new leaves
+                cell_speed_ = S;
+                if (cell_par) cell_par->partition();
+            }
+            remesh_wall += seconds_since(r0);
+        }
         if (monitoring && step % p.monitor_interval == 0) row(step);
 
         if (step % p.save_interval == 0) {
-            export_leaves(step);
-            const double held = held_cells();   // collective
+            export_state(step);
+            gather();
+            if (root) save_checkpoint(step);
             if (root)
-                std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | patches = %zu | wall = %s%s\n",
-                            step, t, dt, S_max, tree.leaves().size(), format_elapsed(seconds_since(t0)).c_str(),
-                            par ? (" | cells/rank max " + std::to_string(static_cast<long long>(held))).c_str() : "");
+                std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | leaves = %d | wall = %s | Checkpoint saved\n",
+                            step, t, dt, S, cm.num_leaves(), format_elapsed(seconds_since(t0)).c_str());
             std::fflush(stdout);
         }
-        if (par ? par->allreduce_max(g_stop_requested ? 1.0 : 0.0) > 0.0 : g_stop_requested.load()) {
+        const double stop = g_stop_requested.load() ? 1.0 : 0.0;
+        if ((cell_par ? cell_par->reduce_max(stop) : stop) > 0.0) {
             interrupted = true;
             break;
         }
@@ -1569,14 +1231,20 @@ void Simulation::solve_amr() {
         if (step % p.monitor_interval != 0) row(step);
         if (mon) std::fclose(mon);
     }
-    if (root && interrupted) std::printf("\n[INTERRUPTED] Stopping AMR simulation...\n");
-    export_leaves(step);
-    const Field all = par && !p.dump_state.empty() ? gather_leaves_on_root(tree, *par) : Field();   // only for the dump
+    if (root && interrupted) std::printf("\n[INTERRUPTED] Stopping the simulation...\n");
+    if (interrupted || step % p.save_interval != 0) export_state(step);
+    gather();
     if (!root) return;
+    save_checkpoint(step);
     exporter.write_pvd(file_prefix);
-    dump_final_state(step, par ? &all : nullptr);
-    std::printf("=== DONE  - open '%s.pvd' in ParaView ===  (time loop %.3f s, %d steps)\n", file_prefix.c_str(),
-                loop_wall, step - start_step);
+    dump_final_state(step);
+    std::vector<int> per_level(static_cast<size_t>(cm.max_level) + 1, 0);
+    for (int c = 0; c < cm.num_leaves(); ++c) ++per_level[static_cast<size_t>(cm.level[static_cast<size_t>(c)])];
+    std::printf("[AMR] %d leaves at the end (", cm.num_leaves());
+    for (int l = 0; l <= cm.max_level; ++l) std::printf("%slevel %d: %d", l ? ", " : "", l, per_level[static_cast<size_t>(l)]);
+    std::printf("); remesh %.2f s of the %.2f s time loop\n", remesh_wall, loop_wall);
+    std::printf("=== DONE  - open '%s.pvd' in ParaView ===  (time loop %.3f s, %d steps)\n", file_prefix.c_str(), loop_wall,
+                step - start_step);
 }
 
 // ---------------------------------------------------------------------------

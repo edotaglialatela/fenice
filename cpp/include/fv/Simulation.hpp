@@ -8,12 +8,17 @@
 #include <map>
 #include <memory>
 
-#include "fv/AMR.hpp"
 #include "fv/Boundaries.hpp"
+#include "fv/CellAdvance.hpp"
+#include "fv/CellFlux.hpp"
+#include "fv/CellMesh.hpp"
+#include "fv/CellParallel.hpp"
+#include "fv/CellRemesh.hpp"
 #include "fv/IO.hpp"
 #include "fv/Params.hpp"
 #include "fv/Physics.hpp"
 #include "fv/Schemes.hpp"
+#include "fv/SolutionMapping.hpp"
 #include "fv/TestCases.hpp"
 #include "fv/TimeScheme.hpp"
 
@@ -44,24 +49,6 @@ public:
 
     // Full spatial residual R(U) on the serial domain; returns S_max.
     double residual(const Field& U, Field& R);
-    // Residual of one AMR leaf: convective flux, plus (when enabled) IBM forcing, viscous flux and
-    // body force. Ghost states across patch interfaces come from the neighbouring leaves; the
-    // viscous flux is added to flux_x / flux_y so coarse-fine refluxing also corrects it.
-    double patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U, Field& R, Field& flux_x, Field& flux_y);
-
-    // Build the IBM masks of an AMR leaf from the body geometry (no-op if present or without IBM).
-    // Touches only `patch`, so concurrent calls on different leaves are safe.
-    void ensure_patch_masks(AMRPatch& patch) const;
-    // Once per complete AMR step: fringe Neumann + deep-solid reset on every leaf, reading the
-    // neighbour cells across patch interfaces from a snapshot taken before any leaf is reset.
-    // With `par` each rank resets its own leaves and the halo copies are refreshed afterwards.
-    void amr_solid_reset(AMRTree& tree, const AMRParallel* par = nullptr);
-
-    // True if the box of `patch`, grown by one of its cells, overlaps the immersed body's bounding box.
-    bool patch_touches_body(const AMRPatch& patch) const;
-    // Refine leaves touching the body up to max_level (2:1 balanced), e.g. before seeding at t = 0.
-    void refine_body_patches();
-
     void solve();   // serial uniform mesh or AMR
 #ifdef FV_USE_MPI
     // Full MPI run (all ranks call it): decomposition, scatter, time loop, gather + output on rank 0.
@@ -78,9 +65,9 @@ public:
     int load_checkpoint();
     // Bilinear mapping of a checkpoint (any resolution) onto this run's mesh.
     Field load_hot_start(const std::string& path);
-    // Write the final state to `dump_state` (if set) for regression checks.
-    // `amr_all`: the AMR leaves' state in leaf order, when it is not in the tree (distributed runs).
-    void dump_final_state(int step, const Field* amr_all = nullptr) const;
+    // Write the final state to `dump_state` (if set) for regression checks: U, and with AMR the leaves' bounds and level
+    // (`leaf_meta` rows x0, x1, y0, y1, level). With AMR on several ranks the state of every leaf must be valid on rank 0.
+    void dump_final_state(int step) const;
     // Volume averages of the field: mass, kinetic energy, total energy (all ranks under MPI).
     std::array<double, 3> volume_averages(const Field& U_part, long long n_global) const;
     // Loads of the fluid on the IBM body over the cells of `m`: {Fx, Fy, Mz}, Mz about
@@ -116,12 +103,16 @@ public:
     const Field& source_for(const Mesh& m);
     std::unique_ptr<ImmersedBoundary> ibm;                      // optional obstacle
     std::function<ImmersedBoundary(const Mesh&)> ibm_factory;   // same body on any (patch) mesh
-    std::array<double, 4> ibm_bbox{};                           // body extent {xmin, xmax, ymin, ymax}
     std::unique_ptr<TimeScheme> scheme;                         // time integrator
-    std::unique_ptr<AMRTree> amr_tree;                          // non-null when AMR is on
-    std::unique_ptr<AMRErrorIndicator> amr_indicator;           // AMR marking
-    AMRParallel amr_par;                                        // hooks of the MPI run (valid when amr_dist)
-    bool amr_dist = false;                                      // AMR on several ranks: leaves live on their owners
+    // Adaptive mesh (use_amr): the leaves, the engine that computes their residual, the indicator, and on several MPI ranks
+    // the distribution of the leaves (CellParallel). `cells` is null without AMR.
+    std::unique_ptr<CellMesh> cells;
+    std::unique_ptr<CellFluxEngine> cell_engine;
+    CellPhysics cell_physics;
+    CellIndicator cell_indicator;
+    std::unique_ptr<CellAdaptor> cell_adaptor;
+    CellComm cell_comm;                       // rank and size (1 without MPI)
+    std::unique_ptr<CellParallel> cell_par;   // non-null on several ranks
     VTKExporter exporter;                                       // VTK + .pvd output
     const TestCase* test_case = nullptr;
     std::string file_prefix;   // test case name, lower case with underscores
@@ -132,6 +123,13 @@ public:
 
 private:
     void solve_amr();
+    // Initial state of the leaves of `m` at their centres: the initial condition of the case evaluated on the uniform mesh of
+    // each leaf's level, or the hot-start field interpolated.
+    void fill_cells(CellMesh& m) const;
+    // {Fx, Fy, Mz} of the immersed body from the residual of the leaves (the definition of ibm_loads).
+    std::array<double, 3> cell_loads(const CellMesh& m, const Field& R) const;
+    std::unique_ptr<GridInterp2D> hot_interp_;   // hot-start field of an AMR run
+    double cell_speed_ = 0.0;                    // wave-speed bound the next AMR time step is taken from
     // Monitor CSV (rank 0): header on open, one row per call.
     std::FILE* open_monitor() const;
     // `loads`: {Fx, Fy, Mz} of the IBM body (adds Fx, Fy, Cd, Cl, Cm), nullptr without IBM.
@@ -143,10 +141,6 @@ private:
     Field perL_, perR_, perB_, perT_, perF_, perK_;   // wrap-around MUSCL halos of periodic axes
     Field gZ_;
 };
-
-// AMR ghost-cell helper (exposed for tests): state of the leaf cell containing (x, y), or nullptr
-// outside the domain. Reads the leaf's ghost source (the frozen snapshot during a level advance).
-const State* sample_leaf_state(const AMRTree& tree, double x, double y);
 
 // "12.3s" or "m:ss".
 std::string format_elapsed(double seconds);

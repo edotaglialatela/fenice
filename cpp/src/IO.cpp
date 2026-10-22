@@ -10,7 +10,7 @@
 #include <sstream>
 #include <stdexcept>
 
-#include "fv/AMR.hpp"
+#include "fv/CellMesh.hpp"
 #include "fv/SolutionMapping.hpp"
 
 namespace fs = std::filesystem;
@@ -154,6 +154,85 @@ std::string build_vtr(const EOS& eos, const Field& U, int nx, int ny, double x0,
     return s;
 }
 
+// An Int32 / UInt8 <DataArray> written as ASCII text (connectivity, offsets, cell types).
+void int_array(std::string& s, const char* type, const char* name, const std::vector<int>& d) {
+    s += "        <DataArray type=\"";
+    s += type;
+    s += "\" Name=\"";
+    s += name;
+    s += "\" format=\"ascii\">\n          ";
+    char buf[16];
+    for (size_t k = 0; k < d.size(); ++k) {
+        const auto r = std::to_chars(buf, buf + sizeof(buf), d[k]);
+        s.append(buf, r.ptr);
+        s += (k + 1) % 16 == 0 ? "\n          " : " ";
+    }
+    s += "\n        </DataArray>\n";
+}
+
+// One UnstructuredGrid piece of the given leaves: a VTK_QUAD per leaf, the cell fields of build_vtr and the level.
+std::string build_vtu(const EOS& eos, const CellMesh& m, const std::vector<int>& leaves, bool binary) {
+    const int n = static_cast<int>(leaves.size());
+    std::vector<double> rho(n), u(n), v(n), p(n), T(n), mach(n), lev(n), pts(static_cast<size_t>(n) * 12);
+    for (int k = 0; k < n; ++k) {
+        const size_t c = static_cast<size_t>(leaves[static_cast<size_t>(k)]);
+        const State W = eos.cons_to_prim(m.U[c]);
+        rho[k] = sanitize(W[0]);
+        u[k] = sanitize(W[1]);
+        v[k] = sanitize(W[2]);
+        p[k] = sanitize(W[3]);
+        T[k] = sanitize(p[k] / (rho[k] + 1e-12));
+        const double cs = eos.sound_speed(p[k], rho[k]);
+        mach[k] = sanitize(std::sqrt(u[k] * u[k] + v[k] * v[k]) / (cs + 1e-12));
+        const int l = m.level[c];
+        lev[k] = l;
+        const double x0 = m.x0 + m.ci[c] * m.dx(l), x1 = m.x0 + (m.ci[c] + 1) * m.dx(l);
+        const double y0 = m.y0 + m.cj[c] * m.dy(l), y1 = m.y0 + (m.cj[c] + 1) * m.dy(l);
+        const double q[12] = {x0, y0, 0.0, x1, y0, 0.0, x1, y1, 0.0, x0, y1, 0.0};
+        std::copy(q, q + 12, pts.begin() + 12 * static_cast<std::ptrdiff_t>(k));
+    }
+    std::string s;
+    s.reserve(static_cast<size_t>(n) * 400 + 4096);
+    char head[256];
+    s += "<?xml version=\"1.0\"?>\n";
+    s += "<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
+    s += "  <UnstructuredGrid>\n";
+    std::snprintf(head, sizeof(head), "    <Piece NumberOfPoints=\"%d\" NumberOfCells=\"%d\">\n", 4 * n, n);
+    s += head;
+    s += "      <Points>\n";
+    data_array(s, "Name=\"Points\" NumberOfComponents=\"3\"", pts, 3, 7, binary);
+    s += "      </Points>\n";
+    s += "      <Cells>\n";
+    std::vector<int> conn(static_cast<size_t>(n) * 4), off(static_cast<size_t>(n)), type(static_cast<size_t>(n), 9);
+    for (int k = 0; k < 4 * n; ++k) conn[static_cast<size_t>(k)] = k;
+    for (int k = 0; k < n; ++k) off[static_cast<size_t>(k)] = 4 * (k + 1);
+    int_array(s, "Int32", "connectivity", conn);
+    int_array(s, "Int32", "offsets", off);
+    int_array(s, "UInt8", "types", type);
+    s += "      </Cells>\n";
+    s += "      <CellData Scalars=\"Density\" Vectors=\"Velocity\">\n";
+    auto scalar = [&](const char* name, const std::vector<double>& d) {
+        std::snprintf(head, sizeof(head), "Name=\"%s\" NumberOfComponents=\"1\"", name);
+        data_array(s, head, d, 1, 5, binary);
+    };
+    scalar("Density", rho);
+    scalar("Pressure", p);
+    scalar("Temperature_nondim", T);
+    scalar("Mach", mach);
+    std::vector<double> vel(static_cast<size_t>(n) * 3, 0.0);
+    for (int k = 0; k < n; ++k) {
+        vel[3 * static_cast<size_t>(k)] = u[k];
+        vel[3 * static_cast<size_t>(k) + 1] = v[k];
+    }
+    data_array(s, "Name=\"Velocity\" NumberOfComponents=\"3\"", vel, 3, 5, binary);
+    scalar("AMR_Level", lev);
+    s += "      </CellData>\n";
+    s += "    </Piece>\n";
+    s += "  </UnstructuredGrid>\n";
+    s += "</VTKFile>\n";
+    return s;
+}
+
 std::string step_name(const std::string& prefix, int step, const char* ext) {
     char buf[32];
     std::snprintf(buf, sizeof(buf), "_%05d", step);
@@ -180,42 +259,43 @@ void VTKExporter::export_vtr(const std::string& prefix, const EOS& eos, const Fi
     collection.push_back({time, name});
 }
 
-void VTKExporter::export_amr(const std::string& prefix, const EOS& eos, const AMRTree& tree, double time, int step,
-                             int rank, int size, const std::function<void()>& sync) {
-    const std::string block_dir = step_name(prefix, step, "");
-    fs::create_directories(fs::path(dir_) / block_dir);
-
-    std::vector<std::string> leaf_files;
-    int idx = 0;
-    for (const AMRPatch* patch : tree.leaves()) {
-        char base[32];
-        std::snprintf(base, sizeof(base), "p%04d.vtr", idx++);
-        if (size == 1 || patch->owner == rank)
-            write_file_atomic(fs::path(dir_) / block_dir / base,
-                              build_vtr(eos, patch->U, patch->nx(), patch->ny(), patch->xmin, patch->xmax, patch->ymin,
-                                        patch->ymax, patch->level, binary_));
-        leaf_files.push_back(block_dir + "/" + base);
+void VTKExporter::export_cells(const std::string& prefix, const EOS& eos, const CellMesh& mesh, const std::vector<int>& leaves,
+                               double time, int step, int rank, int size, const std::function<void()>& sync) {
+    if (size <= 1) {
+        const std::string name = step_name(prefix, step, ".vtu");
+        write_file_atomic(fs::path(dir_) / name, build_vtu(eos, mesh, leaves, binary_));
+        collection.push_back({time, name});
+        return;
     }
-    if (size > 1) {
-        if (sync) sync();   // all leaves are on disk before the index points at them
-        if (rank != 0) return;
-    }
-
-    // Group this snapshot's leaves into one multi-block file; only the .vtm is
-    // registered in the .pvd (ParaView's PVD reader is one-file-per-timestep).
-    const std::string vtm = step_name(prefix, step, ".vtm");
+    // several ranks: each writes a piece of the leaves it owns, rank 0 the .pvtu that lists them
+    const std::string piece_dir = step_name(prefix, step, "");
+    fs::create_directories(fs::path(dir_) / piece_dir);
+    char piece[32];
+    std::snprintf(piece, sizeof(piece), "r%04d.vtu", rank);
+    write_file_atomic(fs::path(dir_) / piece_dir / piece, build_vtu(eos, mesh, leaves, binary_));
+    if (sync) sync();   // all pieces are on disk before the index points at them
+    if (rank != 0) return;
+    const std::string name = step_name(prefix, step, ".pvtu");
     std::string s = "<?xml version=\"1.0\"?>\n"
-                    "<VTKFile type=\"vtkMultiBlockDataSet\" version=\"1.0\" byte_order=\"LittleEndian\">\n"
-                    "  <vtkMultiBlockDataSet>\n";
-    char line[512];
-    for (size_t k = 0; k < leaf_files.size(); ++k) {
-        std::snprintf(line, sizeof(line), "    <DataSet index=\"%zu\" name=\"patch_%04zu\" file=\"%s\"/>\n", k, k,
-                      leaf_files[k].c_str());
+                    "<VTKFile type=\"PUnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n"
+                    "  <PUnstructuredGrid GhostLevel=\"0\">\n"
+                    "    <PPoints><PDataArray type=\"Float32\" Name=\"Points\" NumberOfComponents=\"3\"/></PPoints>\n"
+                    "    <PCellData Scalars=\"Density\" Vectors=\"Velocity\">\n"
+                    "      <PDataArray type=\"Float32\" Name=\"Density\" NumberOfComponents=\"1\"/>\n"
+                    "      <PDataArray type=\"Float32\" Name=\"Pressure\" NumberOfComponents=\"1\"/>\n"
+                    "      <PDataArray type=\"Float32\" Name=\"Temperature_nondim\" NumberOfComponents=\"1\"/>\n"
+                    "      <PDataArray type=\"Float32\" Name=\"Mach\" NumberOfComponents=\"1\"/>\n"
+                    "      <PDataArray type=\"Float32\" Name=\"Velocity\" NumberOfComponents=\"3\"/>\n"
+                    "      <PDataArray type=\"Float32\" Name=\"AMR_Level\" NumberOfComponents=\"1\"/>\n"
+                    "    </PCellData>\n";
+    char line[256];
+    for (int r = 0; r < size; ++r) {
+        std::snprintf(line, sizeof(line), "    <Piece Source=\"%s/r%04d.vtu\"/>\n", piece_dir.c_str(), r);
         s += line;
     }
-    s += "  </vtkMultiBlockDataSet>\n</VTKFile>\n";
-    write_file_atomic(fs::path(dir_) / vtm, s);
-    collection.push_back({time, vtm});
+    s += "  </PUnstructuredGrid>\n</VTKFile>\n";
+    write_file_atomic(fs::path(dir_) / name, s);
+    collection.push_back({time, name});
 }
 
 void VTKExporter::write_pvd(const std::string& prefix) const {

@@ -57,26 +57,22 @@ CASES = {
     "supersonic_ibm":      ("IBM Supersonic Flow over Cylinder", dict(nx=60, ny=60, t_end=0.1, use_mpi=False)),
     "hot_start_mapping":   ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.03, use_hot_start=True,
                                                    hot_start_file="{REF}/hot_source.npz", use_muscl=True)),
-    "amr_sod_1st":         ("Sod Shock Tube", dict(Lx=2.0, nx=128, ny=16, Ly=0.25, t_end=0.2, use_amr=True, amr_patch_nx=16,
-                                                   amr_patch_ny=4, amr_max_level=3, amr_refine_every=2,
-                                                   amr_init_levels=1, amr_buffer_layers=0,
+    "amr_sod_1st":         ("Sod Shock Tube", dict(Lx=2.0, nx=128, ny=16, Ly=0.25, t_end=0.2, use_amr=True,
+                                                   amr_max_level=3, amr_refine_every=2, amr_init_levels=1,
                                                    time_scheme="SSP Runge-Kutta 2")),
-    "amr_sod_muscl_init":  ("Sod Shock Tube", dict(nx=64, ny=16, Ly=0.25, t_end=0.15, use_amr=True, amr_patch_nx=16,
-                                                   amr_patch_ny=4, amr_max_level=2, amr_refine_every=3, use_muscl=True,
-                                                   amr_init_levels=2, amr_buffer_layers=0)),
+    "amr_sod_muscl_init":  ("Sod Shock Tube", dict(nx=64, ny=16, Ly=0.25, t_end=0.15, use_amr=True,
+                                                   amr_max_level=2, amr_refine_every=3, use_muscl=True,
+                                                   amr_init_levels=2)),
     "amr_square_rk4":      ("Sod Shock Tube", dict(Lx=1.0, Ly=1.0, nx=32, ny=32, t_end=0.4, use_amr=True,
-                                                   amr_patch_nx=8, amr_patch_ny=8, amr_max_level=3, amr_refine_every=2,
-                                                   amr_init_levels=1, time_scheme="Runge-Kutta 4",
-                                                   amr_refine_threshold=0.2, amr_derefine_threshold=0.05)),
-    # Two root patches only: under MPI most ranks own no leaf at the coarse levels (empty ranks, migration)
+                                                   amr_max_level=3, amr_refine_every=2, amr_init_levels=1,
+                                                   time_scheme="Runge-Kutta 4")),
+    # A tiny base mesh: under MPI most ranks own few or no leaves at the coarse levels (empty ranks, small halos)
     "amr_sod_few_roots":   ("Sod Shock Tube", dict(Lx=1.0, nx=32, ny=4, Ly=0.125, t_end=0.15, use_amr=True,
-                                                   amr_patch_nx=16, amr_patch_ny=4, amr_max_level=3, amr_refine_every=2,
-                                                   amr_buffer_layers=1)),
-    # AMR seeded from a uniform hot-start field: owned leaves interpolate it, the halos are pushed
+                                                   amr_max_level=3, amr_refine_every=2)),
+    # AMR seeded from a uniform hot-start field: every leaf interpolates it at its centre
     "amr_hot_start":       ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.03, use_hot_start=True,
                                                    hot_start_file="{REF}/hot_source.npz", use_muscl=True, use_amr=True,
-                                                   amr_patch_nx=10, amr_patch_ny=4, amr_max_level=2, amr_refine_every=3,
-                                                   amr_buffer_layers=1)),
+                                                   amr_max_level=2, amr_refine_every=3)),
     # Manufactured solutions with source terms (generated cases, see fenice.mms); covered by the order study
     # verification/mms.py. The thin variants make the MPI strips run along x.
     "mms_ns_2d":           ("Manufactured Solution", dict(nx=24, ny=24, t_end=0.1)),
@@ -112,12 +108,12 @@ CASES = {
                                                        bc_back="nonreflecting")),
     # IBM airfoil (NACA 0012 at 10 deg, mu from reynolds; geometry checked by fenice_tests airfoil_geometry)
     "naca0012_ibm":        ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.1, use_mpi=False)),
-    # AMR airfoil: tiled 16 x 16 root, body kept at level 2, remeshing, IBM + viscous + NRBC (validated by
-    # the tiled-vs-uniform unit test; loads checked against a uniform run of the body's resolution)
-    "amr_naca0012":        ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.4, use_amr=True, amr_patch_nx=16, amr_patch_ny=16,
+    # AMR airfoil: body kept at level 2, remeshing, IBM + viscous + NRBC (the level-0 equality with the uniform solver is
+    # a unit test; loads checked against a uniform run of the body's resolution)
+    "amr_naca0012":        ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.4, use_amr=True,
                                                 amr_max_level=2, amr_refine_every=5, use_mpi=False)),
 }
-# Cases also run under MPI (AMR: replicated tree, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
+# Cases also run under MPI (AMR: replicated mesh, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
 MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodic_x", "poiseuille_bdf2",
              "cylinder_ibm_visc", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
