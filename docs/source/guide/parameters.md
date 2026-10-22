@@ -43,6 +43,22 @@ short alias shown in brackets.
 | `gx`, `gy` | `0.0`, `-9.81` | Body-force acceleration [m/s²] |
 | `gz` | `0.0` | Body-force acceleration along z [m/s²] (3-D only) |
 
+## Source terms (manufactured solutions)
+
+The case file section `[source]`. The equations solved become $\partial U/\partial t + \nabla\cdot(F - F_v) = S$,
+with $U = [\rho, \rho u, \rho v, \rho E, \rho w]$. Each key is a number or an expression of `x`, `y`, `z` (cell
+centre), `pi`, `e` and the numeric run parameters, evaluated once per cell and added to the residual of every stage
+(steady: no time dependence). They exist for code verification by the method of manufactured solutions, see
+[Manufactured solutions]({{root}}cases/manufactured-solution.html); the cases of that page set them. Not available
+with AMR or the immersed boundary.
+
+| Key | Default | Meaning |
+|---|---|---|
+| `source_rho` | `0` | Mass source $S_\rho$ [kg/m³/s] |
+| `source_mx`, `source_my` | `0`, `0` | Momentum sources $S_{\rho u}$, $S_{\rho v}$ |
+| `source_mz` | `0` | Momentum source $S_{\rho w}$ (3-D) |
+| `source_E` | `0` | Total-energy source $S_{\rho E}$ |
+
 ## Boundary conditions
 
 | Key | Default | Meaning |

@@ -61,6 +61,7 @@ struct SimParams {
     double nrbc_beta;    // NRBC transverse weight in [0, 1] (1: LODI only); < 0: local Mach number
     bool use_bodyforce;
     double gx, gy, gz;
+    bool use_source;   // any of source_rho / source_mx / source_my / source_mz / source_E is not 0 (see SimParams::source)
     bool resume;
     bool use_mpi;
     int n_cpus;

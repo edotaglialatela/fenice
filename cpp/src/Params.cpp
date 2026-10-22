@@ -127,6 +127,11 @@ Params baseline_defaults() {
         {"gx", "0.0"},
         {"gy", "-9.81"},
         {"gz", "0.0"},
+        {"source_rho", "0"},
+        {"source_mx", "0"},
+        {"source_my", "0"},
+        {"source_mz", "0"},
+        {"source_E", "0"},
         {"resume", "false"},
         {"use_mpi", "false"},
         {"n_cpus", "2"},
@@ -206,6 +211,13 @@ SimParams SimParams::from(const Params& p) {
     s.gx = p.num("gx", 0.0);
     s.gy = p.num("gy", 0.0);
     s.gz = p.num("gz", 0.0);
+    s.use_source = false;
+    for (const char* key : {"source_rho", "source_mx", "source_my", "source_mz", "source_E"}) {
+        const std::string v = p.str(key, "0");
+        char* end = nullptr;
+        const double d = std::strtod(v.c_str(), &end);
+        if (!(end && *end == '\0' && d == 0.0)) s.use_source = true;   // an expression, or a non-zero number
+    }
     s.resume = p.flag("resume");
     s.use_mpi = p.flag("use_mpi");
     s.n_cpus = p.integer("n_cpus", 1);
@@ -248,6 +260,8 @@ SimParams SimParams::from(const Params& p) {
     if (s.nx <= 0 || s.ny <= 0 || s.nz <= 0) throw std::invalid_argument("nx, ny and nz must be positive");
     if (s.Lx <= 0 || s.Ly <= 0 || s.Lz <= 0) throw std::invalid_argument("Lx, Ly and Lz must be positive");
     if (s.use_amr && s.nz > 1) throw std::invalid_argument("AMR is 2-D only (nz must be 1 when use_amr is on)");
+    if (s.use_source && s.use_amr) throw std::invalid_argument("source terms (source_*) are not supported with AMR");
+    if (s.use_source && s.use_ibm) throw std::invalid_argument("source terms (source_*) are not supported with the IBM");
     if (s.use_amr && (s.nx % s.amr_patch_nx != 0 || s.ny % s.amr_patch_ny != 0))
         throw std::invalid_argument("AMR: nx and ny must be multiples of amr_patch_nx and amr_patch_ny (the level-0 "
                                     "patches tile the mesh): nx = " +

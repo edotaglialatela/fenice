@@ -1668,6 +1668,80 @@ TEST(taylor_green_viscous_time_step_budget) {
     }
 }
 
+TEST(source_terms_enter_the_residual) {
+    // A uniform state has no flux divergence, so one Explicit Euler step moves every cell by dt S(x, y): this
+    // isolates the parsing of the source expressions, their slot in the state and the cell-centre positions
+    const SimParams sp = params_for("Taylor-Green Vortex",
+                                    {{"nx", "16"}, {"ny", "8"}, {"time_scheme", "Explicit Euler"},
+                                     {"source_rho", "0.25"}, {"source_mx", "sin(2*pi*x/Lx)"},
+                                     {"source_my", "0.5*cos(2*pi*y/Ly)"}, {"source_E", "x*y + mu"}});
+    CHECK(sp.use_source);
+    Simulation sim;
+    sim.setup(sp, false);
+    const Field U0 = uniform_field(sim.fluid, sim.mesh.num_cells(), 1.0, 0.0, 0.0, 1.0);
+    sim.U = U0;
+    const ResidualFn res = [&](const Field& U, Field& R) { return sim.residual(U, R); };
+    const double dt = sim.scheme->step(sim.U, res, std::min(sim.mesh.dx, sim.mesh.dy), 0.0, 1e9).dt;
+    const Mesh& m = sim.mesh;
+    double err = 0.0;
+    for (int j = 0; j < m.ny; ++j)
+        for (int i = 0; i < m.nx; ++i) {
+            const double x = m.xc(i), y = m.yc(j);
+            const State expect = {0.25, std::sin(2 * kPi * x / m.Lx), 0.5 * std::cos(2 * kPi * y / m.Ly), x * y + sp.mu,
+                                  0.0};
+            const State& a = sim.U[m.cell(i, j)];
+            const State& b = U0[m.cell(i, j)];
+            for (int q = 0; q < kNVar; ++q) err = std::max(err, std::abs((a[q] - b[q]) - dt * expect[q]));
+        }
+    std::printf("    max |dU - dt S| = %.2e (dt = %.3e)\n", err, dt);
+    CHECK(err < 1e-14);
+}
+
+TEST(source_terms_3d_slots) {
+    // Only source_mz: only the w-momentum slot of the 3-D state moves, with the z dependence of the expression
+    const SimParams sp = params_for("Taylor-Green Vortex 3D",
+                                    {{"nx", "8"}, {"ny", "8"}, {"nz", "8"}, {"time_scheme", "Explicit Euler"},
+                                     {"source_mz", "cos(2*pi*z/Lz)*(1+0.5*sin(x))"}});
+    Simulation sim;
+    sim.setup(sp, false);
+    const Mesh& m = sim.mesh;
+    const Field U0(static_cast<size_t>(m.num_cells()), sim.fluid.prim_to_cons({1.0, 0.0, 0.0, 1.0, 0.0}));
+    sim.U = U0;
+    const ResidualFn res = [&](const Field& U, Field& R) { return sim.residual(U, R); };
+    const double dt = sim.scheme->step(sim.U, res, sim.dt_length, 0.0, 1e9).dt;
+    double err = 0.0, other = 0.0;
+    for (int k = 0; k < m.nz; ++k)
+        for (int j = 0; j < m.ny; ++j)
+            for (int i = 0; i < m.nx; ++i) {
+                const State& a = sim.U[m.cell(i, j, k)];
+                const State& b = U0[m.cell(i, j, k)];
+                const double s = std::cos(2 * kPi * m.zc(k) / m.Lz) * (1 + 0.5 * std::sin(m.xc(i)));
+                err = std::max(err, std::abs((a[4] - b[4]) - dt * s));
+                for (int q = 0; q < 4; ++q) other = std::max(other, std::abs(a[q] - b[q]));
+            }
+    std::printf("    w-momentum error %.2e, other slots %.2e\n", err, other);
+    CHECK(err < 1e-14);
+    CHECK(other == 0.0);
+}
+
+TEST(source_terms_are_rejected_where_unsupported) {
+    bool amr_throws = false, ibm_throws = false;
+    try {
+        params_for("Sod Shock Tube", {{"use_amr", "true"}, {"source_rho", "1"}});
+    } catch (const std::invalid_argument&) {
+        amr_throws = true;
+    }
+    try {
+        params_for("IBM Flow over Cylinder", {{"source_mx", "x"}});
+    } catch (const std::invalid_argument&) {
+        ibm_throws = true;
+    }
+    CHECK(amr_throws);
+    CHECK(ibm_throws);
+    CHECK(!params_for("Sod Shock Tube", {}).use_source);
+    CHECK(!params_for("Sod Shock Tube", {{"source_rho", "0.0"}}).use_source);   // a zero number is no source
+}
+
 TEST(isentropic_vortex_convergence) {
     // Smooth inviscid advection: MUSCL + SSP-RK2 must converge at (close to) 2nd order
     const double e20 = vortex_density_error(20, 1.0), e40 = vortex_density_error(40, 1.0),

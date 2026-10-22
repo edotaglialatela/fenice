@@ -48,6 +48,14 @@ std::string lower(std::string s) {
 // Tangential velocity derivatives of a strip of MPI ghost cells, using the same
 // padded central differences (and physical side BCs) as an interior row/column.
 // dir 'y': strip is a row of nx cells -> du/dx, dv/dx; dir 'x': column of ny cells -> du/dy, dv/dy.
+// R += S: the source terms of the case (source_*) enter the residual of dU/dt = R as + S
+void add_source(const Field& S, Field& R) {
+    const int n = static_cast<int>(R.size());
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+    for (int c = 0; c < n; ++c)
+        for (int q = 0; q < kNVar; ++q) R[c][q] += S[c][q];
+}
+
 void strip_tangential_derivs(const EOS& eos, const BoundaryManager& bm, const Mesh& m, char dir, const Field& strip,
                              std::vector<double>& a, std::vector<double>& b) {
     const bool row = (dir == 'y');
@@ -624,6 +632,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     }
 
     if (body_force) body_force->add_to(*Uc, R);
+    if (p.use_source) add_source(source_for(m), R);
     return S;
 }
 
@@ -774,8 +783,17 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     }
 
     if (body_force) body_force->add_to(Uv, R);
+    if (p.use_source) add_source(source_for(m), R);
     return S;
 }
+const Field& Simulation::source_for(const Mesh& m) {
+    const std::array<double, 9> key = {static_cast<double>(m.nx), static_cast<double>(m.ny),
+                                       static_cast<double>(m.nz), m.dx, m.dy, m.dz, m.x0, m.y0, m.z0};
+    auto it = source_cache_.find(key);
+    if (it == source_cache_.end()) it = source_cache_.emplace(key, evaluate_source(m, p.source)).first;
+    return it->second;
+}
+
 double Simulation::residual(const Field& Uin, Field& R) {
     return assemble(mesh, boundaries, p.use_ibm ? ibm.get() : nullptr, muscl.get(), Uin, R, nullptr);
 }

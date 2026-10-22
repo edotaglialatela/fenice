@@ -34,6 +34,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& section_tab
         {"mesh", {"Lx", "Ly", "Lz", "nx", "ny", "nz"}},
         {"thermo", {"eos_type", "gamma", "p_inf"}},
         {"physics", {"use_viscous", "mu", "reynolds", "pr", "use_bodyforce", "gx", "gy", "gz"}},
+        {"source", {"source_rho", "source_mx", "source_my", "source_mz", "source_E"}},
         {"boundaries",
          {"bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back", "u_in", "rho_in", "p_out", "nrbc_sigma",
           "nrbc_beta"}},
@@ -645,6 +646,25 @@ Field evaluate_initial(const InitialSpec& spec, const Mesh& m, const EOS& eos, c
                 U[cell] = eos.prim_to_cons(W);
             }
     return U;
+}
+
+
+Field evaluate_source(const Mesh& m, const Params& run) {
+    // Parameter keys in the slot order of the state [rho, rho u, rho v, rho E, rho w]
+    static const char* const kKeys[kNVar] = {"source_rho", "source_mx", "source_my", "source_E", "source_mz"};
+    Evaluator ev(run, m);
+    int item[kNVar];
+    for (int q = 0; q < kNVar; ++q) item[q] = ev.compile(run.str(kKeys[q], "0"), kKeys[q]);
+    Field S(static_cast<size_t>(m.num_cells()));
+    const bool three_d = m.is3d();
+    for (int k = 0; k < m.nz; ++k)
+        for (int j = 0; j < m.ny; ++j)
+            for (int i = 0; i < m.nx; ++i) {
+                ev.set_position(m.xc(i), m.yc(j), three_d ? m.zc(k) : 0.0);
+                State& s = S[m.cell(i, j, k)];
+                for (int q = 0; q < kNVar; ++q) s[q] = ev.eval(item[q]);
+            }
+    return S;
 }
 
 }   // namespace fv

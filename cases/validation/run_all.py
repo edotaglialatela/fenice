@@ -32,12 +32,14 @@ GROUPS = {
         "taylor_green": (["verification/taylor_green.py"], False),
         "taylor_green_animation": (["verification/taylor_green_animation.py"], False),
         "poiseuille": (["verification/poiseuille.py"], False),
+        "mms": (["verification/mms.py"], True),   # manufactured solutions, 2-D and 3-D; the 96^3 grids take minutes
     },
     "benchmarks": {
         "shu_osher": (["benchmarks/shu_osher.py"], False),
         "cavity": (["benchmarks/cavity.py"], False),
         "taylor_green_3d": (["benchmarks/taylor_green_3d.py", "--grids", "32", "64", "96", "--vorticity-n", "96",
                              "--mpi", "16", "--q-animation"], True),   # the settings of the docs figures
+        "vv20": (["benchmarks/vv20.py"], True),   # validation uncertainty (needs the runs of gci.py)
         "gci": (["benchmarks/gci.py"], True),   # grid convergence index of the cavity, airfoil and 3-D TG results
         "cylinder_loads": (["benchmarks/ibm_loads.py", "cylinder"], True),
         "airfoil_loads": (["benchmarks/ibm_loads.py", "airfoil"], True),

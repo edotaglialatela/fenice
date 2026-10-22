@@ -5,6 +5,7 @@
 #include <atomic>
 #include <cstdio>
 #include <functional>
+#include <map>
 #include <memory>
 
 #include "fv/AMR.hpp"
@@ -106,6 +107,10 @@ public:
     std::unique_ptr<MusclReconstruction> muscl;                 // nullptr: 1st-order Godunov
     std::unique_ptr<NavierStokes> ns;                           // nullptr: Euler
     std::unique_ptr<ConstantBodyForce> body_force;              // optional source term
+    // Source terms of the case (source_*), evaluated once per mesh the residual is assembled on (the whole mesh,
+    // or an MPI strip); keyed by (nx, ny, nz, dx, dy, dz, x0, y0, z0)
+    std::map<std::array<double, 9>, Field> source_cache_;
+    const Field& source_for(const Mesh& m);
     std::unique_ptr<ImmersedBoundary> ibm;                      // optional obstacle
     std::function<ImmersedBoundary(const Mesh&)> ibm_factory;   // same body on any (patch) mesh
     std::array<double, 4> ibm_bbox{};                           // body extent {xmin, xmax, ymin, ymax}
