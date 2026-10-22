@@ -173,7 +173,8 @@ int main(int argc, char** argv) {
     CellAdvance adv(mesh, eng, *ts);
     if (nranks > 1) adv.par = &par;
     Field R;
-    double S = eng.residual(mesh, mesh.U, R), t = 0.0, remesh_wall = 0.0, leaf_sum = 0.0, comm_wall = 0.0;
+    double S = eng.residual(mesh, mesh.U, R), t = 0.0, remesh_wall = 0.0, leaf_sum = 0.0;
+    double t_gather = 0.0, t_speed = 0.0, t_partition = 0.0;   // parts of the remesh that CellAdaptor does not time
     if (nranks > 1) par.partition();
     int step = 0;
     // loads on the body: the net momentum flux into the solid leaves (sum of their residuals times the area), the same
@@ -213,16 +214,23 @@ int main(int argc, char** argv) {
         step_wall += seconds_since(s0);
         if (levels > 0 && step % every == 0) {
             const auto r0 = Clock::now();
+            const auto g0 = Clock::now();
             if (nranks > 1) par.gather_state();   // the indicator needs the state of every leaf
-            if (adaptor.remesh()) S = eng.residual(mesh, mesh.U, R);   // the wave-speed bound follows the new leaves
+            t_gather += seconds_since(g0);
+            if (adaptor.remesh()) {
+                const auto v0 = Clock::now();
+                S = eng.residual(mesh, mesh.U, R);   // the wave-speed bound follows the new leaves
+                t_speed += seconds_since(v0);
+            }
+            const auto q0 = Clock::now();
             if (nranks > 1) par.partition();
+            t_partition += seconds_since(q0);
             remesh_wall += seconds_since(r0);
         }
         if (monitor > 0 && step % monitor == 0) sample_loads(t);
         if (root && step % 100 == 0) std::printf("step %6d  t = %.5f  leaves %d\n", step, t, mesh.num_leaves());
     }
     const double wall = seconds_since(t0);
-    (void)comm_wall;
     if (nranks > 1) par.gather_state();
 
     // balance report: owned leaves per level and rank, the weighted work sum 2^l N_l, the halo
@@ -251,8 +259,9 @@ int main(int argc, char** argv) {
         }
     }
     if (root) {
-        std::printf("[cell-amr] remesh parts (rank 0): indicator %.2f s, adapt %.2f s, engine build %.2f s\n", adaptor.t_indicator,
-                    adaptor.t_adapt, adaptor.t_build);
+        std::printf("[cell-amr] remesh parts (rank 0): gather %.2f s, indicator %.2f s, adapt %.2f s, engine build %.2f s, "
+                    "speed bound %.2f s, partition %.2f s\n",
+                    t_gather, adaptor.t_indicator, adaptor.t_adapt, adaptor.t_build, t_speed, t_partition);
         std::printf("[cell-amr] churn: %lld leaves flagged for refinement, about %lld sibling groups joined over %d steps\n",
                     adaptor.n_refined, adaptor.n_joined, step);
         std::vector<int> per_level(static_cast<size_t>(levels) + 1, 0);

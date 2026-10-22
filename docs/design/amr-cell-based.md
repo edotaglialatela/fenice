@@ -502,21 +502,40 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
 * **Real MPI** (`python cases/validation/amr/cell_amr_mpi.py`, the demo under `mpiexec` with `--poison`; not part of the CI since the cell engine is not behind the CLI yet): dynamic Sod, the airfoil
   (immersed body, viscosity, non-reflecting outlet), and two periodic manufactured solutions (viscous, and unsteady Euler with a time-dependent source) with remesh: serial and 1..7 ranks give a
   byte-identical final state (`final.bin`) in all four cases.
-* **Balance** (airfoil, 720 x 360, 2 levels, 50 steps; the demo prints it): owned leaves per level are equal across ranks to within one leaf, work max / mean (sum of 2^l N_l) 1.000 on 2, 4, 8, 16
-  ranks, 2 ranks on the 268 362 leaves at the end: 134 181 owned each, 2 109 / 1 941 halo leaves (1.6 % / 1.4 %), 136 290 / 136 122 held.
-* **Scaling** (same study as `amr_mpi.py` in P0, but the cell engine; 8-core machine, 16 logical processors; wall time of the time loop including the remesh; the final state is bitwise the serial one in all
-  rows):
+* **Balance.** With equal leaf counts per level on every rank (to within one leaf) the weighted work (sum of 2^l N_l) is equal across ranks by construction (max / mean 1.000 on 2-16 ranks); this says how the work is
+  cut, it is not a timing. Halo: on 2 ranks (268 362 leaves at the end) 134 181 owned each, 2 109 / 1 941 halo leaves (1.6 % / 1.4 %). **Storage is not distributed yet:** every rank stores the whole mesh, the
+  whole state array and all the engine arrays; "valid" below counts the leaves whose state is up to date on a rank, not its memory (the patch engine's P0 column "max cells/rank" was storage). Distributed
+  storage is a later item.
+* **Scaling** (the study of `amr_mpi.py` in P0 with the cell engine: airfoil, 720 x 360 base, 2 levels, 50 steps, remesh every 5; 8-core machine with 16 logical processors, one thread per MPI rank; wall time of
+  the time loop including the remesh; the final state is bitwise the serial one in every row):
 
-  | run | wall [s] | speed-up | of which remesh [s] | max leaves held by a rank |
+  | run | wall [s] | speed-up | of which remesh [s] | leaves with a valid state on the busiest rank |
   |---|---|---|---|---|
-  | serial (1 thread) | 10.99 | 1.00 | 2.84 | |
-  | OpenMP 2 / 4 / 8 / 16 threads | 6.89 / 5.00 / 4.31 / 4.22 | 1.60 / 2.20 / 2.55 / 2.60 | 2.52 / 2.41 / 2.37 / 2.47 | |
-  | MPI 2 ranks | 7.96 | 1.38 | 3.57 | 136 290 |
-  | MPI 4 ranks | 6.35 | 1.73 | 3.75 | 69 721 |
-  | MPI 8 ranks | 6.74 | 1.63 | 4.54 | 35 878 |
-  | MPI 16 ranks | 10.67 | 1.03 | 7.33 | 18 892 |
+  | serial (1 thread) | 10.94 | 1.00 | 2.83 | |
+  | OpenMP 2 / 4 / 8 / 16 threads | 7.03 / 5.03 / 4.41 / 4.38 | 1.56 / 2.17 / 2.48 / 2.50 | 2.53 / 2.42 / 2.36 / 2.55 | |
+  | MPI 2 ranks | 8.04 | 1.36 | 3.62 | 136 290 |
+  | MPI 4 ranks | 6.56 | 1.67 | 3.81 | 69 721 |
+  | MPI 8 ranks | 7.23 | 1.51 | 4.81 | 35 878 |
+  | MPI 16 ranks | 11.22 | 0.98 | 7.39 | 18 892 |
 
-  For comparison the patch engine on `main` (P0, section 5): serial 16.4 s; OpenMP 2 / 4 / 8 / 16: 8.8 / 5.1 / 3.2 / 2.9 s; MPI 2 / 4 / 8 / 16: 8.9 / 5.2 / 4.0 / 4.6 s. The cell engine is 1.5x faster in serial
-  but scales worse, and the reason is the remesh: it takes 2.8 s in serial (26 % of the loop) and does not shrink with the ranks, it grows (the gather, and `partition`, which builds one need mask per rank
-  and level, O(ranks x levels x leaves)). The time stepping alone (wall minus remesh) scales: 8.15 s serial, 4.39 / 2.60 / 2.20 / 3.34 s on 2 / 4 / 8 / 16 ranks (the last one oversubscribes the
-  machine). OpenMP is limited by the same serial remesh (2.4 s of the 4.2 s at 16 threads). Making the remesh parallel / incremental is the first thing to do in P8.
+  Patch engine on `main` (P0, section 5): serial 16.4 s; OpenMP 2 / 4 / 8 / 16: 8.8 / 5.1 / 3.2 / 2.9 s; MPI 2 / 4 / 8 / 16: 8.9 / 5.2 / 4.0 / 4.6 s. **Plainly: the cell engine is 1.5x faster in serial, about as fast
+  on 2 ranks (8.0 against 8.9 s) and slower than the patch engine from 4 ranks on (6.6 against 5.2 s on 4, 7.2 against 4.0 s on 8, 11.2 against 4.6 s on 16), and from 4 threads on with OpenMP (5.0 / 4.4 / 4.4 against 5.1 / 3.2 /
+  2.9 s).** Against the acceptance of P8 ("wall time per accuracy not worse on any study") the parallel runs currently fail; the remesh is a precondition for P8, not an optimisation.
+* **Where the time goes** (measured, rank 0, seconds over the 10 remeshes of the run; the remesh column above is their sum plus the part of the time stepping lost waiting for it):
+
+  | | gather | indicator | adapt | engine build | speed bound | partition |
+  |---|---|---|---|---|---|---|
+  | serial | | 0.87 | 0.80 | 0.97 | 0.69 | |
+  | OpenMP 8 | | 0.92 | 0.82 | 0.97 | 0.15 | |
+  | MPI 2 | 0.05 | 0.90 | 0.91 | 1.01 | 0.74 | 0.54 |
+  | MPI 4 | 0.05 | 0.95 | 1.14 | 1.13 | 0.77 | 0.38 |
+  | MPI 8 | 0.11 | 1.26 | 1.59 | 1.39 | 0.87 | 0.35 |
+  | MPI 16 | 0.25 | 1.91 | 2.54 | 2.13 | 1.38 | 0.66 |
+
+  The explanation I first wrote down (the gather and the O(ranks x levels x leaves) masks of `partition` grow with the ranks) was wrong: the gather is negligible (0.05-0.25 s), `partition` costs 0.35-0.66 s and does
+  not grow steadily. The remesh is dominated by serial work that every rank REPEATS (indicator 0.9 s + adapt 0.8 s + build 1.0 s + speed bound 0.7-0.9 s = 3.3-3.4 s), which does not shrink with ranks or threads
+  (only the speed bound, a parallel residual, shrinks with OpenMP: 0.69 -> 0.15 s), and it grows at 8-16 ranks where 8-16 processes run the same serial code on 8 cores (memory-bandwidth contention, then
+  oversubscription). Time stepping alone (wall minus remesh): 8.1 s serial, 4.4 / 2.8 / 2.4 / 3.8 s on 2 / 4 / 8 / 16 ranks, i.e. speed-ups 1.8 / 2.9 / 3.4 / 2.1 (the last on an oversubscribed machine).
+  P8 order of work: (1) do not replicate the remesh: the indicator over a distributed state, an incremental `adapt` and engine rebuild (only where leaves changed; churn is small after the parent-level join),
+  (2) shrink `partition`, (3) distributed storage.
+* `fenice_tests` takes 11.1 s now (8.9 s before P6: the multi-rank emulation).

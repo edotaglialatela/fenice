@@ -73,7 +73,8 @@ def scaling():
     import os
     name, _ = CASES["airfoil"]
     base = ["nx=720", "ny=360", "--vars", "rho,u", "--levels", "2", "--every", "5", "--steps", "50", "--monitor", "0"]
-    print(f"{'run':>8} {'wall [s]':>9} {'speed-up':>9} {'remesh [s]':>11} {'max held':>9} {'work max/mean':>14}  state vs serial")
+    print(f"{'run':>8} {'wall [s]':>9} {'speed-up':>9} {'remesh [s]':>11} {'valid':>9} {'work max/mean':>14}  state vs serial")
+    print("         (valid: leaves with a valid state on the busiest rank; every rank stores the whole mesh and state)")
     ref_digest, serial_wall = None, None
     for label, ranks, threads in [("serial", 0, 1)] + [(f"omp {n}", 0, n) for n in (2, 4, 8, 16)] + [(f"mpi {n}", n, 1) for n in (2, 4, 8, 16)]:
         out = OUT / "scaling" / label.replace(" ", "")
@@ -92,6 +93,11 @@ def scaling():
         serial_wall = serial_wall or wall
         print(f"{label:>8} {wall:9.2f} {serial_wall / wall:9.2f} {remesh:11.2f} {max(held) if held else '-':>9} "
               f"{bal.group(1) if bal else '-':>14}  {'identical' if digest == ref_digest else 'DIFFERS'}")
+        parts = re.search(r"remesh parts \(rank 0\): gather ([\d.]+) s, indicator ([\d.]+) s, adapt ([\d.]+) s, engine build ([\d.]+) s, "
+                          r"speed bound ([\d.]+) s, partition ([\d.]+) s", res)
+        if parts:
+            names = ("gather", "indicator", "adapt", "build", "speed bound", "partition")
+            print("         remesh: " + ", ".join(f"{n} {float(v):.2f}" for n, v in zip(names, parts.groups())))
 
 
 if __name__ == "__main__":
