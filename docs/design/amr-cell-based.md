@@ -1,6 +1,6 @@
 # Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
 
-Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13); jump closure (b) and the parent-level join done (sections 14-15), the second-order coarse side (c) is an experiment waiting for the user's decision. The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
+Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13); jump closure (b) and the parent-level join done (sections 14-15), the second-order coarse side (c) is now the default (decision of the user, section 17). The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
 `main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
 
 ## 1. Why
@@ -468,3 +468,10 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
 * The acceptance bound fixed before the first P4 run (adaptive manufactured-solution error below 0.75 x the coarse one, section 12), failed by injection (1.12 / 1.27 x), is MET with
   (b) + (c): steady viscous 1.049e-3 against 1.465e-3 (0.72 x), unsteady Euler 1.075e-3 against 1.534e-3 (0.70 x).
 * `fenice_tests` takes 10.3 s (8.9 s before the closure study of four closures).
+
+## 17. Decisions of the user after sections 14-16
+* The jump closure (b) + (c) is the default (`interpolate_jumps` and `coarse_side_second_order` both on; the injection stays selectable for the tests). The manufactured-solution test now asserts the
+  original bound (adaptive error below 0.75 x the coarse one) and a split guard (away from the jumps 0.8 x, near them 1.2 x of the coarse error).
+* The indicator defaults are confirmed: criterion 0.1, density + velocity (density alone in the struct default; the demo and the studies use density + velocity for the airfoil), 2 diffusion
+  iterations of 0.1 above 0.05, split 0.15, join 0.10, joins on the parent's xi.
+* Default configuration on the airfoil (criterion 0.1, density + velocity, base 192 x 96 + 2 levels, t = 6): Cd mean 0.1482, Cl mean 0.2268 (reference 0.1498 / 0.2171), 23.5 k leaves, 14 s.

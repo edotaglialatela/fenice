@@ -3320,7 +3320,7 @@ CellPhysics physics_of(Simulation& sim) {
 }
 
 // Run the cell mesh to t_end with the scheme and CFL of the simulation.
-void run_cell_mesh(CellMesh& cm, Simulation& sim, double t_end, int nsteps_max = 100000, int closure = 1) {
+void run_cell_mesh(CellMesh& cm, Simulation& sim, double t_end, int nsteps_max = 100000, int closure = 2) {
     CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
     eng.interpolate_jumps = closure == 1 || closure == 2;   // 0 injection, 1 interpolated coarse value, 2 = 1 + a second-order coarse side, 3 = injection + second-order coarse side
     eng.coarse_side_second_order = closure >= 2;
@@ -3429,12 +3429,12 @@ TEST(celladvance_fully_refined_mesh_equals_the_finer_uniform_mesh) {
 }
 
 TEST(celladvance_adapted_manufactured_solutions_regression_guards) {
-    // Base 32x32 with the lower half refined once, against the uniform 32 (coarse) and 64 (fine, the reference).
-    // These bounds are REGRESSION GUARDS taken from measurements, not acceptance criteria. The bound fixed beforehand, error to the fine solution below 0.75 x the coarse one, was NOT met (measured 1.1-1.3 x),
-    // because the first-order coarse side of a jump (and the injected coarse value the fine side is reconstructed
-    // against) puts an error of the size of the whole coarse-grid error in a strip along each jump; a five times
-    // smaller time step changes nothing, so it is spatial, not the time seam. Kept as a known limit: away from the jumps
-    // the adaptive error must be below 0.8 x the coarse one (measured 0.6), near them below 3 x (measured 1.7-2.0).
+    // Base 32x32 with the lower half refined once, against the uniform 32 (coarse) and 64 (fine, the reference). Acceptance,
+    // fixed before the first run: the error to the fine solution is below 0.75 x the coarse one. With the injected jump closure
+    // it was not met (1.1-1.3 x: the first-order coarse side of a jump puts an error of the size of the whole coarse-grid error
+    // in a strip along each jump, see the closure study); with the default closure (interpolated fine side, second-order coarse
+    // side) it is (about 0.7 x). The split below is a regression guard taken from measurement (default closure): away from the
+    // jumps the adaptive error must be below 0.8 x the coarse one (measured 0.6), near them below 1.2 x (measured 0.85).
     struct Case {
         const char* name;
         double t_end;
@@ -3479,9 +3479,10 @@ TEST(celladvance_adapted_manufactured_solutions_regression_guards) {
             std::printf("    error split (sum |d rho| area): away from the jumps adaptive %.3e coarse %.3e | near the jumps adaptive %.3e coarse %.3e\n",
                         far_a, far_c, near_a, near_c);
             CHECK(far_a < 0.8 * far_c);
-            CHECK(near_a < 3.0 * near_c);
+            CHECK(near_a < 1.2 * near_c);
         }
         CHECK(e_coarse > 1e-7);
+        CHECK(e_amr < 0.75 * e_coarse);
     }
 }
 

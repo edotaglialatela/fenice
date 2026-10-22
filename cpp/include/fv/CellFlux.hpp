@@ -92,10 +92,10 @@ public:
     // injected coarse value. False (set before build) restores the injection (the test control; the first-order scheme
     // always injects).
     bool interpolate_jumps = true;
-    // Experiment (set before build, default off): the coarse side of a coarse-fine face is reconstructed too, with the
-    // standard limited MUSCL formula on the coarse leaf, its neighbour across the face being the mean of the fine leaves
-    // there (second-order closure on both sides of a jump).
-    bool coarse_side_second_order = false;
+    // The coarse side of a coarse-fine face is reconstructed too (set before build; default on): the standard limited MUSCL
+    // formula on the coarse leaf, its neighbour across the face being the mean of the fine leaves there, so both sides of a
+    // jump are second order. False keeps the coarse leaf's cell state there (first order, the test control).
+    bool coarse_side_second_order = true;
     // One interpolated virtual cell: the fine leaf, the side of it facing the coarser leaf, and the coarse leaf.
     struct InterpVirtual {
         int fine = -1, coarse = -1;

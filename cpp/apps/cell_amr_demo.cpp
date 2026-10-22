@@ -32,7 +32,7 @@ int main(int argc, char** argv) {
     p.set("use_mpi", "false");
     p.set("use_amr", "false");
     std::string out = "results/cell_amr/" + name;
-    int levels = -1, every = -1, closure = 1;   // jump closure: 0 injection, 1 interpolated, 2 = 1 + second-order coarse side
+    int levels = -1, every = -1, closure = 2;   // jump closure: 0 injection, 1 interpolated, 2 = 1 + second-order coarse side (default)
     double tend = -1.0;
     CellIndicator ind;
     for (int a = 2; a < argc; ++a) {
