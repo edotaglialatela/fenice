@@ -1,6 +1,6 @@
 # Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
 
-Status: P1-P7 done (P6 = MPI, section 18; P7 = the engine behind the CLI, section 19); P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13); jump closure (b) and the parent-level join done (sections 14-15), the second-order coarse side (c) is now the default (decision of the user, section 17). The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
+Status: P1-P7 done, remesh speed-up and the P8 measurements in section 20 (P6 = MPI, section 18; P7 = the engine behind the CLI, section 19); P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13); jump closure (b) and the parent-level join done (sections 14-15), the second-order coarse side (c) is now the default (decision of the user, section 17). The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
 `main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
 
 ## 1. Why
@@ -559,3 +559,53 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
 * **Real-MPI check**: `amr_mpi.py --check`: dynamic Sod, airfoil, viscous periodic MMS and unsteady MMS, serial and 1-7 ranks, bit for bit.
 * **Scaling with the final code** (`amr_mpi.py`, 720x360, 2 levels, 50 steps, noisy machine): serial 11.5 s (remesh 2.9); OpenMP 2/4/8/16: 7.3/5.3/4.7/6.0 s; MPI 2/4/8/16: 9.1/8.7/14.2/29.9 s (remesh
   4.1/5.0/7.3/10.7). The patch engine's MPI was faster from 4 ranks on. This is the P8 problem and the next piece of work: a distributed or incremental remesh and distributed storage.
+
+## 20. Remesh rework and P8 measurements (2026-10-23)
+Rule of the work: nothing changes the numerics. Oracle = the six AMR references and the 32 others, `amr_mpi.py --check` (1-7 real ranks), and golden dumps of four adaptive cases (dynamic Sod, airfoil with the
+body and the outlet, periodic viscous MMS, unsteady MMS) and of the 720x360 airfoil (268 362 leaves, 8 threads), all bitwise unchanged after every step.
+* **Where the remesh time was** (airfoil 720x360, 2 levels, 50 steps, 10 remeshes, 1 thread, seconds): `CellMesh::rebuild` hash index 0.46 + faces 0.22 + sides 0.07; `adapt` ripple/merge 0.01,
+  new-leaf list 0.04, global sort 0.10; `CellFluxEngine::build` stencils/codes 0.27, solid masks 0.08, `rebuild_lists` 0.74 (a comparison sort of ~4 x faces ints per level); indicator 0.87 (binary
+  search of Morton keys per neighbour); wave-speed bound 0.71 (a full residual).
+* **Changes.** (1) Leaf lookup = a dense table per level when nx_l ny_l <= 4N + 65536, else a binary search of the level's Morton keys (the hash map is gone). (2) `rebuild_lists`: sorted-unique by a
+  mark array instead of std::sort. (3) Indicator: per-cell gather (each cell tests its own four sides, flag is symmetric; diffusion gathered per cell: every addend is the same number, so the sum does not
+  depend on the order; `diffuse_cells`, tested bit for bit against the interface-list rule), per-cell primitives computed once, OpenMP. (4) Faces: count pass + prefix sum + fill pass (parallel, same
+  order). (5) `adapt`: the new list is a merge of three Morton-sorted streams per level (kept / children / parents) holding source indices, the state is written once in parallel. (6) `build`: virtual cells are
+  numbered in creation order, so the leaves with a Finer/Coarser side (and the faces touching them) are visited first, serially, in the original order, and everything else runs in parallel on the finished
+  tables. (7) The wave-speed bound after a remesh is `CellFluxEngine::wave_speed` (the level by level flux pass of the time loop, same value as `residual()`, tested) and runs AFTER `partition()`, so under
+  MPI each rank computes only its own leaves and the maximum is reduced (before, every rank ran a full-mesh residual).
+* **Result** (same study, 10 remeshes; min of 3 on one thread): indicator 0.87 -> 0.28, adapt 0.84 -> 0.39, engine build 0.99 -> 0.47, wave-speed bound 0.71 -> 0.64 (1 thread; 0.15 on 8 threads and ~0.25 on 4 ranks),
+  remesh total 2.9 -> 1.6 s serial, 2.45 -> 0.86 s on 8 threads. `amr_mpi.py` (wall of the 50 steps): serial 11.5 -> 9.8 s; OpenMP 2/4/8/16: 7.3/5.3/4.7/6.0 -> 5.5/3.5/2.9/2.7 s; MPI 2/4/8/16:
+  9.1/8.7/14.2/29.9 -> 6.1/4.5/4.9/8.5 s (speed-ups 1.6 / 2.2 / 2.0 / 1.15). The remesh share is 16 % of the loop on one thread, 26 % on 8 threads, 26-58 % on 2-16 ranks (replicated work on 8-16 processes of an
+  8-core machine contends for memory).
+* **Time stepping is at the kernel limit.** Cost per leaf update 568 ns, the uniform solver's cost per cell 571 ns (same case, 720x360, 1 thread): the face-list engine has no overhead against the uniform
+  kernel. 74 % of the step is the face flux (reconstruction + HLLC), 19 % the cell quantities and the viscous flux. A faster step needs a faster kernel, shared with the uniform solver (SIMD over faces keeps the bits only if every
+  lane runs the same operations; not attempted).
+* **Churn.** Per remesh about 0.13 % of the leaves change (50 steps: 3 256 refined + 274 joins over 10 remeshes of 268 k leaves; the full t = 6 airfoil: 2 651 + 978 over ~200 remeshes of 23.5 k leaves), yet the
+  full topology and stencils are rebuilt each time. An incremental update (dirty leaves = the new ones and their face neighbours, clean faces copied with the leaf index remapped, virtual cells renumbered by
+  key) would take adapt + build from ~0.85 s to an estimated 0.2 s per 10 remeshes; not done (see "Open" below).
+* **Subtree ownership instead of per-level blocks** (what a local remesh with whole base-cell subtrees per rank would imply), measured offline on the final state of the airfoil run (268 362 leaves; levels
+  258 416 / 866 / 9 080), base cells cut along the Morton order into N chunks of equal weighted work (sum of 2^l): balanced weighted work (1.00) but the per-level counts are not: max/mean leaves of level 0 / 1 / 2 =
+  1.15 / 2.0 / 2.0 on 2 ranks, 1.15 / 2.3 / 2.1 on 4, 1.15 / 4.5 / 4.1 on 8, 1.15 / 5.8 / 7.3 on 16. Levels advance one after the other with exchanges, so the time is the sum over levels of the busiest rank:
+  about 1.5x the ideal on 8 ranks for this case (the body and the wake are in a few base cells). The present per-level partition has 1.00 at every level but needs the whole topology on every rank.
+* **Accuracy per cost against the patch engine** (built from `main` f257ae1 in a worktree, same machine, same case "IBM Airfoil AMR", t = 6, rms error of Cd(t), Cl(t) against uniform 768x384 for t >= 1):
+
+  | run | cells at the end | wall [s] | Cd | Cl |
+  |---|---|---|---|---|
+  | uniform 192x96 | 18 432 | 2.5 | 0.034 | 0.36 |
+  | uniform 384x192 | 73 728 | 20.7 | 0.0145 | 0.087 |
+  | patch engine, 16x16 patches | 52 224 | 24.4 | 0.0074 | 0.0387 |
+  | patch engine, 8x8 patches | | 20.3 | 0.0085 | 0.0457 |
+  | cell engine, default (criterion 0.1) | 23 526 | 10.7 | 0.0106 | 0.0541 |
+  | cell engine, criterion 0.01, diffusion 2 | 36 885 | 15.8 | 0.0098 | 0.0502 |
+  | cell engine, criterion 0.01, diffusion 4 | 41 706 | 16.4 | 0.0095 | 0.0486 |
+  | cell engine, criterion 0.005, diffusion 4 | 50 262 | 24.7 | 0.0078 | 0.0411 |
+  | cell engine, criterion 0.002, diffusion 4 | 80 742 | 72.7 | 0.0056 | 0.0301 |
+
+  **At matched error the two engines cost the same on this study** (cell 0.0078 / 0.0411 in 24.7 s against patch 0.0074 / 0.0387 in 24.4 s); the cell engine is cheaper only at the lower accuracies (0.0106 / 0.054 in
+  10.7 s; the patch engine with 8x8 patches, 0.0085 / 0.0457 in 20.3 s, lies between the cell engine's 16.4 s and 24.7 s points). Settings that do not move the error: the body margin (2, 6, 12 cells: identical to 3 digits), the remesh interval (every 2), the thresholds.
+  75 % of the velocity error energy of the default run sits in the finest-level region (2 % of the area): the error is made where the resolution is the same as the reference's, so it is not a matter of covering
+  more area with the finest level at fixed cost. Cost scales with sum n_l 2^l (50 k leaves with 29 k at level 2 cost 3.7x the default's 38.5 k updates, 2.4x its time). The acceptance rule "wall time per accuracy
+  not worse on any study" is therefore met only against the uniform meshes, and met with equality (not better) against the patch engine on the airfoil.
+* **Open.** (a) incremental topology update (estimated -0.6 s of a 1.6 s serial remesh; the wave-speed bound 0.64 s and the indicator 0.28 s remain); (b) distributed storage and a local remesh with ghost layers
+  (needed for a mesh that does not fit one node; the per-level partition must then be kept for the time stepping, so the topology of a rank would be its owned leaves plus the halo of each level and the remesh
+  would exchange flags between neighbouring ranks); (c) a SIMD flux kernel (shared with the uniform solver).

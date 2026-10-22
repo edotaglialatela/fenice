@@ -66,11 +66,11 @@ uniform 192×96 and 768×384 meshes, and the cost of the three runs on 16 OpenMP
 |---|---:|---:|---:|---:|
 | uniform 192×96 | 18 432 | 2.5 s | 0.034 | 0.36 |
 | uniform 768×384 | 294 912 | 244 s | (reference) | (reference) |
-| AMR, 192×96 + 2 levels | 23 526 | 14 s | 0.011 | 0.054 |
+| AMR, 192×96 + 2 levels | 23 526 | 11 s | 0.011 | 0.054 |
 
 The errors are rms differences of $C_d(t)$ and $C_l(t)$ from the 768×384 run over
 $1 \le t \le 6$ (this is the impulsive start of the flow, not a statistically steady state).
-AMR reproduces the loads of the fine mesh with 8 % of its cells and 6 % of its time. The
+AMR reproduces the loads of the fine mesh with 8 % of its cells and 4 % of its time. The
 base mesh alone misses most of the lift.
 
 ## Using your own airfoil
