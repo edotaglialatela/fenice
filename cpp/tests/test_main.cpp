@@ -3425,9 +3425,9 @@ TEST(celladvance_fully_refined_mesh_equals_the_finer_uniform_mesh) {
     CHECK(amr.U == uni.U);
 }
 
-TEST(celladvance_adapted_manufactured_solutions_beat_the_coarse_grid) {
+TEST(celladvance_adapted_manufactured_solutions_regression_guards) {
     // Base 32x32 with the lower half refined once, against the uniform 32 (coarse) and 64 (fine, the reference).
-    // Fixed beforehand: the error to the fine solution is below 0.75 x the coarse one. MEASURED: it is not (1.1-1.3 x),
+    // These bounds are REGRESSION GUARDS taken from measurements, not acceptance criteria. The bound fixed beforehand, error to the fine solution below 0.75 x the coarse one, was NOT met (measured 1.1-1.3 x),
     // because the first-order coarse side of a jump (and the injected coarse value the fine side is reconstructed
     // against) puts an error of the size of the whole coarse-grid error in a strip along each jump; a five times
     // smaller time step changes nothing, so it is spatial, not the time seam. Kept as a known limit: away from the jumps
@@ -3479,6 +3479,69 @@ TEST(celladvance_adapted_manufactured_solutions_beat_the_coarse_grid) {
             CHECK(near_a < 3.0 * near_c);
         }
         CHECK(e_coarse > 1e-7);
+    }
+}
+
+TEST(celladvance_jump_closure_study) {
+    // How big is the error of the first-order jump closure, and does it shrink with resolution?  Steady manufactured
+    // solution, base n x n with the half y < 0.5 refined once, against the uniform n x n run and the uniform 2n x 2n
+    // reference at t = 0.05. Mean absolute density difference to the reference per unit area in bins of the distance
+    // to the nearest jump line (in coarse cell widths), on the fine and on the coarse side.
+    const char* name = "Manufactured Solution";
+    double ratio_prev = 0.0;
+    for (int n : {16, 32, 64}) {
+        Simulation sn, s2;
+        sn.setup(params_for(name, {{"nx", std::to_string(n).c_str()}, {"ny", std::to_string(n).c_str()}}), false);
+        s2.setup(params_for(name, {{"nx", std::to_string(2 * n).c_str()}, {"ny", std::to_string(2 * n).c_str()}}), false);
+        CellMesh ref(1.0, 1.0, 2 * n, 2 * n, 0, true, true), coarse(1.0, 1.0, n, n, 0, true, true),
+            amr(1.0, 1.0, n, n, 1, true, true);
+        std::vector<char> r(static_cast<size_t>(amr.num_leaves()), 0);
+        for (int c = 0; c < amr.num_leaves(); ++c) r[c] = amr.yc(c) < 0.5;
+        amr.adapt(r);
+        init_cell_case(ref, s2, name);
+        init_cell_case(coarse, sn, name);
+        init_cell_case(amr, sn, name);
+        run_cell_mesh(ref, s2, 0.05);
+        run_cell_mesh(coarse, sn, 0.05);
+        run_cell_mesh(amr, sn, 0.05);
+        std::vector<double> grid(static_cast<size_t>(4 * n) * n);
+        for (int c = 0; c < ref.num_leaves(); ++c) grid[static_cast<size_t>(ref.cj[c]) * 2 * n + ref.ci[c]] = ref.U[c][0];
+        const double hc = 1.0 / n;
+        // bins: [0,1), [1,2), [2,4), [4,inf) coarse widths; index = side * 4 + bin, side 0 = fine region (y < 0.5)
+        double ea[8] = {}, ec[8] = {}, ar[8] = {};
+        const auto accumulate = [&](const CellMesh& m, double* e, double* a) {
+            for (int c = 0; c < m.num_leaves(); ++c) {
+                const int rr = 2 * n / m.nx_at(m.level[c]);
+                double mean = 0.0;
+                for (int j = 0; j < rr; ++j)
+                    for (int i = 0; i < rr; ++i) mean += grid[static_cast<size_t>(m.cj[c] * rr + j) * 2 * n + m.ci[c] * rr + i];
+                mean /= rr * rr;
+                const double y = m.yc(c), d = std::min(std::min(std::abs(y - 0.5), y), 1.0 - y) / hc;
+                const int bin = d < 1 ? 0 : (d < 2 ? 1 : (d < 4 ? 2 : 3)), idx = (y < 0.5 ? 0 : 4) + bin;
+                e[idx] += std::abs(m.U[c][0] - mean) * m.area(c);
+                if (a) a[idx] += m.area(c);
+            }
+        };
+        accumulate(amr, ea, ar);
+        accumulate(coarse, ec, nullptr);
+        std::printf("    n = %d (jump closure study), error per unit area, adaptive / uniform n:\n", n);
+        for (int side = 0; side < 2; ++side) {
+            std::printf("      %s side:", side == 0 ? "fine  " : "coarse");
+            for (int b = 0; b < 4; ++b) {
+                const int i = side * 4 + b;
+                std::printf("  bin%d %.2e/%.2e (%.2f)", b, ea[i] / ar[i], ec[i] / ar[i], ea[i] / ec[i]);
+            }
+            std::printf("\n");
+        }
+        double near_a = 0.0, near_c = 0.0;
+        for (int i : {0, 1, 4, 5}) {
+            near_a += ea[i];
+            near_c += ec[i];
+        }
+        const double ratio = near_a / near_c;
+        std::printf("      within 2 coarse widths of a jump: adaptive / uniform = %.2f\n", ratio);
+        if (n > 16) CHECK(ratio < 4.0 * ratio_prev + 1.0);   // loose guard against a runaway
+        ratio_prev = ratio;
     }
 }
 

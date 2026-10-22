@@ -315,3 +315,17 @@ the patch engine (no second indicator). The exact formulas and thresholds are sh
   coarse one (1.2e-3 against 6.9e-4). A five times smaller time step changes nothing (1.640e-3), so it is spatial, not the time seam. Cause: the coarse side
   of a jump is first order (decision 2 of section 7) and the fine side is reconstructed against the injected coarse value. The fix of the risk list
   (second-order jump closure by interpolating the coarse data) is the user's numerics decision; the test keeps the measured limits (far 0.8 x, near 3 x).
+* Resolution study of the finding (`celladvance_jump_closure_study`, steady manufactured solution, base n x n with the lower half refined once, against
+  the uniform 2n x 2n solution at t = 0.05; mean absolute density difference per unit area, adaptive / uniform n, in coarse cell widths from the nearest jump):
+
+  | n | fine side, < 1 width | coarse side, < 1 width | fine side 1-2 | coarse side 1-2 | far from the jumps (fine side) |
+  |---|---|---|---|---|---|
+  | 16 | 8.1e-3 / 5.5e-3 (1.5x) | 1.1e-2 / 7.2e-3 (1.5x) | 0.46x | 0.91x | 0.02x |
+  | 32 | 4.4e-3 / 1.6e-3 (2.8x) | 7.1e-3 / 1.8e-3 (4.0x) | 1.3x | 1.3x | 0.02x |
+  | 64 | 2.5e-3 / 4.0e-4 (6.2x) | 4.3e-3 / 3.9e-4 (10.8x) | 2.0x | 2.2x | 0.19x |
+
+  The error in the first coarse width next to a jump falls by only 1.5-1.7x per doubling (order about 0.6-0.7) while the uniform grid falls by 4x (order 2),
+  so the adaptive solution converges more slowly than the base scheme and the seam share of the error grows with resolution. It is a loss of order at the
+  jump, not a constant. Options for the user: (a) keep it, as ECOGEN does; (b) reconstruct the fine side against the coarse value interpolated to the virtual
+  fine position and use the true centre distance (1.5 h_f, not h_f) in the fine cells' differences; (c) a full second-order coarse side. The choice interacts
+  with the indicator: a face-variation indicator refines whole smooth gradients, so jump lines will often cross smooth regions, as here.
