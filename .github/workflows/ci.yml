@@ -57,6 +57,10 @@ jobs:
         run: python cpp/tests/regression.py
       - name: Regression (4 MPI ranks)
         run: python cpp/tests/regression.py --mpi 4
+      - name: Manufactured solutions (quick order study)
+        run: |
+          python -m pip install sympy matplotlib
+          python cases/validation/verification/mms.py
 
   windows:
     name: Windows x64 (MSVC, MS-MPI)
@@ -80,3 +84,7 @@ jobs:
         run: python cpp/tests/regression.py
       - name: Regression (4 MPI ranks)
         run: python cpp/tests/regression.py --mpi 4
+      - name: Manufactured solutions (quick order study)
+        run: |
+          python -m pip install sympy matplotlib
+          python cases/validation/verification/mms.py

@@ -111,6 +111,9 @@ and Windows (MSVC through `build.ps1`, MS-MPI), it builds the solver with OpenMP
 runs `fenice_tests` and the regression suite serially and on 4 MPI ranks. Every platform
 must reproduce the same reference states. The hosted runners have 3 or 4 cores, so the
 MPI runs oversubscribe them (Open MPI environment variables in the workflow).
+Each platform then runs the quick mode of the [manufactured-solution study]({{root}}cases/manufactured-solution.html)
+(`verification/mms.py`, needs sympy and matplotlib), which fails the job if an observed order drops below its band: the
+bitwise references cannot see a loss of accuracy that is reproduced exactly.
 
 ## Physical validation (`cases/validation/`)
 
