@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
+#include <limits>
 #include <set>
 #include <stdexcept>
 
@@ -206,6 +208,63 @@ std::vector<AMRPatch*> AMRTree::neighbour_leaves(const AMRPatch* p, Face face) c
             if (nb && nb != p && (out.empty() || out.back() != nb)) out.push_back(nb);
         }
     return out;
+}
+
+std::vector<AMRPatch*> AMRTree::leaves_near(const AMRPatch* p, int cells) const {
+    std::vector<AMRPatch*> out;
+    if (dirty_) rebuild_index();
+    constexpr double eps = 1e-9;
+    const double gx = cells * p->mesh.dx, gy = cells * p->mesh.dy;
+    const int i0 = std::max(static_cast<int>(std::floor((p->xmin - gx) / slot_w_ + eps)), 0);
+    const int i1 = std::min(static_cast<int>(std::ceil((p->xmax + gx) / slot_w_ - eps)), nslot_x_);
+    const int j0 = std::max(static_cast<int>(std::floor((p->ymin - gy) / slot_h_ + eps)), 0);
+    const int j1 = std::min(static_cast<int>(std::ceil((p->ymax + gy) / slot_h_ - eps)), nslot_y_);
+    std::set<const AMRPatch*> seen;
+    for (int j = j0; j < j1; ++j)
+        for (int i = i0; i < i1; ++i) {
+            AMRPatch* nb = slot_[static_cast<size_t>(j) * nslot_x_ + i];
+            if (nb && nb != p && seen.insert(nb).second) out.push_back(nb);
+        }
+    return out;
+}
+
+// ---------------------------------------------------------------------------
+// Distribution
+// ---------------------------------------------------------------------------
+
+namespace {
+// Interleave the bits of two slot coordinates (x in the even bits)
+std::uint64_t morton_key(std::uint32_t x, std::uint32_t y) {
+    auto spread = [](std::uint64_t v) {
+        v = (v | (v << 16)) & 0x0000FFFF0000FFFFull;
+        v = (v | (v << 8))  & 0x00FF00FF00FF00FFull;
+        v = (v | (v << 4))  & 0x0F0F0F0F0F0F0F0Full;
+        v = (v | (v << 2))  & 0x3333333333333333ull;
+        v = (v | (v << 1))  & 0x5555555555555555ull;
+        return v;
+    };
+    return spread(x) | (spread(y) << 1);
+}
+}  // namespace
+
+void assign_ownership(AMRTree& tree, int rank, int size) {
+    constexpr int kStencil = 2;   // cells of the owner's own level a residual reads across an interface
+    const auto lv = tree.leaves();
+    const double sw = tree.Lx / (tree.nroot_x << tree.max_level), sh = tree.Ly / (tree.nroot_y << tree.max_level);
+    for (int level = 0; level <= tree.max_level; ++level) {
+        std::vector<std::pair<std::uint64_t, AMRPatch*>> at;
+        for (AMRPatch* p : lv)
+            if (p->level == level)
+                at.emplace_back(morton_key(static_cast<std::uint32_t>(std::lround(p->xmin / sw)),
+                                           static_cast<std::uint32_t>(std::lround(p->ymin / sh))), p);
+        std::sort(at.begin(), at.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
+        const long long n = static_cast<long long>(at.size());
+        for (long long k = 0; k < n; ++k) at[k].second->owner = static_cast<int>(k * size / n);
+    }
+    for (AMRPatch* p : lv) p->held = (p->owner == rank);
+    for (AMRPatch* p : lv)
+        if (p->owner == rank)
+            for (AMRPatch* nb : tree.leaves_near(p, kStencil)) nb->held = true;
 }
 
 // ---------------------------------------------------------------------------
@@ -453,6 +512,9 @@ void restrict_fine_to_coarse(AMRTree& tree, int coarse_level) {
 
 enum class Share { Ghost, State, Fluxes };
 
+// Marks the snapshot of a leaf this rank does not hold: any read of it turns the result into NaN
+constexpr double kPoison = std::numeric_limits<double>::quiet_NaN();
+
 // Replace the copies of the patches that a rank does not own by the owner's data.
 void share_level(const AMRParallel& par, const std::vector<AMRPatch*>& pat, const std::vector<int>& owner, Share what) {
     auto fields = [&](AMRPatch& p) {
@@ -489,7 +551,9 @@ void share_level(const AMRParallel& par, const std::vector<AMRPatch*>& pat, cons
     for (size_t k = 0; k < pat.size(); ++k) {
         const int r = owner[k];
         for (Field* f : fields(*pat[k])) {
-            if (r != par.rank)
+            if (r != par.rank && what == Share::Ghost && !pat[k]->held)
+                pos[r] += f->size() * kNVar;   // not a halo of this rank: leave the poisoned snapshot
+            else if (r != par.rank)
                 for (State& st : *f) { std::copy(recv.begin() + pos[r], recv.begin() + pos[r] + kNVar, st.begin()); pos[r] += kNVar; }
             else
                 pos[r] += f->size() * kNVar;
@@ -526,14 +590,18 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
     if (!at_level.empty()) {
         // Freeze every leaf so patches of other levels read one neighbour snapshot
         // (guardcell-then-advance); required for flux conservation.
-        for (AMRPatch* p : lv) { p->U_ghost = p->U; p->has_ghost = true; }
+        const bool dist = par && par->size > 1;
+        for (AMRPatch* p : lv) {
+            if (!dist || p->held) p->U_ghost = p->U;
+            else p->U_ghost.assign(p->U.size(), State{kPoison, kPoison, kPoison, kPoison, kPoison});   // not held: must not be read
+            p->has_ghost = true;
+        }
         // The patches of this level are one ODE system: concatenate them and advance with a single
         // call, so every stage sees the current stage of the same-level neighbours (as the uniform
         // solver does) while coarser / finer neighbours stay on the snapshot.
-        const bool dist = par && par->size > 1;
         const int n_all = static_cast<int>(at_level.size());
         std::vector<int> owner(n_all, 0);
-        if (dist) for (int k = 0; k < n_all; ++k) owner[k] = static_cast<int>(static_cast<long long>(k) * par->size / n_all);
+        if (dist) for (int k = 0; k < n_all; ++k) owner[k] = at_level[k]->owner;
         std::vector<AMRPatch*> mine;   // the patches this rank advances
         for (int k = 0; k < n_all; ++k)
             if (!dist || owner[k] == par->rank) mine.push_back(at_level[k]);

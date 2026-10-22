@@ -26,6 +26,11 @@ struct AMRPatch {
     std::vector<char> solid;           // nx*ny, 1 = solid cell
     std::vector<char> solid_ext;       // (nx+4)*(ny+4) with a two-cell ghost ring; 0 outside the domain
 
+    // Distribution (see assign_ownership): the rank that advances this leaf, and whether this rank
+    // holds its data at all (owned, or a halo copy of a leaf next to an owned one)
+    int   owner = 0;
+    bool  held  = true;
+
     // Transient state used by advance_amr_level
     bool  has_ghost = false;           // U_ghost holds the frozen neighbour snapshot
     Field U_ghost;
@@ -71,6 +76,9 @@ public:
     AMRPatch*              get_neighbour(const AMRPatch* patch, Face face) const;
     // Every leaf across `face` (up to 2 finer leaves under 2:1 balance).
     std::vector<AMRPatch*> neighbour_leaves(const AMRPatch* patch, Face face) const;
+    // Every other leaf touching the box of `patch` grown by `cells` of its own cells on all sides
+    // (corners included): the leaves whose data a residual of `patch` may read.
+    std::vector<AMRPatch*> leaves_near(const AMRPatch* patch, int cells) const;
 
     AMRPatch* root = nullptr;                // roots[0]; the level-0 patch when the tree has a single root
     std::vector<AMRPatch*> roots;            // level-0 patches, row-major (x fastest)
@@ -133,6 +141,12 @@ struct AMRParallel {
     std::function<void(const double* send, int n_send, double* recv, const int* counts, const int* displs)> allgatherv;
     std::function<double(double)> allreduce_max;   // max over the ranks
 };
+
+// Distribute the leaves over `size` ranks: each level is cut into contiguous blocks along the Morton
+// order of its slot-grid position (patches of one level have equal size, so equal counts). Sets
+// `owner` and `held` (owned, or within the 2-cell stencil of an owned leaf) as seen from `rank`.
+// Deterministic from the tree alone, so every rank computes the same partition.
+void assign_ownership(AMRTree& tree, int rank, int size);
 
 // Recursive subcycled advance of level `level` by dt; returns max wave speed. With `par` the patches of a
 // level are shared out over the ranks (contiguous blocks in leaf order).

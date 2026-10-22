@@ -549,6 +549,34 @@ TEST(amr_2to1_balance) {
             for (AMRPatch* nb : tree.neighbour_leaves(p, f)) CHECK(std::abs(p->level - nb->level) <= 1);
 }
 
+TEST(amr_ownership_and_halo) {
+    AMRTree tree(1.0, 1.0, 4, 4, 3, 2, 2);
+    for (AMRPatch* p : tree.leaves()) tree.refine_patch(p);
+    tree.refine_patch(tree.leaves()[0]);
+    tree.enforce_2to1_balance();
+    for (int size : {1, 2, 3, 7}) {
+        std::vector<std::vector<int>> owners(size), held(size);
+        for (int rank = 0; rank < size; ++rank) {
+            assign_ownership(tree, rank, size);
+            for (AMRPatch* p : tree.leaves()) {
+                owners[rank].push_back(p->owner);
+                held[rank].push_back(p->held);
+                if (p->owner == rank) CHECK(p->held);
+                // everything an owned leaf can read is held
+                if (p->owner == rank) for (AMRPatch* nb : tree.leaves_near(p, 2)) CHECK(nb->held);
+            }
+        }
+        for (int rank = 1; rank < size; ++rank) CHECK(owners[rank] == owners[0]);   // same partition everywhere
+        // per level the blocks differ by at most one patch
+        for (int level = 0; level <= tree.max_level; ++level) {
+            std::vector<int> count(size, 0);
+            for (AMRPatch* p : tree.leaves()) if (p->level == level) ++count[p->owner];
+            const int lo = *std::min_element(count.begin(), count.end()), hi = *std::max_element(count.begin(), count.end());
+            CHECK(hi - lo <= 1);
+        }
+    }
+}
+
 TEST(amr_error_indicator) {
     AMRTree tree(1.0, 1.0, 8, 8, 1);
     for (int j = 0; j < 8; ++j)

@@ -1270,6 +1270,7 @@ void Simulation::solve_amr() {
     }
 #endif
     const bool root = !par || par->rank == 0;
+    if (par) assign_ownership(tree, par->rank, par->size);
 
     if (step == 0 && root) exporter.export_amr(file_prefix, fluid, tree, t, step);
 
@@ -1335,6 +1336,7 @@ void Simulation::solve_amr() {
                 if (leaf_kids) tree.derefine_patch(parent);
             }
             tree.enforce_2to1_balance();
+            if (par) assign_ownership(tree, par->rank, par->size);
         }
 
         if (mon && step % p.monitor_interval == 0) row(step);
