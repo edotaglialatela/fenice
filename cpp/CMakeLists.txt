@@ -22,6 +22,7 @@ add_library(fenice_core STATIC
   src/SolutionMapping.cpp
   src/AMR.cpp
   src/CellMesh.cpp
+  src/CellFlux.cpp
   src/IO.cpp
   src/Params.cpp
   src/TestCases.cpp
@@ -99,6 +100,10 @@ endif()
 
 add_executable(fenice apps/main.cpp)
 target_link_libraries(fenice PRIVATE fenice_core)
+
+# Wall-time gate of the cell-based AMR (residual cost per cell, face engine vs uniform)
+add_executable(bench_cellflux apps/bench_cellflux.cpp)
+target_link_libraries(bench_cellflux PRIVATE fenice_core)
 
 if(FV_BUILD_TESTS)
   enable_testing()

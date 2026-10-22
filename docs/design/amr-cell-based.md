@@ -1,6 +1,6 @@
 # Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
 
-Status: P1 done (2026-10-22: `CellMesh`, topology only, no physics); P2 next. Written 2026-10-22 after a review of AMReX, SAMRAI and the ECOGEN source.
+Status: P1 and P2 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual); the P2 wall-time gate result is in section 9, decision pending with the user; P3 next. Written 2026-10-22 after a review of AMReX, SAMRAI and the ECOGEN source.
 `main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
 
 ## 1. Why
@@ -211,3 +211,35 @@ decision 5; suggested: 1.5x on the airfoil study).
   corner balance for every touching pair, exactly one face per shared segment (orientation, kind, level, boundary side), side
   coverage, ordering, neighbour summaries, for periodic and non-periodic axes, `nx = 1, 2`, random adapt sequences, plus conservation
   to 1e-12 on random states and hand-built ripple / merge-refusal cases.
+
+## 9. P2 as built (`CellFluxEngine`, `cpp/include/fv/CellFlux.hpp`, `cpp/src/CellFlux.cpp`) and the wall-time gate
+* Stencils `(c0..c3)` per face are index arrays into the primitive array `W` (leaf, or `N + virtual cell`). Beyond-cell rules: same
+  level = the cell, coarser = injection, finer = virtual cell `((a+b)+(c+d))*0.25` of the leaves under the neighbour block (recursive,
+  because the far children of a refined block may be finer than the near ones: corner balance does not forbid it), domain edge = replication,
+  periodic = wrap. Coarse-fine face: the fine side is reconstructed against the injected coarse value, the coarse side keeps its cell
+  value (`c3 = c2` / `c0 = c1` makes the same formula first order there).
+* Boundary ghosts come from the existing code: `BoundaryManager::ghost_state` was extracted from `apply_side` (a pure move; the uniform
+  path calls it too). Supported: wall, no-slip, moving wall, velocity inlet, mass-flow inlet (side average weighted by face length, which
+  is the plain sum on a uniform side), outlet, transmissive, periodic. **Non-reflecting is rejected until P4** (it needs the tangential neighbours).
+* Gather per leaf and side `G = sum(F * length)`, residual `((0 - (Gr - Gl)) - (Gt - Gb)) / area` as `assemble`.
+* Tests: `cellflux_level0_matches_uniform_residual_bitwise` (7 boundary-type sets x 5 schemes incl. all limiters, the three Riemann
+  solvers, first order; residual and `S_max` equal bit for bit to `Simulation::residual`), `cellflux_free_stream_is_exact_across_level_jumps`
+  (R == 0 exactly on random adapted meshes, periodic and transmissive), `cellflux_residual_is_conservative_on_adapted_meshes`.
+  Regression (`--mpi 4`) unchanged: ALL MATCH.
+* Not in P2 (by design): `nx` or `ny` = 1 on a periodic axis is exact in the topology tests but not compared with the uniform solver (its
+  MUSCL wrap needs 2 cells); no time stepping; no viscous / IBM / sources.
+
+### Gate measurement (`build/release/bench_cellflux.exe 768 384 20`, MUSCL Van Leer, HLLC, Euler, 8-core machine)
+| | 1 thread | 8 threads |
+|---|---|---|
+| uniform `Simulation::residual`, 294 912 cells | 140.5 ns/cell | 30.9 ns/cell |
+| face engine on the same level-0 mesh | 125.2 ns/cell (0.89x) | 26.9 ns/cell (0.87x) |
+| face engine on an adapted mesh (68 283 leaves, 2 levels, 731 virtual cells) | 124.3 ns/cell (0.88x) | 21.6 ns/cell (0.70x) |
+| stencil build, 68 283 leaves | 3.2 ms (0.4 residuals) | 2.1 ms |
+| no-change `adapt` + build, 68 283 leaves | 17 ms (2 residuals) | 19 ms (13 residuals) |
+
+The face engine is **not slower** per cell than the uniform kernel (it is 11-30 % faster). With the P0 upper bound (airfoil: 52 224 cells held
+by the patch AMR, 18 992 needed) the projected residual-cost gain over the patch engine is about 2.7 x / 0.88 = 3.1x at most, and the
+remesh overhead (adapt + stencil rebuild, 2 residual-equivalents on 68 k leaves single-threaded, every `amr_refine_every` = 10 coarse
+steps, each of which is several residuals) is below 1 % of the run. Not yet measured: the indicator, the data transfer and the later
+physics (viscous, IBM), whose cost per cell will come with P4/P5. The threshold is the user's decision (section 7, item 5).

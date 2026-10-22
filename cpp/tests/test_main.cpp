@@ -11,6 +11,7 @@
 #include <tuple>
 #include <vector>
 
+#include "fv/CellFlux.hpp"
 #include "fv/CellMesh.hpp"
 #include "fv/Simulation.hpp"
 #include "fv/SolutionMapping.hpp"
@@ -2681,6 +2682,167 @@ TEST(cellmesh_ripple_and_merge_refusal) {
     q.adapt({}, co);
     CHECK(q.find(0, 1, 1) >= 0);
     check_cell_mesh(q);
+}
+
+// ---------------------------------------------------------------------------
+// CellFluxEngine (convective residual on the face list)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+SimParams cell_flux_params(std::initializer_list<std::pair<const char*, const char*>> kv) {
+    std::vector<std::pair<const char*, const char*>> all = {{"nx", "9"},          {"ny", "7"},          {"Lx", "1.7"},
+                                                           {"Ly", "1.1"},        {"u_in", "0.7"},      {"v_in", "0.2"},
+                                                           {"rho_in", "1.2"},    {"p_out", "1.3"}};
+    all.insert(all.end(), kv.begin(), kv.end());
+    Params p = baseline_defaults();
+    p.merge(get_test_case("Sod Shock Tube").defaults);
+    p.set("test_case", "Sod Shock Tube");
+    p.set("output_root", tmp_dir().string());
+    p.set("use_mpi", "false");
+    for (const auto& e : all) p.set(e.first, e.second);
+    return SimParams::from(p);
+}
+
+bool bits_equal(const Field& a, const Field& b) {
+    if (a.size() != b.size()) return false;
+    for (size_t c = 0; c < a.size(); ++c)
+        for (int q = 0; q < kNVar; ++q)
+            if (!(a[c][q] == b[c][q])) return false;
+    return true;
+}
+
+}   // namespace
+
+TEST(cellflux_level0_matches_uniform_residual_bitwise) {
+    struct BCs {
+        const char *l, *r, *b, *t;
+    };
+    const BCs sets[] = {{"wall", "wall", "wall", "wall"},
+                        {"transmissive", "outlet", "no_slip", "moving_wall"},
+                        {"vel_inlet", "outlet", "wall", "transmissive"},
+                        {"massflow_inlet", "transmissive", "wall", "wall"},
+                        {"periodic", "periodic", "wall", "wall"},
+                        {"wall", "transmissive", "periodic", "periodic"},
+                        {"periodic", "periodic", "periodic", "periodic"}};
+    struct Scheme {
+        const char *muscl, *limiter, *riemann;
+    };
+    const Scheme schemes[] = {{"false", "Van Leer", "HLLC"},    {"true", "Van Leer", "HLLC"},
+                              {"true", "Minmod", "HLLC"},       {"true", "MC", "lowmach"},
+                              {"true", "Koren", "preconditioned"}};
+    int n_cases = 0;
+    for (const BCs& bc : sets)
+        for (const Scheme& sc : schemes) {
+            Simulation sim;
+            sim.setup(cell_flux_params({{"bc_left", bc.l},
+                                        {"bc_right", bc.r},
+                                        {"bc_bottom", bc.b},
+                                        {"bc_top", bc.t},
+                                        {"use_muscl", sc.muscl},
+                                        {"muscl_limiter", sc.limiter},
+                                        {"riemann_solver", sc.riemann}}),
+                      false);
+            const Mesh& u = sim.mesh;
+            const bool px = sim.boundaries.type(Face::Left) == BCType::Periodic;
+            const bool py = sim.boundaries.type(Face::Bottom) == BCType::Periodic;
+            CellMesh cm(u.Lx, u.Ly, u.nx, u.ny, 0, px, py, u.x0, u.y0);
+            Field Uu(static_cast<size_t>(u.num_cells()));
+            for (int j = 0; j < u.ny; ++j)
+                for (int i = 0; i < u.nx; ++i) Uu[j * u.nx + i] = test_state(sim.fluid, u.xc(i), u.yc(j));
+            cm.U.resize(cm.num_leaves());
+            for (int c = 0; c < cm.num_leaves(); ++c) cm.U[c] = Uu[cm.cj[c] * u.nx + cm.ci[c]];
+
+            Field Ru;
+            const double Su = sim.residual(Uu, Ru);
+            CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+            eng.build(cm);
+            Field Rc;
+            const double Sc = eng.residual(cm, cm.U, Rc);
+            Field Rperm(Ru.size());
+            for (int c = 0; c < cm.num_leaves(); ++c) Rperm[c] = Ru[cm.cj[c] * u.nx + cm.ci[c]];
+            const bool same = bits_equal(Rperm, Rc) && Su == Sc;
+            CHECK(same);
+            if (!same) std::printf("    case bc %s/%s/%s/%s  muscl %s %s %s\n", bc.l, bc.r, bc.b, bc.t, sc.muscl, sc.limiter, sc.riemann);
+            ++n_cases;
+        }
+    CHECK(n_cases == 35);
+}
+
+namespace {
+
+CellMesh random_adapted_mesh(bool px, bool py, unsigned seed, int rounds = 5) {
+    CellMesh m(1.5, 1.0, 6, 5, 3, px, py);
+    std::mt19937 rng(seed);
+    for (int round = 0; round < rounds; ++round) {
+        std::vector<char> r(m.num_leaves()), c(m.num_leaves());
+        for (int k = 0; k < m.num_leaves(); ++k) {
+            r[k] = rng() % 100 < 15;
+            c[k] = rng() % 100 < 30;
+        }
+        m.adapt(r, c);
+    }
+    return m;
+}
+
+}   // namespace
+
+TEST(cellflux_free_stream_is_exact_across_level_jumps) {
+    const EOS eos = EOS::ideal(1.4);
+    for (int per = 0; per < 4; ++per) {
+        const bool px = per & 1, py = per & 2;
+        for (const char* limiter : {"Van Leer", "Koren"}) {
+            CellMesh m = random_adapted_mesh(px, py, 17u + static_cast<unsigned>(per));
+            int jumps = 0;
+            for (const CellFace& f : m.faces) jumps += f.kind == CellFaceKind::CoarseFine;
+            CHECK(jumps > 10);
+            BoundaryManager bm(generate_cartesian_mesh(1.5, 1.0, 6, 5), eos);
+            bm.set_boundary_types(px ? BCType::Periodic : BCType::Transmissive, px ? BCType::Periodic : BCType::Transmissive,
+                                  py ? BCType::Periodic : BCType::Transmissive, py ? BCType::Periodic : BCType::Transmissive);
+            RiemannSolver rs(eos, RiemannType::HLLC);
+            MusclReconstruction mu(eos, parse_limiter(limiter));
+            CellFluxEngine eng(eos, rs, &mu, bm);
+            eng.build(m);
+            CHECK(eng.num_virtual() > 0);
+            m.U.assign(static_cast<size_t>(m.num_leaves()), eos.prim_to_cons({1.3, 0.8, -0.45, 2.1}));
+            Field R;
+            eng.residual(m, m.U, R);
+            double worst = 0.0;
+            for (const State& r : R)
+                for (int q = 0; q < kNVar; ++q) worst = std::max(worst, std::abs(r[q]));
+            CHECK(worst == 0.0);
+        }
+    }
+}
+
+TEST(cellflux_residual_is_conservative_on_adapted_meshes) {
+    const EOS eos = EOS::ideal(1.4);
+    for (int per = 0; per < 4; ++per) {
+        const bool px = per & 1, py = per & 2;
+        CellMesh m = random_adapted_mesh(true, true, 5u + static_cast<unsigned>(per));
+        (void)px;
+        (void)py;
+        BoundaryManager bm(generate_cartesian_mesh(1.5, 1.0, 6, 5), eos);
+        bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Periodic, BCType::Periodic);
+        RiemannSolver rs(eos, per % 2 ? RiemannType::LowMachHLLC : RiemannType::HLLC);
+        MusclReconstruction mu(eos, Limiter::MC);
+        CellFluxEngine eng(eos, rs, per < 2 ? &mu : nullptr, bm);
+        eng.build(m);
+        m.U.resize(m.num_leaves());
+        for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state(eos, m.xc(c), m.yc(c));
+        Field R;
+        const double S = eng.residual(m, m.U, R);
+        CHECK(S > 0.5);
+        for (int q = 0; q < 4; ++q) {
+            double sum = 0.0, mag = 0.0;
+            for (int c = 0; c < m.num_leaves(); ++c) {
+                sum += R[c][q] * m.area(c);
+                mag += std::abs(R[c][q]) * m.area(c);
+            }
+            CHECK(mag > 1e-6);
+            CHECK(std::abs(sum) <= 1e-13 * mag);   // each face flux is used by both sides with the same length
+        }
+    }
 }
 
 int main() {

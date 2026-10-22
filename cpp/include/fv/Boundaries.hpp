@@ -64,6 +64,11 @@ public:
     // `th`: MPI strip halos (non-reflecting sides crossing rank interfaces).
     void apply_boundary_conditions(const Field& U, Field& UL, Field& UR, const TangentialHalos* th = nullptr) const;
 
+    // Ghost state across a physical boundary `side` for the interior state Ui (every type but periodic and
+    // non-reflecting, which need more than one cell); `u_target` is the mass-flow inlet velocity. The same
+    // function builds the ghosts of apply_boundary_conditions.
+    State ghost_state(Face side, const State& Ui, double u_target = 0.0) const;
+
     // U padded with BC-consistent ghost cells: (ny+2)*(nx+2) in 2-D, (nz+2)*(ny+2)*(nx+2) in 3-D (row-major).
     void get_padded_U(const Field& U, Field& U_pad) const;
 

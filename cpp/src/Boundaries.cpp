@@ -101,15 +101,61 @@ void BoundaryManager::apply_boundary_conditions(const Field& U, Field& UL, Field
     }
 }
 
+State BoundaryManager::ghost_state(Face side, const State& Ui, double u_target) const {
+    const BCType bc = type(side);
+    if (bc == BCType::Transmissive) return Ui;
+    if (bc == BCType::Periodic || bc == BCType::NonReflecting)
+        throw std::logic_error("BoundaryManager::ghost_state: no single-cell ghost state for this boundary type");
+    const int axis = face_axis(side);
+    const double nxn = axis == 0 ? 1.0 : 0.0;
+    const double nyn = axis == 1 ? 1.0 : 0.0;
+    const double nzn = axis == 2 ? 1.0 : 0.0;
+    const State Wi = eos_.cons_to_prim(Ui);
+    State Wg = Wi;
+    switch (bc) {
+    case BCType::Wall: {
+        const double Vn = Wi[1] * nxn + Wi[2] * nyn + Wi[4] * nzn;
+        Wg[1] = Wi[1] - 2.0 * Vn * nxn;
+        Wg[2] = Wi[2] - 2.0 * Vn * nyn;
+        Wg[4] = Wi[4] - 2.0 * Vn * nzn;
+        break;
+    }
+    case BCType::NoSlip:
+        Wg[1] = -Wi[1];
+        Wg[2] = -Wi[2];
+        Wg[4] = -Wi[4];
+        break;
+    case BCType::MovingWall:
+    case BCType::VelInlet:
+        Wg[1] = 2.0 * params_.u_in - Wi[1];
+        Wg[2] = 2.0 * params_.v_in - Wi[2];
+        Wg[4] = -Wi[4];   // wall / inlet velocity has no z-component
+        break;
+    case BCType::MassflowInlet:
+        Wg[1] = 2.0 * u_target - Wi[1];
+        Wg[2] = 2.0 * params_.v_in - Wi[2];
+        Wg[4] = -Wi[4];
+        break;
+    case BCType::Outlet: {
+        const double Vn = Wi[1] * nxn + Wi[2] * nyn + Wi[4] * nzn;
+        const bool outflow = Vn >= 0;
+        Wg[1] = outflow ? Wi[1] : 0.0;
+        Wg[2] = outflow ? Wi[2] : 0.0;
+        Wg[4] = outflow ? Wi[4] : 0.0;
+        Wg[3] = std::max(params_.p_out, 1e-5);
+        break;
+    }
+    default: break;
+    }
+    return eos_.prim_to_cons(Wg);
+}
+
 void BoundaryManager::apply_side(const Field& U, Field& UL, Field& UR, Face side, const TangentialHalos* th) const {
     const int n = mesh_.boundary_count(side);
     if (n == 0) return;
     const BCType bc = type(side);
     const bool isR = (side == Face::Right || side == Face::Top || side == Face::Back);   // ghost goes into U_R
     const int axis = face_axis(side);
-    const double nxn = axis == 0 ? 1.0 : 0.0;
-    const double nyn = axis == 1 ? 1.0 : 0.0;
-    const double nzn = axis == 2 ? 1.0 : 0.0;
     const int nx = mesh_.nx, ny = mesh_.ny, nz = mesh_.nz;
 
     // Mass-flow inlet needs the patch-averaged interior density.
@@ -139,44 +185,12 @@ void BoundaryManager::apply_side(const Field& U, Field& UL, Field& UR, Face side
             default: opp = cell - (nz - 1) * ny * nx; break;
             }
             Ug = U[opp];
-        } else if (bc == BCType::Transmissive) {
-            Ug = Ui;
+        } else if (bc != BCType::NonReflecting) {
+            Ug = ghost_state(side, Ui, u_target);
         } else {
             const State Wi = eos_.cons_to_prim(Ui);
             State Wg = Wi;
             switch (bc) {
-            case BCType::Wall: {
-                const double Vn = Wi[1] * nxn + Wi[2] * nyn + Wi[4] * nzn;
-                Wg[1] = Wi[1] - 2.0 * Vn * nxn;
-                Wg[2] = Wi[2] - 2.0 * Vn * nyn;
-                Wg[4] = Wi[4] - 2.0 * Vn * nzn;
-                break;
-            }
-            case BCType::NoSlip:
-                Wg[1] = -Wi[1];
-                Wg[2] = -Wi[2];
-                Wg[4] = -Wi[4];
-                break;
-            case BCType::MovingWall:
-            case BCType::VelInlet:
-                Wg[1] = 2.0 * params_.u_in - Wi[1];
-                Wg[2] = 2.0 * params_.v_in - Wi[2];
-                Wg[4] = -Wi[4];   // wall / inlet velocity has no z-component
-                break;
-            case BCType::MassflowInlet:
-                Wg[1] = 2.0 * u_target - Wi[1];
-                Wg[2] = 2.0 * params_.v_in - Wi[2];
-                Wg[4] = -Wi[4];
-                break;
-            case BCType::Outlet: {
-                const double Vn = Wi[1] * nxn + Wi[2] * nyn + Wi[4] * nzn;
-                const bool outflow = Vn >= 0;
-                Wg[1] = outflow ? Wi[1] : 0.0;
-                Wg[2] = outflow ? Wi[2] : 0.0;
-                Wg[4] = outflow ? Wi[4] : 0.0;
-                Wg[3] = std::max(params_.p_out, 1e-5);
-                break;
-            }
             case BCType::NonReflecting: {
                 // Characteristic outlet (Rudy & Strikwerda 1980; Poinsot & Lele 1992; transverse
                 // terms: Lodato, Domingo & Vervisch 2008). The ghost differs from the cell only in
