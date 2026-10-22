@@ -208,15 +208,15 @@ systematic refinement).</figcaption>
 | cavity, MUSCL | $\psi_{\min}$ | -0.1058, -0.1123, -0.1136 | 2.24 | 1.25 | 0.5 % | -0.1141 | 1.18 | Ghia (1982) -0.1139; fine - ref = +2.70e-04, inside the GCI band |
 | cavity, MUSCL | $u_{\min}$ on $x = 0.5$ | -0.2997, -0.3232, -0.3277 | 2.38 | 1.25 | 0.573 % | -0.3292 | 1.30 | Ghia (1982) -0.3273; fine - ref = -4.39e-04, inside the GCI band |
 | cavity, MUSCL | $v_{\max}$ on $y = 0.5$ | 0.2725, 0.2975, 0.3025 | 2.30 | 1.25 | 0.7 % | 0.3042 | 1.23 | Ghia (1982) 0.302; fine - ref = +5.14e-04, inside the GCI band |
-| cavity, MUSCL | $v_{\min}$ on $y = 0.5$ | -0.4073, -0.4447, -0.4519 | 2.38 | 1.25 | 0.663 % | -0.4543 | 1.30 | Ghia (1982) -0.4499; fine - ref = -1.94e-03, inside the GCI band |
+| cavity, MUSCL | $v_{\min}$ on $y = 0.5$ | -0.4074, -0.4447, -0.4519 | 2.38 | 1.25 | 0.663 % | -0.4543 | 1.30 | Ghia (1982) -0.4499; fine - ref = -1.94e-03, inside the GCI band |
 | cavity, 1st order | $\psi_{\min}$ | -0.08475, -0.09796, -0.1056 | 0.79 | 1.25 | 12.5 % | -0.1161 | 1.00 | Ghia (1982) -0.1139; fine - ref = +8.30e-03, inside the GCI band |
 | cavity, 1st order | $u_{\min}$ on $x = 0.5$ | -0.1982, -0.254, -0.2885 | 0.69 | 3 | 58.3 % | -0.3446 | 1.00 | Ghia (1982) -0.3273; fine - ref = +3.87e-02, inside the GCI band |
 | cavity, 1st order | $v_{\max}$ on $y = 0.5$ | 0.1934, 0.2426, 0.2716 | 0.76 | 1.25 | 19.2 % | 0.3133 | 1.00 | Ghia (1982) 0.302; fine - ref = -3.04e-02, inside the GCI band |
 | cavity, 1st order | $v_{\min}$ on $y = 0.5$ | -0.3193, -0.3829, -0.4177 | 0.87 | 1.25 | 12.6 % | -0.4597 | 1.00 | Ghia (1982) -0.4499; fine - ref = +3.22e-02, inside the GCI band |
-| IBM airfoil, Re = 1000 | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1492, 0.1788, 0.1712 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
-| IBM airfoil, Re = 1000 | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1094, 0.292, 0.3607 | 1.41 | 3 | 34.4 % | 0.402 | 1.00 | observed order 1.41 far from the formal 2: Fs = 3 |
+| IBM airfoil, Re = 1000 | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1492, 0.1791, 0.1713 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
+| IBM airfoil, Re = 1000 | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1091, 0.2923, 0.3622 | 1.39 | 3 | 35.8 % | 0.4054 | 1.00 | observed order 1.39 far from the formal 2: Fs = 3 |
 | 3-D Taylor-Green, Re = 1600 | $E_k(20)/E_k(0)$ | 0.2312, 0.2064, 0.1883 | -0.41 | 3 | - | - | - | apparent order -0.41 <= 0: the solutions do not converge on these grids, no GCI |
-| 3-D Taylor-Green, Re = 1600 | peak $\varepsilon$ | 0.01102, 0.01132, 0.01248 | -3.69 | 3 | - | - | - | DNS 512$^3$ 0.0127; fine - ref = -2.17e-04, no GCI band |
+| 3-D Taylor-Green, Re = 1600 | peak $\varepsilon$ | 0.01102, 0.01132, 0.01248 | -3.70 | 3 | - | - | - | DNS 512$^3$ 0.0127; fine - ref = -2.17e-04, no GCI band |
 
 What the table says:
 
@@ -229,13 +229,61 @@ What the table says:
 * **Cavity, first order.** The apparent orders are 0.7 to 0.9 and the bands 12 to 58 %: the first-order scheme
   needs far finer grids, which is why the second-order scheme is the default.
 * **IBM airfoil.** The mean drag is not monotone over 192×96, 384×192, 768×384 and the mean lift converges at
-  order 1.4 with a 34 % band: a staircase body on an impulsive start is not in the asymptotic range on these
+  order 1.4 with a 36 % band: a staircase body on an impulsive start is not in the asymptotic range on these
   grids, and the table says so. The AMR run lies between the two finest uniform meshes.
 * **3-D Taylor-Green.** The energy at $t = 20$ and the peak dissipation do not converge on 32³, 64³ and 96³
   (negative apparent orders): the vortex is under-resolved, the peak rises towards the DNS value 0.0127
   (0.0125 at 96³) but no band can be given.
 
+### Validation uncertainty (`benchmarks/vv20.py`)
+
+Verification says how large the numerical error is; validation asks whether the model is right. Following ASME V&V 20 as
+presented by Roache (2009, chapter 11), the comparison error $E = S - D$ of the simulation value $S$ and the
+data value $D$ is the sum of the modelling error and of the errors of the numerics, the inputs and the data, so the
+modelling error lies in the interval $E \pm U_{val}$ with
+
+$$U_{val} = \sqrt{U_{num}^2 + U_{input}^2 + U_D^2},$$
+
+each term a 95 % uncertainty ($U_{num}$ is the fine-grid GCI of the table above times $|S|$; a standard data
+uncertainty is expanded with $k = 2$, and a range of values is a rectangular distribution of half-width $A$, whose
+standard uncertainty is $A/\sqrt3$). If $|E| \le U_{val}$ the modelling error is not larger than the noise level set
+by these uncertainties, so tuning the model would not be justified; if $|E| \gg U_{val}$ the modelling error is about $E$
+and the model is to blame. Here "$\gg$" is $|E| \ge 3\,U_{val}$ (our choice, the book gives none), and in between the
+result is *indeterminate*. A quantity without a valid GCI has no $U_{num}$: it is **not assessable**, and no other
+estimate is substituted.
+
+<figure>
+<img src="{{root}}img/vv20.png" style="width:100%">
+<figcaption>Comparison error as a percentage of the reference value, with the interval $\pm U_{val}$, for the
+benchmarks that have a reference value. A hollow marker has no numerical uncertainty (not assessable).</figcaption>
+</figure>
+
+| quantity | $S$ | $D$ | $E = S - D$ | $U_{num}$ | $U_{val}$ | $|E|/U_{val}$ | reading |
+|---|---:|---:|---:|---:|---:|---:|---|
+| cavity, MUSCL: $\psi_{\min}$ | -0.1136 | -0.1139 | +2.70e-04 | 5.68e-04 | 5.68e-04 | 0.47 | within the noise level |
+| cavity, MUSCL: $u_{\min}$ on $x = 0.5$ | -0.3277 | -0.3273 | -4.39e-04 | 1.88e-03 | 1.88e-03 | 0.23 | within the noise level |
+| cavity, MUSCL: $v_{\max}$ on $y = 0.5$ | 0.3025 | 0.302 | +5.14e-04 | 2.12e-03 | 2.12e-03 | 0.24 | within the noise level |
+| cavity, MUSCL: $v_{\min}$ on $y = 0.5$ | -0.4519 | -0.4499 | -1.94e-03 | 2.99e-03 | 2.99e-03 | 0.65 | within the noise level |
+| 3-D Taylor-Green, Re = 1600: peak $\varepsilon$ | 0.01248 | 0.0127 | -2.17e-04 | - | - | - | not assessable (no numerical uncertainty) |
+
+* **Cavity against Ghia.** For all four extrema $|E| < U_{val}$ ($|E|/U_{val}$ between 0.2 and 0.65): the remaining
+  difference to the benchmark is smaller than the numerical uncertainty of the 128² solution, so the cavity
+  gives no ground to doubt the model (incompressible-limit compressible Navier-Stokes) and a finer grid, not a
+  model change, is what would sharpen the comparison.
+* **3-D Taylor-Green peak dissipation against the DNS.** Not assessable: the grid sequence does not converge (see
+  the GCI table), so there is no numerical uncertainty to compare $E$ with. The difference of 1.7 % to the DNS
+  value is a fact about the 96³ run, not yet evidence for or against the model.
+* **Assumptions that make $U_{val}$ a lower bound.** $U_{input} = 0$: the inputs (Reynolds number, lid speed,
+  domain) are taken as exact, the strong-model assumption. $U_D = 0$: Ghia's tables and the DNS value come without an
+  uncertainty, and a benchmark computed by another code is a gray area for validation (Roache, sec. 10.10).
+  A data uncertainty would raise $U_{val}$ and push more comparisons to "within the noise level".
+* **Not done.** The cylinder against the literature values would need three grids of the long unsteady run, whose lift
+  is not stationary at $t = 80$, and the literature values are for an unbounded domain (the 10 % blockage is a
+  modelling difference, not a numerical one); it is left out rather than given an unreliable $U_{num}$.
+
 ### References
 
 * Roache, P. J. (2009). *Fundamentals of Verification and Validation*. Hermosa Publishers,
   Socorro, New Mexico. ISBN 978-0-913478-12-7.
+* ASME (2009). *Standard for Verification and Validation in Computational Fluid Dynamics and Heat Transfer*,
+  ASME V&V 20-2009. American Society of Mechanical Engineers.

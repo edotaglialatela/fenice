@@ -68,7 +68,8 @@ error cannot hide below the convective one.
 
 ```powershell
 build\release\fenice.exe --case "Manufactured Solution" --set nx=64 --set ny=64
-python cases\validation\verification\mms.py            # the verification study
+python cases\validation\verification\mms.py            # the verification study (quick mode)
+python cases\validation\verification\mms.py --full     # all grids, the bands as fixed
 python -m fenice.mms --write                           # regenerate the case files
 python -m fenice.mms --check                           # are the committed case files what the generator writes?
 ```
@@ -84,6 +85,11 @@ rules cannot matter, and are up to 34 000 characters long. Do not edit them by h
 $1.0 \pm 0.1$ in every norm; for MUSCL, between 1.5 and 2.5 in $L_1$ and $L_2$ and between 1.0 and 2.5 in $L_\infty$
 (a TVD limiter clips the reconstruction at smooth extrema, which costs order, most of all in $L_\infty$; above
 2.5 would be suspicious). The orders are those of the finest pair of grids.
+
+The default run is a **quick mode** (grids up to 64² and 48³, a few minutes) meant to catch gross regressions:
+it allows 0.1 below the lower bounds and enforces no upper bound, because the coarse grids are still pre-asymptotic.
+`--full` adds 128² and 96³ (about 20 minutes), enforces the bands as fixed above and runs the diagnostic below; the
+figure and the table of this page come from it.
 
 0. **The case files are what the generator writes.**
 1. **Transcription of the source.** On a uniform state, one Explicit Euler step must move every cell by

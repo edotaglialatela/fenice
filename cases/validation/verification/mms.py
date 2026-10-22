@@ -1,7 +1,8 @@
 """Code verification by manufactured solutions: Euler and Navier-Stokes, 2-D and 3-D (Roache 2009, ch. 3).
 
-    python cases/validation/verification/mms.py             # results/validation/mms/
-    python cases/validation/verification/mms.py --docs      # also docs/img/mms.png
+    python cases/validation/verification/mms.py             # quick: up to 64^2 and 48^3, a few minutes
+    python cases/validation/verification/mms.py --full      # up to 128^2 and 96^3 (about 20 minutes), as in the docs
+    python cases/validation/verification/mms.py --full --docs      # also docs/img/mms.png
 
 A smooth, non-separable, periodic solution is manufactured for each case (cases/manufactured_solution*/, written by
 `python -m fenice.mms --write`): the source terms that make it an exact solution of the equations the solver
@@ -19,7 +20,10 @@ measured at a fixed time on a sequence of grids refined by 2 in every direction,
 Expected orders, fixed before the first run: 1.0 +- 0.1 for the first-order scheme in every norm; for MUSCL
 between 1.5 and 2.5 in L1 and L2 and between 1.0 and 2.5 in Linf (a TVD limiter clips the reconstruction at smooth
 extrema, which costs order, most of all in Linf; an order above 2.5 would be suspicious). The orders are those of the
-finest pair of grids. Figure: mms.png; table: results/validation/mms/mms_table.md.
+finest pair of grids. The quick mode stops at 64^2 and 48^3, where the errors are still pre-asymptotic (the first
+order from below, the 3-D MUSCL Linf a little above 2.5): it allows 0.1 below the lower bounds and enforces no
+upper bound, to catch gross regressions; the bands as fixed, and the diagnostic of the documented deviation, need
+--full. Figure: mms.png; table: results/validation/mms/mms_table.md.
 """
 import re
 import sys
@@ -32,7 +36,9 @@ from fenice.convergence import observed_orders
 
 STUDY = "mms"
 T_END = 0.5
-GRIDS = {2: (16, 32, 64, 128), 3: (12, 24, 48, 96)}
+GRIDS_FULL = {2: (16, 32, 64, 128), 3: (12, 24, 48, 96)}
+GRIDS_QUICK = {2: (16, 32, 64), 3: (12, 24, 48)}
+GRIDS = GRIDS_QUICK
 SCHEMES = {"MUSCL": "true", "1st order": "false"}
 NORMS = ("L1", "L2", "Linf")
 BANDS = {"1st order": {"L1": (0.9, 1.1), "L2": (0.9, 1.1), "Linf": (0.9, 1.1)},
@@ -135,7 +141,11 @@ def residual(sol, n, scheme, args):
 
 
 def main():
-    args = study.parser(__doc__.splitlines()[0]).parse_args()
+    ap = study.parser(__doc__.splitlines()[0])
+    ap.add_argument("--full", action="store_true", help="the fine grids too (128^2, 96^3) and the Euler diagnostic")
+    args = ap.parse_args()
+    global GRIDS
+    GRIDS = GRIDS_FULL if args.full else GRIDS_QUICK
     plt = study.use_style()
     sols = mms.default_solutions()
     failed = False
@@ -176,7 +186,9 @@ def main():
                 fit = {v: float(np.polyfit(np.log(h), np.log(e[v]), 1)[0]) for v in names}
                 worst = min(pair, key=pair.get)
                 lo, hi = BANDS[scheme][norm]
-                ok = all(lo <= pair[v] <= hi for v in names)
+                # quick mode, to catch gross regressions: 0.1 slack below the lower bound (the coarse grids approach
+                # the order from below), no upper bound
+                ok = all(lo - (0.0 if args.full else 0.1) <= pair[v] <= (hi if args.full else np.inf) for v in names)
                 known = (sol.name(), scheme) in KNOWN
                 failed |= not ok and not known
                 curves[sol.name(), scheme, norm] = (h, np.max([e[v] for v in names], axis=0), pair[worst])
@@ -186,19 +198,19 @@ def main():
                       f"{curves[sol.name(), scheme, norm][1][-1]:.2e}   expected [{lo}, {hi}] "
                       f"{'OK' if ok else 'OUTSIDE (documented)' if known else 'OUTSIDE'}")
 
-    # diagnostic of the documented deviation: e = a h + b h^2 on the grids of the study and one finer
-    sol = next(s for s in sols if s.name() == "Manufactured Solution Euler")
-    grids = list(GRIDS[2]) + [2 * GRIDS[2][-1]]
-    errs = [run_error(sol, n, "1st order", args) for n in grids]
-    h = np.array([1.0 / n for n in grids])
-    print(f"      diagnostic, {sol.name()}, 1st order, L1 error on {grids}:")
-    for v in ("rho", "u", "v", "p"):
-        e = np.array([er[v]["L1"] for er in errs])
-        A = np.stack([h, h ** 2], axis=1)
-        a, b = np.linalg.lstsq(A, e, rcond=None)[0]
-        misfit = np.max(np.abs(A @ [a, b] / e - 1))
-        print(f"        {v:3s} pair orders " + " ".join(f"{o:.2f}" for o in observed_orders(h, e)) +
-              f";  e = {a:.3f} h {b:+.2f} h^2 (largest misfit {misfit:.0%})")
+    if args.full:   # diagnostic of the documented deviation: e = a h + b h^2 on the grids of the study and one finer
+        sol = next(s for s in sols if s.name() == "Manufactured Solution Euler")
+        grids = list(GRIDS[2]) + [2 * GRIDS[2][-1]]
+        errs = [run_error(sol, n, "1st order", args) for n in grids]
+        h = np.array([1.0 / n for n in grids])
+        print(f"      diagnostic, {sol.name()}, 1st order, L1 error on {grids}:")
+        for v in ("rho", "u", "v", "p"):
+            e = np.array([er[v]["L1"] for er in errs])
+            A = np.stack([h, h ** 2], axis=1)
+            a, b = np.linalg.lstsq(A, e, rcond=None)[0]
+            misfit = np.max(np.abs(A @ [a, b] / e - 1))
+            print(f"        {v:3s} pair orders " + " ".join(f"{o:.2f}" for o in observed_orders(h, e)) +
+                  f";  e = {a:.3f} h {b:+.2f} h^2 (largest misfit {misfit:.0%})")
 
     # table for the documentation
     lines = ["| case | scheme | norm | " + " | ".join(VARS) + " | expected | |", "|---|---|---|" + "---:|" * len(VARS) + "---|---|"]
