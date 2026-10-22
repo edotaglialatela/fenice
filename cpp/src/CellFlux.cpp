@@ -98,19 +98,46 @@ void CellFluxEngine::build(const CellMesh& m) {
     interp_.clear();
     Builder b{m, vroot_, vnode_, {}};
     b.interp = &interp_;
+    // The virtual cells are numbered in the order the loops below create them. Only a leaf with a side that is not a
+    // same-level neighbour (or an edge) creates any, so those leaves (and the faces touching them) are visited first, in
+    // the original order, by one thread; everything else only reads the finished tables and runs in parallel.
+    std::vector<char> special(static_cast<size_t>(nleaf_), 0);
+#pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
+    for (int c = 0; c < nleaf_; ++c)
+        for (int s = 0; s < 4; ++s) {
+            const CellNeighbour::Kind k = m.neighbour(c, static_cast<Face>(s)).kind;
+            if (k == CellNeighbour::Kind::Finer || k == CellNeighbour::Kind::Coarser) special[c] = 1;
+        }
+    std::vector<int> special_leaves, special_faces;
+    for (int c = 0; c < nleaf_; ++c)
+        if (special[c]) special_leaves.push_back(c);
+    std::vector<char> face_special(m.faces.size(), 0);
+    for (size_t f = 0; f < m.faces.size(); ++f) {
+        const CellFace& face = m.faces[f];
+        if (face.kind == CellFaceKind::Boundary) continue;
+        if (special[face.left] || special[face.right]) {
+            face_special[f] = 1;
+            special_faces.push_back(static_cast<int>(f));
+        }
+    }
     // 1) injecting neighbour codes of every leaf (slopes of the coarse leaves); creates every mean-type virtual cell
     nbr_raw_.assign(static_cast<size_t>(4) * nleaf_, -1);
-    for (int c = 0; c < nleaf_; ++c)
+    const auto raw_of = [&](int c) {
         for (int s = 0; s < 4; ++s)
             if (m.neighbour(c, static_cast<Face>(s)).kind != CellNeighbour::Kind::Boundary)
                 nbr_raw_[static_cast<size_t>(4) * c + s] = b.beyond(c, static_cast<Face>(s));
+    };
+    for (const int c : special_leaves) raw_of(c);
+#pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
+    for (int c = 0; c < nleaf_; ++c)
+        if (!special[c]) raw_of(c);
     b.nmean = static_cast<int>(vroot_.size());
     // 2) stencils and gradient neighbours, with the interpolated virtual cells where enabled
     const bool ip = muscl_ && interpolate_jumps;
     stencil_.assign(m.faces.size(), {-1, -1, -1, -1});
-    for (size_t f = 0; f < m.faces.size(); ++f) {
+    const auto stencil_of = [&](size_t f) {
         const CellFace& face = m.faces[f];
-        if (face.kind == CellFaceKind::Boundary) continue;
+        if (face.kind == CellFaceKind::Boundary) return;
         const Face back = face.axis == 0 ? Face::Left : Face::Bottom, fwd = face.axis == 0 ? Face::Right : Face::Top;
         const int l = face.left, r = face.right;
         std::array<int, 4>& s = stencil_[f];
@@ -131,13 +158,22 @@ void CellFluxEngine::build(const CellMesh& m) {
             s[2] = r;
             s[3] = b.beyond(r, fwd, ip);
         }
-    }
+    };
+    for (const int f : special_faces) stencil_of(static_cast<size_t>(f));
+#pragma omp parallel for schedule(static) if (m.faces.size() >= static_cast<size_t>(kOmpMinWork))
+    for (int f = 0; f < static_cast<int>(m.faces.size()); ++f)
+        if (!face_special[f]) stencil_of(static_cast<size_t>(f));
     // neighbour codes of every leaf (gradients, non-reflecting tangential differences)
     nbr_.assign(static_cast<size_t>(4) * nleaf_, -1);
-    for (int c = 0; c < nleaf_; ++c)
+    const auto nbr_of = [&](int c) {
         for (int s = 0; s < 4; ++s)
             if (m.neighbour(c, static_cast<Face>(s)).kind != CellNeighbour::Kind::Boundary)
                 nbr_[static_cast<size_t>(4) * c + s] = b.beyond(c, static_cast<Face>(s), ip);
+    };
+    for (const int c : special_leaves) nbr_of(c);
+#pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
+    for (int c = 0; c < nleaf_; ++c)
+        if (!special[c]) nbr_of(c);
 
     reg_.assign(m.faces.size(), State{});
     regv_.assign(m.faces.size(), State{});
@@ -160,7 +196,9 @@ void CellFluxEngine::build(const CellMesh& m) {
                 ibm_p_ref_ = ib.p_ref();
             }
             const std::vector<char>& mk = level_mask_[static_cast<size_t>(l)];
-            for (int c = m.level_begin[l]; c < m.level_begin[l + 1]; ++c)
+            const int cb = m.level_begin[l], ce = m.level_begin[l + 1];
+#pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
+            for (int c = cb; c < ce; ++c)
                 solid_[c] = mk[static_cast<size_t>(m.cj[c]) * m.nx_at(l) + m.ci[c]];
         }
         forced_.resize(static_cast<size_t>(nleaf_));
@@ -191,7 +229,32 @@ void CellFluxEngine::build(const CellMesh& m) {
     }
 }
 
+namespace {
+// Sort v and drop the repeats. `seen` is a zeroed scratch array covering every value of v; it is zero again on return.
+// A pass over the marks replaces a comparison sort, which dominated the rebuild after a remesh.
+void sort_unique(std::vector<int>& v, std::vector<char>& seen) {
+    if (v.size() < 64) {
+        std::sort(v.begin(), v.end());
+        v.erase(std::unique(v.begin(), v.end()), v.end());
+        return;
+    }
+    int lo = v[0], hi = v[0];
+    for (const int x : v) {
+        seen[static_cast<size_t>(x)] = 1;
+        lo = std::min(lo, x);
+        hi = std::max(hi, x);
+    }
+    v.clear();
+    for (int x = lo; x <= hi; ++x)
+        if (seen[static_cast<size_t>(x)]) {
+            v.push_back(x);
+            seen[static_cast<size_t>(x)] = 0;
+        }
+}
+}   // namespace
+
 void CellFluxEngine::rebuild_lists(const CellMesh& m, const Partition* part) {
+    std::vector<char> seen(static_cast<size_t>(nleaf_) + vroot_.size() + interp_.size() + 1, 0);
     const size_t L = static_cast<size_t>(m.max_level) + 1;
     lface_.assign(L, {});
     lheld_.assign(L, {});
@@ -228,8 +291,7 @@ void CellFluxEngine::rebuild_lists(const CellMesh& m, const Partition* part) {
                         if (nbr_raw_[static_cast<size_t>(4) * C + s] >= 0) v.push_back(nbr_raw_[static_cast<size_t>(4) * C + s]);
                 }
             }
-            std::sort(v.begin(), v.end());
-            v.erase(std::unique(v.begin(), v.end()), v.end());
+            sort_unique(v, seen);
         }
         // cells whose viscous quantities the faces of this level read
         std::vector<int>& v = vcells_[sl];
@@ -244,8 +306,7 @@ void CellFluxEngine::rebuild_lists(const CellMesh& m, const Partition* part) {
                 if (m.faces[f].right >= 0) v.push_back(m.faces[f].right);
             }
         }
-        std::sort(v.begin(), v.end());
-        v.erase(std::unique(v.begin(), v.end()), v.end());
+        sort_unique(v, seen);
     }
 }
 
@@ -727,6 +788,13 @@ double CellFluxEngine::residual(const CellMesh& m, const Field& U, Field& R) {
         s = std::max(s, viscous_speed(m, 0, N));
     }
     gather(m, 0, N, false, R);
+    return s;
+}
+
+double CellFluxEngine::wave_speed(const CellMesh& m, const Field& U) {
+    double s = 0.0;
+    for (int l = 0; l <= m.max_level; ++l)
+        if (m.level_begin[l + 1] > m.level_begin[l]) s = std::max(s, compute_level_fluxes(m, U, l));
     return s;
 }
 

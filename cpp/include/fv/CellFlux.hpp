@@ -56,6 +56,11 @@ public:
     // bound of the explicit time step when larger).
     double residual(const CellMesh& mesh, const Field& U, Field& R);
 
+    // The same largest wave speed as residual() gives, without the residual: the level by level flux pass of the time loop,
+    // so only the faces and leaves of the current partition (all of them without one) are visited.  Under a partition
+    // this is the rank's value; the caller takes the maximum over the ranks.
+    double wave_speed(const CellMesh& mesh, const Field& U);
+
     // --- per-level pieces for the subcycled advance (CellAdvance) ---
     // Fluxes of the faces of level l (all of them: interior, coarse-fine whose fine side is level l, boundary), read
     // from U, the state of every leaf (the other levels as they are); returns their largest wave speed.

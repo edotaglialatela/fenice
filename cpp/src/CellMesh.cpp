@@ -1,6 +1,7 @@
 #include "fv/CellMesh.hpp"
 
 #include <algorithm>
+#include <iterator>
 #include <numeric>
 #include <stdexcept>
 
@@ -19,11 +20,6 @@ uint64_t spread_bits(uint32_t v) {
 }
 
 constexpr int kKeyBits = 29;
-
-uint64_t pack(int l, int i, int j) {
-    return (static_cast<uint64_t>(l) << (2 * kKeyBits)) | (static_cast<uint64_t>(i) << kKeyBits) |
-           static_cast<uint64_t>(j);
-}
 
 // Sort key of a leaf inside the whole list: level first, Morton key second.
 struct SortKey {
@@ -70,9 +66,13 @@ CellMesh::CellMesh(double Lx_, double Ly_, int nx_, int ny_, int max_level_, boo
 }
 
 int CellMesh::find(int l, int i, int j) const {
-    if (l < 0 || l > max_level) return -1;
-    const auto it = index_.find(pack(l, i, j));
-    return it == index_.end() ? -1 : it->second;
+    if (l < 0 || l > max_level || i < 0 || j < 0 || i >= nx_at(l) || j >= ny_at(l)) return -1;
+    const std::vector<int>& g = grid_[static_cast<size_t>(l)];
+    if (!g.empty()) return g[static_cast<size_t>(j) * nx_at(l) + i];
+    const uint64_t k = morton_key(static_cast<uint32_t>(i), static_cast<uint32_t>(j));
+    const auto b = mkey_.begin() + level_begin[l], e = mkey_.begin() + level_begin[l + 1];
+    const auto it = std::lower_bound(b, e, k);
+    return (it != e && *it == k) ? static_cast<int>(it - mkey_.begin()) : -1;
 }
 
 int CellMesh::covering(int l, int i, int j) const {
@@ -115,57 +115,74 @@ CellNeighbour CellMesh::neighbour(int leaf, Face side) const {
 void CellMesh::rebuild() {
     const int N = num_leaves();
     // lookup table and level runs
-    index_.clear();
-    index_.reserve(static_cast<size_t>(N) * 2);
     level_begin.assign(static_cast<size_t>(max_level) + 2, N);
-    for (int c = N - 1; c >= 0; --c) {
-        index_[pack(level[c], ci[c], cj[c])] = c;
-        level_begin[level[c]] = c;
-    }
+    for (int c = N - 1; c >= 0; --c) level_begin[level[c]] = c;
     for (int l = max_level; l >= 0; --l) level_begin[l] = std::min(level_begin[l], level_begin[l + 1]);
+    mkey_.resize(static_cast<size_t>(N));
+    for (int c = 0; c < N; ++c) mkey_[c] = morton_key(static_cast<uint32_t>(ci[c]), static_cast<uint32_t>(cj[c]));
+    grid_.assign(static_cast<size_t>(max_level) + 1, {});
+    for (int l = 0; l <= max_level; ++l) {
+        const long long cells = static_cast<long long>(nx_at(l)) * ny_at(l);
+        if (cells > 4ll * N + 65536) continue;
+        std::vector<int>& g = grid_[static_cast<size_t>(l)];
+        g.assign(static_cast<size_t>(cells), -1);
+        for (int c = level_begin[l]; c < level_begin[l + 1]; ++c) g[static_cast<size_t>(cj[c]) * nx_at(l) + ci[c]] = c;
+    }
 
     // faces: each leaf creates the faces it is responsible for
     //   same level  -> the leaf on the lower side creates it (its Right / Top side)
     //   coarser nbr -> the fine leaf creates it
     //   finer nbr   -> nothing (the finer leaves create theirs)
     //   no nbr      -> a boundary face
-    faces.clear();
-    faces.reserve(static_cast<size_t>(N) * 2 + 8);
-    for (int c = 0; c < N; ++c) {
+    // Each leaf makes at most one face per side; the faces keep the leaf order, so the list is the serial one.
+    //   same level  -> the leaf on the lower side creates it (its Right / Top side)
+    //   coarser nbr -> the fine leaf creates it;  finer nbr -> nothing;  no nbr -> a boundary face
+    const auto make_face = [&](int c, int s, CellFace& f) {
         const int l = level[c];
-        for (int s = 0; s < 4; ++s) {
-            const int axis = s / 2, dir = (s & 1) ? 1 : -1;
-            int ni = ci[c] + (axis == 0 ? dir : 0), nj = cj[c] + (axis == 1 ? dir : 0);
-            CellFace f;
-            f.level = l;
-            f.axis = static_cast<uint8_t>(axis);
-            f.tpos = axis == 0 ? cj[c] : ci[c];
-            f.length = axis == 0 ? dy(l) : dx(l);
-            if (!wrap(l, ni, nj)) {
-                f.kind = CellFaceKind::Boundary;
-                f.side = static_cast<Face>(s);
-                f.left = dir > 0 ? c : -1;
-                f.right = dir > 0 ? -1 : c;
-                faces.push_back(f);
-                continue;
-            }
-            const int same = find(l, ni, nj);
-            if (same >= 0) {
-                if (dir > 0) {
-                    f.left = c;
-                    f.right = same;
-                    faces.push_back(f);
-                }
-                continue;
-            }
-            const int coarse = l > 0 ? find(l - 1, ni >> 1, nj >> 1) : -1;
-            if (coarse >= 0) {
-                f.kind = CellFaceKind::CoarseFine;
-                f.left = dir > 0 ? c : coarse;
-                f.right = dir > 0 ? coarse : c;
-                faces.push_back(f);
-            }
+        const int axis = s / 2, dir = (s & 1) ? 1 : -1;
+        int ni = ci[c] + (axis == 0 ? dir : 0), nj = cj[c] + (axis == 1 ? dir : 0);
+        f = CellFace();
+        f.level = l;
+        f.axis = static_cast<uint8_t>(axis);
+        f.tpos = axis == 0 ? cj[c] : ci[c];
+        f.length = axis == 0 ? dy(l) : dx(l);
+        if (!wrap(l, ni, nj)) {
+            f.kind = CellFaceKind::Boundary;
+            f.side = static_cast<Face>(s);
+            f.left = dir > 0 ? c : -1;
+            f.right = dir > 0 ? -1 : c;
+            return true;
         }
+        const int same = find(l, ni, nj);
+        if (same >= 0) {
+            if (dir <= 0) return false;
+            f.left = c;
+            f.right = same;
+            return true;
+        }
+        const int coarse = l > 0 ? find(l - 1, ni >> 1, nj >> 1) : -1;
+        if (coarse < 0) return false;
+        f.kind = CellFaceKind::CoarseFine;
+        f.left = dir > 0 ? c : coarse;
+        f.right = dir > 0 ? coarse : c;
+        return true;
+    };
+    std::vector<int> off(static_cast<size_t>(N) + 1, 0);
+#pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
+    for (int c = 0; c < N; ++c) {
+        CellFace f;
+        int k = 0;
+        for (int s = 0; s < 4; ++s) k += make_face(c, s, f) ? 1 : 0;
+        off[static_cast<size_t>(c) + 1] = k;
+    }
+    for (int c = 0; c < N; ++c) off[static_cast<size_t>(c) + 1] += off[static_cast<size_t>(c)];
+    faces.resize(static_cast<size_t>(off[static_cast<size_t>(N)]));
+#pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
+    for (int c = 0; c < N; ++c) {
+        int k = off[static_cast<size_t>(c)];
+        CellFace f;
+        for (int s = 0; s < 4; ++s)
+            if (make_face(c, s, f)) faces[static_cast<size_t>(k++)] = f;
     }
     face_level_begin.assign(static_cast<size_t>(max_level) + 2, static_cast<int>(faces.size()));
     for (int f = static_cast<int>(faces.size()) - 1; f >= 0; --f) face_level_begin[faces[f].level] = f;
@@ -299,49 +316,70 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
     for (int c = 0; c < N && !any; ++c) any = R[c] || merge_anchor[c];
     if (!any) return false;
 
-    // New leaf list
+    // New leaf list.  Per target level three streams are each already in Morton order: the leaves that stay, the children
+    // of the refined leaves of the level above, the parents of the merged groups of the level below.  A stream entry
+    // carries where its state comes from (src >= 0: that leaf; src < 0: the group anchored at leaf -1 - src, a parent
+    // mean or a child's injection), so the state is written once, into its final place.
     struct NewLeaf {
-        int level, i, j;
-        State u;
+        uint64_t key;
+        int i, j, src;
     };
     const bool has_u = static_cast<int>(U.size()) == N;
-    std::vector<NewLeaf> out;
-    out.reserve(static_cast<size_t>(N) + 3 * std::count(R.begin(), R.end(), char(1)));
+    const size_t nlev = static_cast<size_t>(max_level) + 1;
+    std::vector<std::vector<NewLeaf>> keep(nlev), kids(nlev), parents(nlev);
     for (int c = 0; c < N; ++c) {
         if (absorbed[c]) continue;
         const int l = level[c], i = ci[c], j = cj[c];
         if (R[c]) {
             for (int oj = 0; oj < 2; ++oj)
-                for (int oi = 0; oi < 2; ++oi) out.push_back({l + 1, 2 * i + oi, 2 * j + oj, has_u ? U[c] : State{}});
+                for (int oi = 0; oi < 2; ++oi)
+                    kids[static_cast<size_t>(l) + 1].push_back(
+                        {morton_key(static_cast<uint32_t>(2 * i + oi), static_cast<uint32_t>(2 * j + oj)), 2 * i + oi, 2 * j + oj, c});
         } else if (merge_anchor[c]) {
-            State m{};
-            if (has_u) {
-                const State &a = U[c], &b = U[find(l, i + 1, j)], &cc = U[find(l, i, j + 1)],
-                            &d = U[find(l, i + 1, j + 1)];
-                for (int k = 0; k < kNVar; ++k) m[k] = ((a[k] + b[k]) + (cc[k] + d[k])) * 0.25;
-            }
-            out.push_back({l - 1, i >> 1, j >> 1, m});
+            parents[static_cast<size_t>(l) - 1].push_back(
+                {morton_key(static_cast<uint32_t>(i >> 1), static_cast<uint32_t>(j >> 1)), i >> 1, j >> 1, -1 - c});
         } else {
-            out.push_back({l, i, j, has_u ? U[c] : State{}});
+            keep[static_cast<size_t>(l)].push_back({mkey_[c], i, j, c});
         }
     }
-    std::vector<SortKey> keys(out.size());
-    for (size_t k = 0; k < out.size(); ++k)
-        keys[k] = {out[k].level, morton_key(static_cast<uint32_t>(out[k].i), static_cast<uint32_t>(out[k].j))};
-    std::vector<int> order(out.size());
-    std::iota(order.begin(), order.end(), 0);
-    std::sort(order.begin(), order.end(), [&](int a, int b) { return keys[a] < keys[b]; });
-    level.resize(out.size());
-    ci.resize(out.size());
-    cj.resize(out.size());
-    if (has_u) U.resize(out.size());
-    for (size_t k = 0; k < out.size(); ++k) {
-        const NewLeaf& n = out[order[k]];
-        level[k] = n.level;
-        ci[k] = n.i;
-        cj[k] = n.j;
-        if (has_u) U[k] = n.u;
+    const auto by_key = [](const NewLeaf& x, const NewLeaf& y) { return x.key < y.key; };
+    std::vector<int> nlevel, ni, nj;
+    std::vector<NewLeaf> tmp, all;
+    std::vector<NewLeaf> order;   // all new leaves in order
+    for (size_t t = 0; t < nlev; ++t) {
+        tmp.clear();
+        all.clear();
+        std::merge(keep[t].begin(), keep[t].end(), kids[t].begin(), kids[t].end(), std::back_inserter(tmp), by_key);
+        std::merge(tmp.begin(), tmp.end(), parents[t].begin(), parents[t].end(), std::back_inserter(all), by_key);
+        order.insert(order.end(), all.begin(), all.end());
+        nlevel.resize(order.size(), static_cast<int>(t));
     }
+    const size_t nn = order.size();
+    ni.resize(nn);
+    nj.resize(nn);
+    Field nU;
+    if (has_u) nU.resize(nn);
+#pragma omp parallel for schedule(static) if (nn >= static_cast<size_t>(kOmpMinWork))
+    for (long long k = 0; k < static_cast<long long>(nn); ++k) {
+        const NewLeaf& n = order[static_cast<size_t>(k)];
+        ni[static_cast<size_t>(k)] = n.i;
+        nj[static_cast<size_t>(k)] = n.j;
+        if (!has_u) continue;
+        if (n.src >= 0) {
+            nU[static_cast<size_t>(k)] = U[n.src];   // stays, or the injection into a child
+        } else {
+            const int c = -1 - n.src, l = level[c];
+            const State &a = U[c], &b = U[find(l, ci[c] + 1, cj[c])], &cc = U[find(l, ci[c], cj[c] + 1)],
+                        &d = U[find(l, ci[c] + 1, cj[c] + 1)];
+            State m;
+            for (int q = 0; q < kNVar; ++q) m[q] = ((a[q] + b[q]) + (cc[q] + d[q])) * 0.25;
+            nU[static_cast<size_t>(k)] = m;
+        }
+    }
+    level.swap(nlevel);
+    ci.swap(ni);
+    cj.swap(nj);
+    if (has_u) U.swap(nU);
     rebuild();
     return true;
 }

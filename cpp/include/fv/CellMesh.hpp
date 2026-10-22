@@ -7,7 +7,6 @@
 #pragma once
 
 #include <cstdint>
-#include <unordered_map>
 #include <vector>
 
 #include "fv/Core.hpp"
@@ -117,7 +116,10 @@ public:
 
 private:
     double dx0_, dy0_;
-    std::unordered_map<uint64_t, int> index_;   // key -> leaf, lookup only (nothing iterates over it)
+    // Lookup (position -> leaf): a dense table per level where nx_l * ny_l is small compared with the leaf count, else a
+    // binary search of the Morton keys of the level's leaves (mkey_, parallel to the leaf arrays).
+    std::vector<std::vector<int>> grid_;
+    std::vector<uint64_t> mkey_;
 
     void rebuild();
     // Wrap (i, j) of level l into the domain on periodic axes; false if it falls outside a non-periodic edge.

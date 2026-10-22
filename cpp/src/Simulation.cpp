@@ -1184,7 +1184,7 @@ void Simulation::solve_amr() {
     if (monitoring && step == 0) row(step);
 
     const auto t0 = Clock::now();
-    double remesh_wall = 0.0;
+    double remesh_wall = 0.0, t_gather = 0.0, t_speed = 0.0, t_partition = 0.0;
     bool interrupted = false;
     while (t < p.t_end) {
         const double dt = std::min(scheme->cfl * std::min(cm.dx(0), cm.dy(0)) / std::max(S, 1e-10), p.t_end - t);
@@ -1200,10 +1200,16 @@ void Simulation::solve_amr() {
         if (step % p.amr_refine_every == 0) {
             const auto r0 = Clock::now();
             gather();   // the indicator looks at every leaf
+            t_gather += seconds_since(r0);
             if (cell_adaptor->remesh()) {
-                S = eng.residual(cm, cm.U, R);   // the wave-speed bound follows the new leaves
-                cell_speed_ = S;
+                const auto r2 = Clock::now();
                 if (cell_par) cell_par->partition();
+                t_partition += seconds_since(r2);
+                const auto r1 = Clock::now();
+                S = eng.wave_speed(cm, cm.U);   // the wave-speed bound follows the new leaves (each rank's leaves, then the maximum)
+                if (cell_par) S = cell_par->reduce_max(S);
+                cell_speed_ = S;
+                t_speed += seconds_since(r1);
             }
             remesh_wall += seconds_since(r0);
         }
@@ -1243,6 +1249,8 @@ void Simulation::solve_amr() {
     std::printf("[AMR] %d leaves at the end (", cm.num_leaves());
     for (int l = 0; l <= cm.max_level; ++l) std::printf("%slevel %d: %d", l ? ", " : "", l, per_level[static_cast<size_t>(l)]);
     std::printf("); remesh %.2f s of the %.2f s time loop\n", remesh_wall, loop_wall);
+    std::printf("[AMR] remesh parts: gather %.2f s, indicator %.2f s, adapt %.2f s, engine build %.2f s, wave-speed bound %.2f s, partition %.2f s\n",
+                t_gather, cell_adaptor->t_indicator, cell_adaptor->t_adapt, cell_adaptor->t_build, t_speed, t_partition);
     std::printf("=== DONE  - open '%s.pvd' in ParaView ===  (time loop %.3f s, %d steps)\n", file_prefix.c_str(), loop_wall,
                 step - start_step);
 }

@@ -18,8 +18,13 @@ struct LevelCells {
     std::vector<int> ci, cj;
     std::vector<State> val;      // conservative state
     std::vector<int> leaf;       // leaf index, -1 for a split cell
+    std::vector<int> grid;       // dense table j * NX + i -> cell (-1: none), when the level is small enough; else empty
+    int NX = 0;
+    // the quantities the tests look at, per cell (the same cons_to_prim as the pair test would do)
+    std::vector<double> rho, p, speed;
 
     int find(int i, int j) const {
+        if (!grid.empty()) return grid[static_cast<size_t>(j) * NX + i];
         const uint64_t k = morton_key(static_cast<uint32_t>(i), static_cast<uint32_t>(j));
         const auto it = std::lower_bound(key.begin(), key.end(), k);
         return (it != key.end() && *it == k) ? static_cast<int>(it - key.begin()) : -1;
@@ -46,6 +51,28 @@ void CellIndicator::diffuse(std::vector<double>& xi, const std::vector<std::arra
     }
 }
 
+void CellIndicator::diffuse_cells(std::vector<double>& xi, const std::vector<int>& nbr) const {
+    const int n = static_cast<int>(xi.size());
+    std::vector<double> add(xi.size());
+    for (int it = 0; it < diffusion; ++it) {
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+        for (int c = 0; c < n; ++c) {
+            double a = 0.0;
+            for (int s = 0; s < 4; ++s) {
+                const int b = nbr[static_cast<size_t>(4) * c + s];
+                if (b == -2) continue;
+                // a same-level pair counts for both cells if either is above the trigger; a cell against a coarser leaf only
+                // for itself. Every addend is the same number, so the order of the sum cannot change its value.
+                if (b == -1 ? xi[c] > diffusion_trigger : (xi[c] > diffusion_trigger || xi[b] > diffusion_trigger))
+                    a += diffusion_coeff;
+            }
+            add[c] = a;
+        }
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+        for (int c = 0; c < n; ++c) xi[c] += add[c];
+    }
+}
+
 CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U, const EOS& eos) const {
     const int N = m.num_leaves(), M = m.max_level;
     // 1) the cells of every level, finest first
@@ -58,19 +85,32 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         std::vector<int> pi, pj;
         if (l < M) {
             const LevelCells& D = lev[static_cast<size_t>(l) + 1];
-            for (int c = 0; c < D.size(); c += 4) {   // four consecutive children share a parent
-                pkey.push_back(D.key[c] >> 2);
-                pi.push_back(D.ci[c] >> 1);
-                pj.push_back(D.cj[c] >> 1);
+            const int np = D.size() / 4;
+            pkey.resize(static_cast<size_t>(np));
+            pi.resize(static_cast<size_t>(np));
+            pj.resize(static_cast<size_t>(np));
+            pval.resize(static_cast<size_t>(np));
+#pragma omp parallel for schedule(static) if (np >= kOmpMinWork)
+            for (int q = 0; q < np; ++q) {   // four consecutive children share a parent
+                const int c = 4 * q;
+                pkey[q] = D.key[c] >> 2;
+                pi[q] = D.ci[c] >> 1;
+                pj[q] = D.cj[c] >> 1;
                 State s;
-                for (int q = 0; q < kNVar; ++q)
-                    s[q] = ((D.val[c][q] + D.val[c + 1][q]) + (D.val[c + 2][q] + D.val[c + 3][q])) * 0.25;
-                pval.push_back(s);
+                for (int k = 0; k < kNVar; ++k)
+                    s[k] = ((D.val[c][k] + D.val[c + 1][k]) + (D.val[c + 2][k] + D.val[c + 3][k])) * 0.25;
+                pval[q] = s;
             }
         }
         // merge with the leaves of level l (already in Morton order in the leaf arrays)
         int a = m.level_begin[l], ea = m.level_begin[l + 1];
         size_t b = 0;
+        const size_t total = static_cast<size_t>(ea - a) + pkey.size();
+        L.key.reserve(total);
+        L.ci.reserve(total);
+        L.cj.reserve(total);
+        L.val.reserve(total);
+        L.leaf.reserve(total);
         while (a < ea || b < pkey.size()) {
             const uint64_t ka = a < ea ? morton_key(static_cast<uint32_t>(m.ci[a]), static_cast<uint32_t>(m.cj[a])) : ~0ull;
             const uint64_t kb = b < pkey.size() ? pkey[b] : ~0ull;
@@ -90,49 +130,66 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
                 ++b;
             }
         }
+        L.NX = m.nx_at(l);
+        const long long cells = static_cast<long long>(L.NX) * m.ny_at(l);
+        if (cells <= 4ll * L.size() + 65536) {
+            L.grid.assign(static_cast<size_t>(cells), -1);
+            for (int c = 0; c < L.size(); ++c) L.grid[static_cast<size_t>(L.cj[c]) * L.NX + L.ci[c]] = c;
+        }
+        const int n = L.size();
+        L.rho.resize(static_cast<size_t>(n));
+        L.p.resize(static_cast<size_t>(n));
+        L.speed.resize(static_cast<size_t>(n));
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+        for (int c = 0; c < n; ++c) {
+            L.rho[c] = L.val[c][0];
+            if (use_pressure || use_velocity) {
+                const State w = eos.cons_to_prim(L.val[c]);
+                L.p[c] = w[3];
+                L.speed[c] = std::sqrt(w[1] * w[1] + w[2] * w[2] + w[4] * w[4]);
+            }
+        }
     }
-    // leaf lookup by position, for a coarser leaf covering a position of level l
-    const auto coarser_leaf_state = [&](int l, int i, int j, State& out) {
+    // the cell of a coarser leaf covering a position of level l: (level, cell index), or level -1
+    const auto coarser_leaf = [&](int l, int i, int j, int& kl) {
         for (int k = l - 1; k >= 0; --k) {
             i >>= 1;
             j >>= 1;
             const LevelCells& K = lev[static_cast<size_t>(k)];
             const int idx = K.find(i, j);
             if (idx >= 0 && K.leaf[idx] >= 0) {
-                out = K.val[idx];
-                return true;
+                kl = k;
+                return idx;
             }
         }
-        return false;
+        kl = -1;
+        return -1;
     };
     // 2) xi of every level
     std::vector<std::vector<double>> xi(static_cast<size_t>(M) + 1);
     for (int l = 0; l <= M; ++l) {
         const LevelCells& L = lev[static_cast<size_t>(l)];
         std::vector<double>& x = xi[static_cast<size_t>(l)];
-        x.assign(static_cast<size_t>(L.size()), 0.0);
-        std::vector<std::array<int, 2>> ifaces;
+        const int n = L.size();
+        x.assign(static_cast<size_t>(n), 0.0);
+        // per cell and side: the same-level cell across it (>= 0), -1 against a coarser leaf, -2 at an edge
+        std::vector<int> nbr(static_cast<size_t>(4) * n, -2);
         const int NX = m.nx_at(l), NY = m.ny_at(l);
-        const auto flag = [&](const State& sa, const State& sb) {
-            const auto test = [&](double ca, double cb, double floor_value) {
-                double vmin = std::min(std::abs(ca), std::abs(cb));
-                if (vmin < value_floor) vmin = floor_value;
-                return std::abs(cb - ca) / vmin >= criterion;
-            };
+        const auto test = [&](double ca, double cb, double floor_value) {
+            double vmin = std::min(std::abs(ca), std::abs(cb));
+            if (vmin < value_floor) vmin = floor_value;
+            return std::abs(cb - ca) / vmin >= criterion;
+        };
+        const auto flag = [&](const LevelCells& A, int ia, const LevelCells& B, int ib) {
             bool hit = false;
-            if (use_density) hit = hit || test(sa[0], sb[0], value_floor);
-            if (use_pressure || use_velocity) {
-                const State wa = eos.cons_to_prim(sa), wb = eos.cons_to_prim(sb);
-                if (use_pressure) hit = hit || test(wa[3], wb[3], value_floor);
-                if (use_velocity) {
-                    const double va = std::sqrt(wa[1] * wa[1] + wa[2] * wa[2] + wa[4] * wa[4]);
-                    const double vb = std::sqrt(wb[1] * wb[1] + wb[2] * wb[2] + wb[4] * wb[4]);
-                    hit = hit || test(va, vb, velocity_floor);
-                }
-            }
+            if (use_density) hit = hit || test(A.rho[ia], B.rho[ib], value_floor);
+            if (use_pressure) hit = hit || test(A.p[ia], B.p[ib], value_floor);
+            if (use_velocity) hit = hit || test(A.speed[ia], B.speed[ib], velocity_floor);
             return hit;
         };
-        for (int c = 0; c < L.size(); ++c)
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+        for (int c = 0; c < n; ++c) {
+            bool hit = false;
             for (int s = 0; s < 4; ++s) {
                 int i = L.ci[c] + (s == 1 ? 1 : (s == 0 ? -1 : 0)), j = L.cj[c] + (s == 3 ? 1 : (s == 2 ? -1 : 0));
                 if (i < 0 || i >= NX) {
@@ -145,23 +202,25 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
                 }
                 const int nb = L.find(i, j);
                 if (nb >= 0) {
-                    if (s == 1 || s == 3) {   // each same-level pair once, from its lower cell
-                        ifaces.push_back({c, nb});
-                        if (flag(L.val[c], L.val[nb])) x[c] = x[nb] = 1.0;
-                    }
+                    nbr[static_cast<size_t>(4) * c + s] = nb;
+                    hit = hit || flag(L, c, L, nb);
                 } else {
-                    State coarse;
-                    if (!coarser_leaf_state(l, i, j, coarse)) continue;   // cannot happen in a complete tree
-                    ifaces.push_back({c, -1});
-                    if (flag(L.val[c], coarse)) x[c] = 1.0;
+                    int kl;
+                    const int idx = coarser_leaf(l, i, j, kl);
+                    if (idx < 0) continue;   // cannot happen in a complete tree
+                    nbr[static_cast<size_t>(4) * c + s] = -1;
+                    hit = hit || flag(L, c, lev[static_cast<size_t>(kl)], idx);
                 }
             }
-        diffuse(x, ifaces);
+            if (hit) x[c] = 1.0;
+        }
+        diffuse_cells(x, nbr);
     }
     // 3) per leaf: its own xi, and the xi of its parent at the parent level
     Result r;
     r.xi.assign(static_cast<size_t>(N), 0.0);
     r.xi_parent.assign(static_cast<size_t>(N), 1e300);
+#pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
     for (int c = 0; c < N; ++c) {
         const int l = m.level[c];
         const LevelCells& L = lev[static_cast<size_t>(l)];

@@ -3081,6 +3081,103 @@ TEST(cellindicator_diffusion_rule_at_level_jumps) {
     CHECK(xi == std::vector<double>({0.0, 0.0, 0.0, 0.0}));
 }
 
+TEST(cellindicator_cell_gather_diffusion_equals_the_interface_rule_bit_for_bit) {
+    // diffuse_cells (gather per cell, parallel) must give the bits of diffuse (scatter over the interface list) on any table:
+    // random same-level neighbours (also a cell twice, as on a 1-cell periodic axis, and itself), coarser sides and edges.
+    unsigned seed = 12345u;
+    const auto rnd = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return (seed >> 8) & 0xFFFFu;
+    };
+    for (int rep = 0; rep < 6; ++rep) {
+        const int n = rep < 3 ? 40 : 6000;   // above kOmpMinWork the loops run in parallel
+        std::vector<int> nbr(static_cast<size_t>(4) * n, -2);
+        std::vector<std::array<int, 2>> ifaces;
+        for (int c = 0; c < n; ++c)
+            for (int s = 0; s < 4; ++s) {
+                const unsigned r = rnd() % 8;
+                if (r < 5) {
+                    const int b = static_cast<int>(rnd() % static_cast<unsigned>(n));
+                    nbr[static_cast<size_t>(4) * c + s] = b;
+                } else if (r == 5) {
+                    nbr[static_cast<size_t>(4) * c + s] = -1;
+                }
+            }
+        // the interface list the table stands for: a same-level entry c -> b is an interface {c, b} that gives to both cells once
+        // per listing, which is what each cell counts in its own row only for the pairs listed from its side.  The gather rule counts
+        // a pair for a cell from the cell's own sides, so build the list from the rows of the lower index and mirror the rest.
+        std::vector<int> sym(nbr.size(), -2);
+        for (int c = 0; c < n; ++c)
+            for (int s = 0; s < 4; ++s) {
+                const int b = nbr[static_cast<size_t>(4) * c + s];
+                if (b == -1) {
+                    sym[static_cast<size_t>(4) * c + s] = -1;
+                    ifaces.push_back({c, -1});
+                }
+            }
+        // same-level pairs: make the table symmetric by construction (each listed pair occupies one free side in each cell)
+        std::vector<int> used(static_cast<size_t>(n), 0);
+        for (int c = 0; c < n; ++c)
+            for (int s = 0; s < 4; ++s) {
+                const int b = nbr[static_cast<size_t>(4) * c + s];
+                if (b < 0 || used[static_cast<size_t>(c)] >= 4 || used[static_cast<size_t>(b)] >= 4) continue;
+                int sc = -1, sb = -1;
+                for (int q = 0; q < 4 && sc < 0; ++q)
+                    if (sym[static_cast<size_t>(4) * c + q] == -2) sc = q;
+                if (b == c) {
+                    if (sc < 0) continue;
+                    int sc2 = -1;
+                    for (int q = sc + 1; q < 4 && sc2 < 0; ++q)
+                        if (sym[static_cast<size_t>(4) * c + q] == -2) sc2 = q;
+                    if (sc2 < 0) continue;
+                    sym[static_cast<size_t>(4) * c + sc] = c;
+                    sym[static_cast<size_t>(4) * c + sc2] = c;
+                    ifaces.push_back({c, c});
+                    used[static_cast<size_t>(c)] += 2;
+                    continue;
+                }
+                for (int q = 0; q < 4 && sb < 0; ++q)
+                    if (sym[static_cast<size_t>(4) * b + q] == -2) sb = q;
+                if (sc < 0 || sb < 0) continue;
+                sym[static_cast<size_t>(4) * c + sc] = b;
+                sym[static_cast<size_t>(4) * b + sb] = c;
+                ifaces.push_back({c, b});
+                ++used[static_cast<size_t>(c)];
+                ++used[static_cast<size_t>(b)];
+            }
+        for (int it = 1; it <= 3; ++it) {
+            CellIndicator ind;
+            ind.diffusion = it;
+            ind.diffusion_coeff = 0.1;
+            ind.diffusion_trigger = 0.05;
+            std::vector<double> xa(static_cast<size_t>(n)), xb;
+            for (int c = 0; c < n; ++c) xa[c] = (rnd() % 5 == 0) ? 1.0 : (rnd() % 7 == 0 ? 0.07 : 0.0);
+            xb = xa;
+            ind.diffuse(xa, ifaces);
+            ind.diffuse_cells(xb, sym);
+            CHECK(xa == xb);
+        }
+    }
+}
+
+TEST(cellflux_wave_speed_equals_the_residual_bound) {
+    // the level-by-level pass returns the value residual() does (convective and viscous), on random adapted meshes
+    for (int sc = 0; sc < 3; ++sc) {
+        CellSetup su(true);
+        CellMesh m = random_adapted_mesh(true, true, 90u + static_cast<unsigned>(sc), 6);
+        CHECK(m.level_begin[3] < m.num_leaves());
+        m.U.resize(m.num_leaves());
+        for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state(su.eos, m.xc(c), m.yc(c));
+        CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
+        eng.build(m);
+        Field R;
+        const double a = eng.residual(m, m.U, R);
+        const double b = eng.wave_speed(m, m.U);
+        CHECK(a == b);
+        CHECK(a > 0.0);
+    }
+}
+
 TEST(cellindicator_levels_see_only_their_own_interfaces) {
     // A density jump far inside the coarse region must not flag the fine leaves of a refined block (they only see their own
     // level's interfaces and those to a coarser leaf), and a jump next to the block flags the fine cells through the
