@@ -169,6 +169,7 @@ conditions, so adding a case needs no C++ and no recompilation. The shipped case
 | Taylor-Green Vortex | Viscous decay vs the exact solution |
 | Isentropic Vortex | 2nd-order accuracy on smooth advection |
 | Taylor-Green Vortex 3D | 3-D transition to turbulence at Re = 1600 |
+| Manufactured Solution (Euler, 3D) | Code verification by manufactured solutions: source terms, observed orders |
 
 <p align="center">
   <img src="docs/img/taylor_green_3d_vorticity.png" width="90%"

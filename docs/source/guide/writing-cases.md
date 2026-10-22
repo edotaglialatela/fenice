@@ -94,7 +94,7 @@ case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 |---|---|
 | `name` | Name used by `--case`, `--list-cases` and the GUI (required, unique) |
 | `description` | One line, shown in the docs |
-| `order` | Sort position in the case list (default 1000; the built-in cases use 10 … 90) |
+| `order` | Sort position in the case list (default 1000; the built-in cases use 10 … 102) |
 | `requires_viscous` | `true`: warn if the run has Navier-Stokes switched off |
 | `requires_3d` | `true`: the initial condition needs `nz > 1` (otherwise a 2-D case, extruded along z on a 3-D mesh) |
 
@@ -106,6 +106,7 @@ case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 | `[mesh]` | `Lx`, `Ly`, `Lz`, `nx`, `ny`, `nz` |
 | `[thermo]` | `eos_type`, `gamma`, `p_inf` |
 | `[physics]` | `use_viscous`, `mu`, `pr`, `use_bodyforce`, `gx`, `gy`, `gz` |
+| `[source]` | `source_rho`, `source_mx`, `source_my`, `source_mz`, `source_E` (expressions, for manufactured solutions) |
 | `[boundaries]` | `bc_left`, `bc_right`, `bc_bottom`, `bc_top`, `bc_front`, `bc_back`, `u_in`, `rho_in`, `p_out` |
 | `[numerics]` | `riemann_solver`, `use_muscl`, `muscl_limiter`, `time_scheme`, `cfl`, `dt_phys`, `max_inner_iter`, `inner_tol_rel` |
 | `[run]` | `t_end`, `save_interval`, `monitor_interval`, `max_steps`, `resume`, `output_root`, `dump_state` |

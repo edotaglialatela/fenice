@@ -15,7 +15,7 @@ Run both after any change to the solver.
 ## Unit tests (`fenice_tests`)
 
 `cpp/tests/test_main.cpp` uses a self-contained harness, so no test framework is needed,
-and exits non-zero on failure. Its 55 tests cover:
+and exits non-zero on failure. Its 69 tests cover:
 
 * **EOS.** Round trips, floors, and the stiffened gas reducing to the ideal gas.
 * **Limiters.** TVD bounds, symmetry, and Minmod being the most diffusive.
@@ -29,6 +29,10 @@ and exits non-zero on failure. Its 55 tests cover:
 * **Time schemes.** Order of accuracy, stage counts, CFL clamping, BDF2 convergence and
   its iteration cap.
 * **IBM.** Masks, forcing, fringe and deep-solid reset.
+* **Source terms and the viscous time step.** One Euler step on a uniform state moves every cell by
+  $\Delta t\,S(x, y, z)$ (expression parsing, state slots, cell-centre positions, 2-D and 3-D), sources are rejected
+  with AMR and the IBM, and a Taylor-Green vortex at $\nu = 0.1$ and $0.2$ stays accurate at the default CFL
+  (the convective and viscous limits share one budget, see [TimeScheme]({{root}}modules/TimeScheme.html)).
 * **AMR.** Tree structure, conservative refine/derefine, 2:1 balance, the indicator,
   marking with buffer and anti-thrash guard, patch coupling, linear ghost prolongation,
   and **exact reflux conservation**, together with a negative control without
@@ -62,7 +66,7 @@ and exits non-zero on failure. Its 55 tests cover:
 
 ## Regression references (`regression.py`)
 
-`cpp/tests/reference/` stores final states for 31 short configurations. Sixteen were
+`cpp/tests/reference/` stores final states for 34 short configurations. Sixteen were
 produced by an independent implementation of the same schemes. The Taylor-Green and
 isentropic-vortex references are validated against their exact solutions; the five
 3-D references (Taylor-Green 3-D, an x-decomposed thin box, a no-slip cavity, Sod between
@@ -73,7 +77,10 @@ reflection measurements on the [Boundaries]({{root}}modules/Boundaries.html) pag
 airfoil reference (NACA 0012 at 10°) by the `airfoil_geometry` test; the AMR airfoil
 reference (tiled root, body at the finest level) by `amr_tiled_matches_uniform_steps`, and all six AMR
 references are also run on 2 to 7 MPI ranks, which must give the same state (one of them has only two
-root patches, so most ranks own nothing at the coarse levels).
+root patches, so most ranks own nothing at the coarse levels). The three manufactured-solution references
+(2-D Navier-Stokes, 2-D Euler on x-strips, 3-D Navier-Stokes) are backed by the
+[order study]({{root}}cases/manufactured-solution.html) and also run on MPI strips along x and y; they cover
+the source terms under decomposition.
 Together they cover:
 
 * every Riemann solver, limiter and time scheme;
@@ -139,6 +146,7 @@ accuracy are measured, not estimated.
 | `taylor_green.py` | Taylor-Green kinetic-energy decay and grid convergence |
 | `taylor_green_animation.py` | animation of the Taylor-Green vorticity surface decaying, against the exact solution |
 | `poiseuille.py` | Poiseuille parabola, grid convergence; serial vs 4 MPI ranks |
+| `mms.py` | manufactured solutions (Euler, Navier-Stokes, 2-D and 3-D): source transcription, truncation error, observed orders ([page]({{root}}cases/manufactured-solution.html)) |
 
 **`benchmarks/`: is the answer right?** The reference is a literature table, a much finer
 solution or a physical quantity without a closed form, so the comparison carries the
@@ -149,6 +157,7 @@ uncertainty of the reference too.
 | `shu_osher.py` | Shu-Osher density, MC vs Minmod, convergence against a 6400-cell reference |
 | `cavity.py` | cavity centrelines and vortex vs Ghia (1982), 32²-128², both orders |
 | `taylor_green_3d.py` | 3-D Taylor-Green energy, dissipation, vorticity, Q-criterion animation |
+| `vv20.py` | validation uncertainty (V&V 20): $E = S - D$ and $U_{val}$ of the cavity extrema against Ghia and the 3-D Taylor-Green peak against the DNS |
 | `gci.py` | observed order, Grid Convergence Index and Richardson extrapolation of the cavity, airfoil and 3-D Taylor-Green results |
 | `ibm_loads.py cylinder` / `airfoil` | IBM loads from the monitor, Strouhal number |
 
