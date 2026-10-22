@@ -6,9 +6,12 @@
 #include <fstream>
 #include <functional>
 #include <iterator>
+#include <random>
 #include <string>
+#include <tuple>
 #include <vector>
 
+#include "fv/CellMesh.hpp"
 #include "fv/Simulation.hpp"
 #include "fv/SolutionMapping.hpp"
 
@@ -2416,6 +2419,267 @@ TEST(builtin_cases_and_save_case) {
     } catch (const std::runtime_error&) { refused = true; }
     CHECK(refused);
     CHECK(fs::exists(file));
+}
+
+// ---------------------------------------------------------------------------
+// CellMesh (cell-based AMR topology)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// Independent oracle: leaf boxes in integer coordinates of the finest level, every touching pair found by brute
+// force (periodic axes by shifted copies); the mesh's own lookup tables are never used.
+struct LeafBox {
+    long long x0, x1, y0, y1;
+    int level;
+};
+
+// axis, left, right, start of the segment (finer cell's own transverse start), kind (0 interior, 1 coarse-fine,
+// 2 boundary), level, boundary side
+using FaceTuple = std::tuple<int, int, int, long long, int, int, int>;
+
+void check_cell_mesh(const CellMesh& m) {
+    const int N = m.num_leaves(), M = m.max_level;
+    const long long W = static_cast<long long>(m.nx) << M, H = static_cast<long long>(m.ny) << M;
+    std::vector<LeafBox> box(N);
+    long long area = 0;
+    for (int c = 0; c < N; ++c) {
+        const long long s = 1ll << (M - m.level[c]);
+        box[c] = {m.ci[c] * s, (m.ci[c] + 1) * s, m.cj[c] * s, (m.cj[c] + 1) * s, m.level[c]};
+        area += s * s;
+    }
+    CHECK(area == W * H);   // with the pairwise test below: the leaves tile the domain
+
+    // order: level runs, Morton inside a level
+    for (int c = 1; c < N; ++c) {
+        CHECK(m.level[c] >= m.level[c - 1]);
+        if (m.level[c] == m.level[c - 1])
+            CHECK(morton_key(m.ci[c], m.cj[c]) > morton_key(m.ci[c - 1], m.cj[c - 1]));
+    }
+    CHECK(static_cast<int>(m.level_begin.size()) == M + 2 && m.level_begin[M + 1] == N);
+    for (int l = 0; l <= M; ++l)
+        for (int c = m.level_begin[l]; c < m.level_begin[l + 1]; ++c) CHECK(m.level[c] == l);
+
+    const std::vector<long long> shx = m.periodic_x ? std::vector<long long>{-W, 0, W} : std::vector<long long>{0};
+    const std::vector<long long> shy = m.periodic_y ? std::vector<long long>{-H, 0, H} : std::vector<long long>{0};
+    std::vector<FaceTuple> want;
+    for (int a = 0; a < N; ++a)
+        for (int b = 0; b < N; ++b)
+            for (long long sx : shx)
+                for (long long sy : shy) {
+                    if (a == b && sx == 0 && sy == 0) continue;
+                    const LeafBox& A = box[a];
+                    const LeafBox B = {box[b].x0 + sx, box[b].x1 + sx, box[b].y0 + sy, box[b].y1 + sy, box[b].level};
+                    const long long ox = std::min(A.x1, B.x1) - std::max(A.x0, B.x0);   // overlap; 0 = touching
+                    const long long oy = std::min(A.y1, B.y1) - std::max(A.y0, B.y0);
+                    if (ox < 0 || oy < 0) continue;
+                    CHECK(std::abs(A.level - B.level) <= 1);   // corner 2:1 balance for every touching pair
+                    const int kind = A.level == B.level ? 0 : 1, lev = std::max(A.level, B.level);
+                    const LeafBox& fine = A.level >= B.level ? box[a] : box[b];
+                    if (A.x1 == B.x0 && oy > 0) want.emplace_back(0, a, b, fine.y0, kind, lev, 0);
+                    if (A.y1 == B.y0 && ox > 0) want.emplace_back(1, a, b, fine.x0, kind, lev, 0);
+                }
+    for (int a = 0; a < N; ++a) {
+        const LeafBox& A = box[a];
+        if (!m.periodic_x && A.x0 == 0) want.emplace_back(0, -1, a, A.y0, 2, A.level, static_cast<int>(Face::Left));
+        if (!m.periodic_x && A.x1 == W) want.emplace_back(0, a, -1, A.y0, 2, A.level, static_cast<int>(Face::Right));
+        if (!m.periodic_y && A.y0 == 0) want.emplace_back(1, -1, a, A.x0, 2, A.level, static_cast<int>(Face::Bottom));
+        if (!m.periodic_y && A.y1 == H) want.emplace_back(1, a, -1, A.x0, 2, A.level, static_cast<int>(Face::Top));
+    }
+    std::vector<FaceTuple> got;
+    for (const CellFace& f : m.faces) {
+        const long long s = 1ll << (M - f.level);
+        const int kind = f.kind == CellFaceKind::Interior ? 0 : (f.kind == CellFaceKind::CoarseFine ? 1 : 2);
+        got.emplace_back(f.axis, f.left, f.right, f.tpos * s, kind, f.level, kind == 2 ? static_cast<int>(f.side) : 0);
+        CHECK(f.length == (f.axis == 0 ? m.dy(f.level) : m.dx(f.level)));
+    }
+    std::sort(want.begin(), want.end());
+    std::sort(got.begin(), got.end());
+    CHECK(want == got);   // exactly one face per shared segment, with the right orientation, kind and level
+
+    for (size_t f = 1; f < m.faces.size(); ++f) CHECK(m.faces[f].level >= m.faces[f - 1].level);
+    CHECK(static_cast<int>(m.face_level_begin.size()) == M + 2 &&
+          m.face_level_begin[M + 1] == static_cast<int>(m.faces.size()));
+    for (int l = 0; l <= M; ++l)
+        for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f) CHECK(m.faces[f].level == l);
+
+    // gather lists: every side covered exactly once by one or two faces, lower transverse position first
+    for (int c = 0; c < N; ++c)
+        for (int s = 0; s < 4; ++s) {
+            const int b = m.side_ptr[4 * c + s], e = m.side_ptr[4 * c + s + 1];
+            CHECK(e - b == 1 || e - b == 2);
+            long long covered = 0;
+            for (int k = b; k < e; ++k) {
+                const CellFace& f = m.faces[m.side_face[k]];
+                covered += 1ll << (M - f.level);
+                CHECK(f.axis == s / 2);
+                CHECK((s & 1 ? f.left : f.right) == c);
+                if (k > b) CHECK(f.tpos > m.faces[m.side_face[k - 1]].tpos);
+            }
+            CHECK(covered == 1ll << (M - m.level[c]));
+            const CellNeighbour nb = m.neighbour(c, static_cast<Face>(s));
+            if (nb.kind == CellNeighbour::Kind::Boundary) CHECK(nb.a < 0);
+            if (nb.kind == CellNeighbour::Kind::Same) CHECK(m.level[nb.a] == m.level[c]);
+            if (nb.kind == CellNeighbour::Kind::Coarser) CHECK(m.level[nb.a] == m.level[c] - 1);
+            if (nb.kind == CellNeighbour::Kind::Finer)
+                CHECK(m.level[nb.a] == m.level[c] + 1 && m.level[nb.b] == m.level[c] + 1 && nb.a != nb.b);
+        }
+}
+
+double cell_mesh_total(const CellMesh& m, int q) {
+    double s = 0.0;
+    for (int c = 0; c < m.num_leaves(); ++c) s += m.U[c][q] * m.area(c);
+    return s;
+}
+
+void random_state(CellMesh& m, std::mt19937& rng) {
+    m.U.resize(m.num_leaves());
+    for (State& u : m.U)
+        for (double& v : u) v = 0.001 * static_cast<double>(rng() % 100000) + 1.0;
+}
+
+}   // namespace
+
+TEST(cellmesh_level0_matches_uniform_mesh) {
+    for (int per = 0; per < 4; ++per) {
+        const bool px = per & 1, py = per & 2;
+        CellMesh m(3.7, 1.9, 7, 5, 2, px, py, -0.3, 0.45);
+        const Mesh u = generate_cartesian_mesh(3.7, 1.9, 7, 5, -0.3, 0.45);
+        CHECK(m.num_leaves() == 35);
+        for (int c = 0; c < m.num_leaves(); ++c) {
+            CHECK(m.dx(0) == u.dx && m.dy(0) == u.dy);
+            CHECK(m.xc(c) == u.xc(m.ci[c]) && m.yc(c) == u.yc(m.cj[c]));
+            CHECK(m.area(c) == u.cell_area());
+        }
+        CHECK(m.dx(2) == u.dx / 4.0 && m.dy(1) == u.dy / 2.0);
+        const int nxf = px ? 7 : 8, nyf = py ? 5 : 6;
+        CHECK(static_cast<int>(m.faces.size()) == nxf * 5 + 7 * nyf);
+        check_cell_mesh(m);
+    }
+}
+
+TEST(cellmesh_small_periodic_domains) {
+    // nx = 1 (a leaf is its own neighbour) and nx = 2 (two faces between the same pair of leaves)
+    for (const auto& n : std::vector<std::pair<int, int>>{{1, 1}, {1, 3}, {2, 2}, {2, 1}}) {
+        CellMesh m(1.0, 1.0, n.first, n.second, 3, true, true);
+        check_cell_mesh(m);
+        std::mt19937 rng(7u + static_cast<unsigned>(n.first * 10 + n.second));
+        for (int round = 0; round < 6; ++round) {
+            std::vector<char> r(m.num_leaves()), c(m.num_leaves());
+            for (int k = 0; k < m.num_leaves(); ++k) {
+                r[k] = rng() % 100 < 25;
+                c[k] = rng() % 100 < 50;
+            }
+            m.adapt(r, c);
+            check_cell_mesh(m);
+        }
+    }
+    CellMesh two(1.0, 1.0, 2, 2, 0, true, true);
+    CHECK(two.faces.size() == 8);
+}
+
+TEST(cellmesh_random_adapt_invariants) {
+    const bool flags[4][2] = {{false, false}, {true, false}, {false, true}, {true, true}};
+    for (int cfg = 0; cfg < 4; ++cfg) {
+        CellMesh m(2.0, 1.5, 6, 5, 3, flags[cfg][0], flags[cfg][1]);
+        std::mt19937 rng(1234u + static_cast<unsigned>(cfg));
+        random_state(m, rng);
+        for (int round = 0; round < 10; ++round) {
+            double before[kNVar];
+            for (int q = 0; q < kNVar; ++q) before[q] = cell_mesh_total(m, q);
+            std::vector<char> r(m.num_leaves()), c(m.num_leaves());
+            for (int k = 0; k < m.num_leaves(); ++k) {
+                r[k] = rng() % 100 < 12;
+                c[k] = rng() % 100 < 60;
+            }
+            m.adapt(r, c);
+            check_cell_mesh(m);
+            CHECK(static_cast<int>(m.U.size()) == m.num_leaves());
+            for (int q = 0; q < kNVar; ++q) CHECK_NEAR(cell_mesh_total(m, q), before[q], 1e-12 * before[q]);
+        }
+    }
+}
+
+TEST(cellmesh_refine_then_coarsen_restores_state) {
+    CellMesh m(1.0, 1.0, 5, 4, 2);
+    std::mt19937 rng(99);
+    random_state(m, rng);
+    const Field U0 = m.U;
+    const std::vector<int> ci0 = m.ci, cj0 = m.cj;
+    std::vector<char> r(m.num_leaves());
+    for (char& v : r) v = rng() % 100 < 40;
+    m.adapt(r);
+    CHECK(m.num_leaves() > 20);
+    std::vector<char> c(m.num_leaves());
+    for (int k = 0; k < m.num_leaves(); ++k) c[k] = m.level[k] == 1;
+    m.adapt({}, c);
+    CHECK(m.num_leaves() == 20 && m.ci == ci0 && m.cj == cj0);
+    CHECK(m.U == U0);   // bitwise: injection, then the mean of four equal values
+    check_cell_mesh(m);
+}
+
+TEST(cellmesh_ripple_and_merge_refusal) {
+    CellMesh m(4.0, 4.0, 4, 4, 3);
+    const auto flag_cell = [](const CellMesh& mesh, int l, int i, int j) {
+        std::vector<char> r(mesh.num_leaves(), 0);
+        const int c = mesh.find(l, i, j);
+        CHECK(c >= 0);
+        if (c >= 0) r[c] = 1;
+        return r;
+    };
+    m.adapt(flag_cell(m, 0, 1, 1));
+    CHECK(m.num_leaves() == 19 && m.find(1, 2, 2) >= 0);
+    // refine the child touching the corner of (0;2,2): its level-0 neighbours must follow (ripple)
+    m.adapt(flag_cell(m, 1, 3, 3));
+    CHECK(m.find(0, 2, 2) < 0 && m.find(0, 2, 1) < 0 && m.find(0, 1, 2) < 0);
+    CHECK(m.find(2, 6, 6) >= 0 && m.find(1, 4, 4) >= 0 && m.find(0, 0, 0) >= 0 && m.find(0, 3, 3) >= 0);
+    CHECK(m.num_leaves() == 31);
+    check_cell_mesh(m);
+    {
+        // the group of (0;2,2) cannot merge back: its corner neighbour block (1,1) is two levels deeper there
+        std::vector<char> c(m.num_leaves(), 0);
+        for (int k = 0; k < m.num_leaves(); ++k) c[k] = m.level[k] == 1 && m.ci[k] / 2 == 2 && m.cj[k] / 2 == 2;
+        m.adapt({}, c);
+        CHECK(m.num_leaves() == 31);
+    }
+    {
+        const CellNeighbour nb = m.neighbour(m.find(0, 0, 1), Face::Right);
+        CHECK(nb.kind == CellNeighbour::Kind::Finer && m.cj[nb.a] < m.cj[nb.b]);
+        const CellNeighbour back = m.neighbour(nb.a, Face::Left);
+        CHECK(back.kind == CellNeighbour::Kind::Coarser && back.a == m.find(0, 0, 1));
+    }
+
+    // a merge refused because a neighbour is refined in the same call (and the ripple it causes)
+    CellMesh q(4.0, 4.0, 4, 4, 3);
+    std::vector<char> r(q.num_leaves(), 0);
+    r[q.find(0, 1, 1)] = 1;
+    r[q.find(0, 2, 1)] = 1;
+    q.adapt(r);
+    CHECK(q.num_leaves() == 22);
+    std::mt19937 rng(5);
+    random_state(q, rng);
+    std::vector<char> co(q.num_leaves(), 0);
+    for (int k = 0; k < q.num_leaves(); ++k) co[k] = q.level[k] == 1 && q.ci[k] / 2 == 1 && q.cj[k] / 2 == 1;
+    q.adapt(flag_cell(q, 1, 4, 3), co);   // right of the block (1,1)
+    CHECK(q.find(1, 3, 3) >= 0 && q.find(2, 8, 6) >= 0);   // block (1,1) kept, (1;4,3) split
+    CHECK(q.find(0, 1, 2) < 0 && q.find(0, 2, 2) < 0);      // ripple to the level-0 corner neighbours
+    CHECK(q.num_leaves() == 31);
+    check_cell_mesh(q);
+    // asked again: still refused, the level-2 children are next to the block
+    co.assign(q.num_leaves(), 0);
+    for (int k = 0; k < q.num_leaves(); ++k) co[k] = q.level[k] == 1 && q.ci[k] / 2 == 1 && q.cj[k] / 2 == 1;
+    q.adapt({}, co);
+    CHECK(q.find(1, 3, 3) >= 0);
+    // coarsen the level-2 children first, then the block merges
+    co.assign(q.num_leaves(), 0);
+    for (int k = 0; k < q.num_leaves(); ++k) co[k] = q.level[k] == 2;
+    q.adapt({}, co);
+    CHECK(q.find(1, 4, 3) >= 0);
+    co.assign(q.num_leaves(), 0);
+    for (int k = 0; k < q.num_leaves(); ++k) co[k] = q.level[k] == 1 && q.ci[k] / 2 == 1 && q.cj[k] / 2 == 1;
+    q.adapt({}, co);
+    CHECK(q.find(0, 1, 1) >= 0);
+    check_cell_mesh(q);
 }
 
 int main() {

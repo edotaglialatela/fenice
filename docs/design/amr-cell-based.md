@@ -1,6 +1,6 @@
 # Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
 
-Status: plan, nothing implemented yet. Written 2026-10-22 after a review of AMReX, SAMRAI and the ECOGEN source.
+Status: P1 done (2026-10-22: `CellMesh`, topology only, no physics); P2 next. Written 2026-10-22 after a review of AMReX, SAMRAI and the ECOGEN source.
 `main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
 
 ## 1. Why
@@ -185,10 +185,29 @@ decision 5; suggested: 1.5x on the airfoil study).
 * The first-order coarse side at jumps is local; an interpolated second-order variant can be added later if the study shows
   the jump seams dominate the error.
 
-## 7. Decisions still open (the user)
-1. `amr_patch_nx/ny`: remove (recommended, the base mesh is the level-0 grid) or keep as accepted-and-ignored with a warning.
-2. Accept the first-order coarse side at level jumps for now (recommended, as ECOGEN) or require a second-order jump closure.
-3. 3-D octree: after P8, separate decision.
+## 7. Decisions (the user, 2026-10-22)
+1. `amr_patch_nx/ny`: **removed** (the base mesh is the level-0 grid).
+2. First-order coarse side at level jumps: **accepted** for now.
+3. 3-D octree: decided after the performance phase (P8).
 4. The AMR regression references (6) are regenerated after validation, with the user's approval.
-5. The wall-time gate threshold at P2 (suggested 1.5x projected gain on the airfoil study).
-6. When the branch is ready: merge into `main` after the acceptance gates, with regenerated AMR references.
+5. Wall-time gate at P2: **no threshold fixed**. At the end of P2 report the measured projected gain; the user decides go / no-go.
+6. Merging into `main`: **no** (not decided; the branch stays separate).
+
+## 8. P1 as built (`CellMesh`, `cpp/include/fv/CellMesh.hpp`, `cpp/src/CellMesh.cpp`)
+* Leaves are parallel arrays `level, ci, cj` (+ `U`) sorted by (level, Morton key); `level_begin` gives each level's run. A hash map
+  key -> leaf exists for lookups at remesh time only; nothing iterates over it.
+* `faces` (`CellFace`: `left/right`, `level` of the finer cell, `tpos`, `axis`, kind Interior / CoarseFine / Boundary, `length`), sorted
+  by level (`face_level_begin`). Same-level faces are created by the lower-side leaf, coarse-fine faces by the fine leaf, boundary
+  faces by the leaf at the edge. Periodic axes wrap (`left` = last column); `nx = 1` periodic is accepted (a leaf is its own
+  neighbour), `nx = 2` periodic gives two faces between the same pair.
+* Gather list `side_ptr / side_face`: for leaf `c` and side `s` (Left, Right, Bottom, Top) the faces on that side, one or two, lower
+  transverse position first, so the P2 residual can keep the order `((0 - (fr - fl)) - (ft - fb)) / area`.
+* `adapt(refine, coarsen)`: refine with a ripple (a leaf becoming level l+1 forces every corner neighbour of level < l to refine,
+  to a fixpoint); merge four siblings (mean of the four, summed `((a+b)+(c+d))*0.25`) only if all four are flagged, none is refined,
+  and no corner-neighbour block of the parent holds a leaf that is deeper than level l or is refined in the same call; refusals are
+  decided on the state before the call (order independent). Refine then merge restores `U` bitwise.
+* Stencils (`c0..c3`, virtual cells) are not in P1: they are P2, kept as parallel arrays so the face record does not change.
+* Tests (`cellmesh_*` in `test_main.cpp`): an independent brute-force oracle in finest-level integer coordinates checks tiling,
+  corner balance for every touching pair, exactly one face per shared segment (orientation, kind, level, boundary side), side
+  coverage, ordering, neighbour summaries, for periodic and non-periodic axes, `nx = 1, 2`, random adapt sequences, plus conservation
+  to 1e-12 on random states and hand-built ripple / merge-refusal cases.

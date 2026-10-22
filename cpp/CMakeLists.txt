@@ -21,6 +21,7 @@ add_library(fenice_core STATIC
   src/TimeScheme.cpp
   src/SolutionMapping.cpp
   src/AMR.cpp
+  src/CellMesh.cpp
   src/IO.cpp
   src/Params.cpp
   src/TestCases.cpp
