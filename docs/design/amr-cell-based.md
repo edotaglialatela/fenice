@@ -432,3 +432,31 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
   | (b) + (c) | 0.1491 | 0.2249 | 0.1637 | 0.3538 | 13.1 s |
 
   With (b)+(c) the mean Cl error against the reference falls from 5.4 % to 3.6 % and Cl at t = 6 matches the reference (0.3538 against 0.3540), for 3 % more wall time.
+
+## 15. Parent-level join (2026-10-22; deviation (2) of section 13 removed)
+* `CellIndicator::evaluate` now works on the level hierarchy: the cells of level l are its leaves plus the split ancestors of the deeper leaves (a split cell holds the mean of its four
+  children, `((a+b)+(c+d))*0.25`), stored sorted by Morton key and looked up by binary search (nothing iterates a hash map); xi of every level is computed with the four steps on that
+  level's interfaces (two cells of the level, or a cell and a coarser leaf, where only the cell decides and receives; periodic wraps at every level). A leaf is refined on its own xi at its level;
+  four sibling leaves are joined when the xi of their PARENT cell at the parent level is below `join` (`CellIndicator::parent_join = false` restores the old children rule, for the test).
+  Consequence also named: a leaf next to a refined region now sees the split neighbour's mean at its own level instead of the fine leaves across the coarse-fine faces.
+* Test (expectation fixed beforehand): a marginal ramp (coarse-face variation 0.14, fine-face 0.07, criterion 0.1) on a static field reaches a fixed point at once with the parent rule (376 leaves after
+  every remesh) and flickers with the children rule (376 / 256 alternating over 10 remeshes), so the test can detect the defect.
+* Effect, airfoil (same case, criterion 0.1, density + velocity, closure (b); before = section 13/14):
+
+  | | refine flags | joined groups | final leaves | wall | remesh share | Cd mean | Cl mean | Cd(6) | Cl(6) |
+  |---|---|---|---|---|---|---|---|---|---|
+  | children rule | 13 067 | 11 827 | 22 329 | 12.7 s | 31 % | 0.1509 | 0.2295 | 0.1663 | 0.3621 |
+  | parent rule | 2 601 | 944 | 23 481 | 13.8 s | 39 % | 0.1494 | 0.2300 | 0.1632 | 0.3525 |
+
+  (reference, uniform 768 x 384: Cd mean 0.1498, Cl mean 0.2171, at t = 6 0.1655 / 0.3540.) The churn falls by a factor 5 (flags) and 12 (joins). Cd is now within 0.3 % of the reference; Cl
+  is unchanged (+6 %). The indicator costs 7x more (0.23 s -> 1.71 s of the run: the level hierarchy is rebuilt per remesh, with a vector of states per level and binary searches); remesh is 39 % of
+  the wall time (indicator 1.71 s, adapt 1.23 s, build 2.28 s), to be reduced in P8. With the second-order coarse side (experiment of section 14): Cd mean 0.1482, Cl mean 0.2268.
+* Sod, base 50 + 2 levels, remesh every 4 steps (error of the density against the exact solution, mean leaves; before = section 13): the choice of variables and threshold now matters little.
+
+  | criterion | density | density + pressure | density + velocity |
+  |---|---|---|---|
+  | 0.02 | 3.10e-3, 1 071 (before 3.25e-3, 928) | 3.09e-3, 1 091 (3.10e-3, 966) | 3.07e-3, 1 128 (3.10e-3, 999) |
+  | 0.05 | 3.16e-3, 901 (3.98e-3, 743) | 3.12e-3, 1 030 (3.59e-3, 804) | 3.05e-3, 1 086 (3.14e-3, 909) |
+  | 0.10 | 3.22e-3, 696 (4.33e-3, 570) | 3.12e-3, 783 (4.56e-3, 643) | 3.10e-3, 983 (3.43e-3, 797) |
+
+  Uniform 200 (3 200 cells): 2.91e-3. The contact that the default 0.1 missed before is now kept refined.

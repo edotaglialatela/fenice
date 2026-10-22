@@ -2,15 +2,18 @@
 // finest-level band around an immersed body, and the remesh / initial adaptation drivers.
 //
 // Indicator (docs/design/amr-cell-based.md section 11):
-//   1. xi = 0 in every leaf.
-//   2. For every interior face and every enabled variable (density, pressure, velocity magnitude), with c_l, c_r the
-//      values of its two leaves: m = max(min(|c_l|, |c_r|), floor), variation = |c_r - c_l| / m; if
-//      variation >= criterion, both leaves get xi = 1.
-//   3. `diffusion` iterations: every face whose leaves are at the same level and one of them has xi > trigger, or whose
-//      finer leaf has xi > trigger (coarse-fine face), adds `diffusion_coeff` to both leaves; after all faces xi += added.
-//   4. A leaf is refined if xi >= split, four siblings are joined if every one has xi < join.
+// It is evaluated level by level on the cells of each level (the leaves of that level and the split ancestors of the deeper
+// leaves, a split cell holding the mean of its children), so a parent has its own xi at the parent level:
+//   1. xi = 0 in every cell of the level.
+//   2. For every interface of the level (two cells of the level, or a cell and a coarser leaf) and every enabled variable
+//      (density, pressure, velocity magnitude), with c_l, c_r the values on its two sides: m = max(min(|c_l|, |c_r|), floor),
+//      variation = |c_r - c_l| / m; if variation >= criterion, the cells of the level on both sides get xi = 1.
+//   3. `diffusion` iterations: every interface of two cells with one of them above `diffusion_trigger`, or of a cell above it
+//      against a coarser leaf, adds `diffusion_coeff` to the cell(s) of the level; after all interfaces xi += added.
+//   4. A leaf is refined if its xi >= split; four sibling leaves are joined if the xi of their PARENT cell is < join.
 #pragma once
 
+#include <array>
 #include <functional>
 #include <vector>
 
@@ -31,9 +34,18 @@ struct CellIndicator {
     double split = 0.15;             // refine at xi >= split
     double join = 0.10;              // join siblings when all have xi < join
 
-    // The smoothing of step 3 applied to a given xi.
-    void diffuse(const CellMesh& mesh, std::vector<double>& xi) const;
-    // xi of every leaf of `mesh` for the state `U`.
+    // Test switch: false joins four siblings when all four have xi < join at their own level (the rule of the first
+    // version, which flickers at the edge of a refined region) instead of testing the parent's xi.
+    bool parent_join = true;
+
+    // The smoothing of step 3: interfaces {a, b} between two cells of the level, or {a, -1} between a cell and a coarser leaf.
+    void diffuse(std::vector<double>& xi, const std::vector<std::array<int, 2>>& interfaces) const;
+    // Per leaf of `mesh`: its xi at its own level, and the xi of its parent cell at the parent level (1e300 at level 0).
+    struct Result {
+        std::vector<double> xi, xi_parent;
+    };
+    Result evaluate(const CellMesh& mesh, const Field& U, const EOS& eos) const;
+    // xi of every leaf (evaluate(...).xi).
     std::vector<double> xi(const CellMesh& mesh, const Field& U, const EOS& eos) const;
 };
 

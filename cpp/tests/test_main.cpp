@@ -3656,23 +3656,95 @@ TEST(cellindicator_matches_a_structured_reference) {
 }
 
 TEST(cellindicator_diffusion_rule_at_level_jumps) {
-    // A coarse leaf with xi = 1 next to finer leaves with xi = 0 does not spread; a fine leaf with xi = 1 does, to the coarse one
-    CellMesh m(4.0, 4.0, 4, 4, 2);
+    // Interfaces of a level: {a, b} two cells of the level (either one above the trigger spreads to both), {a, -1} a cell of
+    // the level against a coarser leaf (only the cell decides and only it receives).
+    CellIndicator ind;
+    ind.diffusion = 1;
+    const std::vector<std::array<int, 2>> ifaces = {{0, 1}, {1, 2}, {2, -1}, {3, -1}};
+    std::vector<double> xi = {1.0, 0.0, 0.0, 0.0};
+    ind.diffuse(xi, ifaces);
+    CHECK_NEAR(xi[0], 1.1, 1e-12);
+    CHECK_NEAR(xi[1], 0.1, 1e-12);   // cell 0 spreads to cell 1; cell 1 starts at 0, so nothing reaches cell 2 in this iteration
+    CHECK(xi[2] == 0.0 && xi[3] == 0.0);
+    xi = {0.0, 0.0, 1.0, 0.0};
+    ind.diffuse(xi, ifaces);
+    CHECK_NEAR(xi[2], 1.2, 1e-12);   // cell 2 spreads to cell 1 (pair) and to itself once more through {2, -1}
+    CHECK_NEAR(xi[1], 0.1, 1e-12);
+    CHECK(xi[0] == 0.0 && xi[3] == 0.0);
+    xi = {0.0, 0.0, 0.0, 0.0};
+    ind.diffuse(xi, ifaces);
+    CHECK(xi == std::vector<double>({0.0, 0.0, 0.0, 0.0}));
+}
+
+TEST(cellindicator_levels_see_only_their_own_interfaces) {
+    // A density jump far inside the coarse region must not flag the fine leaves of a refined block (they only see their own
+    // level's interfaces and those to a coarser leaf), and a jump next to the block flags the fine cells through the
+    // coarse-fine interface.
+    const EOS eos = EOS::ideal(1.4);
+    CellMesh m(8.0, 8.0, 8, 8, 2);
     std::vector<char> r(static_cast<size_t>(m.num_leaves()), 0);
     r[m.find(0, 1, 1)] = 1;
     m.adapt(r);
     CellIndicator ind;
-    ind.diffusion = 1;
-    const int coarse = m.find(0, 0, 1), fine = m.find(1, 2, 2);   // face neighbours across x = 1
-    CHECK(coarse >= 0 && fine >= 0 && m.neighbour(fine, Face::Left).kind == CellNeighbour::Kind::Coarser);
-    std::vector<double> xi(static_cast<size_t>(m.num_leaves()), 0.0);
-    xi[coarse] = 1.0;
-    ind.diffuse(m, xi);
-    CHECK(xi[fine] == 0.0 && xi[coarse] >= 1.0);   // it still spreads to its same-level neighbours
-    std::fill(xi.begin(), xi.end(), 0.0);
-    xi[fine] = 1.0;
-    ind.diffuse(m, xi);
-    CHECK(xi[coarse] > 0.0 && xi[fine] > 1.0);
+    m.U.resize(m.num_leaves());
+    for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = eos.prim_to_cons({m.xc(c) > 5.0 ? 3.0 : 1.0, 0.0, 0.0, 1.0});
+    CellIndicator::Result far = ind.evaluate(m, m.U, eos);
+    double fine_xi = 0.0;
+    for (int c = 0; c < m.num_leaves(); ++c)
+        if (m.level[c] == 1) fine_xi = std::max(fine_xi, far.xi[c]);
+    CHECK(fine_xi == 0.0);   // the jump at x = 5 is three coarse cells away
+    for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = eos.prim_to_cons({m.xc(c) > 2.0 ? 3.0 : 1.0, 0.0, 0.0, 1.0});
+    CellIndicator::Result near = ind.evaluate(m, m.U, eos);
+    double fine_near = 0.0;
+    for (int c = 0; c < m.num_leaves(); ++c)
+        if (m.level[c] == 1 && m.xc(c) > 1.6) fine_near = std::max(fine_near, near.xi[c]);
+    CHECK(fine_near >= 1.0);   // the jump sits on the interface of the block
+    // the parent cell of the block at level 0 has its own xi: it is next to the jump too
+    int parent_flagged = 0;
+    for (int c = 0; c < m.num_leaves(); ++c)
+        if (m.level[c] == 1 && near.xi_parent[c] >= 1.0) ++parent_flagged;
+    CHECK(parent_flagged == 4);
+}
+
+TEST(cellremesh_a_marginal_ramp_reaches_a_fixed_point_with_the_parent_rule_and_flickers_without) {
+    // A smooth density ramp whose variation per coarse face (0.14 at x = 0) is above the criterion 0.1 and per fine face
+    // (0.07) below it. Expectation fixed beforehand: with the parent's xi the mesh stops changing within max_level + 1
+    // remeshes of the static field and stays; with the children's xi it keeps changing (refine, join, refine ...).
+    CellSetup su(false);
+    const auto changes = [&](bool parent_rule, int remeshes, std::vector<int>& counts) {
+        CellMesh m(1.0, 0.25, 32, 8, 2);
+        CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
+        CellIndicator ind;
+        ind.parent_join = parent_rule;
+        CellAdaptor ad(m, eng, su.eos, ind);
+        const auto fill = [&](CellMesh& mm) {
+            mm.U.resize(mm.num_leaves());
+            for (int c = 0; c < mm.num_leaves(); ++c) mm.U[c] = su.eos.prim_to_cons({1.0 + 4.5 * mm.xc(c), 0.0, 0.0, 1.0});
+        };
+        fill(m);
+        eng.build(m);
+        counts.clear();
+        int n_changed = 0;
+        for (int k = 0; k < remeshes; ++k) {
+            const bool ch = ad.remesh();
+            fill(m);   // the static field again, exactly, at the new leaves
+            counts.push_back(m.num_leaves());
+            if (ch) ++n_changed;
+        }
+        return n_changed;
+    };
+    std::vector<int> with_parent, with_children;
+    const int ch_parent = changes(true, 10, with_parent);
+    const int ch_children = changes(false, 10, with_children);
+    std::printf("    marginal ramp, leaves after each of 10 remeshes: parent rule");
+    for (int n : with_parent) std::printf(" %d", n);
+    std::printf(" | children rule");
+    for (int n : with_children) std::printf(" %d", n);
+    std::printf("\n");
+    CHECK(ch_parent <= 3);                                                   // max_level + 1 remeshes, then nothing
+    CHECK(with_parent[4] == with_parent[9] && with_parent[3] == with_parent[9]);
+    CHECK(ch_children >= 8);                                                 // the old rule keeps changing
+    CHECK(with_children[8] != with_children[9] || with_children[7] != with_children[8]);
 }
 
 TEST(cellremesh_step_is_stable_conservative_and_deterministic) {
