@@ -1,0 +1,194 @@
+# Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
+
+Status: plan, nothing implemented yet. Written 2026-10-22 after a review of AMReX, SAMRAI and the ECOGEN source.
+`main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
+
+## 1. Why
+
+Goal (user): minimise total wall time on adaptive runs while keeping the MPI load balance acceptable.
+
+What is wrong with the patch design (AMR.cpp, `Simulation::patch_residual`):
+
+1. Cells inside a refined patch are refined whether they need it or not (patch = 8x8 .. 16x16 cells).
+2. Every patch kernel looks up its ghost cells by geometry (`leaf_at`, `GridInterp2D`, `ghost_cell`) and has its own
+   residual: two implementations of the physics (uniform `assemble`, AMR `patch_residual`) kept equal by tests.
+3. Physical edges go through a separate path in which the boundary face is first order (MUSCL stencil not upgraded).
+4. Conservation across coarse-fine seams needs flux registers and is exact only for Explicit Euler (O(dt^2) otherwise).
+
+What ECOGEN does (read from `code-mphi/ECOGEN`, devel): a tree of cells plus an interface (face) list; each interface
+computes its Riemann flux once and adds it to both cells (area / volume, times a time-weight coefficient on the coarse side),
+so conservation follows from the data layout; refinement per cell from a face-variation indicator diffused twice; 2:1 inside
+the refine/unrefine decision; recursive subcycling by 2, finer level first, no time interpolation; the coarse side of a
+level jump uses its unreconstructed state; Morton keys for the domain decomposition; wall faces are second order.
+
+## 2. Design
+
+### 2.1 Cells
+* The base mesh is the user's `nx x ny` level-0 grid (no patches, any `nx`, `ny`). Refinement ratio 2, `amr_max_level` levels.
+* A cell is identified by `(level, i, j)` (integer coordinates at its level). Morton key `(level, morton(i, j))`.
+* Only leaves exist as data. Flat arrays indexed by leaf: `level[]`, `ci[]`, `cj[]`, `U[]` (Field), kept sorted by
+  `(level, morton)` so each level is a contiguous run and neighbours are close in memory. No per-cell objects.
+* Parent of a leaf is implied by the key (`(level-1, i>>1, j>>1)`); the tree is not stored.
+* Neighbour lookup happens only at remesh time, through a hash map key -> leaf index (never inside the residual, see 2.2).
+  Across a side: same level (one leaf), coarser (the leaf of the parent-level neighbour), or finer (the two children
+  touching the side).
+* Balance: **corner (vertex) 2:1 balance**, not face balance only. With face balance alone the far children of the block
+  beyond `c2` can be two levels finer, and the viscous cross terms, the IBM fringe and the halos reach diagonal neighbours.
+  Corner balance keeps every stencil within one level of the cell that reads it, so the virtual values of 2.3 are defined by
+  injection / mean of the four children only (no recursive averages).
+
+### 2.2 Faces
+* A face belongs to the level of the finer of its two cells. Kinds: same-level, coarse-fine (the fine leaf and the coarse
+  leaf; the coarse side is covered by two fine faces), boundary (one cell, a domain edge with its BC type).
+* Face record: `left`, `right` (leaf index or -1), `axis`, `level`, `kind`, length. Built after each remesh.
+* **Precomputed stencils.** At each remesh every face gets its stencil indices: `c0..c3` along the axis (with codes for
+  virtual cells: "injection of leaf k", "mean of the four children of block b"), and the cells whose gradients enter the
+  viscous cross terms. Every cell gets the same for its gradients and its indicator. The residual reads index arrays only:
+  no hash map, no tree walk, no geometry in the time loop.
+* Cell-centric gather: face fluxes are computed in a face loop into `F[face]` (parallel, no write conflicts), then each cell
+  sums its own faces through a CSR list. Deterministic and bitwise independent of the thread count.
+
+### 2.3 Reconstruction and fluxes (the bitwise anchor)
+* MUSCL per face needs `c0..c3` along the axis: the left cell `c1`, the right cell `c2`, and their outer neighbours `c0`,
+  `c3`. Same level: the real neighbours. Beyond a coarser cell: injection of the coarse value (virtual fine cell).
+  Beyond a finer cell: the mean of the four children (virtual coarse cell).
+* Therefore at a level jump the coarse side of a fine face is first order (`c3 - c2 = 0`), as in ECOGEN; the fine side keeps
+  second order. Free-stream is preserved exactly across jumps.
+* The limiter acts on raw differences `(c1 - c0, c2 - c1)` exactly as `MusclReconstruction::reconstruct` does today, and the
+  cell residual uses the existing operation order `((0 - (fr - fl)) - (ft - fb)) / area`, so a tree with only level-0 leaves
+  reproduces the uniform solver **bitwise**. (Dividing slopes by distances and multiplying back would change bits: do not.)
+* **Parity checklist (what the level-0 equality has to reproduce), obtained by calling the existing code, not by
+  rewriting it** (`RiemannSolver::face_flux`, `apply_limiter`, the BC ghost code of `BoundaryManager::apply_side`,
+  `get_padded_U`, `CrossGhosts` rules):
+  - no reconstruction on a boundary face, with the primitive round trip `prim_to_cons(cons_to_prim(.))` kept;
+  - the edge-replicated `c0` / `c3` at the first interior face next to a physical boundary;
+  - the wrap-around halos of periodic axes;
+  - the Riemann ghost state of every BC type;
+  - the viscous padded state (edge padding with BC overrides per BC type) and the `CrossGhosts` edge rules (periodic wrap,
+    zero gradient at physical boundaries);
+  - body force first, then source terms, in the residual.
+  Consequence for the boundary: the AMR engine must first reproduce today's first-order boundary face (invariant 2). The
+  second-order boundary face is a later switch applied to **both** engines.
+* Viscous terms are already face-based in the solver (two-point normal derivative, cell-gradient average for the cross
+  terms); they port directly, with the neighbour graph replacing the padded array.
+
+### 2.4 Time stepping and conservation
+* Same recursion as today: level `l` advances by `dt_l = dt_0 / 2^l`, the finer level first (two substeps), then the coarse
+  level, with the coarse neighbour frozen at its start-of-step state (no time interpolation, like ECOGEN).
+* Flux replacement instead of reflux: the fluxes of a coarse-fine face are computed on the fine side at every fine stage and
+  accumulated with the time-scheme stage weights `b_i` (new `TimeScheme::stage_weights()`: Euler `[1]`, SSP-RK2 `[1/2, 1/2]`,
+  RK4 `[1/6, 1/3, 1/3, 1/6]`) into a per-(coarse cell, side) register. The coarse cell uses the accumulated time-average
+  flux for that side in every stage of its own advance, so the coarse update contains exactly the integral of the fine
+  fluxes: conservation to roundoff for every scheme (the patch design is exact only for Explicit Euler).
+* **Plumbing to add (it does not exist on the AMR path):** `advance_fixed_dt` takes no current time and never sets
+  `TimeScheme::stage_time`; it must take the time of the step and set the stage times as `step()` does (needed by the
+  unsteady sources that P4 allows with AMR). The same hook gives the residual its **stage index**, used to pick the weight
+  `b_i` when accumulating the fine fluxes; a check asserts that the number of residual calls of a step equals the number of
+  weights.
+* **No snapshot copy.** Today every level pass copies all leaves into `U_ghost`. The other levels do not change while one
+  level advances, so the face engine reads their `U` directly: one O(N) copy per pass saved.
+
+### 2.5 Regridding
+* Indicator per leaf: the Lohner ratio of the current engine, with neighbours from the neighbour graph (virtual cells at
+  jumps). Refine above `amr_refine_threshold`; derefine a sibling group of four when all four are below
+  `amr_derefine_threshold` and 2:1 allows it; `amr_buffer_layers` rings of neighbours (faces and diagonals) added around
+  flagged cells. 2:1 is restored by rippling refinement to coarser neighbours (p4est style), not by forbidding refinement.
+* Data transfer: conservative injection on refinement, area-weighted mean on derefinement (as today).
+* Parameters kept: `use_amr`, `amr_max_level`, `amr_refine_threshold`, `amr_derefine_threshold`, `amr_refine_every`,
+  `amr_init_levels`, `amr_buffer_layers`, `amr_refine_ibm`, `amr_indicator`. `amr_patch_nx/ny` disappear (decision 1).
+
+### 2.6 MPI
+* Replicated metadata (keys of all leaves, owners) on every rank, state only on owner and halo: as today.
+* Baseline partition: each level cut into contiguous Morton blocks of equal count (every level is advanced separately by the
+  recursion, so per-level balance is what keeps ranks busy). **Halo = exactly the set of cells referenced by the stencils
+  (2.2) of the faces and cells this rank owns** (a geometric "two own cells" is ambiguous at level jumps). Exchanges per stage for the level being advanced, one buffer per
+  rank pair, as `AMRParallel::exchange` does now. Requirement kept: MPI == serial bitwise for any rank count.
+* Load balance is measured, not assumed (section 5). A weighted single-curve partition is an alternative, to be compared.
+
+### 2.7 Physics ported
+IBM (mask by cell centre, forcing, fringe/solid reset through the neighbour graph), body force, source terms (now allowed
+with AMR: manufactured solutions on adaptive grids, also unsteady), all boundary conditions (the boundary face gets a
+ghost state like any interface; the second-order boundary face of the uniform solver becomes possible here), non-reflecting
+outlet (tangential derivatives from neighbours).
+
+### 2.8 Output and restart
+* VTK: one `.vtu` of leaf quads per rank per output (+ `.vtm`, `.pvd` as now). Python reader `fenice.read_vtu`. Before
+  switching (P7) check what each AMR validation script reads: today `airfoil_amr.py`, `sod_amr.py` read `final.npz`
+  (`U` and `leaf_meta` = bounds and level per leaf), not VTK.
+* `dump_state` keeps `U` plus per-leaf metadata (bounds, level) so the validation scripts keep working. Hot start from a
+  uniform checkpoint is interpolated onto the initial tree as today.
+
+## 3. Invariants (must hold at every merge point)
+1. All uniform references bitwise (the 32 non-AMR ones of the 38 in `regression.py`; the 6 AMR ones change, see below),
+   serial and MPI.
+2. A tree with only level-0 leaves equals the uniform solver bitwise (residual and steps), for every BC type.
+3. Conservation to roundoff across level jumps, for Euler / SSP-RK2 / RK4, viscous included.
+4. MPI == serial bitwise for any rank count; results independent of the OpenMP thread count.
+5. `fp:precise`, no FMA contraction, `kOmpMinWork`, OpenMP 2.0 rules (thread-local max + critical).
+
+### Invariants of the existing AMR unit tests that carry over
+Conservation (viscous included; `amr_reflux_conservation`, `amr_viscous_reflux_conservation`), level-0 / tiled equals
+uniform (`amr_root_patch_matches_uniform_residual`, `amr_same_level_patches_match_uniform_residual`,
+`amr_tiled_matches_uniform_steps`), IBM masks and solid reset across levels (`amr_ibm_masks_and_reset_across_patches`), the
+body kept at max level (`amr_body_kept_at_max_level`), marking, buffer and the anti-thrash guard (`amr_marking_and_buffer`,
+`amr_error_indicator`), ownership and halos (`amr_ownership_and_halo`), conservative refine / derefine, 2:1 balance.
+
+## 4. Phases and acceptance
+| Phase | Content | Acceptance |
+|---|---|---|
+| P0 | Baseline numbers from the patch AMR on `main` (cells, wall time, errors, MPI scaling) and the flagged-versus-held measurement | numbers recorded in section 5 of this document (`results/` is gitignored) |
+| P1 | Leaf arrays, keys, neighbour lookup, faces + CSR, refine/derefine, ripple 2:1 | tests: faces cover every side exactly, 2:1, conservative refine/derefine, Morton order |
+| P2 | Convective residual on faces (Godunov, MUSCL, all limiters, Riemann variants, all BC types incl. periodic) | level-0 tree == uniform residual bitwise; free stream across jumps exact; **wall-time gate (section 5)** |
+| P3 | Subcycling with flux replacement, stage weights | conservation to roundoff (Euler/RK2/RK4); level-0 steps == uniform steps; Sod vs exact |
+| P4 | Viscous, body force, sources, IBM, NRBC | same tests with physics; MMS on an adaptive grid (steady and unsteady) |
+| P5 | Indicator, buffer, balance, remesh, `amr_init_levels`, IBM body at max level, hot start | tests of marking/transfer; Sod and airfoil run |
+| P6 | MPI | bitwise vs serial on 1..7 ranks; per-level balance report |
+| P7 | VTK, restart, python readers, params, GUI keys, docs, validation scripts; delete the patch engine | all studies run; docs rewritten |
+| P8 | Performance and load balance versus `main` | wall time per accuracy not worse on any study; report |
+| P9 (separate decision) | 3-D octree | none yet |
+
+The AMR regression references (6) change in P3..P5 because the numerics change (different coarse-fine closure, no patch
+seams); they are regenerated only after validation against uniform fine runs and exact solutions, with your approval.
+
+## 5. Measurements and the wall-time gate
+
+### P0 results (patch AMR on `main`, the study configurations; taken 2026-10-22)
+* Airfoil (`amr/airfoil_amr.py`, 192x96 base, 2 levels, 16x16 patches, indicator `density+velocity`, `amr_refine_ibm`):
+  AMR 52 224 cells, 22.1 s; uniform 768x384 294 912 cells, 244.1 s; uniform 192x96 18 432 cells, 2.5 s.
+* Over-refinement, measured on the final snapshot: each leaf above level 0 restricted 2x2 to the next coarser resolution, the
+  Lohner indicator evaluated per cell there (threshold 0.3), flagged cells plus one buffer ring, 4 fine cells per flagged cell:
+  - airfoil: level 1 holds 14 336 cells, 568 needed (4 %); level 2 holds 24 576, 5 112 needed (21 %); the refined levels
+    together need 15 % of what they hold: 18 992 cells in total against 52 224 (2.7x fewer);
+  - Sod (`amr/sod_amr.py`, 10x2 patches, 4 levels, density indicator): refined levels need 20 % of what they hold: 544
+    cells against 2 720 (5x fewer).
+  These are **upper bounds on the saving**: one end-of-run snapshot, the cells near an immersed body that `amr_refine_ibm`
+  forces to the finest level are not counted as needed (a cell-based engine would refine a band around the surface, not the
+  bounding box), and the history of the flagged region over the run is not included.
+* MPI baseline (`amr/amr_mpi.py`, airfoil on a 720x360 base mesh with 24x24 patches, 50 steps, 16 logical processors
+  of an 8-core machine; also in `docs/source/modules/AMR.md` on `main`): serial 16.4 s; OpenMP 2 / 4 / 8 / 16 threads
+  8.8 / 5.1 / 3.2 / 2.9 s (speed-up 1.9 / 3.2 / 5.2 / 5.6); MPI 2 / 4 / 8 / 16 ranks 8.9 / 5.2 / 4.0 / 4.6 s (speed-up
+  1.8 / 3.2 / 4.1 / 3.5), cells on the busiest rank 61 / 41 / 26 / 20 % (ideal 50 / 25 / 12.5 / 6.25 %). Every final state is
+  bitwise the serial one. P8 must report the same table for the new engine.
+
+### Wall-time gate at P2 (go / no-go)
+The only goal is less total wall time. At the end of P2, measure the residual cost per cell of the face engine against the
+uniform `assemble` on the same large mesh (same physics, same threads). Projected gain = (cells held / cells needed, from
+above) / (per-cell cost ratio). **Stop before P3 if the projected gain is below the threshold agreed with the user** (open
+decision 5; suggested: 1.5x on the airfoil study).
+
+## 6. Risks
+* Speed of a cell-gather loop against structured patch loops: mitigated by Morton-sorted flat arrays, a face loop without
+  per-face objects, and measuring in P2 before going further.
+* IBM fringe and solid reset use structured neighbour access today; the neighbour graph must reproduce the same sets.
+* Viscous cross gradients at level jumps need a defined virtual-neighbour rule (injection / mean of children, as for MUSCL).
+* Per-level partitions cost more halo traffic than one spatially compact partition: measure in P6/P8.
+* The first-order coarse side at jumps is local; an interpolated second-order variant can be added later if the study shows
+  the jump seams dominate the error.
+
+## 7. Decisions still open (the user)
+1. `amr_patch_nx/ny`: remove (recommended, the base mesh is the level-0 grid) or keep as accepted-and-ignored with a warning.
+2. Accept the first-order coarse side at level jumps for now (recommended, as ECOGEN) or require a second-order jump closure.
+3. 3-D octree: after P8, separate decision.
+4. The AMR regression references (6) are regenerated after validation, with the user's approval.
+5. The wall-time gate threshold at P2 (suggested 1.5x projected gain on the airfoil study).
+6. When the branch is ready: merge into `main` after the acceptance gates, with regenerated AMR references.
