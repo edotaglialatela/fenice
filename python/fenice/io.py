@@ -1,5 +1,5 @@
-"""Readers for fenice output: VTK snapshots (.vtr, ASCII or binary), the .pvd time series,
-the monitor CSV and the final-state / checkpoint .npz."""
+"""Readers for fenice output: VTK snapshots (.vtr of a uniform mesh, .vtu / .pvtu of an adaptive one,
+ASCII or binary), the .pvd time series, the monitor CSV and the final-state / checkpoint .npz."""
 import base64
 import xml.etree.ElementTree as ET
 from pathlib import Path
@@ -50,6 +50,26 @@ def read_vtr(path):
         ncomp = int(node.get("NumberOfComponents", "1"))
         a = vtk_array(node)
         out[node.get("Name")] = a.reshape(shape + ((ncomp,) if ncomp > 1 else ()))
+    return out
+
+
+def read_vtu(path):
+    """A fenice adaptive-mesh snapshot (.vtu, or the .pvtu that lists the .vtu pieces of the MPI
+    ranks) as a dict with one entry per leaf cell: the cell bounds x0, x1, y0, y1, the refinement
+    ``level`` and every cell field by name (Density, Pressure, Temperature_nondim, Mach, shape
+    [n]; Velocity, shape [n, 3])."""
+    p = Path(path)
+    root = ET.parse(p).getroot()
+    if root.get("type") == "PUnstructuredGrid":
+        parts = [read_vtu(p.parent / piece.get("Source")) for piece in root.iter("Piece")]
+        return {k: np.concatenate([q[k] for q in parts]) for k in parts[0]}
+    pts = vtk_array(root.find(".//Points/DataArray")).reshape(-1, 4, 3)   # a quad per leaf, counter-clockwise from (x0, y0)
+    out = {"x0": pts[:, 0, 0], "x1": pts[:, 1, 0], "y0": pts[:, 0, 1], "y1": pts[:, 2, 1]}
+    for node in root.find(".//CellData"):
+        ncomp = int(node.get("NumberOfComponents", "1"))
+        a = vtk_array(node)
+        out[node.get("Name")] = a.reshape(-1, ncomp) if ncomp > 1 else a
+    out["level"] = out.pop("AMR_Level").astype(int)
     return out
 
 

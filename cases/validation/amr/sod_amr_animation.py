@@ -3,10 +3,10 @@
     python cases/validation/amr/sod_amr_animation.py            # results/validation/sod_amr_animation/
     python cases/validation/amr/sod_amr_animation.py --docs     # also docs/img/sod_amr_animation.gif
 
-Runs the Sod case on a 40 x 4 base mesh with 8 x 2 patches and three AMR levels (320 x 32 at the
-finest level), remeshing every 2 steps, once per frame to t = k t_end / frames (the steps before the
-last one are identical, so the frames are one run). Animates the density at the leaf cells coloured
-by level against the exact solution, the patches below it (the refined patches travel with the
+Runs the Sod case on a 40 x 4 base mesh with three AMR levels (320 x 32 at the finest level),
+remeshing every 2 steps, once per frame to t = k t_end / frames (the steps before the last one are
+identical, so the frames are one run). Animates the density at the leaf cells coloured by level
+against the exact solution, the leaves' levels below it (the refined cells travel with the
 rarefaction fan, the contact and the shock, and are released behind them) and, at the bottom, the
 mesh itself with its cell edges.
 Figure: sod_amr_animation.gif (plus a still, sod_amr_animation.png).
@@ -18,27 +18,25 @@ from fenice import study
 from fenice.exact import riemann
 
 STUDY, CASE = "sod_amr_animation", "Sod Shock Tube"
-NX, NY, PX, PY, LEVELS = 40, 4, 8, 2, 3
+NX, NY, LEVELS = 40, 4, 3
 T_END, FRAMES = 0.2, 60
-SETS = (f"nx={NX}", f"ny={NY}", "Lx=1.0", "use_amr=true", f"amr_patch_nx={PX}", f"amr_patch_ny={PY}",
-        f"amr_max_level={LEVELS}", f"amr_init_levels={LEVELS}", "amr_refine_every=2", "amr_buffer_layers=1",
-        "save_interval=1000000000")
+SETS = (f"nx={NX}", f"ny={NY}", "Lx=1.0", "use_amr=true", f"amr_max_level={LEVELS}", f"amr_init_levels={LEVELS}",
+        "amr_refine_every=2", "save_interval=1000000000")
 COLORS = ["#95a5a6", "#f39c12", "#e74c3c", "#8e44ad"]
 
 
 def frame(args, k):
-    """Leaf cells (centre, density averaged over the patch rows, level) and the leaves at frame k."""
+    """Leaf columns (centre, density averaged over y, level) and the leaves at frame k."""
     t = T_END * k / FRAMES
     run = study.run_cached(STUDY, f"f{k:03d}", CASE, *SETS, f"t_end={t:.10f}", force=args.force)
     d = fenice.read_dump(run / "final.npz")
     U, meta = d["U"], d["leaf_meta"]
-    xs, rho, lev = [], [], []
-    for n, (x0, x1, _, _, level) in enumerate(meta):
-        c = U[n * PX * PY:(n + 1) * PX * PY, 0].reshape(PY, PX).mean(axis=0)
-        xs.append(x0 + (np.arange(PX) + 0.5) * (x1 - x0) / PX)
-        rho.append(c)
-        lev.append(np.full(PX, int(level)))
-    return t, np.concatenate(xs), np.concatenate(rho), np.concatenate(lev), meta
+    x0, x1, y0, y1, level = meta.T
+    key = np.round(np.stack([0.5 * (x0 + x1), x1 - x0]), 12)
+    cols, inv = np.unique(key, axis=1, return_inverse=True)   # leaves stacked in y share a column
+    inv = inv.ravel()
+    avg = lambda a: np.bincount(inv, a * (y1 - y0)) / np.bincount(inv, y1 - y0)
+    return t, cols[0], avg(U[:, 0]), np.round(avg(level)).astype(int), meta
 
 
 def main():
@@ -88,17 +86,13 @@ def main():
         while mesh_pc:
             mesh_pc.pop().remove()
         quads, colors = [], []
-        for x0, x1, y0, y1, level in meta:
-            dx, dy = (x1 - x0) / PX, (y1 - y0) / PY
-            for j in range(PY):
-                for i in range(PX):
-                    xa, ya = x0 + i * dx, y0 + j * dy
-                    quads.append([(xa, ya), (xa + dx, ya), (xa + dx, ya + dy), (xa, ya + dy)])
-                    colors.append(COLORS[int(level)])
+        for xa, xb, ya, yb, level in meta:
+            quads.append([(xa, ya), (xb, ya), (xb, yb), (xa, yb)])
+            colors.append(COLORS[int(level)])
         pc = PolyCollection(quads, facecolors=colors, edgecolors="k", linewidths=0.25, alpha=0.55)
         mesh_pc.append(a2.add_collection(pc))
-        n_cells = len(meta) * PX * PY
-        title.set_text(rf"Sod shock tube, AMR: $t = {t:.3f}$, {len(meta) // 1} patches, {n_cells} cells "
+        n_cells = len(meta)
+        title.set_text(rf"Sod shock tube, AMR: $t = {t:.3f}$, {n_cells} cells "
                        rf"(uniform at the finest level: {NX * 2 ** LEVELS * NY * 2 ** LEVELS})")
         return dots + [exact, title]
 

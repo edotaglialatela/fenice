@@ -3,9 +3,9 @@
     python cases/validation/amr/sod_amr.py            # results/validation/sod_amr/
     python cases/validation/amr/sod_amr.py --docs     # also docs/img/sod_amr.png
 
-Runs the "Sod Shock Tube" case (1st-order Godunov, t = 0.2) with AMR (10 x 2 patches, 4
-levels, pre-refined at t = 0) and on uniform meshes at the two finest AMR levels (80 x 16 and
-160 x 32). Compares the density on the tube axis with the exact solution and prints the L1
+Runs the "Sod Shock Tube" case (1st-order Godunov, t = 0.2) with AMR (base mesh 10 x 2, 4
+levels, pre-refined at t = 0, remeshed every 2 steps) and on uniform meshes at the two finest AMR
+levels (80 x 16 and 160 x 32). Compares the density on the tube axis with the exact solution and prints the L1
 error and the cell count of each run. AMR runs are serial (threads only).
 Figure: sod_amr.png.
 """
@@ -16,7 +16,7 @@ from fenice import study
 from fenice.exact import riemann
 
 STUDY, CASE = "sod_amr", "Sod Shock Tube"
-PX, PY, LEVELS = 10, 2, 4
+PX, PY, LEVELS = 10, 2, 4   # base mesh and levels
 COMMON = ("save_interval=1000000000",)
 
 
@@ -30,19 +30,14 @@ def amr(run_dir):
     """Leaf columns sorted by x: centre, density averaged over y, width, plus the leaf levels."""
     d = fenice.read_dump(run_dir / "final.npz")
     U, meta = d["U"], d["leaf_meta"]
-    xs, rho, w, lev = [], [], [], []
-    for k, (x0, x1, _, _, level) in enumerate(meta):
-        r = U[k * PX * PY:(k + 1) * PX * PY, 0].reshape(PY, PX).mean(axis=0)
-        h = (x1 - x0) / PX
-        xs.append(x0 + (np.arange(PX) + 0.5) * h)
-        rho.append(r)
-        w.append(np.full(PX, h))
-        lev.append(np.full(PX, level))
-    xs, rho, w, lev = map(np.concatenate, (xs, rho, w, lev))
-    # several leaves share an x column (stacked in y): average them
-    ux, inv = np.unique(np.round(xs, 12), return_inverse=True)
-    avg = lambda a: np.bincount(inv, a) / np.bincount(inv)
-    return ux, avg(rho), avg(w), len(U), float(d["t"]), avg(lev), meta
+    x0, x1, y0, y1, level = meta.T
+    xs, w, hgt = 0.5 * (x0 + x1), x1 - x0, y1 - y0
+    # several leaves share an x column (stacked in y): average them, weighted by their height
+    key = np.round(np.stack([xs, w]), 12)
+    cols, inv = np.unique(key, axis=1, return_inverse=True)
+    inv = inv.ravel()
+    avg = lambda a: np.bincount(inv, a * hgt) / np.bincount(inv, hgt)
+    return cols[0], avg(U[:, 0]), cols[1], len(U), float(d["t"]), avg(level), meta
 
 
 def l1(x, rho, w, t):
@@ -56,8 +51,8 @@ def main():
                                                      *COMMON, mpi=args.mpi, force=args.force),
                                     PX * 2 ** lv, PY * 2 ** lv)
     coarse, fine = level(LEVELS - 1, "uniform_coarse"), level(LEVELS, "uniform_fine")
-    a = amr(study.run_cached(STUDY, "amr", CASE, "use_amr=true", f"nx={PX}", f"ny={PY}", f"amr_patch_nx={PX}", f"amr_patch_ny={PY}",
-                             f"amr_max_level={LEVELS}", f"amr_init_levels={LEVELS}", *COMMON, force=args.force))
+    a = amr(study.run_cached(STUDY, "amr", CASE, "use_amr=true", f"nx={PX}", f"ny={PY}",
+                             f"amr_max_level={LEVELS}", f"amr_init_levels={LEVELS}", "amr_refine_every=2", *COMMON, force=args.force))
     t = fine[4]
     size = lambda lv: f"{PX * 2 ** lv}$\\times${PY * 2 ** lv}"
     runs = [(f"Uniform {size(LEVELS - 1)}", coarse, "#95a5a6", "s"),

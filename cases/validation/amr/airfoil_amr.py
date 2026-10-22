@@ -4,10 +4,10 @@
     python cases/validation/amr/airfoil_amr.py --docs      # also docs/img/airfoil_amr.png
 
 Runs "IBM Airfoil" on the 192 x 96 base mesh and on 768 x 384 (the resolution AMR keeps at
-the body), and "IBM Airfoil AMR" (192 x 96, 16 x 16 patches, two levels, body at the finest
-level), all on OpenMP threads to t = 6. Prints the cells, the wall time and the rms
-difference of Cd(t) and Cl(t) from the 768 x 384 run (the loads the solver writes to the
-monitor). Figure: airfoil_amr.png (vorticity with the patches, load histories, cost).
+the body), and "IBM Airfoil AMR" (192 x 96, two levels, body at the finest level), all on
+OpenMP threads to t = 6. Prints the cells, the wall time and the rms difference of Cd(t) and
+Cl(t) from the 768 x 384 run (the loads the solver writes to the monitor). Figure:
+airfoil_amr.png (vorticity with the refinement levels, load histories, cost).
 """
 import time
 
@@ -17,7 +17,7 @@ import fenice
 from fenice import study
 
 STUDY, CASE, CASE_AMR = "airfoil_amr", "IBM Airfoil", "IBM Airfoil AMR"
-T_END, BASE, PATCH, LEVELS = 6.0, (192, 96), 16, 2
+T_END, BASE, LEVELS = 6.0, (192, 96), 2
 COMMON = (f"t_end={T_END}", "monitor_interval=10", "save_interval=1000000000", "use_mpi=false")
 
 
@@ -47,12 +47,9 @@ def fine_velocity(run):
     h = 12.0 / nxf
     for k, (x0, x1, y0, y1, lv) in enumerate(meta):
         f = 2 ** (LEVELS - int(lv))
-        c = U[k * PATCH * PATCH:(k + 1) * PATCH * PATCH]
-        uu = np.repeat(np.repeat((c[:, 1] / c[:, 0]).reshape(PATCH, PATCH), f, 0), f, 1)
-        vv = np.repeat(np.repeat((c[:, 2] / c[:, 0]).reshape(PATCH, PATCH), f, 0), f, 1)
         i0, j0 = int(round(x0 / h)), int(round(y0 / h))
-        u[j0:j0 + PATCH * f, i0:i0 + PATCH * f] = uu
-        v[j0:j0 + PATCH * f, i0:i0 + PATCH * f] = vv
+        u[j0:j0 + f, i0:i0 + f] = U[k, 1] / U[k, 0]
+        v[j0:j0 + f, i0:i0 + f] = U[k, 2] / U[k, 0]
     return u, v, h, meta
 
 
@@ -64,7 +61,7 @@ def main():
     amr, w_a = timed(args, "amr", CASE_AMR)
     cells_c, cells_f = BASE[0] * BASE[1], BASE[0] * BASE[1] * 4 ** LEVELS
     u, v, h, meta = fine_velocity(amr)
-    cells_a = len(meta) * PATCH * PATCH
+    cells_a = len(meta)
     runs = [("Uniform 192$\\times$96", coarse, "#95a5a6", cells_c, w_c),
             ("Uniform 768$\\times$384", fine, "#2980b9", cells_f, w_f),
             ("AMR, 192$\\times$96 + 2 levels", amr, "#e74c3c", cells_a, w_a)]
@@ -82,16 +79,19 @@ def main():
     a0 = fig.add_axes([0.06, 0.5, 0.9, 0.45])
     w = np.gradient(v, h, axis=1) - np.gradient(u, h, axis=0)
     a0.imshow(w, origin="lower", extent=(0, 12, 0, 6), cmap="RdBu_r", vmin=-8, vmax=8, interpolation="bilinear")
-    colors = {0: "#bdc3c7", 1: "#f39c12", 2: "#c0392b"}
-    for x0, x1, y0, y1, lv in meta:
-        a0.add_patch(plt.Rectangle((x0, y0), x1 - x0, y1 - y0, fill=False, lw=0.7, ec=colors[int(lv)]))
+    from matplotlib.collections import PatchCollection
+    colors = {1: "#f39c12", 2: "#c0392b"}
+    for lv in (1, 2):   # the refined leaves; level 0 is everything else
+        boxes = [plt.Rectangle((x0, y0), x1 - x0, y1 - y0) for x0, x1, y0, y1, l in meta
+                 if int(l) == lv and 1.0 <= x1 and x0 <= 9.0 and 1.5 <= y1 and y0 <= 4.5]
+        a0.add_collection(PatchCollection(boxes, facecolor="none", edgecolor=colors[lv], linewidths=0.5))
     a0.set_xlim(1.0, 9.0)
     a0.set_ylim(1.5, 4.5)
     a0.set_xlabel("$x$")
     a0.set_ylabel("$y$")
     a0.grid(False)
-    a0.set_title(rf"NACA 0012, Re = 1000, $t = {T_END:g}$: vorticity and the 16$\times$16 patches "
-                 rf"(level 0 grey, 1 orange, 2 red; {cells_a} cells)", fontsize=12)
+    a0.set_title(rf"NACA 0012, Re = 1000, $t = {T_END:g}$: vorticity and the refined leaves "
+                 rf"(level 1 orange, 2 red; {cells_a} leaves)", fontsize=12)
     a1 = fig.add_axes([0.06, 0.07, 0.27, 0.32])
     a2 = fig.add_axes([0.40, 0.07, 0.27, 0.32])
     for label, run, c, _, _ in runs:

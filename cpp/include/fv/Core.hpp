@@ -55,8 +55,7 @@ inline int face_axis(Face f) { return static_cast<int>(f) / 2; }
 // ---------------------------------------------------------------------------
 
 // Uniform Cartesian mesh.  Topology is implicit (structured), so no per-face
-// arrays are stored; (x0, y0, z0) is the global origin, non-zero for MPI sub-domains
-// and MPI sub-domains.  nz = 1 is a 2-D mesh: no z-faces, areas and volumes in 2-D.
+// arrays are stored; (x0, y0, z0) is the global origin, non-zero for MPI sub-domains.  nz = 1 is a 2-D mesh: no z-faces, areas and volumes in 2-D.
 struct Mesh {
     int nx = 0, ny = 0, nz = 1;            // cells in x, y, z
     double Lx = 0.0, Ly = 0.0, Lz = 1.0;   // physical extent
