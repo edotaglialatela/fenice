@@ -200,12 +200,19 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
     // (MPI strips, AMR patches), and it stays below the face wave speed as the viscosity goes to zero.
     const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
     double s_max = 0.0;
-    for (int c = 0; c < n; ++c) {
-        const double rho = W[c][0];
-        const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
-        const double s =
-            std::max(std::abs(W[c][1]), std::abs(W[c][2])) + eos_.sound_speed(W[c][3], rho) + 2.0 * L * inv_h2 * nu_eff;
-        s_max = std::max(s_max, s);
+#pragma omp parallel if (n >= kOmpMinWork)
+    {
+        double local = 0.0;   // thread-local maximum (OpenMP 2.0 has no max reduction); a max is order independent
+#pragma omp for schedule(static) nowait
+        for (int c = 0; c < n; ++c) {
+            const double rho = W[c][0];
+            const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+            const double s = std::max(std::abs(W[c][1]), std::abs(W[c][2])) + eos_.sound_speed(W[c][3], rho) +
+                             2.0 * L * inv_h2 * nu_eff;
+            local = std::max(local, s);
+        }
+#pragma omp critical(fv_viscous_speed)
+        s_max = std::max(s_max, local);
     }
     return s_max;
 }
@@ -390,12 +397,19 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
     const double inv_h2 = 1.0 / (m.dx * m.dx) + 1.0 / (m.dy * m.dy) + 1.0 / (m.dz * m.dz);
     const double L = length > 0.0 ? length : 2.0 / (1.0 / m.dx + 1.0 / m.dy + 1.0 / m.dz);
     double s_max = 0.0;
-    for (int cc = 0; cc < n; ++cc) {
-        const double rho = W[cc][0];
-        const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
-        const double s = std::max({std::abs(W[cc][1]), std::abs(W[cc][2]), std::abs(W[cc][4])}) +
-                         eos_.sound_speed(W[cc][3], rho) + 2.0 * L * inv_h2 * nu_eff;
-        s_max = std::max(s_max, s);
+#pragma omp parallel if (n >= kOmpMinWork)
+    {
+        double local = 0.0;
+#pragma omp for schedule(static) nowait
+        for (int cc = 0; cc < n; ++cc) {
+            const double rho = W[cc][0];
+            const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+            const double s = std::max({std::abs(W[cc][1]), std::abs(W[cc][2]), std::abs(W[cc][4])}) +
+                             eos_.sound_speed(W[cc][3], rho) + 2.0 * L * inv_h2 * nu_eff;
+            local = std::max(local, s);
+        }
+#pragma omp critical(fv_viscous_speed)
+        s_max = std::max(s_max, local);
     }
     return s_max;
 }

@@ -34,6 +34,7 @@ import argparse
 REQUIRED = [
     ("numpy",      "numpy",      "Arrays - validation scripts, regression check, GUI hot-start probe", True),
     ("matplotlib", "matplotlib", "Plotting for validation scripts in cases/validation/",                   True),
+    ("sympy",      "sympy",      "Source terms of the manufactured solutions (fenice.mms, verification/mms.py)", True),
 ]
 
 GUI = [

@@ -166,7 +166,7 @@ Observed orders (finest pair), from `results/validation/mms/mms_table.md`:
 ```python
 from fenice import mms
 sol = mms.Solution(dim=3, viscous=True, mu=0.05)     # constants of the equations
-sol.write_cases("cases")                              # cases/manufactured_solution_3d/case.toml
+sol.write_cases("my_cases")                         # my_cases/<name>/case.toml (not "cases": --check compares those)
 rho, u, v, w, p = sol.exact()(X, Y, Z)                # numpy fields, for the error
 S = sol.source_functions()["source_E"]                # the same source as a numpy function
 ```
