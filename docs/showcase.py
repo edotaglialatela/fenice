@@ -14,7 +14,7 @@ Runs (fenice under MPI, one rank per core, binary VTK):
   resumed to t = 8.
 
 The force histories of the cylinder page come from the validation studies
-(cases/validation/ibm_loads.py, cases/validation/cylinder_mesh_transition.py).
+(cases/validation/benchmarks/ibm_loads.py, cases/validation/features/cylinder_mesh_transition.py).
 * IBM Supersonic Flow over Cylinder (Mach 2): 1600 x 1600 from t = 0 to 5.
 
 Every frame is the simulated field only (no axes, legend or background), box-averaged

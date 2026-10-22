@@ -31,7 +31,7 @@ uses the **X-direction** decomposition.
 ```powershell
 build\release\fenice.exe --case "Shu-Osher Test"
 build\release\fenice.exe --case "Shu-Osher Test" --set muscl_limiter=Minmod
-python cases\validation\shu_osher.py      # MC and Minmod, 200-1600 cells vs a 6400-cell reference
+python cases\validation\benchmarks\shu_osher.py      # MC and Minmod, 200-1600 cells vs a 6400-cell reference
 ```
 
 ## Default parameters

@@ -1,7 +1,7 @@
 """Taylor-Green vortex decaying, vorticity drawn as a surface (animated).
 
-    python cases/validation/taylor_green_animation.py            # results/validation/taylor_green_animation/
-    python cases/validation/taylor_green_animation.py --docs     # also docs/img/taylor_green_animation.gif
+    python cases/validation/verification/taylor_green_animation.py            # results/validation/taylor_green_animation/
+    python cases/validation/verification/taylor_green_animation.py --docs     # also docs/img/taylor_green_animation.gif
 
 Runs the "Taylor-Green Vortex" case (64 x 64, t = 10) once with snapshots, at a viscosity five
 times the case's (nu = 0.1) so that the decay is clearly visible: the energy falls to

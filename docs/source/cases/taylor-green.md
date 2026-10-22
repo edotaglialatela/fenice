@@ -34,7 +34,7 @@ the incompressible limit. The boundaries are periodic on all four sides.
 
 ```powershell
 build\release\fenice.exe --case "Taylor-Green Vortex"
-python cases\validation\taylor_green.py
+python cases\validation\verification\taylor_green.py
 ```
 
 ## Default parameters
@@ -53,7 +53,7 @@ python cases\validation\taylor_green.py
 <figure>
 <img src="{{root}}img/taylor_green_animation.gif" style="width:100%">
 <figcaption>The vortex decaying at $
-u = 0.1$ (<code>cases/validation/taylor_green_animation.py</code>).
+u = 0.1$ (<code>cases/validation/verification/taylor_green_animation.py</code>).
 Left: the vorticity $\omega = \partial_x v - \partial_y u$ of the solver as a surface
 $z = \omega(x, y)$, with the exact $2k\cos kx \cos ky\, e^{-2
 u k^2 t}$ as a wireframe over it.

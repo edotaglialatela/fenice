@@ -184,7 +184,7 @@ largest number of cells a rank stores.
 <figure style="margin:1em 0;">
 <img src="{{root}}img/amr_mpi.png" style="width:100%">
 <figcaption>AMR airfoil on a 720×360 base mesh with 24×24 patches, 50 steps, 16 logical processors
-(<code>cases/validation/amr_mpi.py</code>). Left: wall time on OpenMP threads and on MPI ranks.
+(<code>cases/validation/amr/amr_mpi.py</code>). Left: wall time on OpenMP threads and on MPI ranks.
 Right: cells stored by the busiest rank. Every final state is bit for bit the serial one.</figcaption>
 </figure>
 
@@ -206,7 +206,7 @@ number of patches per rank grows (here 621 patches; with 249 patches of 16×16 t
 <img src="{{root}}img/sod_amr.png" style="width:100%">
 <figcaption>Sod shock tube with 10×2 patches and 4 levels against uniform meshes at the two
 finest levels: the error of the finest uniform mesh with 53% of its cells
-(<code>cases/validation/sod_amr.py</code>).</figcaption>
+(<code>cases/validation/amr/sod_amr.py</code>).</figcaption>
 </figure>
 
 {{widget:AMR}}

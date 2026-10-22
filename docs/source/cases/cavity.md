@@ -19,7 +19,7 @@ walls are no-slip, and the lid is a `moving_wall` with velocity `u_in`.
 
 ```powershell
 build\release\fenice.exe --case "Lid Driven Cavity"
-python cases\validation\cavity.py         # 32², 64², 128², both orders
+python cases\validation\benchmarks\cavity.py         # 32², 64², 128², both orders
 ```
 
 The validation script runs every grid to the steady state ($t = 40$), with 1st-order

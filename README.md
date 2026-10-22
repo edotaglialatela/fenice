@@ -220,9 +220,10 @@ python cpp/tests/regression.py --mpi 4   # compare against the stored reference 
 `cpp/tests/reference/` holds the final states of 28 reference configurations; every
 change to the code must reproduce them (serial and on MPI ranks).
 
-The physical validation (exact solutions, convergence orders, literature data) is one
-script per study in `cases/validation/`; `python cases/validation/run_all.py` runs the quick ones and
-writes the figures to `results/validation/`.
+The physical validation is one script per study in `cases/validation/`, grouped by what it
+establishes: `verification/` (exact solutions, orders of accuracy), `benchmarks/` (literature
+and reference data), `amr/` and `features/`. `python cases/validation/run_all.py` runs the quick
+ones and writes the figures to `results/validation/`.
 
 ## Documentation
 

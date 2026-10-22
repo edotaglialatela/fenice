@@ -1,6 +1,6 @@
 """Isentropic vortex: advection accuracy and order of convergence.
 
-    python cases/validation/isentropic_vortex.py [--docs]
+    python cases/validation/verification/isentropic_vortex.py [--docs]
 
 Runs the solver on the periodic isentropic vortex for one
 full period (t = 10, the vortex returns to its start) at N = 20, 40, 80, 160, and

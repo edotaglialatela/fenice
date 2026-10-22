@@ -1,7 +1,7 @@
 """AMR on MPI ranks: same state as the serial run, time and memory per rank.
 
-    python cases/validation/amr_mpi.py             # results/validation/amr_mpi/
-    python cases/validation/amr_mpi.py --docs      # also docs/img/amr_mpi.png
+    python cases/validation/amr/amr_mpi.py             # results/validation/amr_mpi/
+    python cases/validation/amr/amr_mpi.py --docs      # also docs/img/amr_mpi.png
 
 Runs "IBM Airfoil AMR" on 720 x 360 with 24 x 24 patches for 50 steps (the airfoil is kept at the
 finest level and the wake is refined, so the patches change during the run): serial on one thread,

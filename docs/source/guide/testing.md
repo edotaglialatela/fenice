@@ -107,38 +107,63 @@ MPI runs oversubscribe them (Open MPI environment variables in the workflow).
 
 ## Physical validation (`cases/validation/`)
 
-The vocabulary follows Roache (2009): *verification* asks whether the equations are solved
-correctly (exact solutions, order of accuracy, grid convergence), *validation* whether the
-right equations are solved (reference data).
+The vocabulary follows Roache (2009). *Verification* asks whether the equations are solved
+correctly: exact solutions, order of accuracy, and the grid convergence of a result. *Validation*
+asks whether the right equations are solved: comparison with reference data. The studies are
+grouped the same way, one folder per group, so that the folder says what a study can establish.
 
 Each script is one study: it runs the solver into `results/validation/<study>/`, compares
 the result with an analytical or reference solution, prints the errors and saves its figures
 there. Runs that already finished are reused, so a second call only redraws the figures
 (`--force` re-runs them). Every script takes `--docs`, which also copies the figures into
 `docs/img/`: the figures on the [test-case pages]({{root}}modules/TestCases.html) are made
-this way. The shared helpers are in the `fenice` Python package (`python/fenice/`).
+this way. The numerics shared by the studies (error norms, observed order, convergence fits)
+and the helpers that run and cache the solver are in the `fenice` Python package
+(`python/fenice/`).
 
 ```powershell
-python cases\validation\run_all.py                  # the quick studies (minutes)
-python cases\validation\run_all.py --all --docs     # every study, refresh docs/img (hours: long MPI runs)
-python cases\validation\sod.py --force              # one study, re-running its simulations
+python cases\validation\run_all.py                          # the quick studies of every group (minutes)
+python cases\validation\run_all.py --all --docs             # every study, refresh docs/img (long MPI runs)
+python cases\validation\run_all.py verification             # one group
+python cases\validation\run_all.py --list                   # groups, studies, quick or long
+python cases\validation\verification\sod.py --force          # one study, re-running its simulations
 ```
+
+**`verification/`: is the code right?** An exact solution exists, so the error and the order of
+accuracy are measured, not estimated.
 
 | Script | Compares |
 |---|---|
 | `sod.py` | Sod vs the exact Riemann solution; 1st vs 2nd order; the four limiters |
-| `sod_amr.py` | AMR vs uniform meshes at the two finest levels (cells and L1 error) |
-| `sod_amr_animation.py` | animation of the AMR patches following the waves of the Sod tube |
-| `shu_osher.py` | Shu-Osher density, MC vs Minmod, convergence against a 6400-cell reference |
 | `isentropic_vortex.py` | isentropic-vortex convergence and limiter comparison |
 | `taylor_green.py` | Taylor-Green kinetic-energy decay and grid convergence |
 | `taylor_green_animation.py` | animation of the Taylor-Green vorticity surface decaying, against the exact solution |
 | `poiseuille.py` | Poiseuille parabola, grid convergence; serial vs 4 MPI ranks |
+
+**`benchmarks/`: is the answer right?** The reference is a literature table, a much finer
+solution or a physical quantity without a closed form, so the comparison carries the
+uncertainty of the reference too.
+
+| Script | Compares |
+|---|---|
+| `shu_osher.py` | Shu-Osher density, MC vs Minmod, convergence against a 6400-cell reference |
 | `cavity.py` | cavity centrelines and vortex vs Ghia (1982), 32²-128², both orders |
 | `taylor_green_3d.py` | 3-D Taylor-Green energy, dissipation, vorticity, Q-criterion animation |
+| `ibm_loads.py cylinder` / `airfoil` | IBM loads from the monitor, Strouhal number |
+
+**`amr/`: does the adaptive mesh keep the answer and save the cost?**
+
+| Script | Compares |
+|---|---|
+| `sod_amr.py` | AMR vs uniform meshes at the two finest levels (cells and L1 error) |
+| `sod_amr_animation.py` | animation of the AMR patches following the waves of the Sod tube |
 | `airfoil_amr.py` | AMR airfoil against uniform 192×96 and 768×384 meshes (cells, time, rms error of Cd and Cl) |
 | `amr_mpi.py` | AMR airfoil on OpenMP threads and MPI ranks: states identical to serial, time and cells per rank |
-| `ibm_loads.py cylinder` / `airfoil` | IBM loads from the monitor, Strouhal number |
+
+**`features/`: demonstrations of solver features.**
+
+| Script | Shows |
+|---|---|
 | `cylinder_mesh_transition.py` | cylinder loads across a 400×200 → 800×400 hot start (animation) |
 
 ### References

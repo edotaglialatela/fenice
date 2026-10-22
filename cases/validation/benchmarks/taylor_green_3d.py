@@ -1,8 +1,8 @@
 """3-D Taylor-Green vortex (Re = 1600, Ma = 0.1): transition to turbulence on a coarse grid.
 
-    python cases/validation/taylor_green_3d.py            # 32^3 and 64^3 (the 64^3 run takes minutes)
-    python cases/validation/taylor_green_3d.py --skip-64  # 32^3 only
-    python cases/validation/taylor_green_3d.py --grids 32 64 96 --vorticity-n 96 --mpi 16 --q-animation --docs
+    python cases/validation/benchmarks/taylor_green_3d.py            # 32^3 and 64^3 (the 64^3 run takes minutes)
+    python cases/validation/benchmarks/taylor_green_3d.py --skip-64  # 32^3 only
+    python cases/validation/benchmarks/taylor_green_3d.py --grids 32 64 96 --vorticity-n 96 --mpi 16 --q-animation --docs
 
 Runs the "Taylor-Green Vortex 3D" case to t = 20 into results/validation/taylor_green_3d/n<N>/
 (existing runs are reused; --force re-runs them):
