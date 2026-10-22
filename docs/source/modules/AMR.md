@@ -6,8 +6,7 @@ order: 60
 header: AMR.hpp
 ---
 
-A **block-structured quad-tree** AMR layer, following the algorithmic structure of
-PARAMESH (MacNeice et al. 2000). Each *leaf patch* is a small uniform sub-mesh with
+A **block-structured quad-tree** AMR layer. Each *leaf patch* is a small uniform sub-mesh with
 its own state. Refining a patch replaces it with four children of half the linear
 size:
 
@@ -93,7 +92,7 @@ advance_amr_level(L, dt):
         apply_reflux(L);  restrict children -> parents
 ```
 
-**Refluxing** (PARAMESH `amr_flux_conserve`) works between neighbouring leaves. Each
+**Refluxing** works between neighbouring leaves. Each
 coarse cell next to a coarse-fine face is corrected by
 $\pm(\sum F_{\rm fine} - F_{\rm coarse}\Delta t)/A$, so both sides transport the same
 amount across the interface. The registers hold the total flux, so the viscous flux is
@@ -116,8 +115,8 @@ anti-symmetric extension, $\rho_g = 2\rho_{\rm edge} - \rho_{\rm in}$, so linear
 give $\eta = 0$.
 
 * **Refine** a leaf when $\eta > \theta_r$ (default 0.3) and it is below `max_level`.
-  `amr_buffer_layers` rings of face neighbours are added as well. This PARAMESH
-  lookahead keeps a moving feature inside the refined band between remeshes.
+  `amr_buffer_layers` rings of face neighbours are added as well. This lookahead
+  keeps a moving feature inside the refined band between remeshes.
 * **Derefine** a parent when all four children are leaves with $\eta < \theta_d$
   (default 0.1), unless a child is in the buffered refine set (anti-thrash guard).
 * **2:1 balance.** `enforce_2to1_balance` runs after every remesh, so no two
@@ -162,8 +161,7 @@ cells). The patch size must be even and divide `nx` and `ny`.
 numbers per patch), so all ranks take the same remeshing and 2:1-balance decisions, but the
 state of a patch exists only on the rank that owns it and on the ranks that need a copy of
 it. Each level is cut into contiguous blocks along a Morton (Z-order) curve through the
-patch positions (Morton, 1966; the same space-filling-curve partition as in p4est, Burstedde
-et al., 2011), so a rank's patches are compact in space and few of its neighbours live
+patch positions (Morton, 1966), so a rank's patches are compact in space and few of its neighbours live
 elsewhere. A rank keeps a copy of every patch within two of its own cells of a patch it owns
 (corners included); which ranks those are is computed from the tree on every rank, so
 nothing is negotiated. The owner of a patch sends it point to point to the ranks holding a
@@ -213,13 +211,9 @@ finest levels: the error of the finest uniform mesh with 53% of its cells
 
 ### References
 
-* MacNeice, P. et al. (2000). PARAMESH: A parallel adaptive mesh refinement community
-  toolkit. *Comput. Phys. Commun.* 126(3), 330-354.
 * Löhner, R. (1987). An adaptive finite element scheme for transient problems in CFD.
   *Comput. Methods Appl. Mech. Eng.* 61(3), 323-338.
 * Morton, G. M. (1966). A computer oriented geodetic data base and a new technique in file
   sequencing. Technical report, IBM Ltd., Ottawa.
-* Burstedde, C., Wilcox, L. C. & Ghattas, O. (2011). p4est: scalable algorithms for parallel
-  adaptive mesh refinement on forests of octrees. *SIAM J. Sci. Comput.* 33(3), 1103-1133.
 
 {{api}}

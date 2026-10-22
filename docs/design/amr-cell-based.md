@@ -1,6 +1,6 @@
 # Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
 
-Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 (indicator + remesh) in progress. The user chose the ECOGEN-style face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of AMReX, SAMRAI and the ECOGEN source.
+Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 (indicator + remesh) in progress. The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
 `main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
 
 ## 1. Why
@@ -15,7 +15,7 @@ What is wrong with the patch design (AMR.cpp, `Simulation::patch_residual`):
 3. Physical edges go through a separate path in which the boundary face is first order (MUSCL stencil not upgraded).
 4. Conservation across coarse-fine seams needs flux registers and is exact only for Explicit Euler (O(dt^2) otherwise).
 
-What ECOGEN does (read from `code-mphi/ECOGEN`, devel): a tree of cells plus an interface (face) list; each interface
+What the reference design does (a cell-based code whose source was read for this plan): a tree of cells plus an interface (face) list; each interface
 computes its Riemann flux once and adds it to both cells (area / volume, times a time-weight coefficient on the coarse side),
 so conservation follows from the data layout; refinement per cell from a face-variation indicator diffused twice; 2:1 inside
 the refine/unrefine decision; recursive subcycling by 2, finer level first, no time interpolation; the coarse side of a
@@ -52,7 +52,7 @@ level jump uses its unreconstructed state; Morton keys for the domain decomposit
 * MUSCL per face needs `c0..c3` along the axis: the left cell `c1`, the right cell `c2`, and their outer neighbours `c0`,
   `c3`. Same level: the real neighbours. Beyond a coarser cell: injection of the coarse value (virtual fine cell).
   Beyond a finer cell: the mean of the four children (virtual coarse cell).
-* Therefore at a level jump the coarse side of a fine face is first order (`c3 - c2 = 0`), as in ECOGEN; the fine side keeps
+* Therefore at a level jump the coarse side of a fine face is first order (`c3 - c2 = 0`), as in the reference design; the fine side keeps
   second order. Free-stream is preserved exactly across jumps.
 * The limiter acts on raw differences `(c1 - c0, c2 - c1)` exactly as `MusclReconstruction::reconstruct` does today, and the
   cell residual uses the existing operation order `((0 - (fr - fl)) - (ft - fb)) / area`, so a tree with only level-0 leaves
@@ -74,7 +74,7 @@ level jump uses its unreconstructed state; Morton keys for the domain decomposit
 
 ### 2.4 Time stepping and conservation
 * Same recursion as today: level `l` advances by `dt_l = dt_0 / 2^l`, the finer level first (two substeps), then the coarse
-  level, with the coarse neighbour frozen at its start-of-step state (no time interpolation, like ECOGEN).
+  level, with the coarse neighbour frozen at its start-of-step state (no time interpolation, like the reference design).
 * Flux replacement instead of reflux: the fluxes of a coarse-fine face are computed on the fine side at every fine stage and
   accumulated with the time-scheme stage weights `b_i` (new `TimeScheme::stage_weights()`: Euler `[1]`, SSP-RK2 `[1/2, 1/2]`,
   RK4 `[1/6, 1/3, 1/3, 1/6]`) into a per-(coarse cell, side) register. The coarse cell uses the accumulated time-average
@@ -92,7 +92,7 @@ level jump uses its unreconstructed state; Morton keys for the domain decomposit
 * Indicator per leaf: the Lohner ratio of the current engine, with neighbours from the neighbour graph (virtual cells at
   jumps). Refine above `amr_refine_threshold`; derefine a sibling group of four when all four are below
   `amr_derefine_threshold` and 2:1 allows it; `amr_buffer_layers` rings of neighbours (faces and diagonals) added around
-  flagged cells. 2:1 is restored by rippling refinement to coarser neighbours (p4est style), not by forbidding refinement.
+  flagged cells. 2:1 is restored by rippling refinement to coarser neighbours not by forbidding refinement.
 * Data transfer: conservative injection on refinement, area-weighted mean on derefinement (as today).
 * Parameters kept: `use_amr`, `amr_max_level`, `amr_refine_threshold`, `amr_derefine_threshold`, `amr_refine_every`,
   `amr_init_levels`, `amr_buffer_layers`, `amr_refine_ibm`, `amr_indicator`. `amr_patch_nx/ny` disappear (decision 1).
@@ -264,7 +264,7 @@ history of the flagged region). The threshold is the user's decision (section 7,
   read, `need_[l]`), `accumulate_registers` (`reg += 0.5 b_i F_i` on the coarse-fine faces of the fine level, every stage), `gather_level`
   (a face of level l+1 on a side of a level-l leaf reads the register in every stage). `residual()` is the same two pieces over all faces
   (bit-identical, guarded by the P2 tests and the bench assert).
-* Known time seam (as in ECOGEN, accepted): the fine level reads its coarse neighbours at the start of the coarse step, the coarse level reads
+* Known time seam (as in the reference design, accepted): the fine level reads its coarse neighbours at the start of the coarse step, the coarse level reads
   (through its virtual cells and the first-order stencil of its same-level faces) the finer leaves at the END of the coarse step. The fluxes at
   the jump are exact in the time average (register), the reconstruction stencils are not time-consistent. Measured on Sod with waves crossing the jumps
   (below): no visible effect on the error, no overshoot.
@@ -286,8 +286,19 @@ history of the flagged region). The threshold is the user's decision (section 7,
 * Not covered yet: thread-count independence on adapted meshes (all adapted-mesh tests are below `kOmpMinWork`); it is verified in P6 together with MPI == serial.
 
 ## 11. Decisions of 2026-10-22 (user): indicator
-The user prefers how ECOGEN follows the gradients and wants ONE indicator: the ECOGEN-style face-variation indicator replaces the Lohner ratio of
+The user prefers how the reference design follows the gradients and wants ONE indicator: its face-variation indicator replaces the Lohner ratio of
 the patch engine (no second indicator). The exact formulas and thresholds are shown to the user before they are fixed (P5).
+
+**The indicator of the reference design** (read from its source):
+1. `xi = 0` in every cell of the level.
+2. For every face of the level and every enabled variable (density; pressure and velocity magnitude), with c_l, c_r the cell values: `m = min(|c_l|, |c_r|)`,
+   floored at 1e-2 (0.1 for the velocity magnitude); `variation = |c_r - c_l| / m`; if `variation >= criteriaVar` both cells get `xi = 1`.
+3. Diffusion, 2 iterations ("arbitrary number" in the source): for every face, if either cell has `xi > 0.05` (at a level jump only the FINER cell is tested) both
+   cells receive `+0.1`; after all faces, `xi += received`.
+4. A leaf is split if `xi >= xiSplit` and no neighbour is at a lower level (no ripple: the split is simply forbidden); a split cell is joined if `xi < xiJoin`, none of
+   its children is split and no neighbour is at a higher level. `criteriaVar`, `xiSplit`, `xiJoin` are input parameters (no default in the source).
+Reading: step 2 marks the cells on both sides of a sharp jump, step 3 spreads a band of about one (two for a small `xiSplit`) cells around them: that is why the
+refinement follows shocks and contacts tightly without a separate buffer parameter, and why a smooth ramp whose per-cell variation stays below `criteriaVar` is not refined.
 
 ## 12. P4 as built
 * Extra pieces of the shared code (pure moves, regression unchanged): `BoundaryManager::nonreflecting_ghost` (the characteristic outlet, with the
@@ -326,6 +337,6 @@ the patch engine (no second indicator). The exact formulas and thresholds are sh
 
   The error in the first coarse width next to a jump falls by only 1.5-1.7x per doubling (order about 0.6-0.7) while the uniform grid falls by 4x (order 2),
   so the adaptive solution converges more slowly than the base scheme and the seam share of the error grows with resolution. It is a loss of order at the
-  jump, not a constant. Options for the user: (a) keep it, as ECOGEN does; (b) reconstruct the fine side against the coarse value interpolated to the virtual
+  jump, not a constant. Options for the user: (a) keep it, as the reference design does; (b) reconstruct the fine side against the coarse value interpolated to the virtual
   fine position and use the true centre distance (1.5 h_f, not h_f) in the fine cells' differences; (c) a full second-order coarse side. The choice interacts
   with the indicator: a face-variation indicator refines whole smooth gradients, so jump lines will often cross smooth regions, as here.

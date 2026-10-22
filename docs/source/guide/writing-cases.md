@@ -8,7 +8,7 @@ order: 25
 A test case is a folder under `cases/` holding one file, `case.toml`. The file describes
 the mesh, physics, numerics, boundary conditions, run control and initial conditions. The
 solver reads it at start-up, so adding or changing a case needs no C++ and no
-recompilation. The approach follows ECOGEN's input files and OpenFOAM's case folders:
+recompilation. The approach is one folder per case with a plain-text description of it:
 
 ```text
 cases/

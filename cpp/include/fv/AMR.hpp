@@ -1,5 +1,5 @@
 // Block-structured quad-tree AMR: patches, tree operations, Lohner error indicator,
-// recursive subcycling with PARAMESH-style refluxing.
+// recursive subcycling with refluxing at coarse-fine interfaces.
 #pragma once
 
 #include <functional>
