@@ -132,6 +132,7 @@ python cases\validation\sod.py --force              # one study, re-running its 
 | `shu_osher.py` | Shu-Osher density, MC vs Minmod, convergence against a 6400-cell reference |
 | `isentropic_vortex.py` | isentropic-vortex convergence and limiter comparison |
 | `taylor_green.py` | Taylor-Green kinetic-energy decay and grid convergence |
+| `taylor_green_animation.py` | animation of the Taylor-Green vorticity surface decaying, against the exact solution |
 | `poiseuille.py` | Poiseuille parabola, grid convergence; serial vs 4 MPI ranks |
 | `cavity.py` | cavity centrelines and vortex vs Ghia (1982), 32²-128², both orders |
 | `taylor_green_3d.py` | 3-D Taylor-Green energy, dissipation, vorticity, Q-criterion animation |

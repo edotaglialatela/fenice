@@ -24,6 +24,7 @@ STUDIES = {
     "shu_osher": (["shu_osher.py"], False),
     "isentropic_vortex": (["isentropic_vortex.py"], False),
     "taylor_green": (["taylor_green.py"], False),
+    "taylor_green_animation": (["taylor_green_animation.py"], False),
     "poiseuille": (["poiseuille.py"], False),
     "cavity": (["cavity.py"], False),
     "taylor_green_3d": (["taylor_green_3d.py", "--grids", "32", "64", "96", "--vorticity-n", "96", "--mpi", "16",

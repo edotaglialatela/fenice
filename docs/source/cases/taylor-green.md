@@ -50,6 +50,27 @@ python cases\validation\taylor_green.py
 0.02 (0.3 %). Right: velocity L2 error at t = 1; the observed orders are 1.8, 2.9 and 2.4.</figcaption>
 </figure>
 
+<figure>
+<img src="{{root}}img/taylor_green_animation.gif" style="width:100%">
+<figcaption>The vortex decaying at $
+u = 0.1$ (<code>cases/validation/taylor_green_animation.py</code>).
+Left: the vorticity $\omega = \partial_x v - \partial_y u$ of the solver as a surface
+$z = \omega(x, y)$, with the exact $2k\cos kx \cos ky\, e^{-2
+u k^2 t}$ as a wireframe over it.
+Right: the kinetic energy against $e^{-4
+u k^2 t}$. The surface flattens by a factor of
+$e^{-2
+u k^2 t}$ while keeping its shape, and at $t = 10$ the vorticity differs from the exact one by
+$8 \cdot 10^{-4}$ (peak value 0.27).</figcaption>
+</figure>
+
+The animation runs at CFL 0.25. At this viscosity the default of 0.5 is not stable enough: the
+time step is the smaller of the convective and the viscous limit, not a combination of the two,
+and a slowly growing mode removes energy after $t pprox 2$ ($E_k$ at $t = 10$ is 0.0037 instead of
+0.0183); at $
+u = 0.2$ the velocity error is already 37 % at $t = 1$. At the case's own $
+u = 0.02$ the default is fine.
+
 The automated checks in `fenice_tests` run smaller versions:
 
 * `taylor_green_viscous_decay`: the recovered physical ν must be within 2 % at 32²
