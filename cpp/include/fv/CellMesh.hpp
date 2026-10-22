@@ -99,8 +99,9 @@ public:
     // their parent (mean of the four) when all four have coarsen[c] != 0, none is refined, and the parent
     // would keep the balance with every corner neighbour as it is after this call's refinements; a merge that
     // would not is skipped (conservative: decided on the state before the call, so the outcome does not depend on
-    // the order of the groups).  Empty vectors mean "none".  Rebuilds the faces.
-    void adapt(const std::vector<char>& refine, const std::vector<char>& coarsen = {});
+    // the order of the groups).  Empty vectors mean "none".  Rebuilds the faces (only if something changed) and
+    // returns whether the leaves changed.
+    bool adapt(const std::vector<char>& refine, const std::vector<char>& coarsen = {});
 
     // --- mesh data ---
     double Lx, Ly;

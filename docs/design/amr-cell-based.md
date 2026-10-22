@@ -1,6 +1,6 @@
 # Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
 
-Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 (indicator + remesh) in progress. The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
+Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13). The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
 `main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
 
 ## 1. Why
@@ -340,3 +340,37 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
   jump, not a constant. Options for the user: (a) keep it, as the reference design does; (b) reconstruct the fine side against the coarse value interpolated to the virtual
   fine position and use the true centre distance (1.5 h_f, not h_f) in the fine cells' differences; (c) a full second-order coarse side. The choice interacts
   with the indicator: a face-variation indicator refines whole smooth gradients, so jump lines will often cross smooth regions, as here.
+
+## 13. P5 as built (`CellIndicator`, `CellAdaptor`, `cpp/include/fv/CellRemesh.hpp`)
+* `CellIndicator` implements the four steps of section 11 on the face list (the faces give both leaves of every pair, at the same level or across a jump; at a
+  jump only the finer leaf decides whether to spread). Its settings live in a struct (`criterion`, variables, floors, `diffusion`, `diffusion_coeff`,
+  `diffusion_trigger`, `split`, `join`); `Params`, `parameters.md` and the meaning of the `amr_*` keys are NOT touched until P7, because the patch engine of this branch
+  still reads them. The defaults of the struct (criterion 0.1, density only, 2 iterations of 0.1 above 0.05, split 0.15, join 0.10) are a starting point for the user.
+* Flags: refine at `xi >= split` below the finest level, join four siblings when all have `xi < join`; refinement ripples (`CellMesh::adapt`) instead of being
+  forbidden next to a coarser leaf. `CellMesh::adapt` now returns whether the leaves changed and skips the rebuild when they did not.
+* `CellAdaptor::remesh`: indicator, flags, `adapt`, `CellFluxEngine::build` (only if changed); `init_adapt(initial)`: fill the state at the leaf centres (each leaf on
+  its own level's uniform mesh, not by injection), remesh, repeat until nothing changes (at most `max_level + 1` passes), fill once more.
+* Immersed body: `set_body(factory, margin)` keeps every leaf whose footprint touches the body or `margin` finest cells around it (the fringe of the solid reset) on the
+  finest level, never joined; the footprint is tested on the finest-level mask (not the leaf centre, not the bounding box).
+* Tests: the indicator equals a plain structured 4-neighbour implementation on a level-0 mesh; the diffusion rule at level jumps (a coarse leaf does not spread
+  into finer leaves that are below the trigger, a flagged fine leaf does); a remeshed step is deterministic, idempotent (a second remesh changes nothing, bitwise),
+  conservative, and the finest level stays within the diffusion band; the body and its band sit on the finest level after the initial adaptation and a remesh;
+  dynamic Sod (bands fixed beforehand: error <= 1.6 x the uniform-200 one, mean leaves < 0.6 x 3 200, shock on the finest level, mass to 1e-12) passes.
+* Sod indicator study (`cellremesh_sod_indicator_study`, base 50 + 2 levels, remesh every 4 steps, L1 density against the exact solution; uniform 50 9.96e-3, uniform
+  200 (3 200 cells) 2.91e-3):
+
+  | criterion | density | density + pressure | density + velocity |
+  |---|---|---|---|
+  | 0.02 | 3.25e-3, 928 leaves | 3.10e-3, 966 | 3.10e-3, 999 |
+  | 0.05 | 3.98e-3, 743 | 3.59e-3, 804 | 3.14e-3, 909 |
+  | 0.10 | 4.33e-3, 570 | 4.56e-3, 643 | 3.43e-3, 797 |
+
+  With the density alone and a large criterion the contact, smeared over several coarse cells, never shows a per-cell variation above the criterion and stays coarse
+  (see `results/cell_amr/sod_cell_amr.png`); a smaller criterion or the velocity brings it in. The choice is the user's.
+* Airfoil study (`cell_amr_demo "IBM Airfoil AMR" --vars rho,u --levels 2 --every 5 --tend 6`, base 192 x 96, NACA 0012, Re 1000, t = 6, criterion 0.1, split 0.15):
+  22 290 leaves at the end (level 0: 18 084, 1: 454, 2: 3 752), mean 21 153, wall 11.6 s with all threads; against the patch engine on `main` (P0 numbers, same study): 52 224
+  cells, 22.1 s, and uniform 768 x 384: 294 912 cells, 244 s. The refinement follows the body, the boundary layer and the near wake (`results/cell_amr/airfoil_cell_amr.png`).
+  The accuracy (loads) is not yet compared; that is P8.
+* Remesh cost (serial code; 255 remeshes in that run, 13 ms each): indicator 0.23 s, `CellMesh::adapt` 1.25 s, `CellFluxEngine::build` 1.89 s, together 29 % of the wall time. This
+  is the first thing to optimise in P8 (incremental face / stencil update, no hash maps and ordered maps in the rebuild, parallel rebuild).
+* Figures: `python cases/validation/amr/cell_amr_p5.py` (runs `cell_amr_demo`, writes `results/cell_amr/*.png`).

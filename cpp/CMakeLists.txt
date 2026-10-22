@@ -24,6 +24,7 @@ add_library(fenice_core STATIC
   src/CellMesh.cpp
   src/CellFlux.cpp
   src/CellAdvance.cpp
+  src/CellRemesh.cpp
   src/IO.cpp
   src/Params.cpp
   src/TestCases.cpp
@@ -105,6 +106,10 @@ target_link_libraries(fenice PRIVATE fenice_core)
 # Wall-time gate of the cell-based AMR (residual cost per cell, face engine vs uniform)
 add_executable(bench_cellflux apps/bench_cellflux.cpp)
 target_link_libraries(bench_cellflux PRIVATE fenice_core)
+
+# Development driver of the cell-based AMR (runs a case on the adaptive mesh, writes the leaves)
+add_executable(cell_amr_demo apps/cell_amr_demo.cpp)
+target_link_libraries(cell_amr_demo PRIVATE fenice_core)
 
 if(FV_BUILD_TESTS)
   enable_testing()

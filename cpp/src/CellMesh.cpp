@@ -196,7 +196,7 @@ void CellMesh::rebuild() {
             std::swap(side_face[side_ptr[k]], side_face[side_ptr[k] + 1]);
 }
 
-void CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>& coarsen_in) {
+bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>& coarsen_in) {
     const int N = num_leaves();
     if ((!refine_in.empty() && static_cast<int>(refine_in.size()) != N) ||
         (!coarsen_in.empty() && static_cast<int>(coarsen_in.size()) != N))
@@ -260,6 +260,10 @@ void CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
         }
     }
 
+    bool any = false;
+    for (int c = 0; c < N && !any; ++c) any = R[c] || merge_anchor[c];
+    if (!any) return false;
+
     // New leaf list
     struct NewLeaf {
         int level, i, j;
@@ -304,6 +308,7 @@ void CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
         if (has_u) U[k] = n.u;
     }
     rebuild();
+    return true;
 }
 
 }   // namespace fv
