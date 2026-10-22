@@ -947,12 +947,20 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
     return S;
 }
 
-void Simulation::amr_solid_reset(AMRTree& tree) {
-    const auto leaves = tree.leaves();
+void Simulation::amr_solid_reset(AMRTree& tree, const AMRParallel* par) {
+    const auto all = tree.leaves();
+    const bool dist = par && par->size > 1;
+    std::vector<AMRPatch*> leaves;   // the leaves reset by this rank
+    for (AMRPatch* l : all)
+        if (!dist || l->owner == par->rank) leaves.push_back(l);
     // Snapshot first: every leaf reads its neighbours' pre-reset cells, whatever the order
-    for (AMRPatch* l : leaves) {
-        ensure_patch_masks(*l);
-        l->U_ghost = l->U;
+    for (AMRPatch* l : all) {
+        if (dist && !l->held) {   // not held: any read turns the result into NaN
+            l->U_ghost.assign(static_cast<size_t>(l->nx()) * l->ny(), State{NAN, NAN, NAN, NAN, NAN});
+        } else {
+            if (!dist || l->owner == par->rank) ensure_patch_masks(*l);
+            l->U_ghost = l->U;
+        }
         l->has_ghost = true;
     }
     const int nl = static_cast<int>(leaves.size());
@@ -986,7 +994,8 @@ void Simulation::amr_solid_reset(AMRTree& tree) {
             for (int i = 0; i < nx; ++i)
                 if (patch.solid[j * nx + i]) patch.U[j * nx + i] = E[(j + 1) * PW + i + 1];
     }
-    for (AMRPatch* l : leaves) l->has_ghost = false;
+    for (AMRPatch* l : all) l->has_ghost = false;
+    if (dist) refresh_halos(tree, *par);
 }
 
 // ---------------------------------------------------------------------------
@@ -1337,8 +1346,8 @@ void Simulation::solve_amr() {
         double dt = scheme->cfl * min_delta_base / (S_max + 1e-10);
         dt = std::min(dt, p.t_end - t);
         S_max = advance_amr_level(tree, 0, dt, t, p.t_end, pres, *scheme, par);
-        if (par) gather_leaf_state(tree, *par);   // solid reset, remesh and output still read every leaf
-        if (p.use_ibm) amr_solid_reset(tree);
+        if (p.use_ibm) amr_solid_reset(tree, par);
+        if (par) gather_leaf_state(tree, *par);   // the remesh and the output still read every leaf
         t += dt;
         ++step;
 

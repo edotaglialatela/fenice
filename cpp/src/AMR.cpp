@@ -583,6 +583,11 @@ void exchange_reflux(AMRTree& tree, int level, const AMRParallel& par) {
 
 }  // namespace
 
+void refresh_halos(AMRTree& tree, const AMRParallel& par) {
+    const auto lv = tree.leaves();
+    push_fields(par, lv, dest_of(lv, false), Kind::State);
+}
+
 void gather_leaf_state(AMRTree& tree, const AMRParallel& par) {
     // Leaves a rank holds are already current (the owners pushed them): only the others are refreshed
     const auto lv = tree.leaves();

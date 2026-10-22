@@ -148,6 +148,9 @@ struct AMRParallel {
     std::function<void(const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv)> exchange;
 };
 
+// Every owner sends the state of its leaves to the ranks that hold a halo copy (after the owners changed
+// them outside advance_amr_level, e.g. the solid reset).
+void refresh_halos(AMRTree& tree, const AMRParallel& par);
 // Refresh the copies of the leaves this rank neither owns nor holds as halo from their owners
 // (a full allgather; the remesh, the solid reset and the output still read every leaf).
 void gather_leaf_state(AMRTree& tree, const AMRParallel& par);

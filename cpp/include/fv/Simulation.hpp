@@ -53,7 +53,8 @@ public:
     void ensure_patch_masks(AMRPatch& patch) const;
     // Once per complete AMR step: fringe Neumann + deep-solid reset on every leaf, reading the
     // neighbour cells across patch interfaces from a snapshot taken before any leaf is reset.
-    void amr_solid_reset(AMRTree& tree);
+    // With `par` each rank resets its own leaves and the halo copies are refreshed afterwards.
+    void amr_solid_reset(AMRTree& tree, const AMRParallel* par = nullptr);
 
     // True if the box of `patch`, grown by one of its cells, overlaps the immersed body's bounding box.
     bool patch_touches_body(const AMRPatch& patch) const;
