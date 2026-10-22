@@ -180,7 +180,7 @@ double RiemannSolver::compute_flux(const Field& UL, const Field& UR, const Mesh&
 void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int nx, int ny, const Halos& h) const {
     constexpr int pad = kHaloDepth;
     const int PW = nx + 2 * pad;   // padded row width
-    thread_local Field W_pad;      // per-thread: AMR patches are reconstructed concurrently
+    thread_local Field W_pad;      // scratch buffer, per thread
     W_pad.resize(static_cast<size_t>(ny + 2 * pad) * PW);
     Field& Wp = W_pad;
 

@@ -26,17 +26,17 @@ using Field = std::vector<State>;
 constexpr int kMom[3] = {1, 2, 4};
 
 // Loops shorter than this run single-threaded (OpenMP fork/join would cost
-// more than the work, e.g. on small AMR patches).
+// more than the work, e.g. on a small adaptive-mesh level).
 constexpr int kOmpMinWork = 4096;
 
 // Cardinal faces of a (sub)domain; Front / Back are the z-min / z-max sides (3-D only).
 enum class Face { Left = 0, Right = 1, Bottom = 2, Top = 3, Front = 4, Back = 5 };
-// The four in-plane faces, in enum order (2-D domains, AMR patches).
+// The four in-plane faces, in enum order (2-D domains).
 constexpr std::array<Face, 4> kAllFaces = {Face::Left, Face::Right, Face::Bottom, Face::Top};
 // All six faces of a 3-D domain.
 constexpr std::array<Face, 6> kAllFaces3D = {Face::Left, Face::Right, Face::Bottom, Face::Top, Face::Front, Face::Back};
 
-// Face on the other side of a cell / patch (Left <-> Right, Bottom <-> Top, Front <-> Back).
+// Face on the other side of a cell (Left <-> Right, Bottom <-> Top, Front <-> Back).
 inline Face opposite(Face f) {
     switch (f) {
     case Face::Left: return Face::Right;
@@ -55,7 +55,7 @@ inline int face_axis(Face f) { return static_cast<int>(f) / 2; }
 // ---------------------------------------------------------------------------
 
 // Uniform Cartesian mesh.  Topology is implicit (structured), so no per-face
-// arrays are stored; (x0, y0, z0) is the global origin, non-zero for AMR patches
+// arrays are stored; (x0, y0, z0) is the global origin, non-zero for MPI sub-domains
 // and MPI sub-domains.  nz = 1 is a 2-D mesh: no z-faces, areas and volumes in 2-D.
 struct Mesh {
     int nx = 0, ny = 0, nz = 1;            // cells in x, y, z

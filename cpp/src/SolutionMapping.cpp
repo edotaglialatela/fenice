@@ -109,21 +109,4 @@ Field map_solution_3d(const Field& U_c, int nx_c, int ny_c, int nz_c, int nx_f, 
     return U_f;
 }
 
-Field restrict_patch(const Field& U_fine, int nx_f, int ny_f, int nx_c, int ny_c) {
-    const int rx = nx_f / nx_c, ry = ny_f / ny_c;
-    if (rx * nx_c != nx_f || ry * ny_c != ny_f)
-        throw std::invalid_argument("Fine grid is not an integer multiple of coarse grid.");
-    const double inv = 1.0 / (rx * ry);
-    Field U_c(static_cast<size_t>(nx_c) * ny_c);
-    for (int jc = 0; jc < ny_c; ++jc)
-        for (int ic = 0; ic < nx_c; ++ic) {
-            State s = {0, 0, 0, 0};
-            for (int jj = jc * ry; jj < (jc + 1) * ry; ++jj)
-                for (int ii = ic * rx; ii < (ic + 1) * rx; ++ii)
-                    for (int q = 0; q < kNVar; ++q) s[q] += U_fine[jj * nx_f + ii][q];
-            for (int q = 0; q < kNVar; ++q) U_c[jc * nx_c + ic][q] = inv * s[q];
-        }
-    return U_c;
-}
-
 }   // namespace fv

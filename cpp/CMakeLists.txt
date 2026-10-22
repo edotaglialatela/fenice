@@ -20,7 +20,6 @@ add_library(fenice_core STATIC
   src/Physics.cpp
   src/TimeScheme.cpp
   src/SolutionMapping.cpp
-  src/AMR.cpp
   src/CellMesh.cpp
   src/CellFlux.cpp
   src/CellAdvance.cpp

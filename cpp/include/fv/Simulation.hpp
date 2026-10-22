@@ -102,7 +102,7 @@ public:
     std::map<std::array<double, 9>, std::pair<double, Field>> unsteady_source_cache_;
     const Field& source_for(const Mesh& m);
     std::unique_ptr<ImmersedBoundary> ibm;                      // optional obstacle
-    std::function<ImmersedBoundary(const Mesh&)> ibm_factory;   // same body on any (patch) mesh
+    std::function<ImmersedBoundary(const Mesh&)> ibm_factory;   // same body on the uniform mesh of any level
     std::unique_ptr<TimeScheme> scheme;                         // time integrator
     // Adaptive mesh (use_amr): the leaves, the engine that computes their residual, the indicator, and on several MPI ranks
     // the distribution of the leaves (CellParallel). `cells` is null without AMR.

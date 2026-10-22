@@ -224,7 +224,7 @@ void BoundaryManager::apply_side(const Field& U, Field& UL, Field& UR, Face side
     const int axis = face_axis(side);
     const int nx = mesh_.nx, ny = mesh_.ny, nz = mesh_.nz;
 
-    // Mass-flow inlet needs the patch-averaged interior density.
+    // Mass-flow inlet needs the side-averaged interior density.
     double u_target = 0.0;
     if (bc == BCType::MassflowInlet) {
         double sum = 0.0, count = n;

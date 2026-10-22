@@ -32,7 +32,4 @@ Field map_solution(const Field& U_coarse, int nx_c, int ny_c, int nx_f, int ny_f
 Field map_solution_3d(const Field& U_coarse, int nx_c, int ny_c, int nz_c, int nx_f, int ny_f, int nz_f, double Lx,
                       double Ly, double Lz);
 
-// Conservative area-weighted restriction of a fine patch onto a coarser one.
-Field restrict_patch(const Field& U_fine, int nx_f, int ny_f, int nx_c, int ny_c);
-
 }   // namespace fv

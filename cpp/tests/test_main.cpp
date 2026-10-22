@@ -583,8 +583,6 @@ TEST(solution_mapping) {
             err = std::max(err, std::abs(Uf[j * 40 + i][1] - 3.0));
         }
     CHECK(err < 1e-12);
-    const Field Ur = restrict_patch(Uf, 40, 20, 20, 10);
-    CHECK_NEAR(Ur[0][0], 0.25 * (Uf[0][0] + Uf[1][0] + Uf[40][0] + Uf[41][0]), 1e-14);
 }
 
 TEST(npz_roundtrip) {
