@@ -107,9 +107,10 @@ def transcription(sol, args):
     names = ["source_rho", "source_mx", "source_my", "source_E"] + (["source_mz"] if sol.dim == 3 else [])
     U0 = np.array([1.0, 0.0, 0.0, 1.0 / (sol.gamma - 1)] + ([0.0] if sol.dim == 3 else []))
     err = scale = 0.0
+    keep = sol.interior_mask(n).ravel() if sol.dim == 2 else np.ones(U.shape[0], bool)   # the boundary cells feel the BC
     for q, name in enumerate(names):
         want = np.broadcast_to(S[name](X, Y, Z), X.shape).ravel()
-        err = max(err, np.abs((U[:, q] - U0[q]) / dt - want).max())
+        err = max(err, np.abs((U[:, q] - U0[q]) / dt - want)[keep].max())
         scale = max(scale, np.abs(want).max())
     return err, scale
 
@@ -127,7 +128,7 @@ def run_error(sol, n, scheme, args):
         if VARS[k] == "w" and sol.dim == 2:
             continue
         e = np.abs(g - np.asarray(w).ravel())
-        out[VARS[k]] = {"L1": e.mean(), "L2": np.sqrt(np.mean(e ** 2)), "Linf": e.max()}
+        out[VARS[k]] = {"L1": e.mean(), "L2": np.sqrt(np.mean(e ** 2)), "Linf": e.max(), "at": int(np.argmax(e))}
     return out
 
 
@@ -192,6 +193,13 @@ def main():
                 known = (sol.name(), scheme) in KNOWN
                 failed |= not ok and not known
                 curves[sol.name(), scheme, norm] = (h, np.max([e[v] for v in names], axis=0), pair[worst])
+                if norm == "Linf" and sol.kind != "periodic":
+                    # where the finest-grid maximum sits: a boundary closure of lower order shows up here
+                    vmax = max(names, key=lambda v: e[v][-1])
+                    j, i = divmod(errs[-1][vmax]["at"], grids[-1])
+                    dist = min(j, grids[-1] - 1 - j) if sol.kind == "walls" else min(i, grids[-1] - 1 - i)
+                    print(f"      {sol.name():28s} {scheme:9s} Linf of {vmax} on the finest grid sits {dist} cells from the "
+                          f"{'wall' if sol.kind == 'walls' else 'x = 0 / x = 1 side'} (cell {i}, {j} of {grids[-1]})")
                 rows.append((sol.name(), scheme, norm, pair, fit, ok or known and "documented"))
                 print(f"      {sol.name():28s} {scheme:9s} {norm:4s} orders " +
                       " ".join(f"{v} {pair[v]:.2f}" for v in names) + f"   finest-grid error (max over variables) "
