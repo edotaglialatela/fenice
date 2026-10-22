@@ -15,7 +15,7 @@ Run both after any change to the solver.
 ## Unit tests (`fenice_tests`)
 
 `cpp/tests/test_main.cpp` uses a self-contained harness, so no test framework is needed,
-and exits non-zero on failure. Its 69 tests cover:
+and exits non-zero on failure. Its 72 tests cover:
 
 * **EOS.** Round trips, floors, and the stiffened gas reducing to the ideal gas.
 * **Limiters.** TVD bounds, symmetry, and Minmod being the most diffusive.
@@ -30,7 +30,9 @@ and exits non-zero on failure. Its 69 tests cover:
   its iteration cap.
 * **IBM.** Masks, forcing, fringe and deep-solid reset.
 * **Source terms and the viscous time step.** One Euler step on a uniform state moves every cell by
-  $\Delta t\,S(x, y, z)$ (expression parsing, state slots, cell-centre positions, 2-D and 3-D), sources are rejected
+  $\Delta t\,S(x, y, z)$ (expression parsing, state slots, cell-centre positions, 2-D and 3-D); a source that uses
+  `t` is evaluated at each scheme's own stage times (Euler, trapezoid, Simpson and BDF2 checked against a cubic in $t$
+  to $10^{-14}$, started from $t_0 \ne 0$) and `t` is detected as a whole identifier; sources are rejected
   with AMR and the IBM, and a Taylor-Green vortex at $\nu = 0.1$ and $0.2$ stays accurate at the default CFL
   (the convective and viscous limits share one budget, see [TimeScheme]({{root}}modules/TimeScheme.html)).
 * **AMR.** Tree structure, conservative refine/derefine, 2:1 balance, the indicator,
@@ -66,7 +68,7 @@ and exits non-zero on failure. Its 69 tests cover:
 
 ## Regression references (`regression.py`)
 
-`cpp/tests/reference/` stores final states for 36 short configurations. Sixteen were
+`cpp/tests/reference/` stores final states for 38 short configurations. Sixteen were
 produced by an independent implementation of the same schemes. The Taylor-Green and
 isentropic-vortex references are validated against their exact solutions; the five
 3-D references (Taylor-Green 3-D, an x-decomposed thin box, a no-slip cavity, Sod between
@@ -77,8 +79,8 @@ reflection measurements on the [Boundaries]({{root}}modules/Boundaries.html) pag
 airfoil reference (NACA 0012 at 10°) by the `airfoil_geometry` test; the AMR airfoil
 reference (tiled root, body at the finest level) by `amr_tiled_matches_uniform_steps`, and all six AMR
 references are also run on 2 to 7 MPI ranks, which must give the same state (one of them has only two
-root patches, so most ranks own nothing at the coarse levels). The five manufactured-solution references
-(2-D Navier-Stokes, 2-D Euler on x-strips, 3-D Navier-Stokes, with a moving and a slip wall, with a no-slip wall and an outflow on x-strips) are backed by the
+root patches, so most ranks own nothing at the coarse levels). The seven manufactured-solution references
+(2-D Navier-Stokes, 2-D Euler on x-strips, 3-D Navier-Stokes, with a moving and a slip wall, with a no-slip wall and an outflow on x-strips, and the unsteady Euler solution with RK4 and with BDF2) are backed by the
 [order study]({{root}}cases/manufactured-solution.html) and also run on MPI strips along x and y; they cover
 the source terms under decomposition.
 Together they cover:
@@ -150,6 +152,7 @@ accuracy are measured, not estimated.
 | `taylor_green.py` | Taylor-Green kinetic-energy decay and grid convergence |
 | `taylor_green_animation.py` | animation of the Taylor-Green vorticity surface decaying, against the exact solution |
 | `poiseuille.py` | Poiseuille parabola, grid convergence; serial vs 4 MPI ranks |
+| `mms_time.py` | time accuracy: unsteady manufactured solution, Euler / SSP-RK2 / RK4 / BDF2 against a small-step reference ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms.py` | manufactured solutions (Euler, Navier-Stokes, 2-D and 3-D, periodic and with walls / outflow): source transcription, truncation error, observed orders ([page]({{root}}cases/manufactured-solution.html)) |
 
 **`benchmarks/`: is the answer right?** The reference is a literature table, a much finer

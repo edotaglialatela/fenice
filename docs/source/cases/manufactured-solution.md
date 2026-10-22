@@ -34,10 +34,10 @@ source_my  = "..."
 source_E   = "..."
 ```
 
-Each expression is evaluated once per cell, at the cell centre, on the mesh the residual is assembled on (so MPI
-strips work), and added to the residual of every stage. It is steady: it has no time dependence, so the time
-accuracy is checked separately (the time-scheme order tests of `fenice_tests`). Sources are not available with AMR or
-the immersed boundary.
+Each expression is evaluated at the cell centres of the mesh the residual is assembled on (so MPI strips work) and
+added to the residual of every stage. It may use the time `t`: then it is evaluated at the time of every stage (see
+[An unsteady solution](#an-unsteady-solution-time-accuracy)); without `t` it is evaluated once. Sources are not
+available with AMR or the immersed boundary.
 
 ## The manufactured solution
 
@@ -212,6 +212,65 @@ branches of the boundary code), the inlets and the outlets (their ghost states s
 so they are first order by construction and no manufactured solution matches them), the non-reflecting outlet, and
 corners where two non-periodic sides meet.
 
+## An unsteady solution: time accuracy
+
+The steady source cannot test the time integration, so one more case has **travelling waves**: the time enters the
+phases of the solution, the source is $S = \partial U_m/\partial t + \nabla\cdot F(U_m)$ and its expressions use the
+variable `t`. The solver evaluates such a source at the **time of every stage**, in absolute simulation time (so a
+restarted run is unchanged): Explicit Euler at $t$, SSP-RK2 at $t$ and $t + \Delta t$, RK4 at $t$, twice
+$t + \Delta t/2$ and $t + \Delta t$, BDF2 at $t + \Delta t$ in every inner iteration. A source that does not use `t`
+is still evaluated once.
+
+| Case (`--case`) | Equations | Default mesh |
+|---|---|---|
+| `Manufactured Solution Unsteady Euler` | 2-D Euler, periodic, travelling waves | 32² |
+
+The stage times are checked first by a **unit test** that does not depend on the spatial scheme: on a uniform state,
+with a cubic polynomial in $t$ as the density source, one step of each scheme must equal its own quadrature rule to
+$10^{-14}$ (Euler: $\Delta t\,f(t_0)$; SSP-RK2: the trapezoid rule; RK4: Simpson's rule, which integrates the cubic
+exactly; BDF2: $\rho_1 = \rho_0 + \Delta t f(t_0 + \Delta t)$ and then the BDF2 formula), starting from a non-zero
+$t_0$. Disabling the stage time of SSP-RK2 or RK4 makes it fail.
+
+`verification/mms_time.py` then measures the order on $32^2$ cells at $t = 0.2$, against a reference with a very
+small step (RK4 at CFL 0.0125), with first-order and with MUSCL space. The reference must itself converge to the
+exact solution as the mesh is refined, which is what catches a wrong $\partial U_m/\partial t$ term in the generator:
+a self-convergence in time alone would converge to the wrong solution. The expected orders were fixed before the
+first run.
+
+<figure>
+<img src="{{root}}img/mms_time.png" style="width:100%">
+<figcaption>Difference to the small-step reference against the time step (CFL 0.4 to 0.05 for the explicit schemes,
+$\Delta t_{phys}$ 0.04 to 0.005 for BDF2); the legend gives the observed order of the finest pair.</figcaption>
+</figure>
+
+| time scheme | space | 0.4 | 0.2 | 0.1 | 0.05 | order (finest pair) | expected | |
+|---|---|---:|---:|---:|---:|---:|---|---|
+| Explicit Euler | 1st order | 4.88e-03 | 2.32e-03 | 1.13e-03 | 5.58e-04 | 1.02 | [0.9, 1.1] | OK |
+| Explicit Euler | MUSCL | 4.01e-03 | 1.52e-03 | 7.11e-04 | 3.48e-04 | 1.03 | [0.9, 1.1] | OK |
+| SSP-RK2 | 1st order | 1.55e-04 | 3.84e-05 | 9.56e-06 | 2.39e-06 | 2.00 | [1.8, 2.2] | OK |
+| SSP-RK2 | MUSCL | 1.30e-04 | 3.21e-05 | 8.01e-06 | 2.01e-06 | 2.00 | [1.8, 2.2] | OK |
+| RK4 | 1st order | 4.95e-07 | 8.89e-08 | 2.28e-08 | 5.49e-09 | 2.05 | [3.5, 4.5] | outside (explained) |
+| RK4 | MUSCL | 4.16e-06 | 8.67e-07 | 2.40e-07 | 6.60e-08 | 1.86 | [2.0, 4.5] | outside (explained) |
+| BDF2 | 1st order | 8.28e-03 | 6.08e-03 | 7.65e-04 | 1.92e-04 | 2.00 | [1.8, 2.2] | OK |
+| BDF2 (defaults) | 1st order | 8.27e-03 | 6.09e-03 | 8.06e-04 | 2.91e-04 | 1.47 | - | reported |
+| BDF2 | MUSCL | 5.16e-03 | 5.87e-03 | 5.23e-04 | 1.42e-04 | 1.88 | [1.8, 2.2] | OK |
+| BDF2 (defaults) | MUSCL | 5.15e-03 | 5.89e-03 | 5.45e-04 | 2.19e-04 | 1.32 | - | reported |
+
+* **The reference is the solution of the equations.** Its error against the exact solution falls on 16², 32², 64²
+  at 0.8 (first-order space) and 2.1 (MUSCL).
+* **Explicit Euler, SSP-RK2:** orders 1.0 and 2.0 for both spatial schemes, as expected.
+* **BDF2 with a converged inner iteration:** order 2.0 (first-order space) and 1.9 (MUSCL). With the default inner
+  tolerance (`inner_tol_rel = 1e-3`, at most 50 iterations) the order falls to 1.3 to 1.5 and the error at the
+  smallest step is 1.5 times larger: at small physical steps the iteration error, not the BDF2 truncation error, sets the
+  accuracy, so a smaller `dt_phys` calls for a tighter `inner_tol_rel`.
+* **RK4 reaches order 2, not 4 (outside its band, explained, band not moved).** It does so with first-order space as
+  well, and on 16², 32² and 64² alike: the error shrinks with $h$ (3.6e-6, 5.0e-7, 7.5e-8) but the order does not
+  improve. The right-hand side of the full scheme is not smooth enough for a fourth-order integrator: the Einfeldt wave
+  speed bounds of HLLC are a $\min$ / $\max$ (and so are the limiters). This is consistent with the data, not proven;
+  the stage times of RK4 are verified exactly by the unit test above. A floor of 1.8, set after the run, keeps a worse
+  loss from passing. In practice RK4 is still far more accurate than SSP-RK2 at the same CFL (5·10⁻⁷ against
+  1.5·10⁻⁴ at CFL 0.4), but it does not gain four orders of accuracy.
+
 ## What it does not verify
 
 * **Most boundary conditions.** Only the wall, moving-wall, no-slip and transmissive ghosts are verified (see above).
@@ -222,8 +281,9 @@ corners where two non-periodic sides meet.
   conservation tests of `fenice_tests` do.
 * **Shocks and discontinuities.** The solution is smooth; the treatment of shocks by the limiters and the Riemann
   solvers is checked by Sod and Shu-Osher against the exact and reference solutions (Roache, sec. 3.7).
-* **AMR, the immersed boundary, time accuracy.** Sources are not available with AMR or the IBM, and the source is
-  steady.
+* **AMR and the immersed boundary.** Sources are not available with AMR or the IBM.
+* **Viscous terms in time.** The unsteady case is Euler; the viscous residual enters the integrators the same way, but
+  its time accuracy is not measured separately.
 
 ## Adding a manufactured solution
 

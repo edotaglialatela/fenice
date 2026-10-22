@@ -83,6 +83,9 @@ CASES = {
     "mms_euler_xdecomp":   ("Manufactured Solution Euler", dict(nx=32, ny=6, t_end=0.1)),
     "mms_ns_3d":           ("Manufactured Solution 3D", dict(nx=12, ny=12, nz=12, t_end=0.05)),
     "mms_walls":           ("Manufactured Solution Walls", dict(nx=24, ny=24, t_end=0.1)),
+    "mms_unsteady_rk4":    ("Manufactured Solution Unsteady Euler", dict(nx=16, ny=16, t_end=0.1, time_scheme="Runge-Kutta 4")),
+    "mms_unsteady_bdf2":   ("Manufactured Solution Unsteady Euler", dict(nx=16, ny=6, t_end=0.1, time_scheme="BDF2 Dual Time",
+                                                                         dt_phys=0.02, max_inner_iter=200, inner_tol_rel=1e-8)),
     "mms_outflow_xdecomp": ("Manufactured Solution Outflow", dict(nx=32, ny=6, t_end=0.1)),
     # Added 2026-10-20 (C++ references, validated against the exact solutions)
     "taylor_green_visc":   ("Taylor-Green Vortex", dict(nx=32, ny=32, t_end=0.5, mu=0.05)),
@@ -120,7 +123,7 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodi
              "cylinder_ibm_visc", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
-             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp"]
+             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk4", "mms_unsteady_bdf2"]
 
 
 def run_cpp(name, tmp, n_mpi=0):

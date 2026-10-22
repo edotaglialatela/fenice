@@ -47,8 +47,9 @@ short alias shown in brackets.
 
 The case file section `[source]`. The equations solved become $\partial U/\partial t + \nabla\cdot(F - F_v) = S$,
 with $U = [\rho, \rho u, \rho v, \rho E, \rho w]$. Each key is a number or an expression of `x`, `y`, `z` (cell
-centre), `pi`, `e` and the numeric run parameters, evaluated once per cell and added to the residual of every stage
-(steady: no time dependence). They exist for code verification by the method of manufactured solutions, see
+centre), `pi`, `e`, the time `t` and the numeric run parameters, added to the residual of every stage. Without `t` it is
+evaluated once (steady); with `t` it is evaluated at the time of each stage of the time scheme, in absolute simulation
+time. They exist for code verification by the method of manufactured solutions, see
 [Manufactured solutions]({{root}}cases/manufactured-solution.html); the cases of that page set them. Not available
 with AMR or the immersed boundary.
 

@@ -33,6 +33,7 @@ GROUPS = {
         "taylor_green": (["verification/taylor_green.py"], False),
         "taylor_green_animation": (["verification/taylor_green_animation.py"], False),
         "poiseuille": (["verification/poiseuille.py"], False),
+        "mms_time": (["verification/mms_time.py"], False),   # time order, unsteady manufactured solution (2 minutes)
         "mms": (["verification/mms.py"], False),   # manufactured solutions, 2-D and 3-D, up to 64^2 / 48^3
         "mms_full": (["verification/mms.py", "--full"], True),   # up to 128^2 / 96^3 (about 20 minutes), as in the docs
     },
