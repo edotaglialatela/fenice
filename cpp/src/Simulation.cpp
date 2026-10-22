@@ -1260,6 +1260,21 @@ void Simulation::solve_amr() {
             par_storage.allgatherv = [](const double* send, int n, double* recv, const int* counts, const int* displs) {
                 MPI_Allgatherv(send, n, MPI_DOUBLE, recv, counts, displs, MPI_DOUBLE, MPI_COMM_WORLD);
             };
+            par_storage.exchange = [](const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) {
+                std::vector<MPI_Request> req;
+                req.reserve(send.size() + recv.size());
+                for (size_t r = 0; r < recv.size(); ++r)
+                    if (!recv[r].empty()) {
+                        req.emplace_back();
+                        MPI_Irecv(recv[r].data(), static_cast<int>(recv[r].size()), MPI_DOUBLE, static_cast<int>(r), 77, MPI_COMM_WORLD, &req.back());
+                    }
+                for (size_t r = 0; r < send.size(); ++r)
+                    if (!send[r].empty()) {
+                        req.emplace_back();
+                        MPI_Isend(send[r].data(), static_cast<int>(send[r].size()), MPI_DOUBLE, static_cast<int>(r), 77, MPI_COMM_WORLD, &req.back());
+                    }
+                MPI_Waitall(static_cast<int>(req.size()), req.data(), MPI_STATUSES_IGNORE);
+            };
             par_storage.allreduce_max = [](double v) {
                 double g = v;
                 MPI_Allreduce(&v, &g, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
@@ -1322,6 +1337,7 @@ void Simulation::solve_amr() {
         double dt = scheme->cfl * min_delta_base / (S_max + 1e-10);
         dt = std::min(dt, p.t_end - t);
         S_max = advance_amr_level(tree, 0, dt, t, p.t_end, pres, *scheme, par);
+        if (par) gather_leaf_state(tree, *par);   // solid reset, remesh and output still read every leaf
         if (p.use_ibm) amr_solid_reset(tree);
         t += dt;
         ++step;

@@ -30,6 +30,8 @@ struct AMRPatch {
     // holds its data at all (owned, or a halo copy of a leaf next to an owned one)
     int   owner = 0;
     bool  held  = true;
+    std::vector<int> viewers;          // other ranks that hold a halo copy of this leaf (sorted)
+    std::vector<int> peers;            // those of them that advance a leaf of the same level next to it
 
     // Transient state used by advance_amr_level
     bool  has_ghost = false;           // U_ghost holds the frozen neighbour snapshot
@@ -131,16 +133,24 @@ public:
 using PatchResidualFn = std::function<double(AMRPatch& patch, AMRTree& tree, const Field& U,
                                              Field& R, Field& flux_x, Field& flux_y)>;
 
-// Distributed advance: every rank holds the whole tree and all patch data (so remeshing, refluxing and
-// output need no communication and every rank takes the same decisions); the patches of each level are
-// split over the ranks, each rank advances its own, and after every stage and level the replicas are
-// refreshed with these hooks. The arithmetic of a patch does not depend on its rank: results equal serial.
+// Distributed advance: every rank holds the whole tree (so every rank takes the same remesh decisions); the
+// leaves of each level are split over the ranks (assign_ownership), each rank advances its own, and the
+// owner of a leaf sends its data to the ranks that hold a halo copy of it: the same-level neighbours after
+// every stage, everything after a level has been advanced (and refluxed). The arithmetic of a patch does
+// not depend on its rank: results equal serial.
 struct AMRParallel {
     int rank = 0, size = 1;
     // Gather the `n_send` doubles of every rank into `recv` (rank r's block has counts[r], at displs[r]).
     std::function<void(const double* send, int n_send, double* recv, const int* counts, const int* displs)> allgatherv;
     std::function<double(double)> allreduce_max;   // max over the ranks
+    // Sparse all-to-all: send[r] goes to rank r, recv[r] (pre-sized by the caller) is filled from rank r;
+    // an empty buffer means no message. Returns when all of them are complete.
+    std::function<void(const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv)> exchange;
 };
+
+// Refresh the copies of the leaves this rank neither owns nor holds as halo from their owners
+// (a full allgather; the remesh, the solid reset and the output still read every leaf).
+void gather_leaf_state(AMRTree& tree, const AMRParallel& par);
 
 // Distribute the leaves over `size` ranks: each level is cut into contiguous blocks along the Morton
 // order of its slot-grid position (patches of one level have equal size, so equal counts). Sets

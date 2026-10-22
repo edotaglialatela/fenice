@@ -134,6 +134,7 @@ std::vector<AMRPatch*> AMRTree::refine_patch(AMRPatch* patch) {
         patch->children.push_back(child);
         kids.push_back(child);
     }
+    Field().swap(patch->U);   // an interior patch has no state of its own: derefine_patch rebuilds it
     return kids;
 }
 
@@ -261,10 +262,19 @@ void assign_ownership(AMRTree& tree, int rank, int size) {
         const long long n = static_cast<long long>(at.size());
         for (long long k = 0; k < n; ++k) at[k].second->owner = static_cast<int>(k * size / n);
     }
-    for (AMRPatch* p : lv) p->held = (p->owner == rank);
-    for (AMRPatch* p : lv)
-        if (p->owner == rank)
-            for (AMRPatch* nb : tree.leaves_near(p, kStencil)) nb->held = true;
+    for (AMRPatch* p : lv) { p->viewers.clear(); p->peers.clear(); }
+    auto add = [](std::vector<int>& v, int r) {
+        const auto it = std::lower_bound(v.begin(), v.end(), r);
+        if (it == v.end() || *it != r) v.insert(it, r);
+    };
+    // Every rank derives the halo sets of all ranks from the (replicated) tree: no communication
+    for (AMRPatch* y : lv)
+        for (AMRPatch* nb : tree.leaves_near(y, kStencil))
+            if (nb->owner != y->owner) {
+                add(nb->viewers, y->owner);
+                if (nb->level == y->level) add(nb->peers, y->owner);
+            }
+    for (AMRPatch* p : lv) p->held = p->owner == rank || std::binary_search(p->viewers.begin(), p->viewers.end(), rank);
 }
 
 // ---------------------------------------------------------------------------
@@ -399,7 +409,8 @@ void face_edge_indices(int nx, int ny, Face face, char& which, std::vector<int>&
     }
 }
 
-void init_reflux_registers(AMRTree& tree, int level) {
+// Registers live on the leaves this rank holds (own fine leaves accumulate, halo ones receive)
+void init_reflux_registers(AMRTree& tree, int level, bool all_held) {
     for (AMRPatch* f : tree.leaves()) {
         if (f->level != level + 1) continue;
         f->reflux_faces.clear();
@@ -409,7 +420,7 @@ void init_reflux_registers(AMRTree& tree, int level) {
             if (coarser) f->reflux_faces.push_back(face);
         }
         f->has_reflux = !f->reflux_faces.empty();
-        if (f->has_reflux) {
+        if (f->has_reflux && (all_held || f->held)) {
             f->reflux_fx.assign(static_cast<size_t>(f->nx() + 1) * f->ny(), State{0, 0, 0, 0});
             f->reflux_fy.assign(static_cast<size_t>(f->nx()) * (f->ny() + 1), State{0, 0, 0, 0});
         } else {
@@ -419,11 +430,11 @@ void init_reflux_registers(AMRTree& tree, int level) {
     }
 }
 
-void accumulate_fine_face_fluxes(AMRTree& tree, int level, double dt_fine) {
+void accumulate_fine_face_fluxes(AMRTree& tree, int level, double dt_fine, int rank, bool dist) {
     std::vector<int> idx;
     char which;
     for (AMRPatch* f : tree.leaves()) {
-        if (f->level != level + 1 || !f->has_reflux) continue;
+        if (f->level != level + 1 || !f->has_reflux || (dist && f->owner != rank)) continue;
         for (Face face : f->reflux_faces) {
             face_edge_indices(f->nx(), f->ny(), face, which, idx);
             const Field& src = (which == 'x') ? f->last_flux_x : f->last_flux_y;
@@ -445,11 +456,11 @@ AMRPatch* fine_leaf_at(const std::vector<AMRPatch*>& fines, double coord, bool v
 }
 
 // Correct coarse cells adjacent to coarse-fine faces by +-(sum F_fine - F_coarse dt)/A.
-void apply_reflux(AMRTree& tree, int level, double dt) {
+void apply_reflux(AMRTree& tree, int level, double dt, int rank, bool dist) {
     std::vector<int> idx_c, idx_g;
     char which_c, which_g;
     for (AMRPatch* c : tree.leaves()) {
-        if (c->level != level) continue;
+        if (c->level != level || (dist && c->owner != rank)) continue;
         const int nx_c = c->nx(), ny_c = c->ny();
         const double dx_c = c->mesh.dx, dy_c = c->mesh.dy;
         const double area = c->mesh.cell_area();
@@ -470,7 +481,7 @@ void apply_reflux(AMRTree& tree, int level, double dt) {
                 for (double frac : {0.25, 0.75}) {
                     const double coord = vertical ? c->ymin + (k + frac) * dy_c : c->xmin + (k + frac) * dx_c;
                     AMRPatch* g = fine_leaf_at(fines, coord, vertical);
-                    if (!g || !g->has_reflux) continue;
+                    if (!g || !g->has_reflux || g->reflux_fx.empty()) continue;
                     face_edge_indices(g->nx(), g->ny(), opp, which_g, idx_g);
                     const Field& reg = (which_g == 'x') ? g->reflux_fx : g->reflux_fy;
                     int kf;
@@ -490,84 +501,118 @@ void apply_reflux(AMRTree& tree, int level, double dt) {
     }
 }
 
-// Average children back onto their parent (keeps parents valid for derefinement).
-void restrict_fine_to_coarse(AMRTree& tree, int coarse_level) {
-    for (AMRPatch* patch : tree.all_patches()) {
-        if (patch->level != coarse_level || patch->is_leaf()) continue;
-        const int nx_f = patch->children[0]->nx(), ny_f = patch->children[0]->ny();
-        const int nf_x = 2 * nx_f, nf_y = 2 * ny_f;
-        Field full(static_cast<size_t>(nf_x) * nf_y, State{0, 0, 0, 0});
-        const double half_x = (patch->xmax - patch->xmin) / 2.0;
-        const double half_y = (patch->ymax - patch->ymin) / 2.0;
-        for (AMRPatch* child : patch->children) {
-            const int i_off = static_cast<int>(std::lround((child->xmin - patch->xmin) / half_x));
-            const int j_off = static_cast<int>(std::lround((child->ymin - patch->ymin) / half_y));
-            for (int j = 0; j < ny_f; ++j)
-                for (int i = 0; i < nx_f; ++i)
-                    full[(j_off * ny_f + j) * nf_x + i_off * nx_f + i] = child->U[j * nx_f + i];
-        }
-        patch->U = restrict_patch(full, nf_x, nf_y, patch->nx(), patch->ny());
-    }
-}
-
-enum class Share { Ghost, State, Fluxes };
+// What a message carries: the neighbour snapshot of a leaf, its state, or its reflux registers
+enum class Kind { Ghost, State, Reflux };
 
 // Marks the snapshot of a leaf this rank does not hold: any read of it turns the result into NaN
 constexpr double kPoison = std::numeric_limits<double>::quiet_NaN();
 
-// Replace the copies of the patches that a rank does not own by the owner's data.
-void share_level(const AMRParallel& par, const std::vector<AMRPatch*>& pat, const std::vector<int>& owner, Share what) {
-    auto fields = [&](AMRPatch& p) {
-        std::vector<Field*> f;
-        if (what == Share::Ghost) f = {&p.U_ghost};
-        else if (what == Share::State) f = {&p.U};
-        else f = {&p.last_flux_x, &p.last_flux_y};
-        return f;
-    };
-    auto sizes = [&](const AMRPatch& p) {
-        std::vector<size_t> n;
-        const size_t nx = p.nx(), ny = p.ny();
-        if (what == Share::Fluxes) n = {(nx + 1) * ny, nx * (ny + 1)};
-        else n = {nx * ny};
-        return n;
-    };
-    std::vector<int> counts(par.size, 0), displs(par.size, 0);
-    for (size_t k = 0; k < pat.size(); ++k) {
-        const auto n = sizes(*pat[k]);
-        auto f = fields(*pat[k]);
-        for (size_t q = 0; q < f.size(); ++q) {
-            if (owner[k] != par.rank) f[q]->resize(n[q]);
-            counts[owner[k]] += static_cast<int>(n[q] * kNVar);
+std::vector<Field*> fields_of(AMRPatch& p, Kind k) {
+    if (k == Kind::Ghost) return {&p.U_ghost};
+    if (k == Kind::State) return {&p.U};
+    return {&p.reflux_fx, &p.reflux_fy};
+}
+
+std::vector<size_t> sizes_of(const AMRPatch& p, Kind k) {
+    const size_t nx = p.nx(), ny = p.ny();
+    if (k == Kind::Reflux) return {(nx + 1) * ny, nx * (ny + 1)};
+    return {nx * ny};
+}
+
+bool has_rank(const std::vector<int>& v, int r) { return std::find(v.begin(), v.end(), r) != v.end(); }
+
+// Send the data of every leaf of `list` from its owner to the ranks dest[k] names (the receivers
+// resize their copy to the expected size). Every rank calls this with the same arguments; a rank
+// with nothing to send or receive just passes empty buffers.
+void push_fields(const AMRParallel& par, const std::vector<AMRPatch*>& list, const std::vector<std::vector<int>>& dest, Kind kind) {
+    std::vector<std::vector<double>> send(par.size), recv(par.size);
+    for (size_t k = 0; k < list.size(); ++k) {
+        AMRPatch& p = *list[k];
+        if (dest[k].empty()) continue;
+        if (p.owner == par.rank) {
+            for (int v : dest[k])
+                for (Field* f : fields_of(p, kind))
+                    for (const State& st : *f) send[v].insert(send[v].end(), st.begin(), st.end());
+        } else if (has_rank(dest[k], par.rank)) {
+            size_t n = 0;
+            for (size_t m : sizes_of(p, kind)) n += m;
+            recv[p.owner].resize(recv[p.owner].size() + n * kNVar);
         }
     }
-    for (int r = 1; r < par.size; ++r) displs[r] = displs[r - 1] + counts[r - 1];
-    std::vector<double> send, recv(static_cast<size_t>(displs[par.size - 1] + counts[par.size - 1]));
-    for (size_t k = 0; k < pat.size(); ++k)
-        if (owner[k] == par.rank)
-            for (Field* f : fields(*pat[k]))
-                for (const State& st : *f) send.insert(send.end(), st.begin(), st.end());
-    par.allgatherv(send.data(), static_cast<int>(send.size()), recv.data(), counts.data(), displs.data());
-    std::vector<size_t> pos(displs.begin(), displs.end());
-    for (size_t k = 0; k < pat.size(); ++k) {
-        const int r = owner[k];
-        for (Field* f : fields(*pat[k])) {
-            if (r != par.rank && what == Share::Ghost && !pat[k]->held)
-                pos[r] += f->size() * kNVar;   // not a halo of this rank: leave the poisoned snapshot
-            else if (r != par.rank)
-                for (State& st : *f) { std::copy(recv.begin() + pos[r], recv.begin() + pos[r] + kNVar, st.begin()); pos[r] += kNVar; }
-            else
-                pos[r] += f->size() * kNVar;
+    par.exchange(send, recv);
+    std::vector<size_t> pos(par.size, 0);
+    for (size_t k = 0; k < list.size(); ++k) {
+        AMRPatch& p = *list[k];
+        if (p.owner == par.rank || !has_rank(dest[k], par.rank)) continue;
+        const auto n = sizes_of(p, kind);
+        auto f = fields_of(p, kind);
+        for (size_t q = 0; q < f.size(); ++q) {
+            f[q]->resize(n[q]);
+            for (State& st : *f[q]) {
+                std::copy(recv[p.owner].begin() + pos[p.owner], recv[p.owner].begin() + pos[p.owner] + kNVar, st.begin());
+                pos[p.owner] += kNVar;
+            }
         }
     }
 }
 
+// dest lists for push_fields: the halo holders (or the same-level peers) of each leaf
+std::vector<std::vector<int>> dest_of(const std::vector<AMRPatch*>& list, bool peers_only) {
+    std::vector<std::vector<int>> d;
+    d.reserve(list.size());
+    for (const AMRPatch* p : list) d.push_back(peers_only ? p->peers : p->viewers);
+    return d;
+}
+
+// Fine owner -> coarse owner: the registers of the fine leaves whose coarse neighbour lives elsewhere
+void exchange_reflux(AMRTree& tree, int level, const AMRParallel& par) {
+    std::vector<AMRPatch*> list;
+    std::vector<std::vector<int>> dest;
+    for (AMRPatch* f : tree.leaves()) {
+        if (f->level != level + 1 || !f->has_reflux) continue;
+        std::vector<int> to;
+        for (Face face : f->reflux_faces)
+            for (AMRPatch* nb : tree.neighbour_leaves(f, face))
+                if (nb->level < f->level && nb->owner != f->owner && !has_rank(to, nb->owner)) to.push_back(nb->owner);
+        std::sort(to.begin(), to.end());
+        list.push_back(f);
+        dest.push_back(std::move(to));
+    }
+    push_fields(par, list, dest, Kind::Reflux);
+}
+
 }  // namespace
+
+void gather_leaf_state(AMRTree& tree, const AMRParallel& par) {
+    // Leaves a rank holds are already current (the owners pushed them): only the others are refreshed
+    const auto lv = tree.leaves();
+    std::vector<int> counts(par.size, 0), displs(par.size, 0);
+    for (const AMRPatch* p : lv) counts[p->owner] += static_cast<int>(p->nx() * p->ny() * kNVar);
+    for (int r = 1; r < par.size; ++r) displs[r] = displs[r - 1] + counts[r - 1];
+    std::vector<double> send, recv(static_cast<size_t>(displs[par.size - 1] + counts[par.size - 1]));
+    for (const AMRPatch* p : lv)
+        if (p->owner == par.rank)
+            for (const State& st : p->U) send.insert(send.end(), st.begin(), st.end());
+    par.allgatherv(send.data(), static_cast<int>(send.size()), recv.data(), counts.data(), displs.data());
+    std::vector<size_t> pos(displs.begin(), displs.end());
+    for (AMRPatch* p : lv) {
+        const size_t n = static_cast<size_t>(p->nx()) * p->ny();
+        if (p->owner != par.rank && !p->held) {
+            p->U.resize(n);
+            for (State& st : p->U) { std::copy(recv.begin() + pos[p->owner], recv.begin() + pos[p->owner] + kNVar, st.begin()); pos[p->owner] += kNVar; }
+        } else {
+            pos[p->owner] += n * kNVar;
+        }
+    }
+}
 
 double advance_amr_level(AMRTree& tree, int level, double dt, double current_time, double max_time,
                          const PatchResidualFn& residual, TimeScheme& scheme, const AMRParallel* par) {
     dt = std::min(dt, max_time - current_time);
     if (dt <= 0.0) return 0.0;
 
+    const bool dist = par && par->size > 1;
+    const int rank = dist ? par->rank : 0;
     const auto lv = tree.leaves();
     std::vector<AMRPatch*> at_level;
     bool any_finer = false;
@@ -579,18 +624,17 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
 
     double S_max = 0.0;
     if (has_finer) {
-        init_reflux_registers(tree, level);
+        init_reflux_registers(tree, level, !dist);
         for (int sub = 0; sub < 2; ++sub) {
             const double t_sub = current_time + sub * (dt / 2);
             S_max = std::max(S_max, advance_amr_level(tree, level + 1, dt / 2, t_sub, max_time, residual, scheme, par));
-            accumulate_fine_face_fluxes(tree, level, dt / 2);
+            accumulate_fine_face_fluxes(tree, level, dt / 2, rank, dist);
         }
     }
 
     if (!at_level.empty()) {
         // Freeze every leaf so patches of other levels read one neighbour snapshot
         // (guardcell-then-advance); required for flux conservation.
-        const bool dist = par && par->size > 1;
         for (AMRPatch* p : lv) {
             if (!dist || p->held) p->U_ghost = p->U;
             else p->U_ghost.assign(p->U.size(), State{kPoison, kPoison, kPoison, kPoison, kPoison});   // not held: must not be read
@@ -599,12 +643,10 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
         // The patches of this level are one ODE system: concatenate them and advance with a single
         // call, so every stage sees the current stage of the same-level neighbours (as the uniform
         // solver does) while coarser / finer neighbours stay on the snapshot.
-        const int n_all = static_cast<int>(at_level.size());
-        std::vector<int> owner(n_all, 0);
-        if (dist) for (int k = 0; k < n_all; ++k) owner[k] = at_level[k]->owner;
         std::vector<AMRPatch*> mine;   // the patches this rank advances
-        for (int k = 0; k < n_all; ++k)
-            if (!dist || owner[k] == par->rank) mine.push_back(at_level[k]);
+        for (AMRPatch* p : at_level)
+            if (!dist || p->owner == rank) mine.push_back(p);
+        const auto stage_dest = dist ? dest_of(at_level, true) : std::vector<std::vector<int>>();
         const int n_at = static_cast<int>(mine.size());
         std::vector<size_t> off(n_at + 1, 0);
         for (int k = 0; k < n_at; ++k) off[k + 1] = off[k] + mine[k]->U.size();
@@ -613,7 +655,7 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
         const ResidualFn res = [&](const Field& Uin, Field& R) {
             R.resize(Uin.size());
             for (int k = 0; k < n_at; ++k) std::copy(Uin.begin() + off[k], Uin.begin() + off[k + 1], mine[k]->U_ghost.begin());
-            if (dist) share_level(*par, at_level, owner, Share::Ghost);   // same-level neighbours at this stage
+            if (dist) push_fields(*par, at_level, stage_dest, Kind::Ghost);   // same-level neighbours at this stage
             double s_max = 0.0;
 #pragma omp parallel if(n_at > 1)
             {
@@ -632,18 +674,16 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
         };
         S_max = std::max(S_max, scheme.advance_fixed_dt(Ucat, res, dt));
         for (int k = 0; k < n_at; ++k) std::copy(Ucat.begin() + off[k], Ucat.begin() + off[k + 1], mine[k]->U.begin());
-        if (dist) {
-            share_level(*par, at_level, owner, Share::State);
-            share_level(*par, at_level, owner, Share::Fluxes);
-            S_max = par->allreduce_max(S_max);
-        }
+        if (dist) S_max = par->allreduce_max(S_max);
         for (AMRPatch* p : lv) p->has_ghost = false;   // keep capacity for the next step
     }
 
     if (has_finer) {
-        if (!g_amr_disable_reflux) apply_reflux(tree, level, dt);
-        restrict_fine_to_coarse(tree, level);
+        if (dist) exchange_reflux(tree, level, *par);
+        if (!g_amr_disable_reflux) apply_reflux(tree, level, dt, rank, dist);
     }
+    // The state of this level is final (refluxed): the halo copies on other ranks follow
+    if (dist && !at_level.empty()) push_fields(*par, at_level, dest_of(at_level, false), Kind::State);
     return S_max;
 }
 
