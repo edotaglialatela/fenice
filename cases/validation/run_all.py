@@ -28,6 +28,7 @@ HERE = Path(__file__).resolve().parent
 GROUPS = {
     "verification": {
         "sod": (["verification/sod.py"], False),
+        "shock_order": (["verification/shock_order.py"], False),   # order of accuracy at a shock (Sod, 100 to 1600 cells)
         "isentropic_vortex": (["verification/isentropic_vortex.py"], False),
         "taylor_green": (["verification/taylor_green.py"], False),
         "taylor_green_animation": (["verification/taylor_green_animation.py"], False),

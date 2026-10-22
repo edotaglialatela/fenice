@@ -145,6 +145,7 @@ accuracy are measured, not estimated.
 | Script | Compares |
 |---|---|
 | `sod.py` | Sod vs the exact Riemann solution; 1st vs 2nd order; the four limiters |
+| `shock_order.py` | order of accuracy at a shock: Sod's problem on 100 to 1600 cells, $L_1$, $L_2$, $L_\infty$, shock position |
 | `isentropic_vortex.py` | isentropic-vortex convergence and limiter comparison |
 | `taylor_green.py` | Taylor-Green kinetic-energy decay and grid convergence |
 | `taylor_green_animation.py` | animation of the Taylor-Green vorticity surface decaying, against the exact solution |
@@ -178,6 +179,49 @@ uncertainty of the reference too.
 | Script | Shows |
 |---|---|
 | `cylinder_mesh_transition.py` | cylinder loads across a 400×200 → 800×400 hot start (animation) |
+
+### Order of accuracy at a shock (`verification/shock_order.py`)
+
+The manufactured solutions are smooth, so they say nothing about the limiters and the Riemann solvers where the
+solution is not: at a discontinuity the formal order of the scheme is not what the error does (Roache 2009, sec. 3.7).
+The $L_1$ error of a shock converges at order 1 whatever the scheme, that of a contact at $p/(p+1)$ (about $1/2$
+for a first-order scheme and $2/3$ for a second-order one, because it smears over $h^{1/(p+1)}$ cells), $L_2$ at
+about half the $L_1$ rate, and $L_\infty$ not at all. The study runs Sod's problem as a quasi-1-D tube
+(4 cells across) on 100, 200, 400, 800 and 1600 cells to $t = 0.2$ with Godunov and with MUSCL Van Leer + SSP-RK2,
+and measures the error against the exact Riemann solution on the cell centres. The bands below were fixed before the
+first run.
+
+<figure>
+<img src="{{root}}img/shock_order.png" style="width:100%">
+<figcaption>Error against the exact Sod solution; the dotted lines are slopes 1 and 1/2 (0 for $L_\infty$).</figcaption>
+</figure>
+
+| scheme | quantity | 100 | 200 | 400 | 800 | 1600 | order (finest pair) | band | |
+|---|---|---:|---:|---:|---:|---:|---:|---|---|
+| Godunov | rho L1 | 1.76e-02 | 1.12e-02 | 7.10e-03 | 4.49e-03 | 2.82e-03 | 0.67 (fit 0.66) | [0.50, 1.10] | OK |
+| Godunov | u L1 | 3.07e-02 | 1.76e-02 | 9.96e-03 | 5.65e-03 | 2.97e-03 | 0.93 (fit 0.84) | [0.60, 1.20] | OK |
+| Godunov | p L1 | 1.53e-02 | 9.22e-03 | 5.49e-03 | 3.23e-03 | 1.85e-03 | 0.80 (fit 0.76) | [0.60, 1.20] | OK |
+| Godunov | rho L2 | 2.71e-02 | 1.96e-02 | 1.47e-02 | 1.13e-02 | 8.73e-03 | 0.37 (fit 0.41) | [0.25, 0.75] | OK |
+| Godunov | rho Linf | 9.27e-02 | 8.43e-02 | 8.34e-02 | 8.25e-02 | 8.46e-02 | -0.04 (fit 0.03) | <= 0.30 | OK |
+| MUSCL | rho L1 | 5.56e-03 | 2.96e-03 | 1.64e-03 | 9.32e-04 | 4.99e-04 | 0.90 (fit 0.86) | [0.60, 1.10] | OK |
+| MUSCL | u L1 | 1.11e-02 | 5.64e-03 | 2.93e-03 | 1.59e-03 | 6.22e-04 | 1.35 (fit 1.02) | [0.60, 1.20] | OUTSIDE (documented) |
+| MUSCL | p L1 | 4.17e-03 | 2.09e-03 | 1.06e-03 | 5.46e-04 | 2.51e-04 | 1.12 (fit 1.00) | [0.60, 1.20] | OK |
+| MUSCL | rho L2 | 1.33e-02 | 9.29e-03 | 7.19e-03 | 5.77e-03 | 4.01e-03 | 0.52 (fit 0.41) | [0.25, 0.75] | OK |
+| MUSCL | rho Linf | 8.14e-02 | 6.67e-02 | 7.46e-02 | 8.24e-02 | 7.42e-02 | 0.15 (fit -0.00) | <= 0.30 | OK |
+
+* **$L_1$:** density converges at 0.66 (Godunov) and 0.8 to 0.9 (MUSCL), pressure and velocity, which have no
+  contact error, at about 0.75 to 1. MUSCL's error is below Godunov's on every grid and for every variable.
+* **One entry outside its band, band not moved:** the $L_1$ velocity error of MUSCL on the finest pair of grids
+  (1.35, band up to 1.2). The three coarser pairs give 0.89 to 0.98 and the fit over all grids 1.02, so the last point
+  lies below the trend of the others rather than the scheme converging faster than the discontinuity allows.
+* **$L_2$ and $L_\infty$:** $L_2$ of the density falls at 0.4 to 0.5, about half the $L_1$ order, as expected;
+  $L_\infty$ does not converge (order within $\pm 0.3$ of zero; the error at the contact and the shock stays
+  about 0.08 in density).
+* **Shock position:** the position where the density crosses the mean of its two states is first-order accurate:
+  the error is 0.5 cells for Godunov and 0.3 for MUSCL on every grid, so it is below one cell as required.
+* **Post-shock plateau:** the mean density over $0.74 \le x \le 0.82$ reaches the exact 0.26557 (to 5 digits on
+  the three finest grids), but the sequence is not monotone, so there is no GCI: a quantity next to discontinuities
+  does not give the monotone convergence the index assumes, and none is claimed.
 
 ### Grid convergence of the benchmarks (`benchmarks/gci.py`)
 
