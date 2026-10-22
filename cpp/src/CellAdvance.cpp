@@ -9,7 +9,8 @@ double CellAdvance::step(double dt, double t) {
     if (static_cast<int>(mesh_.U.size()) != mesh_.num_leaves())
         throw std::logic_error("CellAdvance::step: the mesh has no state");
     engine_.force_state(mesh_, mesh_.U);   // body forcing of every level before the first pass
-    return advance(0, dt, t);
+    const double S = advance(0, dt, t);
+    return par ? par->reduce_max(S) : S;
 }
 
 double CellAdvance::advance(int l, double dt, double t) {
@@ -18,13 +19,14 @@ double CellAdvance::advance(int l, double dt, double t) {
     if (l < max_l && mesh_.level_begin[l + 2] > mesh_.level_begin[l + 1]) {
         engine_.clear_registers(mesh_, l + 1);
         for (int sub = 0; sub < 2; ++sub) S = std::max(S, advance(l + 1, dt / 2, t + sub * (dt / 2)));
+        if (par) par->exchange_registers(l + 1);   // the coarse owners get the fine fluxes of their coarse-fine faces
     }
     if (mesh_.level_begin[l + 1] > mesh_.level_begin[l]) S = std::max(S, advance_own(l, dt, t));
     return S;
 }
 
 double CellAdvance::advance_own(int l, double dt, double t) {
-    const int b = mesh_.level_begin[l], e = mesh_.level_begin[l + 1];
+    const int b = engine_.owned_begin(l), e = engine_.owned_end(l);   // the leaves of this level this rank advances
     const std::vector<double> weights = scheme_.stage_weights(), offsets = scheme_.stage_offsets();
     if (weights.size() != offsets.size()) throw std::logic_error("CellAdvance: inconsistent stage tables");
     size_t stage = 0;
@@ -32,6 +34,7 @@ double CellAdvance::advance_own(int l, double dt, double t) {
     const ResidualFn res = [&](const Field& Uin, Field& R) {
         if (stage >= weights.size()) throw std::logic_error("CellAdvance: the scheme made more stages than it declares");
         std::copy(Uin.begin(), Uin.end(), mesh_.U.begin() + b);   // this level's stage state, seen by its neighbours
+        if (par) par->exchange_stage(l);                          // ... including the ones on other ranks
         // stage time as TimeScheme::step() sets it
         const double o = offsets[stage];
         scheme_.stage_time = o == 0.0 ? t : (o == 1.0 ? t + dt : t + o * dt);
@@ -46,6 +49,7 @@ double CellAdvance::advance_own(int l, double dt, double t) {
     const double S = scheme_.advance_fixed_dt(Ul, res, dt);
     if (stage != weights.size()) throw std::logic_error("CellAdvance: the scheme made fewer stages than it declares");
     std::copy(Ul.begin(), Ul.end(), mesh_.U.begin() + b);   // the result, not the last stage's input
+    if (par) par->exchange_final(l);
     engine_.force_level(mesh_, mesh_.U, l);
     return S;
 }

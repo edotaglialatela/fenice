@@ -81,6 +81,34 @@ public:
     // Solid flag of every leaf (valid after build; empty without a body).
     const std::vector<char>& solid() const { return solid_; }
 
+    // --- distributed runs (see CellParallel) ---
+    // What this rank does: without a partition the engine computes every face and advances every leaf.
+    struct Partition {
+        std::vector<char> face_active;   // faces whose flux this rank computes (one entry per face)
+        std::vector<char> leaf_owned;    // leaves this rank advances: a contiguous range of every level (one entry per leaf)
+        std::vector<char> leaf_held;     // leaves whose state is valid on this rank: owned and halo
+    };
+    // Restrict the level pieces to a partition (call after build), or back to everything.
+    void set_partition(const CellMesh& mesh, const Partition& p);
+    void clear_partition(const CellMesh& mesh);
+    // Mark in `mask` (one entry per leaf) every leaf whose state is read when the flux of `face`, with the viscous cell
+    // quantities of its two cells, is computed.
+    void face_dependencies(const CellMesh& mesh, int face, std::vector<char>& mask) const;
+    // The leaves along the sides with a mass-flow inlet (their average is summed in position order on every rank).
+    void mass_flow_dependencies(const CellMesh& mesh, std::vector<char>& mask) const;
+    // Owned range [begin, end) of level l (the whole level without a partition).
+    int owned_begin(int l) const { return lown_b_[static_cast<size_t>(l)]; }
+    int owned_end(int l) const { return lown_e_[static_cast<size_t>(l)]; }
+    // The time-averaged registers (convective per unit length, viscous times length) of a coarse-fine face.
+    void get_register(int face, State& conv, State& visc) const {
+        conv = reg_[static_cast<size_t>(face)];
+        visc = regv_[static_cast<size_t>(face)];
+    }
+    void set_register(int face, const State& conv, const State& visc) {
+        reg_[static_cast<size_t>(face)] = conv;
+        regv_[static_cast<size_t>(face)] = visc;
+    }
+
     // Time the unsteady sources are evaluated at (CellAdvance sets it from the scheme's stage time).
     double stage_time = 0.0;
 
@@ -114,9 +142,9 @@ private:
     void refresh_all(int N);
     void refresh_some(int N, const std::vector<int>& idx);
     void mass_flow_targets(const CellMesh& m, double* u_target) const;
-    double fluxes(const CellMesh& m, int fb, int fe, const double* u_target);
+    double fluxes(const CellMesh& m, const std::vector<int>& faces, const double* u_target);
     void cell_quantities(const CellMesh& m, const std::vector<int>& cells);
-    void viscous_fluxes(const CellMesh& m, int fb, int fe);
+    void viscous_fluxes(const CellMesh& m, const std::vector<int>& faces);
     double viscous_speed(const CellMesh& m, int cb, int ce) const;
     void gather(const CellMesh& m, int cb, int ce, bool replace, Field& R);
     void update_source(const CellMesh& m, int cb, int ce);
@@ -139,6 +167,13 @@ private:
     Field Wint_;                          // their primitive state
     std::vector<int> nbr_raw_;            // like nbr_ but injecting coarser neighbours (the slopes of the coarse leaves)
     void eval_interp();
+    void rebuild_lists(const CellMesh& m, const Partition* part);
+    void mark_code(int code, std::vector<char>& mask) const;
+    void mark_tree(int code, std::vector<char>& mask) const;
+    // per level: the faces this rank computes, the leaves whose forced state it keeps, the owned range; all faces
+    std::vector<std::vector<int>> lface_, lheld_;
+    std::vector<int> lown_b_, lown_e_, all_faces_;
+    std::vector<char> owned_mask_;   // owned leaves of the partition (empty: all)
     const Field* us_ = nullptr;   // state the pieces read: the input, or the forced copy
     Field forced_;                // body-forced state (with a body)
     Field Vc_;                    // conservative state of the virtual cells

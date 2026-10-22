@@ -16,6 +16,7 @@
 
 #include "fv/CellFlux.hpp"
 #include "fv/CellMesh.hpp"
+#include "fv/CellParallel.hpp"
 #include "fv/TimeScheme.hpp"
 
 namespace fv {
@@ -31,6 +32,10 @@ public:
     // returns the largest wave speed seen by the first stage of every level.
     double step(double dt, double t);
 
+    // Distributed run: set before the first step (after CellParallel::partition, which must be repeated after every
+    // adapt). The recursion is the same on every rank: each level advances the owned leaves, the owners exchange the stage
+    // states, and the fine owners send the registers before the coarse level advances.
+    CellParallel* par = nullptr;
     // Test hook: false makes a coarse cell read the last computed flux of a coarse-fine face instead of the
     // register (the conservation test must then fail).
     bool flux_replacement = true;

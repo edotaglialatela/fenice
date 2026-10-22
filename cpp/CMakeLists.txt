@@ -25,6 +25,7 @@ add_library(fenice_core STATIC
   src/CellFlux.cpp
   src/CellAdvance.cpp
   src/CellRemesh.cpp
+  src/CellParallel.cpp
   src/IO.cpp
   src/Params.cpp
   src/TestCases.cpp

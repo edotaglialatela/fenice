@@ -5,15 +5,22 @@
 #include <filesystem>
 #include <fstream>
 #include <functional>
+#include <condition_variable>
 #include <iterator>
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+#include <mutex>
 #include <random>
 #include <string>
+#include <thread>
 #include <tuple>
 #include <vector>
 
 #include "fv/CellAdvance.hpp"
 #include "fv/CellFlux.hpp"
 #include "fv/CellMesh.hpp"
+#include "fv/CellParallel.hpp"
 #include "fv/CellRemesh.hpp"
 #include "fv/Simulation.hpp"
 #include "fv/SolutionMapping.hpp"
@@ -3932,6 +3939,264 @@ TEST(cellremesh_sod_indicator_study) {
             std::printf("      criterion %.2f, %-16s: %.3e, %6.0f leaves\n", crit, vars == 0 ? "density" : (vars == 1 ? "density+pressure" : "density+velocity"), e, leaves);
             CHECK(e > 0.0 && e < 0.02);
         }
+}
+
+// ---------------------------------------------------------------------------
+// Distributed run (P6): ranks emulated by threads
+// ---------------------------------------------------------------------------
+
+namespace {
+
+// In-process stand-in for MPI: `size` threads call the same collectives in the same order.
+class FakeHub {
+public:
+    explicit FakeHub(int n) : n_(n), mail_(static_cast<size_t>(n), std::vector<std::vector<double>>(static_cast<size_t>(n))),
+                              slot_(static_cast<size_t>(n)), dslot_(static_cast<size_t>(n), 0.0) {}
+
+    CellComm comm(int rank) {
+        CellComm c;
+        c.rank = rank;
+        c.size = n_;
+        c.allgatherv = [this, rank](const double* send, int n, double* recv, const int* counts, const int* displs) {
+            slot_[static_cast<size_t>(rank)].assign(send, send + n);
+            barrier();
+            for (int r = 0; r < n_; ++r) {
+                if (static_cast<int>(slot_[static_cast<size_t>(r)].size()) != counts[r]) throw std::logic_error("allgatherv: counts differ");
+                std::copy(slot_[static_cast<size_t>(r)].begin(), slot_[static_cast<size_t>(r)].end(), recv + displs[r]);
+            }
+            barrier();
+        };
+        c.allreduce_max = [this, rank](double v) {
+            dslot_[static_cast<size_t>(rank)] = v;
+            barrier();
+            double g = dslot_[0];
+            for (int r = 1; r < n_; ++r) g = std::max(g, dslot_[static_cast<size_t>(r)]);
+            barrier();
+            return g;
+        };
+        c.exchange = [this, rank](const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) {
+            for (int r = 0; r < n_; ++r) mail_[static_cast<size_t>(rank)][static_cast<size_t>(r)] = send[static_cast<size_t>(r)];
+            barrier();
+            bool bad = false;
+            for (int r = 0; r < n_; ++r) {
+                const std::vector<double>& in = mail_[static_cast<size_t>(r)][static_cast<size_t>(rank)];
+                if (in.size() != recv[static_cast<size_t>(r)].size()) bad = true;   // the lists of the two ranks disagree
+                else recv[static_cast<size_t>(r)] = in;
+            }
+            barrier();
+            if (bad) throw std::logic_error("exchange: a message does not match what the receiver expects");
+        };
+        return c;
+    }
+
+private:
+    void barrier() {
+        std::unique_lock<std::mutex> lock(m_);
+        const int gen = gen_;
+        if (++count_ == n_) {
+            count_ = 0;
+            ++gen_;
+            cv_.notify_all();
+        } else {
+            cv_.wait(lock, [&] { return gen != gen_; });
+        }
+    }
+    int n_;
+    std::mutex m_;
+    std::condition_variable cv_;
+    int count_ = 0, gen_ = 0;
+    std::vector<std::vector<std::vector<double>>> mail_;
+    std::vector<std::vector<double>> slot_;
+    std::vector<double> dslot_;
+};
+
+struct DistSpec {
+    const char* name;
+    bool px, py;
+    BCType bc[4];   // left, right, bottom, top (periodic axes: both sides periodic)
+    bool viscous, force, source, unsteady_source, body;
+    unsigned seed;
+    bool remesh;
+};
+
+// Everything one rank (or the serial reference) needs, built from the spec.
+struct DistEnv {
+    EOS eos = EOS::ideal(1.4);
+    RiemannSolver rs;
+    MusclReconstruction mu;
+    BoundaryManager bm;
+    NavierStokes ns;
+    ConstantBodyForce bf;
+    Params src;
+    Mesh base;
+    CellPhysics ph;
+    explicit DistEnv(const DistSpec& sp)
+        : rs(eos, RiemannType::HLLC), mu(eos, Limiter::VanLeer), bm(generate_cartesian_mesh(1.5, 1.0, 6, 5), eos),
+          ns(eos, 0.03, 0.72), bf{0.3, -0.5, 0.0}, base(generate_cartesian_mesh(1.5, 1.0, 6, 5)) {
+        bm.set_boundary_types(sp.bc[0], sp.bc[1], sp.bc[2], sp.bc[3]);
+        BCParams bp;
+        bp.u_in = 0.6;
+        bp.v_in = 0.1;
+        bp.rho_in = 1.1;
+        bp.p_out = 17.0;
+        bm.set_params(bp);
+        if (sp.viscous) ph.ns = &ns;
+        if (sp.force) ph.body = &bf;
+        if (sp.source) {
+            src = baseline_defaults();
+            src.set("source_rho", "0.1*sin(3*x)*cos(2*y)");
+            src.set("source_mx", sp.unsteady_source ? "0.2*x*y*cos(t)" : "0.2*x*y");
+            src.set("source_E", "0.5*cos(x+y)");
+            ph.source = &src;
+            ph.source_unsteady = sp.unsteady_source;
+            ph.source_mesh = &base;
+        }
+        if (sp.body)
+            ph.ibm_factory = [](const Mesh& m) { return ImmersedBoundary(m, "Cylinder", 0.18, 0.7, 0.5, 1.0, 17.0); };
+    }
+};
+
+// Run the case for `steps` steps on `ranks` ranks (0: the serial path without CellParallel); returns the final state as every
+// rank sees it after gather_state (all identical, checked), and the held / halo counts of the last rank.
+Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>* counts = nullptr) {
+    CellMesh base = random_adapted_mesh(sp.px, sp.py, sp.seed, 6);
+    const int Nranks = std::max(ranks, 1);
+    FakeHub hub(Nranks);
+    std::vector<Field> result(static_cast<size_t>(Nranks));
+    std::vector<std::string> error(static_cast<size_t>(Nranks));
+    std::vector<int> held(static_cast<size_t>(Nranks), 0), halo(static_cast<size_t>(Nranks), 0);
+    const auto body = [&](int rank) {
+        try {
+            DistEnv env(sp);
+            CellMesh m = base;
+            m.U.resize(m.num_leaves());
+            for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state(env.eos, m.xc(c), m.yc(c));
+            CellFluxEngine eng(env.eos, env.rs, &env.mu, env.bm);
+            eng.set_physics(env.ph);
+            eng.build(m);
+            CellIndicator ind;
+            ind.criterion = 0.02;
+            CellAdaptor ad(m, eng, env.eos, ind);
+            if (sp.body) ad.set_body(env.ph.ibm_factory, 1);
+            std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4, 1.0, 5, 1e-3);
+            std::unique_ptr<CellParallel> par;
+            if (ranks > 0) {
+                par = std::make_unique<CellParallel>(m, eng, hub.comm(rank));
+                par->poison = true;
+            }
+            CellAdvance adv(m, eng, *ts);
+            adv.par = par.get();
+            Field R;
+            double S = eng.residual(m, m.U, R), t = 0.0;
+            if (par) par->partition();
+            for (int k = 0; k < steps; ++k) {
+                const double dt = 0.4 * m.dx(0) / S;
+                S = adv.step(dt, t);
+                t += dt;
+                if (sp.body) {
+                    eng.solid_reset(m, m.U);
+                    if (par) par->exchange_solid();
+                }
+                if (sp.remesh && (k + 1) % 2 == 0) {
+                    if (par) par->gather_state();
+                    const bool changed = ad.remesh();
+                    if (changed) S = eng.residual(m, m.U, R);   // every leaf is valid here
+                    if (par) par->partition();
+                }
+            }
+            if (par) par->gather_state();
+            result[static_cast<size_t>(rank)] = m.U;
+            if (par) {
+                held[static_cast<size_t>(rank)] = par->held_count();
+                halo[static_cast<size_t>(rank)] = par->halo_count();
+            }
+        } catch (const std::exception& e) {
+            error[static_cast<size_t>(rank)] = e.what();
+        }
+    };
+    std::vector<std::thread> threads;
+    for (int r = 0; r < Nranks; ++r) threads.emplace_back(body, r);
+    for (std::thread& th : threads) th.join();
+    for (int r = 0; r < Nranks; ++r)
+        if (!error[static_cast<size_t>(r)].empty()) std::printf("    rank %d: %s\n", r, error[static_cast<size_t>(r)].c_str());
+    for (int r = 1; r < Nranks; ++r) CHECK(bits_equal(result[0], result[static_cast<size_t>(r)]));   // all ranks agree
+    if (counts) *counts = {held[static_cast<size_t>(Nranks - 1)], halo[static_cast<size_t>(Nranks - 1)]};
+    return result[0];
+}
+
+}   // namespace
+
+TEST(cellparallel_equals_serial_bitwise_for_any_rank_count) {
+    const BCType per = BCType::Periodic;
+    const DistSpec specs[] = {
+        // name, px, py, bcs, viscous, force, source, unsteady, body, seed, remesh
+        {"euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 11u, true},
+        {"viscous + force + source periodic", true, true, {per, per, per, per}, true, true, true, false, false, 12u, true},
+        {"unsteady source, mixed", true, false, {per, per, BCType::NoSlip, BCType::MovingWall}, true, false, true, true, false, 13u, false},
+        {"walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 14u, true},
+        {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, false},
+        {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true},
+    };
+    for (const DistSpec& sp : specs) {
+        const Field serial = run_distributed(sp, 0, 6);
+        for (const int ranks : {1, 2, 3, 5, 7}) {
+            std::vector<int> counts;
+            const Field dist = run_distributed(sp, ranks, 6, &counts);
+            const bool same = bits_equal(serial, dist);
+            CHECK(same);
+            if (!same) std::printf("    %s on %d ranks differs from the serial run\n", sp.name, ranks);
+            if (ranks >= 5) CHECK(counts[0] < static_cast<int>(serial.size()));   // a rank does not hold everything
+            if (ranks >= 2) CHECK(counts[1] > 0);                                  // and it does have a halo
+        }
+    }
+}
+
+TEST(cell_engine_result_does_not_depend_on_the_thread_count) {
+    // Adapted mesh above kOmpMinWork (every parallel loop of the engine runs in parallel), physics on: the result of three
+    // steps with 1 thread and with several threads is bit-identical (all reductions are maxima, no sums across threads).
+#ifdef _OPENMP
+    const EOS eos = EOS::ideal(1.4);
+    NavierStokes ns(eos, 0.02, 0.72);
+    ConstantBodyForce bf{0.2, -0.3, 0.0};
+    Params src = baseline_defaults();
+    src.set("source_rho", "0.05*sin(5*x)*cos(3*y)");
+    src.set("source_E", "0.3*cos(x+2*y)");
+    const Mesh base = generate_cartesian_mesh(1.0, 0.75, 64, 48);
+    CellSetup su(true);
+    CellPhysics ph;
+    ph.ns = &ns;
+    ph.body = &bf;
+    ph.source = &src;
+    ph.source_mesh = &base;
+    const auto run = [&](int threads) {
+        omp_set_num_threads(threads);
+        CellMesh m(1.0, 0.75, 64, 48, 2, true, true);
+        for (int pass = 0; pass < 2; ++pass) {
+            std::vector<char> r(static_cast<size_t>(m.num_leaves()), 0);
+            for (int c = 0; c < m.num_leaves(); ++c) r[c] = std::abs(m.xc(c) - 0.4) < 0.15 && m.yc(c) < 0.5;
+            m.adapt(r);
+        }
+        m.U.resize(m.num_leaves());
+        for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state(su.eos, m.xc(c), m.yc(c));
+        CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
+        eng.set_physics(ph);
+        eng.build(m);
+        std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4, 1.0, 5, 1e-3);
+        CellAdvance adv(m, eng, *ts);
+        Field R;
+        double S = eng.residual(m, m.U, R), t = 0.0;
+        for (int k = 0; k < 3; ++k) {
+            const double dt = 0.4 * m.dx(0) / S;
+            S = adv.step(dt, t);
+            t += dt;
+        }
+        return std::make_pair(m.U, m.num_leaves());
+    };
+    const auto one = run(1), many = run(std::max(2, std::min(8, omp_get_num_procs())));
+    omp_set_num_threads(omp_get_num_procs());
+    CHECK(one.second > 4096 && one.second == many.second);
+    CHECK(bits_equal(one.first, many.first));
+#endif
 }
 
 int main() {

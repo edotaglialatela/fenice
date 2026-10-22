@@ -139,32 +139,6 @@ void CellFluxEngine::build(const CellMesh& m) {
             if (m.neighbour(c, static_cast<Face>(s)).kind != CellNeighbour::Kind::Boundary)
                 nbr_[static_cast<size_t>(4) * c + s] = b.beyond(c, static_cast<Face>(s), ip);
 
-    need_.assign(static_cast<size_t>(m.max_level) + 1, {});
-    if (muscl_)
-        for (int l = 0; l <= m.max_level; ++l) {
-            std::vector<int>& v = need_[static_cast<size_t>(l)];
-            for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f) {
-                if (m.faces[f].kind == CellFaceKind::Boundary) continue;
-                v.insert(v.end(), stencil_[f].begin(), stencil_[f].end());
-                if (coarse_side_second_order && m.faces[f].kind == CellFaceKind::CoarseFine) {
-                    const int C = m.level[m.faces[f].left] > m.level[m.faces[f].right] ? stencil_[f][3] : stencil_[f][0];
-                    for (int s = 0; s < 4; ++s)
-                        if (nbr_raw_[static_cast<size_t>(4) * C + s] >= 0) v.push_back(nbr_raw_[static_cast<size_t>(4) * C + s]);
-                }
-            }
-            std::sort(v.begin(), v.end());
-            v.erase(std::unique(v.begin(), v.end()), v.end());
-        }
-    vcells_.assign(static_cast<size_t>(m.max_level) + 1, {});
-    for (int l = 0; l <= m.max_level; ++l) {
-        std::vector<int>& v = vcells_[static_cast<size_t>(l)];
-        for (int c = m.level_begin[l]; c < m.level_begin[l + 1]; ++c) v.push_back(c);
-        for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f)
-            if (m.faces[f].kind == CellFaceKind::CoarseFine)
-                v.push_back(m.level[m.faces[f].left] < l ? m.faces[f].left : m.faces[f].right);
-        std::sort(v.begin(), v.end());
-        v.erase(std::unique(v.begin(), v.end()), v.end());
-    }
     reg_.assign(m.faces.size(), State{});
     regv_.assign(m.faces.size(), State{});
     Fv_.assign(m.faces.size(), State{});
@@ -191,6 +165,8 @@ void CellFluxEngine::build(const CellMesh& m) {
         }
         forced_.resize(static_cast<size_t>(nleaf_));
     }
+    rebuild_lists(m, nullptr);
+
     // steady sources at the leaf centres
     src_.assign(static_cast<size_t>(nleaf_), State{});
     if (phys_.source && !phys_.source_unsteady) update_source(m, 0, nleaf_);
@@ -215,6 +191,116 @@ void CellFluxEngine::build(const CellMesh& m) {
     }
 }
 
+void CellFluxEngine::rebuild_lists(const CellMesh& m, const Partition* part) {
+    const size_t L = static_cast<size_t>(m.max_level) + 1;
+    lface_.assign(L, {});
+    lheld_.assign(L, {});
+    need_.assign(L, {});
+    vcells_.assign(L, {});
+    lown_b_.assign(L, 0);
+    lown_e_.assign(L, 0);
+    owned_mask_ = part ? part->leaf_owned : std::vector<char>();
+    all_faces_.resize(m.faces.size());
+    for (size_t f = 0; f < m.faces.size(); ++f) all_faces_[f] = static_cast<int>(f);
+    for (int l = 0; l <= m.max_level; ++l) {
+        const size_t sl = static_cast<size_t>(l);
+        lown_b_[sl] = lown_e_[sl] = m.level_begin[l];
+        bool first = true;
+        for (int c = m.level_begin[l]; c < m.level_begin[l + 1]; ++c) {
+            if (!part || part->leaf_owned[c]) {
+                if (first) lown_b_[sl] = c;
+                first = false;
+                lown_e_[sl] = c + 1;
+            }
+            if (!part || part->leaf_held[c]) lheld_[sl].push_back(c);
+        }
+        for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f)
+            if (!part || part->face_active[f]) lface_[sl].push_back(f);
+        // W entries read by the stencils of the faces of this level
+        if (muscl_) {
+            std::vector<int>& v = need_[sl];
+            for (const int f : lface_[sl]) {
+                if (m.faces[f].kind == CellFaceKind::Boundary) continue;
+                v.insert(v.end(), stencil_[f].begin(), stencil_[f].end());
+                if (coarse_side_second_order && m.faces[f].kind == CellFaceKind::CoarseFine) {
+                    const int C = m.level[m.faces[f].left] > m.level[m.faces[f].right] ? stencil_[f][3] : stencil_[f][0];
+                    for (int s = 0; s < 4; ++s)
+                        if (nbr_raw_[static_cast<size_t>(4) * C + s] >= 0) v.push_back(nbr_raw_[static_cast<size_t>(4) * C + s]);
+                }
+            }
+            std::sort(v.begin(), v.end());
+            v.erase(std::unique(v.begin(), v.end()), v.end());
+        }
+        // cells whose viscous quantities the faces of this level read
+        std::vector<int>& v = vcells_[sl];
+        if (!part) {
+            for (int c = m.level_begin[l]; c < m.level_begin[l + 1]; ++c) v.push_back(c);
+            for (const int f : lface_[sl])
+                if (m.faces[f].kind == CellFaceKind::CoarseFine)
+                    v.push_back(m.level[m.faces[f].left] < l ? m.faces[f].left : m.faces[f].right);
+        } else {
+            for (const int f : lface_[sl]) {
+                if (m.faces[f].left >= 0) v.push_back(m.faces[f].left);
+                if (m.faces[f].right >= 0) v.push_back(m.faces[f].right);
+            }
+        }
+        std::sort(v.begin(), v.end());
+        v.erase(std::unique(v.begin(), v.end()), v.end());
+    }
+}
+
+void CellFluxEngine::set_partition(const CellMesh& m, const Partition& p) { rebuild_lists(m, &p); }
+
+void CellFluxEngine::clear_partition(const CellMesh& m) { rebuild_lists(m, nullptr); }
+
+void CellFluxEngine::mark_tree(int code, std::vector<char>& mask) const {
+    if (code >= 0) {
+        mask[static_cast<size_t>(code)] = 1;
+        return;
+    }
+    for (const int ch : vnode_[static_cast<size_t>(-1 - code)]) mark_tree(ch, mask);
+}
+
+void CellFluxEngine::mark_code(int code, std::vector<char>& mask) const {
+    if (code < 0) return;
+    if (code < nleaf_) {
+        mask[static_cast<size_t>(code)] = 1;
+        return;
+    }
+    const size_t v = static_cast<size_t>(code - nleaf_);
+    if (v < vroot_.size()) {
+        mark_tree(vroot_[v], mask);
+        return;
+    }
+    const InterpVirtual& iv = interp_[v - vroot_.size()];
+    mask[static_cast<size_t>(iv.coarse)] = 1;
+    for (int s = 0; s < 4; ++s) mark_code(nbr_raw_[static_cast<size_t>(4) * iv.coarse + s], mask);
+}
+
+void CellFluxEngine::face_dependencies(const CellMesh& m, int f, std::vector<char>& mask) const {
+    const CellFace& face = m.faces[static_cast<size_t>(f)];
+    const auto cell = [&](int c) {
+        mask[static_cast<size_t>(c)] = 1;
+        for (int s = 0; s < 4; ++s) mark_code(nbr_[static_cast<size_t>(4) * c + s], mask);   // gradients, tangential differences
+    };
+    if (face.kind == CellFaceKind::Boundary) {
+        cell(face.left >= 0 ? face.left : face.right);
+        return;
+    }
+    for (int k = 0; k < 4; ++k) mark_code(stencil_[static_cast<size_t>(f)][k], mask);
+    cell(face.left);
+    cell(face.right);
+    if (face.kind == CellFaceKind::CoarseFine) {   // the coarse leaf's own neighbours (second-order coarse side)
+        const int C = m.level[face.left] > m.level[face.right] ? face.right : face.left;
+        for (int s = 0; s < 4; ++s) mark_code(nbr_raw_[static_cast<size_t>(4) * C + s], mask);
+    }
+}
+
+void CellFluxEngine::mass_flow_dependencies(const CellMesh& m, std::vector<char>& mask) const {
+    for (int s = 0; s < 4; ++s)
+        for (const int f : mf_face_[s]) mask[static_cast<size_t>(m.faces[static_cast<size_t>(f)].left >= 0 ? m.faces[static_cast<size_t>(f)].left : m.faces[static_cast<size_t>(f)].right)] = 1;
+}
+
 void CellFluxEngine::update_source(const CellMesh& m, int cb, int ce) {
     if (!phys_.source) return;
     std::vector<double> xs(static_cast<size_t>(ce - cb)), ys(xs.size());
@@ -229,22 +315,16 @@ void CellFluxEngine::update_source(const CellMesh& m, int cb, int ce) {
 void CellFluxEngine::force_state(const CellMesh& m, const Field& U) {
     if (!has_body()) return;
     forced_.resize(static_cast<size_t>(m.num_leaves()));
-    for (int c = 0; c < m.num_leaves(); ++c) {
-        State W = eos_.cons_to_prim(U[c]);
-        if (solid_[c]) {
-            W[1] = 0.0;
-            W[2] = 0.0;
-            W[4] = 0.0;
-        }
-        forced_[c] = eos_.prim_to_cons(W);
-    }
+    for (int l = 0; l <= m.max_level; ++l) force_level(m, U, l);   // the leaves this rank holds
 }
 
 void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
     if (!has_body()) return;
-    const int b = m.level_begin[l], e = m.level_begin[l + 1];
-#pragma omp parallel for schedule(static) if (e - b >= kOmpMinWork)
-    for (int c = b; c < e; ++c) {
+    const std::vector<int>& held = lheld_[static_cast<size_t>(l)];
+    const int nh = static_cast<int>(held.size());
+#pragma omp parallel for schedule(static) if (nh >= kOmpMinWork)
+    for (int k = 0; k < nh; ++k) {
+        const int c = held[static_cast<size_t>(k)];
         State W = eos_.cons_to_prim(U[c]);
         if (solid_[c]) {
             W[1] = 0.0;
@@ -343,7 +423,8 @@ void CellFluxEngine::mass_flow_targets(const CellMesh& m, double* u_target) cons
     }
 }
 
-double CellFluxEngine::fluxes(const CellMesh& m, int fb, int fe, const double* u_target) {
+double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, const double* u_target) {
+    const int nlist = static_cast<int>(faces.size());
     const EOS& eos = eos_;
     const Field& U = *us_;
     const Limiter lim = muscl_ ? muscl_->limiter() : Limiter::Minmod;
@@ -369,11 +450,12 @@ double CellFluxEngine::fluxes(const CellMesh& m, int fb, int fe, const double* u
         const double hs[3] = {m.dx(l), m.dy(l), 0.0};
         return bc_.nonreflecting_ghost(side, Ui, tg, hs);
     };
-#pragma omp parallel if (fe - fb >= kOmpMinWork)
+#pragma omp parallel if (nlist >= kOmpMinWork)
     {
         double local = 0.0;
 #pragma omp for schedule(static) nowait
-        for (int f = fb; f < fe; ++f) {
+        for (int fi = 0; fi < nlist; ++fi) {
+            const int f = faces[static_cast<size_t>(fi)];
             const CellFace& face = m.faces[f];
             State UL, UR;
             if (face.kind == CellFaceKind::Boundary) {
@@ -471,14 +553,16 @@ void CellFluxEngine::cell_quantities(const CellMesh& m, const std::vector<int>& 
     }
 }
 
-void CellFluxEngine::viscous_fluxes(const CellMesh& m, int fb, int fe) {
+void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& faces) {
+    const int nlist = static_cast<int>(faces.size());
     const NavierStokes& ns = *phys_.ns;
     const double mu = ns.mu(), gamma = eos_.gamma;
     const double k_cond = mu * gamma / (ns.prandtl() * (gamma - 1.0));
     const Field& U = *us_;
     if (Fv_.size() != m.faces.size()) Fv_.resize(m.faces.size());
-#pragma omp parallel for schedule(static) if (fe - fb >= kOmpMinWork)
-    for (int f = fb; f < fe; ++f) {
+#pragma omp parallel for schedule(static) if (nlist >= kOmpMinWork)
+    for (int fi = 0; fi < nlist; ++fi) {
+        const int f = faces[static_cast<size_t>(fi)];
         const CellFace& face = m.faces[f];
         const int ax = face.axis, lv = face.level;
         double uL, vL, TL, uR, vR, TR, h;
@@ -620,12 +704,12 @@ double CellFluxEngine::residual(const CellMesh& m, const Field& U, Field& R) {
     prepare(m, U, -1);
     double u_target[4];
     mass_flow_targets(m, u_target);
-    double s = fluxes(m, 0, nf, u_target);
+    double s = fluxes(m, all_faces_, u_target);
     if (phys_.ns) {
         std::vector<int> all(static_cast<size_t>(N));
         for (int c = 0; c < N; ++c) all[c] = c;
         cell_quantities(m, all);
-        viscous_fluxes(m, 0, nf);
+        viscous_fluxes(m, all_faces_);
         s = std::max(s, viscous_speed(m, 0, N));
     }
     gather(m, 0, N, false, R);
@@ -638,17 +722,17 @@ double CellFluxEngine::compute_level_fluxes(const CellMesh& m, const Field& U, i
     prepare(m, U, l);
     double u_target[4];
     mass_flow_targets(m, u_target);
-    double s = fluxes(m, m.face_level_begin[l], m.face_level_begin[l + 1], u_target);
+    double s = fluxes(m, lface_[static_cast<size_t>(l)], u_target);
     if (phys_.ns) {
         cell_quantities(m, vcells_[static_cast<size_t>(l)]);
-        viscous_fluxes(m, m.face_level_begin[l], m.face_level_begin[l + 1]);
-        s = std::max(s, viscous_speed(m, m.level_begin[l], m.level_begin[l + 1]));
+        viscous_fluxes(m, lface_[static_cast<size_t>(l)]);
+        s = std::max(s, viscous_speed(m, lown_b_[static_cast<size_t>(l)], lown_e_[static_cast<size_t>(l)]));
     }
     return s;
 }
 
 void CellFluxEngine::gather_level(const CellMesh& m, int l, bool replace, Field& Rl) {
-    gather(m, m.level_begin[l], m.level_begin[l + 1], replace, Rl);
+    gather(m, lown_b_[static_cast<size_t>(l)], lown_e_[static_cast<size_t>(l)], replace, Rl);
 }
 
 void CellFluxEngine::clear_registers(const CellMesh& m, int l) {
@@ -659,15 +743,18 @@ void CellFluxEngine::clear_registers(const CellMesh& m, int l) {
 }
 
 void CellFluxEngine::accumulate_registers(const CellMesh& m, int l, double w) {
-    const int fb = m.face_level_begin[l], fe = m.face_level_begin[l + 1];
+    const std::vector<int>& faces = lface_[static_cast<size_t>(l)];
+    const int nlist = static_cast<int>(faces.size());
     const bool visc = phys_.ns != nullptr;
-#pragma omp parallel for schedule(static) if (fe - fb >= kOmpMinWork)
-    for (int f = fb; f < fe; ++f)
+#pragma omp parallel for schedule(static) if (nlist >= kOmpMinWork)
+    for (int fi = 0; fi < nlist; ++fi) {
+        const int f = faces[static_cast<size_t>(fi)];
         if (m.faces[f].kind == CellFaceKind::CoarseFine)
             for (int q = 0; q < kNVar; ++q) {
                 reg_[f][q] += w * F_[f][q];
                 if (visc) regv_[f][q] += w * Fv_[f][q];
             }
+    }
 }
 
 void CellFluxEngine::solid_reset(const CellMesh& m, Field& U) const {
@@ -688,7 +775,7 @@ void CellFluxEngine::solid_reset(const CellMesh& m, Field& U) const {
     // neighbour contributes the mean of its fluid leaves.
     for (const Face side : {Face::Right, Face::Left, Face::Top, Face::Bottom}) {
         for (int c = 0; c < N; ++c) {
-            if (!solid_[c]) continue;
+            if (!solid_[c] || (!owned_mask_.empty() && !owned_mask_[c])) continue;
             const int l = m.level[c];
             const bool edge = (side == Face::Right && m.ci[c] + 1 == m.nx_at(l)) ||
                               (side == Face::Left && m.ci[c] == 0) ||
@@ -710,7 +797,7 @@ void CellFluxEngine::solid_reset(const CellMesh& m, Field& U) const {
         }
     }
     for (int c = 0; c < N; ++c) {
-        if (!solid_[c]) continue;
+        if (!solid_[c] || (!owned_mask_.empty() && !owned_mask_[c])) continue;
         if (!fringe[c]) {
             new_rho[c] = ibm_rho_ref_;
             new_p[c] = ibm_p_ref_;
