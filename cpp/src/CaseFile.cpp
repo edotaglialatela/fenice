@@ -671,4 +671,17 @@ Field evaluate_source(const Mesh& m, const Params& run, double t) {
     return S;
 }
 
+void evaluate_source_points(const Mesh& m, const Params& run, double t, const double* xs, const double* ys, int n,
+                            State* out) {
+    static const char* const kKeys[kNVar] = {"source_rho", "source_mx", "source_my", "source_E", "source_mz"};
+    Evaluator ev(run, m);
+    ev.set_time(t);
+    int item[kNVar];
+    for (int q = 0; q < kNVar; ++q) item[q] = ev.compile(run.str(kKeys[q], "0"), kKeys[q]);
+    for (int k = 0; k < n; ++k) {
+        ev.set_position(xs[k], ys[k], 0.0);
+        for (int q = 0; q < kNVar; ++q) out[k][q] = ev.eval(item[q]);
+    }
+}
+
 }   // namespace fv

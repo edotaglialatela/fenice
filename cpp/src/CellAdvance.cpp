@@ -8,6 +8,7 @@ namespace fv {
 double CellAdvance::step(double dt, double t) {
     if (static_cast<int>(mesh_.U.size()) != mesh_.num_leaves())
         throw std::logic_error("CellAdvance::step: the mesh has no state");
+    engine_.force_state(mesh_, mesh_.U);   // body forcing of every level before the first pass
     return advance(0, dt, t);
 }
 
@@ -34,6 +35,7 @@ double CellAdvance::advance_own(int l, double dt, double t) {
         // stage time as TimeScheme::step() sets it
         const double o = offsets[stage];
         scheme_.stage_time = o == 0.0 ? t : (o == 1.0 ? t + dt : t + o * dt);
+        engine_.stage_time = scheme_.stage_time;
         if (stage_hook) stage_hook(l, scheme_.stage_time);
         const double s = engine_.compute_level_fluxes(mesh_, mesh_.U, l);
         if (l > 0) engine_.accumulate_registers(mesh_, l, 0.5 * weights[stage]);
@@ -44,6 +46,7 @@ double CellAdvance::advance_own(int l, double dt, double t) {
     const double S = scheme_.advance_fixed_dt(Ul, res, dt);
     if (stage != weights.size()) throw std::logic_error("CellAdvance: the scheme made fewer stages than it declares");
     std::copy(Ul.begin(), Ul.end(), mesh_.U.begin() + b);   // the result, not the last stage's input
+    engine_.force_level(mesh_, mesh_.U, l);
     return S;
 }
 

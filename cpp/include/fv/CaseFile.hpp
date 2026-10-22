@@ -80,5 +80,9 @@ Field evaluate_initial(const InitialSpec& spec, const Mesh& mesh, const EOS& eos
 // solution U_m needs S = div(F(U_m) - F_viscous(U_m)). The expressions may also use the time `t` (an unsteady
 // manufactured solution, S = dU_m/dt + div(...)); `t` is the time the source is evaluated at (0 by default).
 Field evaluate_source(const Mesh& mesh, const Params& run, double t = 0.0);
+// The same at arbitrary points (xs[k], ys[k]), k < n, of a 2-D domain whose base mesh is `mesh` (the expression
+// variables Lx, nx, ... come from it): the cell centres of an adaptive mesh. Writes n states into `out`.
+void evaluate_source_points(const Mesh& mesh, const Params& run, double t, const double* xs, const double* ys, int n,
+                            State* out);
 
 }   // namespace fv

@@ -69,6 +69,20 @@ public:
     // function builds the ghosts of apply_boundary_conditions.
     State ghost_state(Face side, const State& Ui, double u_target = 0.0) const;
 
+    // Tangential neighbours of a cell next to a non-reflecting side: for each tangential axis t (use[t]) the
+    // primitive states at both ends of the central difference (the cell itself at a domain end, then span = 1) and
+    // the number of cell widths between them (2, or 1 at an end).
+    struct NrbcTangent {
+        bool use[3] = {false, false, false};
+        State Wlo[3], Whi[3];
+        double span[3] = {2.0, 2.0, 2.0};
+    };
+    // Ghost state of the non-reflecting outlet for the interior state Ui; `hs` are the cell sizes per axis.
+    State nonreflecting_ghost(Face side, const State& Ui, const NrbcTangent& tg, const double* hs) const;
+    // Ghost cell of the diffusive (viscous) stencil next to a physical side `side` for the interior state `in`:
+    // the zero-gradient copy with the momentum rules of get_padded_U (2-D). Periodic sides use the opposite cell.
+    State viscous_ghost(Face side, const State& in) const;
+
     // U padded with BC-consistent ghost cells: (ny+2)*(nx+2) in 2-D, (nz+2)*(ny+2)*(nx+2) in 3-D (row-major).
     void get_padded_U(const Field& U, Field& U_pad) const;
 

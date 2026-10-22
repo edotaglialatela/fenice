@@ -1,6 +1,6 @@
 # Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
 
-Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 next (needs the user's go). Written 2026-10-22 after a review of AMReX, SAMRAI and the ECOGEN source.
+Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 (indicator + remesh) in progress. The user chose the ECOGEN-style face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of AMReX, SAMRAI and the ECOGEN source.
 `main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
 
 ## 1. Why
@@ -284,3 +284,34 @@ history of the flagged region). The threshold is the user's decision (section 7,
   6.528e-3 for uniform 200 (the pre-existing static band [0.2, 0.92] keeps every wave fine and reproduces the uniform-200 error, 2.917e-3 against 2.910e-3).
   Maximum density 1.0000 (no overshoot), mass conserved to 1e-12.
 * Not covered yet: thread-count independence on adapted meshes (all adapted-mesh tests are below `kOmpMinWork`); it is verified in P6 together with MPI == serial.
+
+## 11. Decisions of 2026-10-22 (user): indicator
+The user prefers how ECOGEN follows the gradients and wants ONE indicator: the ECOGEN-style face-variation indicator replaces the Lohner ratio of
+the patch engine (no second indicator). The exact formulas and thresholds are shown to the user before they are fixed (P5).
+
+## 12. P4 as built
+* Extra pieces of the shared code (pure moves, regression unchanged): `BoundaryManager::nonreflecting_ghost` (the characteristic outlet, with the
+  tangential neighbours passed in `NrbcTangent`; `apply_side` builds them as before), `viscous_ghost` (2-D rule of `get_padded_U`; a test compares
+  both for every boundary type), `NavierStokes::prandtl`, `ImmersedBoundary::rho_ref / p_ref`, `evaluate_source_points` (sources at arbitrary points).
+* `CellPhysics` (set with `CellFluxEngine::set_physics` before `build`): viscous terms, body force, source expressions (steady cached per mesh,
+  unsteady evaluated at `stage_time`, which `CellAdvance` copies from the scheme), the immersed body.
+* Viscous: per-leaf neighbour codes (`nbr_`: leaf, virtual cell or physical edge) give the cell gradients (central differences of the four neighbour
+  values, the diffusive ghost at an edge); the face flux is the same expression as `NavierStokes` with the normal derivative over the distance of the two
+  cell centres (`0.5 (h_L + h_R)`, equal to `h` on a level) and cross terms from the two cell gradients. Viscous face fluxes enter the
+  coarse-fine registers next to the convective ones. The viscous time-step speed is evaluated per leaf with its own cell size (a max over leaves).
+* Immersed body: leaf masks are cut from the uniform mask of each level (`ibm_factory` on that level's mesh, cached); the forcing is applied to a forced
+  copy refreshed per level after its update; `solid_reset` runs once per complete step (called by the driver, not by `CellAdvance::step`). A finer
+  neighbour contributes the mean of its fluid leaves to the fringe; the body is meant to sit on the finest level (P5).
+* Non-reflecting outlet: rejected in P2, supported now (tangential differences from the neighbour codes).
+* Tests: bitwise equality with `Simulation::residual` for 14 viscous boundary combinations (first order and MUSCL, a 96x64 case above `kOmpMinWork`),
+  body force, steady and unsteady sources (several stage times), the immersed body (forcing and the solid reset, with and without viscosity),
+  the non-reflecting outlet (three transverse weights, with a periodic transverse axis and with viscosity). On adapted meshes: conservation to 1e-13 with
+  viscosity (all three schemes; the control without registers fails; removing the viscous register fails the test), a uniform state does not move,
+  and a mesh with every leaf at level 1 equals the uniform 64x64 mesh bit for bit (with viscosity and sources, two substeps).
+* **Finding (not fixed, the user decides): the first-order jump closure dominates the error of a smooth flow on a half-refined mesh.** Manufactured
+  solutions (steady viscous and unsteady Euler), base 32x32 with the lower half refined once, against the uniform 64x64 solution at t = 0.05: L1(rho)
+  difference uniform 32 = 1.47e-3 / 1.53e-3, adaptive = 1.64e-3 / 1.95e-3 (the adaptive run is 12-27 % WORSE than the coarse grid although it has 2.5x
+  the cells). Away from the two jump lines the adaptive error is 0.6 x the coarse one (4.6e-4 against 7.7e-4); within 0.12 of the jumps it is 1.7-2.0 x the
+  coarse one (1.2e-3 against 6.9e-4). A five times smaller time step changes nothing (1.640e-3), so it is spatial, not the time seam. Cause: the coarse side
+  of a jump is first order (decision 2 of section 7) and the fine side is reconstructed against the injected coarse value. The fix of the risk list
+  (second-order jump closure by interpolating the coarse data) is the user's numerics decision; the test keeps the measured limits (far 0.8 x, near 3 x).

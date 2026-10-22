@@ -72,6 +72,8 @@ public:
 
     // Dynamic viscosity.
     double mu() const { return mu_; }
+    // Prandtl number.
+    double prandtl() const { return Pr_; }
 
 private:
     EOS eos_;
@@ -118,6 +120,10 @@ public:
     void apply_forcing(Field& U, const EOS& eos) const;
     // Once per complete step: fringe Neumann + deep-solid reset.
     void apply_solid_reset(Field& U, const EOS& eos, const SolidResetHalo* halo = nullptr) const;
+
+    // Reference density / pressure the deep solid cells are reset to.
+    double rho_ref() const { return rho_ref_; }
+    double p_ref() const { return p_ref_; }
 
     // Number of solid cells.
     int solid_count() const;
