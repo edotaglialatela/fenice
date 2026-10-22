@@ -8,7 +8,7 @@ by :mod:`gui.run`.
 * **Immersed Boundaries** - IBM cylinder / sphere geometry.
 * **Solution Mapping** - hot start from a checkpoint ``.npz`` (grid metadata is
   read from the file; legacy files without it ask for the source Nx / Ny).
-* **AMR** - block-structured adaptive mesh refinement settings.
+* **AMR** - adaptive mesh refinement (leaf cells, refined where a variable varies sharply across a face).
 
 The test-case list and each case's defaults come from the solver itself
 (:func:`gui.solver.case_defaults`).
@@ -444,39 +444,41 @@ class SetupDialog(QDialog):
         f.addRow("", self.check_amr)
 
         self.input_amr_max_level     = QLineEdit("2")
-        self.input_amr_patch_nx      = QLineEdit("8")
-        self.input_amr_patch_ny      = QLineEdit("8")
-        self.input_amr_refine_thr    = QLineEdit("0.3")
+        self.input_amr_indicator     = QLineEdit("density+velocity")
+        self.input_amr_criterion     = QLineEdit("0.1")
+        self.input_amr_refine_thr    = QLineEdit("0.15")
         self.input_amr_derefine_thr  = QLineEdit("0.1")
+        self.input_amr_diffusion     = QLineEdit("2")
         self.input_amr_refine_every  = QLineEdit("10")
         self.input_amr_init_levels   = QLineEdit("0")
-        self.input_amr_buffer_layers = QLineEdit("1")
+        self.input_amr_indicator.setToolTip("density, velocity, pressure, joined by '+'")
 
         self.lbl_amr_max_level    = QLabel("Max refinement levels:")
-        self.lbl_amr_patch_nx     = QLabel("Cells per patch (Nx):")
-        self.lbl_amr_patch_ny     = QLabel("Cells per patch (Ny):")
-        self.lbl_amr_refine_thr   = QLabel("Refine threshold (η):")
-        self.lbl_amr_derefine_thr = QLabel("Derefine threshold (η):")
+        self.lbl_amr_indicator    = QLabel("Indicator variables:")
+        self.lbl_amr_criterion    = QLabel("Relative variation across a face:")
+        self.lbl_amr_refine_thr   = QLabel("Refine at indicator ≥")
+        self.lbl_amr_derefine_thr = QLabel("Join siblings below:")
+        self.lbl_amr_diffusion    = QLabel("Smoothing iterations:")
         self.lbl_amr_refine_every = QLabel("Refine every N steps:")
         self.lbl_amr_init_levels  = QLabel("Initial uniform levels:")
-        self.lbl_amr_buffer_layers = QLabel("Buffer rings (0=tight):")
 
-        for lbl, widget in [
+        self._amr_rows = [
             (self.lbl_amr_max_level,     self.input_amr_max_level),
-            (self.lbl_amr_patch_nx,      self.input_amr_patch_nx),
-            (self.lbl_amr_patch_ny,      self.input_amr_patch_ny),
+            (self.lbl_amr_indicator,     self.input_amr_indicator),
+            (self.lbl_amr_criterion,     self.input_amr_criterion),
             (self.lbl_amr_refine_thr,    self.input_amr_refine_thr),
             (self.lbl_amr_derefine_thr,  self.input_amr_derefine_thr),
+            (self.lbl_amr_diffusion,     self.input_amr_diffusion),
             (self.lbl_amr_refine_every,  self.input_amr_refine_every),
             (self.lbl_amr_init_levels,   self.input_amr_init_levels),
-            (self.lbl_amr_buffer_layers, self.input_amr_buffer_layers),
-        ]:
+        ]
+        for lbl, widget in self._amr_rows:
             f.addRow(lbl, widget)
 
         note = QLabel(
-            "ℹ  AMR subdivides patches with large density gradients.\n"
-            "   Nx, Ny must be multiples of the patch size.\n"
-            "   Subcycling: fine patches take 2 sub-steps per coarse step."
+            "ℹ  A leaf is refined where a chosen variable jumps by more than the given\n"
+            "   fraction between neighbouring cells (the flag is smoothed by the iterations).\n"
+            "   Any Nx, Ny is allowed. Subcycling: each level takes twice the steps of the one above."
         )
         note.setObjectName("fieldNote")
         note.setWordWrap(True)
@@ -486,16 +488,7 @@ class SetupDialog(QDialog):
         layout.addWidget(g)
         layout.addStretch()
 
-        self._amr_sub_widgets = [
-            self.lbl_amr_max_level,    self.input_amr_max_level,
-            self.lbl_amr_patch_nx,     self.input_amr_patch_nx,
-            self.lbl_amr_patch_ny,      self.input_amr_patch_ny,
-            self.lbl_amr_refine_thr,    self.input_amr_refine_thr,
-            self.lbl_amr_derefine_thr,  self.input_amr_derefine_thr,
-            self.lbl_amr_refine_every,  self.input_amr_refine_every,
-            self.lbl_amr_init_levels,   self.input_amr_init_levels,
-            self.lbl_amr_buffer_layers, self.input_amr_buffer_layers,
-        ]
+        self._amr_sub_widgets = [w for row in self._amr_rows for w in row]
 
     def _toggle_amr_inputs(self, checked):
         for w in self._amr_sub_widgets:
@@ -652,13 +645,13 @@ class SetupDialog(QDialog):
             'inner_tol_rel':  lambda v: self.input_inner_tol.setText(str(v)),
             'use_amr':                lambda v: self.check_amr.setChecked(bool(v)),
             'amr_max_level':          lambda v: self.input_amr_max_level.setText(str(v)),
-            'amr_patch_nx':           lambda v: self.input_amr_patch_nx.setText(str(v)),
-            'amr_patch_ny':           lambda v: self.input_amr_patch_ny.setText(str(v)),
+            'amr_indicator':          lambda v: self.input_amr_indicator.setText(str(v)),
+            'amr_criterion':          lambda v: self.input_amr_criterion.setText(str(v)),
             'amr_refine_threshold':   lambda v: self.input_amr_refine_thr.setText(str(v)),
             'amr_derefine_threshold': lambda v: self.input_amr_derefine_thr.setText(str(v)),
             'amr_refine_every':       lambda v: self.input_amr_refine_every.setText(str(v)),
             'amr_init_levels':        lambda v: self.input_amr_init_levels.setText(str(v)),
-            'amr_buffer_layers':      lambda v: self.input_amr_buffer_layers.setText(str(v)),
+            'amr_diffusion':          lambda v: self.input_amr_diffusion.setText(str(v)),
         }
         for key, value in defaults.items():
             if key in setters: setters[key](value)
@@ -719,13 +712,13 @@ class SetupDialog(QDialog):
                 'hot_start_src_ny': int(self.input_src_ny.text()) if self.input_src_ny.text() else 0,
                 'use_amr':                self.check_amr.isChecked(),
                 'amr_max_level':          int(self.input_amr_max_level.text()),
-                'amr_patch_nx':           int(self.input_amr_patch_nx.text()),
-                'amr_patch_ny':           int(self.input_amr_patch_ny.text()),
+                'amr_indicator':          self.input_amr_indicator.text().strip(),
+                'amr_criterion':          float(self.input_amr_criterion.text()),
                 'amr_refine_threshold':   float(self.input_amr_refine_thr.text()),
                 'amr_derefine_threshold': float(self.input_amr_derefine_thr.text()),
                 'amr_refine_every':       int(self.input_amr_refine_every.text()),
                 'amr_init_levels':        int(self.input_amr_init_levels.text()),
-                'amr_buffer_layers':      int(self.input_amr_buffer_layers.text()),
+                'amr_diffusion':          int(self.input_amr_diffusion.text()),
             }
             if self.sim_params['nz'] < 1:
                 QMessageBox.critical(self, "Config Error", "Nz must be at least 1 (1 = 2-D).")
