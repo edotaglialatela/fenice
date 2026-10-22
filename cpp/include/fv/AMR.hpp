@@ -84,6 +84,9 @@ public:
 
     AMRPatch* root = nullptr;                // roots[0]; the level-0 patch when the tree has a single root
     std::vector<AMRPatch*> roots;            // level-0 patches, row-major (x fastest)
+    // False in a distributed run: a patch is created without state, which only the ranks holding it
+    // allocate (refine / derefine skip the arithmetic where the source has no data).
+    bool   store_state = true;
     double Lx, Ly;                           // domain size
     int    nx_patch, ny_patch, max_level;    // block size and refinement depth
     int    nroot_x, nroot_y;                 // level-0 patches per axis
@@ -151,6 +154,8 @@ struct AMRParallel {
     std::function<void(const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv)> exchange;
 };
 
+// After assign_ownership on a tree without state: give the held leaves their (zeroed) storage.
+void allocate_held(AMRTree& tree);
 // Every owner sends the state of its leaves to the ranks that hold a halo copy (after the owners changed
 // them outside advance_amr_level, e.g. the solid reset).
 void refresh_halos(AMRTree& tree, const AMRParallel& par);
@@ -160,9 +165,6 @@ std::vector<double> allgather_leaf_values(AMRTree& tree, const AMRParallel* par,
                                           const std::function<void(AMRPatch&, double*)>& fn);
 // The state of every leaf concatenated in leaf order, on rank 0 only (empty on the others).
 Field gather_leaves_on_root(AMRTree& tree, const AMRParallel& par);
-// Refresh the copies of the leaves this rank neither owns nor holds as halo from their owners
-// (a full allgather; the remesh, the solid reset and the output still read every leaf).
-void gather_leaf_state(AMRTree& tree, const AMRParallel& par);
 
 // Distribute the leaves over `size` ranks: each level is cut into contiguous blocks along the Morton
 // order of its slot-grid position (patches of one level have equal size, so equal counts). Sets
@@ -177,6 +179,9 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
 
 // Mark, refine, derefine and rebalance the tree. With `par` every rank computes the indicator of its own
 // leaves, the values are shared, and all ranks then take the same decisions on their copy of the tree.
+// The data follows: a rank that holds a patch refines it, the owner of the first child collects and
+// averages the four children of a derefined parent (they are in its halo), and after the new partition
+// the leaves move to the ranks that now need them. Throws if the ranks' trees diverge.
 void remesh(AMRTree& tree, const AMRErrorIndicator& indicator, const AMRParallel* par = nullptr);
 
 // Test hook: disables the coarse-fine reflux correction (negative control).

@@ -112,6 +112,8 @@ public:
     std::unique_ptr<TimeScheme>          scheme;         // time integrator
     std::unique_ptr<AMRTree>             amr_tree;       // non-null when AMR is on
     std::unique_ptr<AMRErrorIndicator>   amr_indicator;  // AMR marking
+    AMRParallel                          amr_par;        // hooks of the MPI run (valid when amr_dist)
+    bool                                 amr_dist = false;   // AMR on several ranks: leaves live on their owners
     VTKExporter                          exporter;       // VTK + .pvd output
     const TestCase*                      test_case = nullptr;
     std::string                          file_prefix;    // test case name, lower case with underscores

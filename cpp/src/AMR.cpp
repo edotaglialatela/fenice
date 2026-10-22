@@ -47,7 +47,7 @@ AMRPatch* AMRTree::new_patch(double x0, double x1, double y0, double y1, int lev
     // Cell size from the base grid by exact halving, so tiled patches share the uniform mesh's dx
     p->mesh.dx = std::ldexp(Lx / (nroot_x * nx_patch), -level);
     p->mesh.dy = std::ldexp(Ly / (nroot_y * ny_patch), -level);
-    p->U.assign(p->mesh.num_cells(), State{0, 0, 0, 0});
+    if (store_state) p->U.assign(p->mesh.num_cells(), State{0, 0, 0, 0});
     AMRPatch* raw = p.get();
     patches_[raw->id] = std::move(p);
     dirty_ = true;
@@ -124,6 +124,12 @@ std::vector<AMRPatch*> AMRTree::refine_patch(AMRPatch* patch) {
     for (const auto& q : quads) {
         AMRPatch* child = new_patch(q[0], q[1], q[2], q[3], patch->level + 1, patch);
         const Mesh& mc = child->mesh;
+        if (patch->U.empty()) {   // data-less rank: only the tree changes
+            patch->children.push_back(child);
+            kids.push_back(child);
+            continue;
+        }
+        if (child->U.empty()) child->U.assign(mc.num_cells(), State{0, 0, 0, 0});
         for (int j = 0; j < mc.ny; ++j) {
             const int jp = std::min(std::max(static_cast<int>((mc.yc(j) - y0_p) / dy_p), 0), mp.ny - 1);
             for (int i = 0; i < mc.nx; ++i) {
@@ -143,6 +149,14 @@ void AMRTree::derefine_patch(AMRPatch* patch) {
     for (AMRPatch* c : patch->children)
         if (!c->is_leaf()) throw std::invalid_argument("Can only derefine if all children are leaves");
 
+    bool all_data = true;
+    for (AMRPatch* c : patch->children) all_data = all_data && !c->U.empty();
+    if (!all_data) {   // data-less rank: only the tree changes
+        for (AMRPatch* c : patch->children) patches_.erase(c->id);
+        patch->children.clear();
+        dirty_ = true;
+        return;
+    }
     // Conservative area-weighted average of the 2x2 fine cells per coarse cell.
     const Mesh& mp = patch->mesh;
     const int nx_p = mp.nx, ny_p = mp.ny;
@@ -530,33 +544,36 @@ bool has_rank(const std::vector<int>& v, int r) { return std::find(v.begin(), v.
 // Send the data of every leaf of `list` from its owner to the ranks dest[k] names (the receivers
 // resize their copy to the expected size). Every rank calls this with the same arguments; a rank
 // with nothing to send or receive just passes empty buffers.
-void push_fields(const AMRParallel& par, const std::vector<AMRPatch*>& list, const std::vector<std::vector<int>>& dest, Kind kind) {
+void push_fields(const AMRParallel& par, const std::vector<AMRPatch*>& list, const std::vector<std::vector<int>>& dest, Kind kind,
+                 const std::vector<int>* src = nullptr) {
     std::vector<std::vector<double>> send(par.size), recv(par.size);
+    auto from = [&](size_t k) { return src ? (*src)[k] : list[k]->owner; };
     for (size_t k = 0; k < list.size(); ++k) {
         AMRPatch& p = *list[k];
         if (dest[k].empty()) continue;
-        if (p.owner == par.rank) {
+        if (from(k) == par.rank) {
             for (int v : dest[k])
                 for (Field* f : fields_of(p, kind))
                     for (const State& st : *f) send[v].insert(send[v].end(), st.begin(), st.end());
         } else if (has_rank(dest[k], par.rank)) {
             size_t n = 0;
             for (size_t m : sizes_of(p, kind)) n += m;
-            recv[p.owner].resize(recv[p.owner].size() + n * kNVar);
+            recv[from(k)].resize(recv[from(k)].size() + n * kNVar);
         }
     }
     par.exchange(send, recv);
     std::vector<size_t> pos(par.size, 0);
     for (size_t k = 0; k < list.size(); ++k) {
         AMRPatch& p = *list[k];
-        if (p.owner == par.rank || !has_rank(dest[k], par.rank)) continue;
+        if (from(k) == par.rank || !has_rank(dest[k], par.rank)) continue;
+        const int owner = from(k);
         const auto n = sizes_of(p, kind);
         auto f = fields_of(p, kind);
         for (size_t q = 0; q < f.size(); ++q) {
             f[q]->resize(n[q]);
             for (State& st : *f[q]) {
-                std::copy(recv[p.owner].begin() + pos[p.owner], recv[p.owner].begin() + pos[p.owner] + kNVar, st.begin());
-                pos[p.owner] += kNVar;
+                std::copy(recv[owner].begin() + pos[owner], recv[owner].begin() + pos[owner] + kNVar, st.begin());
+                pos[owner] += kNVar;
             }
         }
     }
@@ -647,9 +664,46 @@ void refresh_halos(AMRTree& tree, const AMRParallel& par) {
     push_fields(par, lv, dest_of(lv, false), Kind::State);
 }
 
+namespace {
+// Free everything a leaf carries that is not the plain tree
+void release_leaf(AMRPatch& l) {
+    Field().swap(l.U);
+    Field().swap(l.U_ghost);
+    Field().swap(l.last_flux_x);
+    Field().swap(l.last_flux_y);
+    Field().swap(l.reflux_fx);
+    Field().swap(l.reflux_fy);
+    l.has_reflux = false;
+    std::vector<char>().swap(l.solid);
+    std::vector<char>().swap(l.solid_ext);
+}
+
+// The ranks must hold the same tree: a divergence would show up later as a hang in a message exchange
+void check_same_tree(AMRTree& tree, const AMRParallel& par) {
+    std::uint64_t h = 1469598103934665603ull;
+    auto mix = [&](std::uint64_t v) { h = (h ^ v) * 1099511628211ull; };
+    for (const AMRPatch* l : tree.leaves()) {
+        mix(static_cast<std::uint64_t>(l->id));
+        mix(static_cast<std::uint64_t>(l->level));
+        mix(static_cast<std::uint64_t>(l->owner));
+    }
+    const double v = static_cast<double>(h & ((1ull << 52) - 1));
+    if (par.allreduce_max(v) != v || par.allreduce_max(-v) != -v)
+        throw std::runtime_error("AMR: the ranks' trees diverged after the remesh");
+}
+}  // namespace
+
+void allocate_held(AMRTree& tree) {
+    for (AMRPatch* l : tree.leaves()) {
+        if (l->held) { if (l->U.empty()) l->U.assign(static_cast<size_t>(l->nx()) * l->ny(), State{0, 0, 0, 0}); }
+        else release_leaf(*l);
+    }
+}
+
 void remesh(AMRTree& tree, const AMRErrorIndicator& ind, const AMRParallel* par) {
+    const bool dist = par && par->size > 1;
     std::vector<AMRPatch*> to_refine, to_derefine;
-    if (par && par->size > 1) {
+    if (dist) {
         const auto lv = tree.leaves();
         const auto eta = allgather_leaf_values(tree, par, 1, [&](AMRPatch& leaf, double* o) { *o = ind.indicator(leaf); });
         std::map<int, double> by_id;
@@ -658,38 +712,70 @@ void remesh(AMRTree& tree, const AMRErrorIndicator& ind, const AMRParallel* par)
     } else {
         ind.mark(tree, to_refine, to_derefine);
     }
+
+    // Ranks that hold the data of a patch (owner + halo copies, valid until the new partition); a patch
+    // created below inherits those of the patch it came from
+    std::map<int, std::vector<int>> hold;
+    if (dist)
+        for (AMRPatch* l : tree.leaves()) {
+            std::vector<int> v = l->viewers;
+            v.push_back(l->owner);
+            std::sort(v.begin(), v.end());
+            hold[l->id] = std::move(v);
+        }
+
     for (AMRPatch* patch : to_refine)
         if (patch->is_leaf() && patch->level < tree.max_level) tree.refine_patch(patch);
     for (AMRPatch* parent : to_derefine) {
         bool leaf_kids = !parent->is_leaf();
         for (AMRPatch* c : parent->children) leaf_kids = leaf_kids && c->is_leaf();
-        if (leaf_kids) tree.derefine_patch(parent);
+        if (!leaf_kids) continue;
+        if (!dist) { tree.derefine_patch(parent); continue; }
+        // The owner of the first child averages: its halo contains the siblings, so no message is needed
+        const int collector = parent->children[0]->owner;
+        for (const AMRPatch* c : parent->children)
+            if (!has_rank(hold.at(c->id), collector))
+                throw std::logic_error("AMR derefine: the collector does not hold all four children");
+        tree.derefine_patch(parent);
+        hold[parent->id] = {collector};
+        if (par->rank != collector) Field().swap(parent->U);
     }
     tree.enforce_2to1_balance();
-    if (par && par->size > 1) assign_ownership(tree, par->rank, par->size);
-}
+    if (!dist) return;
 
-void gather_leaf_state(AMRTree& tree, const AMRParallel& par) {
-    // Leaves a rank holds are already current (the owners pushed them): only the others are refreshed
+    assign_ownership(tree, par->rank, par->size);
+
+    // Move the data: every rank that now needs a leaf (owner or halo) and does not hold it gets it from
+    // the lowest rank that does
     const auto lv = tree.leaves();
-    std::vector<int> counts(par.size, 0), displs(par.size, 0);
-    for (const AMRPatch* p : lv) counts[p->owner] += static_cast<int>(p->nx() * p->ny() * kNVar);
-    for (int r = 1; r < par.size; ++r) displs[r] = displs[r - 1] + counts[r - 1];
-    std::vector<double> send, recv(static_cast<size_t>(displs[par.size - 1] + counts[par.size - 1]));
-    for (const AMRPatch* p : lv)
-        if (p->owner == par.rank)
-            for (const State& st : p->U) send.insert(send.end(), st.begin(), st.end());
-    par.allgatherv(send.data(), static_cast<int>(send.size()), recv.data(), counts.data(), displs.data());
-    std::vector<size_t> pos(displs.begin(), displs.end());
-    for (AMRPatch* p : lv) {
-        const size_t n = static_cast<size_t>(p->nx()) * p->ny();
-        if (p->owner != par.rank && !p->held) {
-            p->U.resize(n);
-            for (State& st : p->U) { std::copy(recv.begin() + pos[p->owner], recv.begin() + pos[p->owner] + kNVar, st.begin()); pos[p->owner] += kNVar; }
-        } else {
-            pos[p->owner] += n * kNVar;
+    std::vector<AMRPatch*> moved;
+    std::vector<std::vector<int>> dest;
+    std::vector<int> src;
+    for (AMRPatch* l : lv) {
+        const std::vector<int>* have = nullptr;
+        for (const AMRPatch* q = l; q && !have; q = q->parent) {
+            const auto it = hold.find(q->id);
+            if (it != hold.end()) have = &it->second;
+        }
+        if (!have) throw std::logic_error("AMR remesh: a leaf has no known holder");
+        std::vector<int> need = l->viewers, missing;
+        need.push_back(l->owner);
+        for (int r : need) if (!has_rank(*have, r)) missing.push_back(r);
+        if (missing.empty()) continue;
+        std::sort(missing.begin(), missing.end());
+        moved.push_back(l);
+        dest.push_back(std::move(missing));
+        src.push_back(have->front());
+    }
+    push_fields(*par, moved, dest, Kind::State, &src);
+    for (AMRPatch* l : lv) {
+        if (!l->held) release_leaf(*l);
+        else if (l->owner != par->rank) {   // a halo copy: no masks, they follow the owner
+            std::vector<char>().swap(l->solid);
+            std::vector<char>().swap(l->solid_ext);
         }
     }
+    check_same_tree(tree, *par);
 }
 
 double advance_amr_level(AMRTree& tree, int level, double dt, double current_time, double max_time,

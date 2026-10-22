@@ -346,6 +346,41 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         if (verbose)
             std::printf("[AMR] Enabled - max_level=%d, patch_size=%dx%d, subcycling active\n", p.amr_max_level,
                         p.amr_patch_nx, p.amr_patch_ny);
+        amr_dist = false;
+#ifdef FV_USE_MPI
+        int init = 0, size = 1;
+        MPI_Initialized(&init);
+        if (init) MPI_Comm_size(MPI_COMM_WORLD, &size);
+        if (size > 1) {
+            amr_dist = true;
+            amr_par.size = size;
+            MPI_Comm_rank(MPI_COMM_WORLD, &amr_par.rank);
+            amr_par.allgatherv = [](const double* send, int n, double* recv, const int* counts, const int* displs) {
+                MPI_Allgatherv(send, n, MPI_DOUBLE, recv, counts, displs, MPI_DOUBLE, MPI_COMM_WORLD);
+            };
+            amr_par.exchange = [](const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) {
+                std::vector<MPI_Request> req;
+                req.reserve(send.size() + recv.size());
+                for (size_t r = 0; r < recv.size(); ++r)
+                    if (!recv[r].empty()) {
+                        req.emplace_back();
+                        MPI_Irecv(recv[r].data(), static_cast<int>(recv[r].size()), MPI_DOUBLE, static_cast<int>(r), 77, MPI_COMM_WORLD, &req.back());
+                    }
+                for (size_t r = 0; r < send.size(); ++r)
+                    if (!send[r].empty()) {
+                        req.emplace_back();
+                        MPI_Isend(send[r].data(), static_cast<int>(send[r].size()), MPI_DOUBLE, static_cast<int>(r), 77, MPI_COMM_WORLD, &req.back());
+                    }
+                MPI_Waitall(static_cast<int>(req.size()), req.data(), MPI_STATUSES_IGNORE);
+            };
+            amr_par.allreduce_max = [](double v) {
+                double g = v;
+                MPI_Allreduce(&v, &g, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
+                return g;
+            };
+            amr_tree->store_state = false;   // a leaf's state exists only on the ranks that hold it
+        }
+#endif
     }
 
     if (verbose)
@@ -358,18 +393,25 @@ void Simulation::initialize_field() {
     if (test_case->requires_viscosity && !ns)
         std::printf("[WARNING] This test case requires Navier-Stokes - viscous physics is off!\n");
 
-    U = p.use_hot_start ? load_hot_start(p.hot_start_file) : initial_field();
+    // Distributed AMR evaluates the initial condition on the leaves a rank owns: no global field
+    const bool global_field = !amr_dist || p.use_hot_start;
+    if (global_field) U = p.use_hot_start ? load_hot_start(p.hot_start_file) : initial_field();
     start_step = 0;
     if (p.resume) start_step = load_checkpoint();
 
     // A fresh start (also resume without a checkpoint) is forced; a restored state already is
-    if (p.use_ibm && start_step == 0) ibm->apply_forcing(U, fluid);
+    if (p.use_ibm && start_step == 0 && global_field) ibm->apply_forcing(U, fluid);
 
     if (amr_tree) {
         for (int k = 0; k < p.amr_init_levels; ++k)
             for (AMRPatch* patch : amr_tree->leaves())
                 if (patch->level < amr_tree->max_level) amr_tree->refine_patch(patch);
         if (p.use_ibm && p.amr_refine_ibm) refine_body_patches();
+        if (amr_dist) {
+            assign_ownership(*amr_tree, amr_par.rank, amr_par.size);
+            allocate_held(*amr_tree);
+        }
+        const auto owned = [&](const AMRPatch* patch) { return !amr_dist || patch->owner == amr_par.rank; };
         if (p.use_hot_start) {
             // Seed every leaf by sampling the hot-start field at the leaf's global cell centroids
             // (bilinear, extrapolating at the edges).
@@ -377,13 +419,15 @@ void Simulation::initialize_field() {
             const GridInterp2D interp(linspace(dx_s / 2.0, mesh.Lx - dx_s / 2.0, mesh.nx),
                                       linspace(dy_s / 2.0, mesh.Ly - dy_s / 2.0, mesh.ny), U);
             for (AMRPatch* patch : amr_tree->leaves())
-                for (int j = 0; j < patch->ny(); ++j)
-                    for (int i = 0; i < patch->nx(); ++i)
-                        patch->U[j * patch->nx() + i] = interp(patch->mesh.xc(i), patch->mesh.yc(j));
+                if (owned(patch))
+                    for (int j = 0; j < patch->ny(); ++j)
+                        for (int i = 0; i < patch->nx(); ++i)
+                            patch->U[j * patch->nx() + i] = interp(patch->mesh.xc(i), patch->mesh.yc(j));
         } else {
             // Evaluate the initial condition at each leaf's own resolution, so refined leaves see the
             // exact initial discontinuities rather than their interpolation from the base grid
             for (AMRPatch* patch : amr_tree->leaves()) {
+                if (!owned(patch)) continue;
                 Mesh pm = patch->mesh;   // cell positions of the patch, but Lx / Ly of the domain (expressions like Lx/2)
                 pm.Lx = mesh.Lx;  pm.Ly = mesh.Ly;
                 patch->U = test_case->initialize(pm, fluid, p.source);
@@ -391,9 +435,14 @@ void Simulation::initialize_field() {
         }
         if (p.use_ibm && start_step == 0)
             for (AMRPatch* patch : amr_tree->leaves()) {
+                if (!owned(patch)) continue;
                 ensure_patch_masks(*patch);
                 ImmersedBoundary(patch->nx(), patch->ny(), patch->solid, p.rho_in, p.p_out).apply_forcing(patch->U, fluid);
             }
+        if (amr_dist) {
+            refresh_halos(*amr_tree, amr_par);   // the halo copies get the owners' initial state
+            Field().swap(U);                      // the global field (hot start) is not needed any more
+        }
     }
 }
 
@@ -955,8 +1004,8 @@ void Simulation::amr_solid_reset(AMRTree& tree, const AMRParallel* par) {
         if (!dist || l->owner == par->rank) leaves.push_back(l);
     // Snapshot first: every leaf reads its neighbours' pre-reset cells, whatever the order
     for (AMRPatch* l : all) {
-        if (dist && !l->held) {   // not held: any read turns the result into NaN
-            l->U_ghost.assign(static_cast<size_t>(l->nx()) * l->ny(), State{NAN, NAN, NAN, NAN, NAN});
+        if (dist && !l->held) {   // not held: no state here
+            Field().swap(l->U_ghost);
         } else {
             if (!dist || l->owner == par->rank) ensure_patch_masks(*l);
             l->U_ghost = l->U;
@@ -1255,46 +1304,8 @@ void Simulation::solve_amr() {
     int step = start_step;
     const double min_delta_base = std::min(tree.roots[0]->mesh.dx, tree.roots[0]->mesh.dy);
 
-    // Under MPI every rank holds the whole tree and shares each level's patches (see AMRParallel)
-    AMRParallel par_storage;
-    const AMRParallel* par = nullptr;
-#ifdef FV_USE_MPI
-    {
-        int init = 0, size = 1;
-        MPI_Initialized(&init);
-        if (init) MPI_Comm_size(MPI_COMM_WORLD, &size);
-        if (size > 1) {
-            par_storage.size = size;
-            MPI_Comm_rank(MPI_COMM_WORLD, &par_storage.rank);
-            par_storage.allgatherv = [](const double* send, int n, double* recv, const int* counts, const int* displs) {
-                MPI_Allgatherv(send, n, MPI_DOUBLE, recv, counts, displs, MPI_DOUBLE, MPI_COMM_WORLD);
-            };
-            par_storage.exchange = [](const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) {
-                std::vector<MPI_Request> req;
-                req.reserve(send.size() + recv.size());
-                for (size_t r = 0; r < recv.size(); ++r)
-                    if (!recv[r].empty()) {
-                        req.emplace_back();
-                        MPI_Irecv(recv[r].data(), static_cast<int>(recv[r].size()), MPI_DOUBLE, static_cast<int>(r), 77, MPI_COMM_WORLD, &req.back());
-                    }
-                for (size_t r = 0; r < send.size(); ++r)
-                    if (!send[r].empty()) {
-                        req.emplace_back();
-                        MPI_Isend(send[r].data(), static_cast<int>(send[r].size()), MPI_DOUBLE, static_cast<int>(r), 77, MPI_COMM_WORLD, &req.back());
-                    }
-                MPI_Waitall(static_cast<int>(req.size()), req.data(), MPI_STATUSES_IGNORE);
-            };
-            par_storage.allreduce_max = [](double v) {
-                double g = v;
-                MPI_Allreduce(&v, &g, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
-                return g;
-            };
-            par = &par_storage;
-        }
-    }
-#endif
+    const AMRParallel* par = amr_dist ? &amr_par : nullptr;
     const bool root = !par || par->rank == 0;
-    if (par) assign_ownership(tree, par->rank, par->size);
 
     // Every rank writes its own leaves; the barrier lets rank 0 index them once they are all on disk
     const auto export_leaves = [&](int st) {
@@ -1361,7 +1372,6 @@ void Simulation::solve_amr() {
         dt = std::min(dt, p.t_end - t);
         S_max = advance_amr_level(tree, 0, dt, t, p.t_end, pres, *scheme, par);
         if (p.use_ibm) amr_solid_reset(tree, par);
-        if (par) gather_leaf_state(tree, *par);   // the remesh and the output still read every leaf
         t += dt;
         ++step;
 
