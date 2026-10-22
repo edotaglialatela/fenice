@@ -58,13 +58,15 @@ Mach number stays below 0.5, $\nabla\cdot\mathbf u \ne 0$ and $\nabla T \ne 0$ e
 $\mathrm{Pr} = 0.72$, $\gamma = 1.4$: the viscous source is a sizeable fraction of the convective one, so a viscous
 error cannot hide below the convective one.
 
-## The three cases
+## The cases
 
 | Case (`--case`) | Equations | Default mesh |
 |---|---|---|
 | `Manufactured Solution` | 2-D Navier-Stokes | 32² |
 | `Manufactured Solution Euler` | 2-D Euler (no viscous terms in the source) | 32² |
 | `Manufactured Solution 3D` | 3-D Navier-Stokes | 16³ |
+| `Manufactured Solution Walls` | 2-D Navier-Stokes, moving wall below, slip wall above, periodic in x | 32² |
+| `Manufactured Solution Outflow` | 2-D Navier-Stokes, no-slip wall on the left, transmissive on the right, periodic in y | 32² |
 
 ```powershell
 build\release\fenice.exe --case "Manufactured Solution" --set nx=64 --set ny=64
@@ -81,7 +83,8 @@ rules cannot matter, and are up to 34 000 characters long. Do not edit them by h
 
 ## The study
 
-`verification/mms.py` runs four steps. The expected orders were fixed before the first run: first order is
+`verification/mms.py` runs four steps on all five cases. The expected orders were fixed before the first run (for the cases with boundaries they are the periodic ones,
+unchanged): first order is
 $1.0 \pm 0.1$ in every norm; for MUSCL, between 1.5 and 2.5 in $L_1$ and $L_2$ and between 1.0 and 2.5 in $L_\infty$
 (a TVD limiter clips the reconstruction at smooth extrema, which costs order, most of all in $L_\infty$; above
 2.5 would be suspicious). The orders are those of the finest pair of grids.
@@ -101,7 +104,7 @@ figure and the table of this page come from it.
    the solver's. It falls at 0.90 to 0.99 for the first-order scheme and at 1.4 to 1.55 for MUSCL (the clipped extrema,
    $h^{1/2}\cdot h$ in the rms).
 3. **Order of accuracy.** The run starts from the exact state and the error of $\rho$, $u$, $v$, ($w$), $p$ is
-   measured at $t = 0.5$ on grids refined by 2 in every direction (16² to 128², and 12³ to 96³) with the CFL fixed,
+   measured at $t = 0.5$ on grids refined by 2 in every direction (16² to 128², and 12³ to 96³; the 2-D cases with boundaries use the same grids) with the CFL fixed,
    in the $L_1$, $L_2$ and $L_\infty$ norms. This is a fixed-time error of a steady manufactured solution, not a
    steady-state error, and the time step shrinks with the mesh, so the order is the combined one of the scheme
    (MUSCL with Van Leer's limiter, SSP-RK2; or Godunov with SSP-RK2).
@@ -134,6 +137,18 @@ Observed orders (finest pair), from `results/validation/mms/mms_table.md`:
 | Manufactured Solution 3D | 1st order | L1 | 0.96 | 0.93 | 0.93 | 0.93 | 0.97 | 0.9 to 1.1 | ok |
 | Manufactured Solution 3D | 1st order | L2 | 0.96 | 0.93 | 0.93 | 0.93 | 0.97 | 0.9 to 1.1 | ok |
 | Manufactured Solution 3D | 1st order | Linf | 0.95 | 0.91 | 0.90 | 0.92 | 0.99 | 0.9 to 1.1 | ok |
+| Manufactured Solution Walls | MUSCL | L1 | 1.09 | 1.38 | 1.16 | - | 1.56 | 1.5 to 2.5 | outside (explained) |
+| Manufactured Solution Walls | MUSCL | L2 | 1.09 | 1.39 | 1.25 | - | 1.45 | 1.5 to 2.5 | outside (explained) |
+| Manufactured Solution Walls | MUSCL | Linf | 0.83 | 1.22 | 1.30 | - | 0.99 | 1.0 to 2.5 | outside (explained) |
+| Manufactured Solution Walls | 1st order | L1 | 0.95 | 0.97 | 0.95 | - | 0.96 | 0.9 to 1.1 | ok |
+| Manufactured Solution Walls | 1st order | L2 | 0.96 | 0.96 | 0.95 | - | 0.97 | 0.9 to 1.1 | ok |
+| Manufactured Solution Walls | 1st order | Linf | 1.00 | 0.84 | 0.95 | - | 0.99 | 0.9 to 1.1 | outside (explained) |
+| Manufactured Solution Outflow | MUSCL | L1 | 1.95 | 1.14 | 1.31 | - | 1.63 | 1.5 to 2.5 | outside (explained) |
+| Manufactured Solution Outflow | MUSCL | L2 | 1.68 | 1.01 | 1.15 | - | 1.49 | 1.5 to 2.5 | outside (explained) |
+| Manufactured Solution Outflow | MUSCL | Linf | 0.94 | 0.73 | 1.14 | - | 0.94 | 1.0 to 2.5 | outside (explained) |
+| Manufactured Solution Outflow | 1st order | L1 | 0.98 | 0.96 | 0.93 | - | 0.97 | 0.9 to 1.1 | ok |
+| Manufactured Solution Outflow | 1st order | L2 | 0.98 | 0.96 | 0.94 | - | 0.98 | 0.9 to 1.1 | ok |
+| Manufactured Solution Outflow | 1st order | Linf | 0.96 | 0.96 | 0.95 | - | 0.97 | 0.9 to 1.1 | ok |
 
 * **Navier-Stokes, second order.** MUSCL gives 1.96 to 2.13 in $L_1$ and $L_2$ in 2-D and 1.96 to 2.22 in 3-D;
   $L_\infty$ is lower, as expected (1.6 to 2.35), and the first-order scheme gives 0.90 to 1.00. The viscous terms,
@@ -148,12 +163,61 @@ Observed orders (finest pair), from `results/validation/mms/mms_table.md`:
   order is not established on these grids. The truncation error of the same case falls at 0.95 to 0.99, so the scheme
   is first-order consistent. The band was not moved; the table marks the entries "outside (explained)".
 
+## Solutions with boundaries
+
+A periodic solution cannot test a boundary condition. The two cases with boundaries are built so that the **ghost
+state the solver puts across the boundary is exactly the extension of the manufactured solution**: the variables
+are even or odd about the boundary the way the boundary condition mirrors them, and `fenice.mms` checks the parities
+numerically when it builds the solution (it refuses to write a case that violates them).
+
+| Case | Side | Boundary condition | Condition on the solution at the boundary |
+|---|---|---|---|
+| Walls | bottom, $y = 0$ | `moving_wall`, $u_{in} = 0.1$ | $\rho$, $p$ even, $v$ odd, $u - 0.1$ odd |
+| Walls | top, $y = 1$ | `wall` (slip) | $\rho$, $p$, $u$ even, $v$ odd |
+| Outflow | left, $x = 0$ | `no_slip` | $\rho$, $p$ even, $u$, $v$ odd |
+| Outflow | right, $x = 1$ | `transmissive` | $\rho$, $p$, $u$, $v$ even (zero normal gradient) |
+
+The other axis is periodic, so there are no corners. The parities come from $\cos(\pi y)$ (even about both walls),
+$\sin(\pi y)$ (odd about both) and $\sin(\pi y/2)$ (odd about 0, even about 1), mixed into the phases of the
+periodic waves so that the solution stays non-separable. The momentum slot of a wall is the mirrored one, so the
+no-slip, moving-wall and slip-wall ghosts, the viscous padded state and the adiabatic heat flux at the wall are all
+compared with the exact solution. The cases are in the regression too (`mms_walls`, and `mms_outflow_xdecomp`
+on x-strips), serial and on 2 to 4 MPI ranks.
+
+**What the study found.** With the first-order scheme the orders are those of the periodic cases (0.9 to 1.0; one
+$L_\infty$ entry at 0.84). With MUSCL they are **not**: $L_1$ and $L_2$ fall at 1.0 to 1.9 instead of 2, and $L_\infty$
+at 0.7 to 1.3, and the maximum error sits in the cell next to the wall (the study prints where it is). The bands were
+not moved. A floor of 0.7, set after the first run, keeps a worse loss from passing; the entries are marked
+"outside (explained)". Three things in the solver explain it (the first two were seen in the code, the third by
+an experiment):
+
+* the face on a non-periodic boundary is not reconstructed: it takes the interior and the ghost state as they
+  are (first order), and the first interior face has a zero slope on the boundary side because its stencil is
+  filled by replicating the edge cell;
+* an inviscid version of the walls case (not committed) loses order the same way, so this part is convective: $L_1$
+  1.8, $L_\infty$ 0.5 to 1.3;
+* the viscous padded state of a **moving wall** flips the momentum about the wall velocity but copies the energy, so
+  when the wall moves the ghost temperature is not the interior one and the wall is not exactly adiabatic. With the
+  wall velocity set to zero the $L_1$ orders of the walls case recover from 1.1 to 1.4 to about 1.6. A no-slip or slip
+  wall ($|u|$ unchanged by the mirror) has no such inconsistency. The velocity $L_1$ orders of the outflow case
+  (1.0 to 1.3) are still lower with viscosity than without (1.4 to 1.5), so the viscous wall closure has a further
+  loss that was not traced.
+
+A first-order boundary face is a common closure and global order 2 is still reached where the normal gradients
+vanish, as they do here by construction; a flow with a non-zero gradient at the boundary would lose more. These are
+properties of the solver, not of the test: changing them is a change of the numerics, so they are reported here.
+
+What the two cases leave untested: no-slip on the bottom/top, slip and moving walls on the left/right (separate
+branches of the boundary code), the inlets and the outlets (their ghost states set a value instead of mirroring one,
+so they are first order by construction and no manufactured solution matches them), the non-reflecting outlet, and
+corners where two non-periodic sides meet.
+
 ## What it does not verify
 
-* **Boundary conditions.** The solution is periodic, so no wall, inlet or outlet condition is tested. Roache
-  (sec. 3.4) shows how one solution also serves Dirichlet, Neumann and Robin conditions, but a non-periodic
-  manufactured solution needs boundary data taken from it; the solver's boundary conditions are checked by the
-  analytic cases (Poiseuille, cavity, Taylor-Green) and the non-reflecting-outlet tests instead.
+* **Most boundary conditions.** Only the wall, moving-wall, no-slip and transmissive ghosts are verified (see above).
+  Roache (sec. 3.4) shows how one solution also serves Dirichlet, Neumann and Robin conditions with boundary
+  data taken from it; the solver has no boundary condition that reads its value from an expression, so the inlets and
+  outlets are checked by the analytic cases (Poiseuille, cavity) and the non-reflecting-outlet tests instead.
 * **Conservation.** The method verifies the order, not that the scheme conserves exactly (Roache, sec. 3.4): the
   conservation tests of `fenice_tests` do.
 * **Shocks and discontinuities.** The solution is smooth; the treatment of shocks by the limiters and the Riemann

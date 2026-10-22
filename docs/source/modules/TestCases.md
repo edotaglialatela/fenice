@@ -24,7 +24,7 @@ overrides those (see [Parameters]({{root}}guide/parameters.html)).
 | `Taylor-Green Vortex` | Viscous decay vs exact solution, periodic BCs | [Taylor-Green]({{root}}cases/taylor-green.html) |
 | `Isentropic Vortex` | 2nd-order accuracy on smooth advection, periodic BCs | [Isentropic vortex]({{root}}cases/isentropic-vortex.html) |
 | `Taylor-Green Vortex 3D` | 3-D solver: vortex stretching, transition, dissipation peak (Re = 1600) | [Taylor-Green 3-D]({{root}}cases/taylor-green-3d.html) |
-| `Manufactured Solution`, `... Euler`, `... 3D` | Code verification: source terms, observed orders of accuracy (generated cases) | [Manufactured solutions]({{root}}cases/manufactured-solution.html) |
+| `Manufactured Solution`, `... Euler`, `... 3D`, `... Walls`, `... Outflow` | Code verification: source terms, observed orders of accuracy, wall and outflow boundary conditions (generated cases) | [Manufactured solutions]({{root}}cases/manufactured-solution.html) |
 
 The 2-D cases also run on a 3-D mesh (`--set nz=...`). Their initial field is then
 extruded unchanged along z. With periodic (default) front/back sides, every z-layer
