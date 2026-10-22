@@ -26,7 +26,8 @@ Field taylor_green_profile(const Mesh& m, const EOS& eos, const Params& run) {
     const double mu = run.num("mu", 0.0);
     Field U(static_cast<size_t>(m.num_cells()));
     for (int j = 0; j < m.ny; ++j)
-        for (int i = 0; i < m.nx; ++i) U[j * m.nx + i] = eos.prim_to_cons(taylor_green_exact(m.xc(i), m.yc(j), 0.0, m.Lx, mu));
+        for (int i = 0; i < m.nx; ++i)
+            U[j * m.nx + i] = eos.prim_to_cons(taylor_green_exact(m.xc(i), m.yc(j), 0.0, m.Lx, mu));
     return U;
 }
 
@@ -99,9 +100,7 @@ std::vector<TestCase> load_registry() {
         try {
             const CaseFile cf = load_case_file(entry.path().string());
             found.push_back({cf.order, make_test_case(cf)});
-        } catch (const std::exception& e) {
-            std::fprintf(stderr, "[CASES] Skipping %s\n", e.what());
-        }
+        } catch (const std::exception& e) { std::fprintf(stderr, "[CASES] Skipping %s\n", e.what()); }
     }
     std::sort(found.begin(), found.end(), [](const auto& a, const auto& b) {
         return a.first != b.first ? a.first < b.first : a.second.key < b.second.key;
@@ -116,7 +115,7 @@ std::vector<TestCase> load_registry() {
     return reg;
 }
 
-}  // namespace
+}   // namespace
 
 std::string cases_directory() {
     if (const char* env = std::getenv("FENICE_CASES"))
@@ -141,7 +140,8 @@ const TestCase& get_test_case(const std::string& key) {
         static std::map<std::string, std::unique_ptr<TestCase>> loaded;
         const std::string id = fs::weakly_canonical(fs::path(key), ec).generic_string();
         auto it = loaded.find(id);
-        if (it == loaded.end()) it = loaded.emplace(id, std::make_unique<TestCase>(make_test_case(load_case_file(key)))).first;
+        if (it == loaded.end())
+            it = loaded.emplace(id, std::make_unique<TestCase>(make_test_case(load_case_file(key)))).first;
         return *it->second;
     }
 
@@ -155,8 +155,10 @@ const TestCase& get_test_case(const std::string& key) {
 std::string case_folder_name(const std::string& name) {
     std::string s;
     for (unsigned char c : name) {
-        if (std::isalnum(c)) s += static_cast<char>(std::tolower(c));
-        else if (!s.empty() && s.back() != '_') s += '_';
+        if (std::isalnum(c))
+            s += static_cast<char>(std::tolower(c));
+        else if (!s.empty() && s.back() != '_')
+            s += '_';
     }
     while (!s.empty() && s.back() == '_') s.pop_back();
     return s.empty() ? "case" : s;
@@ -172,7 +174,8 @@ std::string save_case(const TestCase& source, const Params& run, const std::stri
     CaseFile cf;
     cf.name = !name.empty() ? name : (is_path ? dir.filename().string() : target);
     for (const auto& tc : test_registry())
-        if (tc.key == cf.name) throw std::runtime_error("A case named '" + cf.name + "' already exists (" + tc.source + ")");
+        if (tc.key == cf.name)
+            throw std::runtime_error("A case named '" + cf.name + "' already exists (" + tc.source + ")");
     cf.description = "Created from '" + source.key + "'";
     cf.requires_viscous = source.requires_viscosity;
     cf.requires_3d = source.three_d;
@@ -239,4 +242,4 @@ State isentropic_vortex_exact(double x, double y, double t, double Lx, double Ly
     return {rho, u_inf - g * dy, v_inf + g * dx, rho * T};
 }
 
-}  // namespace fv
+}   // namespace fv

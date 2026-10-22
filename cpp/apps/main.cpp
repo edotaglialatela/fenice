@@ -44,23 +44,22 @@ void on_sigint(int) {
 }
 
 void usage() {
-    std::printf(
-        "Usage: fenice [options]\n"
-        "  --case NAME|PATH   test case: a name from --list-cases, or a case folder / case.toml\n"
-        "  --config FILE      'key = value' parameter file\n"
-        "  --set KEY=VALUE    override one parameter (repeatable)\n"
-        "  --threads N        OpenMP threads (default: all cores; 1 per rank under MPI)\n"
-        "  --list-cases       list the built-in test cases\n"
-        "  --print-config     print the resolved parameters and exit\n"
-        "  --print-case-defaults  print only the test case's own defaults and exit\n"
-        "  --no-logo          do not print the banner\n"
-        "  --new-case NAME    create cases/<name>/case.toml from --from CASE (default: --case), then exit\n"
-        "  --from CASE        source case for --new-case\n"
-        "  --save-case TARGET save the resolved run (case + --config + --set) as a new case and exit;\n"
-        "                     TARGET is a case name (written under cases/) or a folder path\n"
-        "  --case-name NAME   [case] name for --save-case (default: from TARGET)\n"
-        "Keys: nx, ny, t_end, use_muscl, bc_left, ... (see the Parameters page of the docs),\n"
-        "plus output_root, dump_state and max_steps.\n");
+    std::printf("Usage: fenice [options]\n"
+                "  --case NAME|PATH   test case: a name from --list-cases, or a case folder / case.toml\n"
+                "  --config FILE      'key = value' parameter file\n"
+                "  --set KEY=VALUE    override one parameter (repeatable)\n"
+                "  --threads N        OpenMP threads (default: all cores; 1 per rank under MPI)\n"
+                "  --list-cases       list the built-in test cases\n"
+                "  --print-config     print the resolved parameters and exit\n"
+                "  --print-case-defaults  print only the test case's own defaults and exit\n"
+                "  --no-logo          do not print the banner\n"
+                "  --new-case NAME    create cases/<name>/case.toml from --from CASE (default: --case), then exit\n"
+                "  --from CASE        source case for --new-case\n"
+                "  --save-case TARGET save the resolved run (case + --config + --set) as a new case and exit;\n"
+                "                     TARGET is a case name (written under cases/) or a folder path\n"
+                "  --case-name NAME   [case] name for --save-case (default: from TARGET)\n"
+                "Keys: nx, ny, t_end, use_muscl, bc_left, ... (see the Parameters page of the docs),\n"
+                "plus output_root, dump_state and max_steps.\n");
 }
 
 bool launched_by_mpiexec() {
@@ -107,8 +106,10 @@ std::string quote(const std::string& s) { return "\"" + s + "\""; }
 // the exit code, or -1 if no MPI launcher is available.
 int relaunch_under_mpiexec(int n, const std::string& exe, const std::vector<std::string>& args) {
     std::string mpiexec;
-    if (const char* bin = std::getenv("MSMPI_BIN")) mpiexec = std::string(bin) + "mpiexec.exe";
-    else mpiexec = "mpiexec";
+    if (const char* bin = std::getenv("MSMPI_BIN"))
+        mpiexec = std::string(bin) + "mpiexec.exe";
+    else
+        mpiexec = "mpiexec";
     std::string cmd = quote(mpiexec) + " -n " + std::to_string(n) + " " + quote(exe);
     for (const auto& a : args) cmd += " " + quote(a);
     cmd += " --mpi-child";
@@ -122,7 +123,7 @@ int relaunch_under_mpiexec(int n, const std::string& exe, const std::vector<std:
     return rc;
 }
 
-}  // namespace
+}   // namespace
 
 int main(int argc, char** argv) {
 #ifdef _WIN32
@@ -137,27 +138,50 @@ int main(int argc, char** argv) {
     for (size_t k = 0; k < raw.size(); ++k) {
         const std::string& a = raw[k];
         auto next = [&]() -> std::string {
-            if (k + 1 >= raw.size()) { std::fprintf(stderr, "Missing value after %s\n", a.c_str()); std::exit(2); }
+            if (k + 1 >= raw.size()) {
+                std::fprintf(stderr, "Missing value after %s\n", a.c_str());
+                std::exit(2);
+            }
             return raw[++k];
         };
-        if (a == "--case") case_name = next();
-        else if (a == "--config") config_file = next();
-        else if (a == "--set") sets.push_back(next());
-        else if (a == "--threads") threads = std::atoi(next().c_str());
-        else if (a == "--list-cases") list_cases = true;
-        else if (a == "--print-config") print_config = true;
-        else if (a == "--print-case-defaults") print_case_defaults = true;
-        else if (a == "--no-logo") logo = false;
-        else if (a == "--mpi-child") mpi_child = true;
-        else if (a == "--save-case") save_target = next();
-        else if (a == "--new-case") save_target = save_name = next();
-        else if (a == "--from") from_case = next();
-        else if (a == "--case-name") save_name = next();
-        else if (a == "-h" || a == "--help") { usage(); return 0; }
-        else { std::fprintf(stderr, "Unknown argument '%s'\n", a.c_str()); usage(); return 2; }
+        if (a == "--case")
+            case_name = next();
+        else if (a == "--config")
+            config_file = next();
+        else if (a == "--set")
+            sets.push_back(next());
+        else if (a == "--threads")
+            threads = std::atoi(next().c_str());
+        else if (a == "--list-cases")
+            list_cases = true;
+        else if (a == "--print-config")
+            print_config = true;
+        else if (a == "--print-case-defaults")
+            print_case_defaults = true;
+        else if (a == "--no-logo")
+            logo = false;
+        else if (a == "--mpi-child")
+            mpi_child = true;
+        else if (a == "--save-case")
+            save_target = next();
+        else if (a == "--new-case")
+            save_target = save_name = next();
+        else if (a == "--from")
+            from_case = next();
+        else if (a == "--case-name")
+            save_name = next();
+        else if (a == "-h" || a == "--help") {
+            usage();
+            return 0;
+        } else {
+            std::fprintf(stderr, "Unknown argument '%s'\n", a.c_str());
+            usage();
+            return 2;
+        }
     }
     std::vector<std::string> forward;   // arguments to pass to MPI children
-    for (const auto& a : raw) if (a != "--mpi-child") forward.push_back(a);
+    for (const auto& a : raw)
+        if (a != "--mpi-child") forward.push_back(a);
 
     if (list_cases) {
         for (const auto& tc : fv::test_registry()) std::printf("%s\n", tc.key.c_str());
@@ -165,7 +189,10 @@ int main(int argc, char** argv) {
     }
 
     if (!from_case.empty()) {
-        if (save_target.empty()) { std::fprintf(stderr, "--from needs --new-case NAME\n"); return 2; }
+        if (save_target.empty()) {
+            std::fprintf(stderr, "--from needs --new-case NAME\n");
+            return 2;
+        }
         case_name = from_case;
     }
 
@@ -212,9 +239,11 @@ int main(int argc, char** argv) {
 
     const bool under_mpi = mpi_child || launched_by_mpiexec();
     if (sp.use_amr && sp.use_mpi && !under_mpi)
-        std::printf("[AMR] Under MPI the patches of each level are distributed over the ranks (a rank stores its patches and\n"
-                    "      their neighbours): the result is identical to serial, but on one node OpenMP threads (use_mpi = false)\n"
-                    "      are usually faster.\n");
+        std::printf(
+            "[AMR] Under MPI the patches of each level are distributed over the ranks (a rank stores its patches and\n"
+            "      their neighbours): the result is identical to serial, but on one node OpenMP threads (use_mpi = "
+            "false)\n"
+            "      are usually faster.\n");
 #ifdef FV_USE_MPI
     if (sp.use_mpi && sp.n_cpus > 1 && !under_mpi) {
         // The ranks write to mpiexec's pipe: pass the colour decision down to them
@@ -239,8 +268,10 @@ int main(int argc, char** argv) {
     MPI_Comm_size(MPI_COMM_WORLD, &size);
 #endif
 #ifdef _OPENMP
-    if (threads > 0) omp_set_num_threads(threads);
-    else if (size > 1 && !std::getenv("OMP_NUM_THREADS")) omp_set_num_threads(1);   // avoid oversubscription
+    if (threads > 0)
+        omp_set_num_threads(threads);
+    else if (size > 1 && !std::getenv("OMP_NUM_THREADS"))
+        omp_set_num_threads(1);   // avoid oversubscription
 #endif
     std::signal(SIGINT, on_sigint);
     if (logo && rank == 0) fv::print_logo(terminal_colors());

@@ -20,9 +20,9 @@ struct InitialRegion {
     std::vector<std::string> min, max;   // box: inside where min <= centre <= max (missing z: unbounded)
     std::vector<std::string> point;      // halfspace: inside where (centre - point) . normal >= 0
     std::vector<std::string> normal;
-    std::vector<std::string> center;     // sphere / cylinder centre
-    std::string radius;                  // sphere / cylinder radius
-    std::string axis = "z";              // cylinder axis: "x", "y" or "z"
+    std::vector<std::string> center;            // sphere / cylinder centre
+    std::string radius;                         // sphere / cylinder radius
+    std::string axis = "z";                     // cylinder axis: "x", "y" or "z"
     std::map<std::string, std::string> state;   // primitive overrides: rho, u, v, w, p
 };
 
@@ -30,20 +30,20 @@ struct InitialRegion {
 // State values are numbers or expressions of x, y, z (cell centre), pi, e and every
 // numeric run parameter by name (Lx, mu, gamma, u_in, ...).
 struct InitialSpec {
-    std::string profile;                         // built-in C++ initialiser (see TestCases.hpp)
-    std::map<std::string, std::string> state;    // background: rho, u, v, w, p
+    std::string profile;                        // built-in C++ initialiser (see TestCases.hpp)
+    std::map<std::string, std::string> state;   // background: rho, u, v, w, p
     std::vector<InitialRegion> regions;
 };
 
 // A parsed case file.
 struct CaseFile {
-    std::string name;                 // registry key, e.g. "Sod Shock Tube"
+    std::string name;   // registry key, e.g. "Sod Shock Tube"
     std::string description;
-    std::string path;                 // the case.toml it was read from
-    int  order = 1000;                // position in --list-cases and the GUI
-    bool requires_viscous = false;    // warn when run without Navier-Stokes
-    bool requires_3d = false;         // needs nz > 1 (otherwise a 2-D case, extruded on 3-D meshes)
-    Params params;                    // parameter overrides, flattened from the sections
+    std::string path;                // the case.toml it was read from
+    int order = 1000;                // position in --list-cases and the GUI
+    bool requires_viscous = false;   // warn when run without Navier-Stokes
+    bool requires_3d = false;        // needs nz > 1 (otherwise a 2-D case, extruded on 3-D meshes)
+    Params params;                   // parameter overrides, flattened from the sections
     InitialSpec initial;
 };
 
@@ -74,4 +74,4 @@ std::string closest_match(const std::string& word, const std::vector<std::string
 Field evaluate_initial(const InitialSpec& spec, const Mesh& mesh, const EOS& eos, const Params& run,
                        const Field* base = nullptr);
 
-}  // namespace fv
+}   // namespace fv

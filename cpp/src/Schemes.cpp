@@ -19,7 +19,7 @@ std::string lower(std::string s) {
     return s;
 }
 
-}  // namespace
+}   // namespace
 
 RiemannType parse_riemann(const std::string& s_in) {
     const std::string s = lower(s_in);
@@ -33,10 +33,10 @@ RiemannType parse_riemann(const std::string& s_in) {
 
 Limiter parse_limiter(const std::string& s_in) {
     const std::string s = lower(s_in);
-    if (s == "minmod")                      return Limiter::Minmod;
-    if (s == "van leer" || s == "vanleer")  return Limiter::VanLeer;
-    if (s == "mc")                          return Limiter::MC;
-    if (s == "koren")                       return Limiter::Koren;
+    if (s == "minmod") return Limiter::Minmod;
+    if (s == "van leer" || s == "vanleer") return Limiter::VanLeer;
+    if (s == "mc") return Limiter::MC;
+    if (s == "koren") return Limiter::Koren;
     throw std::invalid_argument("Unknown MUSCL limiter: '" + s_in + "' (use Minmod, Van Leer, MC or Koren)");
 }
 
@@ -56,7 +56,7 @@ State RiemannSolver::hllc(const State& UL, const State& UR, int axis, double& sm
     // Axis-aligned face: the normal velocity is the `axis` component, the other two are tangential
     const double Vn_L = vel_L[axis];
     const double Vn_R = vel_R[axis];
-    const int    mn   = kMom[axis];
+    const int mn = kMom[axis];
 
     State FL, FR;
     FL[0] = rho_L * Vn_L;
@@ -77,11 +77,11 @@ State RiemannSolver::hllc(const State& UL, const State& UR, int axis, double& sm
     if (type_ == RiemannType::PreconditionedHLLC) {
         // Weiss-Smith (1995) preconditioned eigenvalues
         auto ws = [&](double Vn, double c, double& lm, double& lp) {
-            const double Vr   = std::min(std::max(Vn * Vn, (ma_cut_ * c) * (ma_cut_ * c)), c * c);
+            const double Vr = std::min(std::max(Vn * Vn, (ma_cut_ * c) * (ma_cut_ * c)), c * c);
             const double beta = Vr / (c * c + kDenomEps);
-            const double a    = (1.0 - beta) * 0.5 * Vn;
+            const double a = (1.0 - beta) * 0.5 * Vn;
             const double disc = std::sqrt(a * a + Vr);
-            const double mu   = (1.0 + beta) * 0.5 * Vn;
+            const double mu = (1.0 + beta) * 0.5 * Vn;
             lm = mu - disc;
             lp = mu + disc;
         };
@@ -103,8 +103,8 @@ State RiemannSolver::hllc(const State& UL, const State& UR, int axis, double& sm
 
     const double den_star_L = safe_denom(S_L - S_M);
     const double den_star_R = safe_denom(S_R - S_M);
-    const double den_pL     = safe_denom(S_L - Vn_L);
-    const double den_pR     = safe_denom(S_R - Vn_R);
+    const double den_pL = safe_denom(S_L - Vn_L);
+    const double den_pR = safe_denom(S_R - Vn_R);
 
     // Starred states: normal momentum f*S_M, tangential momenta f*u_t
     const double fL = rho_L * (S_L - Vn_L) / den_star_L;
@@ -142,11 +142,11 @@ State RiemannSolver::face_flux(const State& UL, const State& UR, int axis, doubl
     const double c_R = eos_.sound_speed(WR[3], WR[0]);
     const double M_L = std::sqrt(WL[1] * WL[1] + WL[2] * WL[2] + WL[4] * WL[4]) / (c_L + kMachEps);
     const double M_R = std::sqrt(WR[1] * WR[1] + WR[2] * WR[2] + WR[4] * WR[4]) / (c_R + kMachEps);
-    const double z   = std::min(std::max(std::max(M_L, M_R), 1e-4), 1.0);
+    const double z = std::min(std::max(std::max(M_L, M_R), 1e-4), 1.0);
 
     for (int a = 0; a < 3; ++a) {
         const int m = kMom[a];
-        const double avg  = 0.5 * (WL[m] + WR[m]);
+        const double avg = 0.5 * (WL[m] + WR[m]);
         const double half = 0.5 * (WL[m] - WR[m]);
         WL[m] = avg + z * half;
         WR[m] = avg - z * half;
@@ -155,11 +155,11 @@ State RiemannSolver::face_flux(const State& UL, const State& UR, int axis, doubl
 }
 
 double RiemannSolver::compute_flux(const Field& UL, const Field& UR, const Mesh& mesh, Field& F) const {
-    const int nf  = mesh.num_faces();
+    const int nf = mesh.num_faces();
     const int nxf = mesh.num_xfaces(), nxyf = nxf + mesh.num_yfaces();
     F.resize(nf);
     double smax_all = 0.0;
-#pragma omp parallel if(nf >= kOmpMinWork)
+#pragma omp parallel if (nf >= kOmpMinWork)
     {
         double local = 0.0;
 #pragma omp for schedule(static) nowait
@@ -177,8 +177,7 @@ double RiemannSolver::compute_flux(const Field& UL, const Field& UR, const Mesh&
 // MUSCL
 // ---------------------------------------------------------------------------
 
-void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int nx, int ny,
-                                      const Halos& h) const {
+void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int nx, int ny, const Halos& h) const {
     constexpr int pad = kHaloDepth;
     const int PW = nx + 2 * pad;   // padded row width
     thread_local Field W_pad;      // per-thread: AMR patches are reconstructed concurrently
@@ -186,7 +185,7 @@ void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int 
     Field& Wp = W_pad;
 
     // Primitive state padded by edge replication
-#pragma omp parallel for schedule(static) if(nx * ny >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
     for (int jj = 0; jj < ny + 2 * pad; ++jj) {
         const int j = std::min(std::max(jj - pad, 0), ny - 1);
         for (int ii = 0; ii < PW; ++ii) {
@@ -195,27 +194,35 @@ void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int 
         }
     }
     // MPI halos replace the edge padding
-    if (h.b) for (int d = 0; d < pad; ++d) for (int i = 0; i < nx; ++i)
-        Wp[d * PW + pad + i] = eos_.cons_to_prim((*h.b)[d * nx + i]);
-    if (h.t) for (int d = 0; d < pad; ++d) for (int i = 0; i < nx; ++i)
-        Wp[(ny + pad + d) * PW + pad + i] = eos_.cons_to_prim((*h.t)[d * nx + i]);
-    if (h.l) for (int j = 0; j < ny; ++j) for (int d = 0; d < pad; ++d)
-        Wp[(j + pad) * PW + d] = eos_.cons_to_prim((*h.l)[j * pad + d]);
-    if (h.r) for (int j = 0; j < ny; ++j) for (int d = 0; d < pad; ++d)
-        Wp[(j + pad) * PW + nx + pad + d] = eos_.cons_to_prim((*h.r)[j * pad + d]);
+    if (h.b)
+        for (int d = 0; d < pad; ++d)
+            for (int i = 0; i < nx; ++i) Wp[d * PW + pad + i] = eos_.cons_to_prim((*h.b)[d * nx + i]);
+    if (h.t)
+        for (int d = 0; d < pad; ++d)
+            for (int i = 0; i < nx; ++i) Wp[(ny + pad + d) * PW + pad + i] = eos_.cons_to_prim((*h.t)[d * nx + i]);
+    if (h.l)
+        for (int j = 0; j < ny; ++j)
+            for (int d = 0; d < pad; ++d) Wp[(j + pad) * PW + d] = eos_.cons_to_prim((*h.l)[j * pad + d]);
+    if (h.r)
+        for (int j = 0; j < ny; ++j)
+            for (int d = 0; d < pad; ++d) Wp[(j + pad) * PW + nx + pad + d] = eos_.cons_to_prim((*h.r)[j * pad + d]);
 
     const Limiter lim = lim_;
-    const EOS&    eos = eos_;
+    const EOS& eos = eos_;
     auto roundtrip = [&](State& u) { u = eos.prim_to_cons(eos.cons_to_prim(u)); };
 
     // X-direction: face i of row j sits between cells i-1 and i (padded cols i+1, i+2)
-#pragma omp parallel for schedule(static) if(nx * ny >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
     for (int j = 0; j < ny; ++j) {
         const State* row = &Wp[(j + pad) * PW];
         for (int i = 0; i <= nx; ++i) {
             const int f = j * (nx + 1) + i;
             const bool upgrade = (i > 0 && i < nx) || (i == 0 && h.l) || (i == nx && h.r);
-            if (!upgrade) { roundtrip(UL[f]); roundtrip(UR[f]); continue; }
+            if (!upgrade) {
+                roundtrip(UL[f]);
+                roundtrip(UR[f]);
+                continue;
+            }
             State wl, wr;
             for (int q = 0; q < kNVar; ++q) {
                 const double c0 = row[i][q], c1 = row[i + 1][q], c2 = row[i + 2][q], c3 = row[i + 3][q];
@@ -230,16 +237,20 @@ void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int 
 
     // Y-direction: face j of column i sits between cells j-1 and j (padded rows j+1, j+2)
     const int nxf = (nx + 1) * ny;
-#pragma omp parallel for schedule(static) if(nx * ny >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
     for (int j = 0; j <= ny; ++j) {
         for (int i = 0; i < nx; ++i) {
             const int f = nxf + j * nx + i;
             const bool upgrade = (j > 0 && j < ny) || (j == 0 && h.b) || (j == ny && h.t);
-            if (!upgrade) { roundtrip(UL[f]); roundtrip(UR[f]); continue; }
+            if (!upgrade) {
+                roundtrip(UL[f]);
+                roundtrip(UR[f]);
+                continue;
+            }
             const int col = i + pad;
             State wl, wr;
             for (int q = 0; q < kNVar; ++q) {
-                const double r0 = Wp[j * PW + col][q],       r1 = Wp[(j + 1) * PW + col][q];
+                const double r0 = Wp[j * PW + col][q], r1 = Wp[(j + 1) * PW + col][q];
                 const double r2 = Wp[(j + 2) * PW + col][q], r3 = Wp[(j + 3) * PW + col][q];
                 const double b = r2 - r1;
                 wl[q] = r1 + 0.5 * apply_limiter(lim, r1 - r0, b);
@@ -263,7 +274,7 @@ void MusclReconstruction::reconstruct_3d(Field& UL, Field& UR, const Field& U, c
     Field& Wp = W_pad;
     auto P = [&](int ii, int jj, int kk) -> size_t { return (static_cast<size_t>(kk) * PY + jj) * PX + ii; };
 
-#pragma omp parallel for schedule(static) if(nx * ny * nz >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
     for (int kk = 0; kk < PZ; ++kk) {
         const int k = std::min(std::max(kk - pad, 0), nz - 1);
         for (int jj = 0; jj < PY; ++jj) {
@@ -274,20 +285,28 @@ void MusclReconstruction::reconstruct_3d(Field& UL, Field& UR, const Field& U, c
     }
     for (int k = 0; k < nz; ++k)
         for (int d = 0; d < pad; ++d) {
-            if (h.b) for (int i = 0; i < nx; ++i) Wp[P(i + pad, d, k + pad)] = eos_.cons_to_prim((*h.b)[(d * nz + k) * nx + i]);
-            if (h.t) for (int i = 0; i < nx; ++i) Wp[P(i + pad, ny + pad + d, k + pad)] = eos_.cons_to_prim((*h.t)[(d * nz + k) * nx + i]);
-            if (h.l) for (int j = 0; j < ny; ++j) Wp[P(d, j + pad, k + pad)] = eos_.cons_to_prim((*h.l)[(k * ny + j) * pad + d]);
-            if (h.r) for (int j = 0; j < ny; ++j) Wp[P(nx + pad + d, j + pad, k + pad)] = eos_.cons_to_prim((*h.r)[(k * ny + j) * pad + d]);
+            if (h.b)
+                for (int i = 0; i < nx; ++i)
+                    Wp[P(i + pad, d, k + pad)] = eos_.cons_to_prim((*h.b)[(d * nz + k) * nx + i]);
+            if (h.t)
+                for (int i = 0; i < nx; ++i)
+                    Wp[P(i + pad, ny + pad + d, k + pad)] = eos_.cons_to_prim((*h.t)[(d * nz + k) * nx + i]);
+            if (h.l)
+                for (int j = 0; j < ny; ++j)
+                    Wp[P(d, j + pad, k + pad)] = eos_.cons_to_prim((*h.l)[(k * ny + j) * pad + d]);
+            if (h.r)
+                for (int j = 0; j < ny; ++j)
+                    Wp[P(nx + pad + d, j + pad, k + pad)] = eos_.cons_to_prim((*h.r)[(k * ny + j) * pad + d]);
         }
     for (int d = 0; d < pad; ++d)
         for (int j = 0; j < ny; ++j)
             for (int i = 0; i < nx; ++i) {
-                if (h.f)  Wp[P(i + pad, j + pad, d)] = eos_.cons_to_prim((*h.f)[(d * ny + j) * nx + i]);
+                if (h.f) Wp[P(i + pad, j + pad, d)] = eos_.cons_to_prim((*h.f)[(d * ny + j) * nx + i]);
                 if (h.bk) Wp[P(i + pad, j + pad, nz + pad + d)] = eos_.cons_to_prim((*h.bk)[(d * ny + j) * nx + i]);
             }
 
     const Limiter lim = lim_;
-    const EOS&    eos = eos_;
+    const EOS& eos = eos_;
     auto roundtrip = [&](State& u) { u = eos.prim_to_cons(eos.cons_to_prim(u)); };
     // Faces normal to `axis`: face t along the axis lies between cells t-1 and t,
     // i.e. padded positions t+1 and t+2 (stencil t .. t+3).
@@ -295,16 +314,20 @@ void MusclReconstruction::reconstruct_3d(Field& UL, Field& UR, const Field& U, c
         const int n_a = axis == 0 ? nx : (axis == 1 ? ny : nz);
         const size_t stride = axis == 0 ? 1 : (axis == 1 ? static_cast<size_t>(PX) : static_cast<size_t>(PX) * PY);
         const int ni = axis == 0 ? nx + 1 : nx, nj = axis == 1 ? ny + 1 : ny, nk = axis == 2 ? nz + 1 : nz;
-#pragma omp parallel for schedule(static) if(nx * ny * nz >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
         for (int kj = 0; kj < nk * nj; ++kj) {
             const int j = kj % nj, k = kj / nj;
             for (int i = 0; i < ni; ++i) {
                 const int t = axis == 0 ? i : (axis == 1 ? j : k);
                 const int f = axis == 0 ? m.xface(i, j, k) : (axis == 1 ? m.yface(i, j, k) : m.zface(i, j, k));
                 const bool upgrade = (t > 0 && t < n_a) || (t == 0 && lo) || (t == n_a && hi);
-                if (!upgrade) { roundtrip(UL[f]); roundtrip(UR[f]); continue; }
-                const size_t base = axis == 0 ? P(t, j + pad, k + pad)
-                                  : (axis == 1 ? P(i + pad, t, k + pad) : P(i + pad, j + pad, t));
+                if (!upgrade) {
+                    roundtrip(UL[f]);
+                    roundtrip(UR[f]);
+                    continue;
+                }
+                const size_t base =
+                    axis == 0 ? P(t, j + pad, k + pad) : (axis == 1 ? P(i + pad, t, k + pad) : P(i + pad, j + pad, t));
                 State wl, wr;
                 for (int q = 0; q < kNVar; ++q) {
                     const double c0 = Wp[base][q], c1 = Wp[base + stride][q];
@@ -322,4 +345,4 @@ void MusclReconstruction::reconstruct_3d(Field& UL, Field& UR, const Field& U, c
     sweep(1, h.b, h.t);
     sweep(2, h.f, h.bk);
 }
-}  // namespace fv
+}   // namespace fv

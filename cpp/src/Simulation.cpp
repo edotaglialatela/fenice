@@ -33,9 +33,7 @@ namespace {
 
 using Clock = std::chrono::steady_clock;
 
-double seconds_since(Clock::time_point t0) {
-    return std::chrono::duration<double>(Clock::now() - t0).count();
-}
+double seconds_since(Clock::time_point t0) { return std::chrono::duration<double>(Clock::now() - t0).count(); }
 
 std::string to_prefix(std::string s) {
     for (auto& c : s) c = (c == ' ') ? '_' : static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
@@ -58,8 +56,10 @@ void strip_tangential_derivs(const EOS& eos, const BoundaryManager& bm, const Me
     m1.dx = m.dx;
     m1.dy = m.dy;
     BoundaryManager b1(m1, eos);
-    if (row) b1.set_boundary_types(bm.type(Face::Left), bm.type(Face::Right), BCType::Transmissive, BCType::Transmissive);
-    else     b1.set_boundary_types(BCType::Transmissive, BCType::Transmissive, bm.type(Face::Bottom), bm.type(Face::Top));
+    if (row)
+        b1.set_boundary_types(bm.type(Face::Left), bm.type(Face::Right), BCType::Transmissive, BCType::Transmissive);
+    else
+        b1.set_boundary_types(BCType::Transmissive, BCType::Transmissive, bm.type(Face::Bottom), bm.type(Face::Top));
     b1.set_params(bm.params());
     Field P;
     b1.get_padded_U(strip, P);
@@ -86,7 +86,9 @@ BCParams bc_params(const SimParams& p) {
     b.p_out = p.p_out;
     b.nrbc_sigma = p.nrbc_sigma;
     b.nrbc_beta = p.nrbc_beta;
-    b.length[0] = p.Lx; b.length[1] = p.Ly; b.length[2] = p.Lz;
+    b.length[0] = p.Lx;
+    b.length[1] = p.Ly;
+    b.length[2] = p.Lz;
     return b;
 }
 
@@ -94,8 +96,10 @@ BCParams bc_params(const SimParams& p) {
 Field adjacent_strip(const Field& halo, char dir, bool lo, int nx, int ny) {
     constexpr int D = kHaloDepth;
     Field s;
-    if (dir == 'y') for (int i = 0; i < nx; ++i) s.push_back(halo[(lo ? D - 1 : 0) * nx + i]);
-    else            for (int j = 0; j < ny; ++j) s.push_back(halo[j * D + (lo ? D - 1 : 0)]);
+    if (dir == 'y')
+        for (int i = 0; i < nx; ++i) s.push_back(halo[(lo ? D - 1 : 0) * nx + i]);
+    else
+        for (int j = 0; j < ny; ++j) s.push_back(halo[j * D + (lo ? D - 1 : 0)]);
     return s;
 }
 
@@ -125,10 +129,14 @@ void slab_tangential_derivs(const EOS& eos, const BoundaryManager& bm, const Mes
     // One-cell-thick mesh across the decomposition direction, same spacing and side BCs
     Mesh m1 = ydec ? generate_cartesian_mesh_3d(m.Lx, m.dy, m.Lz, m.nx, 1, m.nz)
                    : generate_cartesian_mesh_3d(m.dx, m.Ly, m.Lz, 1, m.ny, m.nz);
-    m1.dx = m.dx; m1.dy = m.dy; m1.dz = m.dz;
+    m1.dx = m.dx;
+    m1.dy = m.dy;
+    m1.dz = m.dz;
     BoundaryManager b1(m1, eos);
-    if (ydec) b1.set_boundary_types(bm.type(Face::Left), bm.type(Face::Right), BCType::Transmissive, BCType::Transmissive);
-    else      b1.set_boundary_types(BCType::Transmissive, BCType::Transmissive, bm.type(Face::Bottom), bm.type(Face::Top));
+    if (ydec)
+        b1.set_boundary_types(bm.type(Face::Left), bm.type(Face::Right), BCType::Transmissive, BCType::Transmissive);
+    else
+        b1.set_boundary_types(BCType::Transmissive, BCType::Transmissive, bm.type(Face::Bottom), bm.type(Face::Top));
     b1.set_type(Face::Front, bm.type(Face::Front));
     b1.set_type(Face::Back, bm.type(Face::Back));
     b1.set_params(bm.params());
@@ -137,7 +145,10 @@ void slab_tangential_derivs(const EOS& eos, const BoundaryManager& bm, const Mes
     const int PX = m1.nx + 2, PY = m1.ny + 2;
     auto at = [&](int ii, int jj, int kk) -> const State& { return P[(static_cast<size_t>(kk) * PY + jj) * PX + ii]; };
     const int ns = static_cast<int>(slab.size());
-    a.resize(ns); b.resize(ns); c.resize(ns); d.resize(ns);
+    a.resize(ns);
+    b.resize(ns);
+    c.resize(ns);
+    d.resize(ns);
     for (int k = 0; k < m.nz; ++k) {
         const int nt = ydec ? m.nx : m.ny;
         for (int t = 0; t < nt; ++t) {
@@ -145,18 +156,29 @@ void slab_tangential_derivs(const EOS& eos, const BoundaryManager& bm, const Mes
             const int s = k * nt + t;
             const State W = eos.cons_to_prim(slab[s]);
             auto deriv = [&](int comp, int axis) {   // d(vel comp)/dx_axis via the conservative chain rule
-                const State& hi = axis == 0 ? at(ii + 1, jj, kk) : (axis == 1 ? at(ii, jj + 1, kk) : at(ii, jj, kk + 1));
-                const State& lo = axis == 0 ? at(ii - 1, jj, kk) : (axis == 1 ? at(ii, jj - 1, kk) : at(ii, jj, kk - 1));
+                const State& hi =
+                    axis == 0 ? at(ii + 1, jj, kk) : (axis == 1 ? at(ii, jj + 1, kk) : at(ii, jj, kk + 1));
+                const State& lo =
+                    axis == 0 ? at(ii - 1, jj, kk) : (axis == 1 ? at(ii, jj - 1, kk) : at(ii, jj, kk - 1));
                 const double h2 = 2.0 * (axis == 0 ? m.dx : (axis == 1 ? m.dy : m.dz));
                 const double g_rho = (hi[0] - lo[0]) / h2, g_mom = (hi[kMom[comp]] - lo[kMom[comp]]) / h2;
                 return (g_mom - W[kMom[comp]] * g_rho) / W[0];
             };
-            if (ydec) { a[s] = deriv(0, 0); b[s] = deriv(1, 0); c[s] = deriv(2, 2); d[s] = deriv(1, 2); }
-            else      { a[s] = deriv(0, 1); b[s] = deriv(1, 1); c[s] = deriv(2, 2); d[s] = deriv(0, 2); }
+            if (ydec) {
+                a[s] = deriv(0, 0);
+                b[s] = deriv(1, 0);
+                c[s] = deriv(2, 2);
+                d[s] = deriv(1, 2);
+            } else {
+                a[s] = deriv(0, 1);
+                b[s] = deriv(1, 1);
+                c[s] = deriv(2, 2);
+                d[s] = deriv(0, 2);
+            }
         }
     }
 }
-}  // namespace
+}   // namespace
 
 // State of the leaf cell containing (x, y), or nullptr outside every leaf.
 const State* sample_leaf_state(const AMRTree& tree, double x, double y) {
@@ -169,8 +191,10 @@ const State* sample_leaf_state(const AMRTree& tree, double x, double y) {
 
 std::string format_elapsed(double s) {
     char buf[32];
-    if (s < 60) std::snprintf(buf, sizeof(buf), "%.1fs", s);
-    else        std::snprintf(buf, sizeof(buf), "%d:%02d", static_cast<int>(s) / 60, static_cast<int>(s) % 60);
+    if (s < 60)
+        std::snprintf(buf, sizeof(buf), "%.1fs", s);
+    else
+        std::snprintf(buf, sizeof(buf), "%d:%02d", static_cast<int>(s) / 60, static_cast<int>(s) % 60);
     return buf;
 }
 
@@ -186,7 +210,7 @@ std::string ansi_rgb(int colors, int r, int g, int b) {
     }
     return buf;
 }
-}  // namespace
+}   // namespace
 
 void print_logo(int colors) {
     std::ifstream in(std::string(FV_PROJECT_ROOT) + "/cpp/logo.txt", std::ios::binary);
@@ -251,13 +275,16 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     // CFL length: min(dx, dy) in 2-D. In 3-D the unsplit fluxes add three directional Courant
     // numbers; 2 / sum(1/h) bounds that sum by 2 CFL, the same bound min(dx, dy) gives a 2-D square cell.
     dt_length = std::min(mesh.Lx / mesh.nx, mesh.Ly / mesh.ny);
-    if (mesh.is3d()) dt_length = 2.0 / (1.0 / (mesh.Lx / mesh.nx) + 1.0 / (mesh.Ly / mesh.ny) + 1.0 / (mesh.Lz / mesh.nz));
+    if (mesh.is3d())
+        dt_length = 2.0 / (1.0 / (mesh.Lx / mesh.nx) + 1.0 / (mesh.Ly / mesh.ny) + 1.0 / (mesh.Lz / mesh.nz));
 #ifdef _OPENMP
     if (verbose) std::printf("[OPENMP] Native kernels on %d thread(s)\n", omp_get_max_threads());
 #endif
 
-    if (lower(p.eos_type) == "ideal gas") fluid = EOS::ideal(p.gamma);
-    else                                  fluid = EOS::stiffened(p.gamma, p.p_inf);
+    if (lower(p.eos_type) == "ideal gas")
+        fluid = EOS::ideal(p.gamma);
+    else
+        fluid = EOS::stiffened(p.gamma, p.p_inf);
 
     if (p.use_ibm) {
         const std::string digits = naca_digits(p.ibm_shape);
@@ -266,8 +293,10 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             const Polygon2D placed = place_airfoil(unit, p.ibm_chord, p.ibm_aoa, p.ibm_cx, p.ibm_cy);
             ibm_bbox = {1e300, -1e300, 1e300, -1e300};
             for (const auto& q : placed.pts) {
-                ibm_bbox[0] = std::min(ibm_bbox[0], q[0]);  ibm_bbox[1] = std::max(ibm_bbox[1], q[0]);
-                ibm_bbox[2] = std::min(ibm_bbox[2], q[1]);  ibm_bbox[3] = std::max(ibm_bbox[3], q[1]);
+                ibm_bbox[0] = std::min(ibm_bbox[0], q[0]);
+                ibm_bbox[1] = std::max(ibm_bbox[1], q[0]);
+                ibm_bbox[2] = std::min(ibm_bbox[2], q[1]);
+                ibm_bbox[3] = std::max(ibm_bbox[3], q[1]);
             }
             ibm_factory = [placed, rho = p.rho_in, pout = p.p_out](const Mesh& m) {
                 return ImmersedBoundary(m, placed, rho, pout);
@@ -275,10 +304,11 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             ibm = std::make_unique<ImmersedBoundary>(ibm_factory(mesh));
             if (verbose)
                 std::printf("[IBM] %s, chord %g, %g deg, quarter chord at (%g, %g) -> %d solid cells\n",
-                            digits.empty() ? airfoil_file_path().c_str() : p.ibm_shape.c_str(), p.ibm_chord,
-                            p.ibm_aoa, p.ibm_cx, p.ibm_cy, ibm->solid_count());
+                            digits.empty() ? airfoil_file_path().c_str() : p.ibm_shape.c_str(), p.ibm_chord, p.ibm_aoa,
+                            p.ibm_cx, p.ibm_cy, ibm->solid_count());
         } else {
-            ibm_bbox = {p.ibm_cx - p.ibm_radius, p.ibm_cx + p.ibm_radius, p.ibm_cy - p.ibm_radius, p.ibm_cy + p.ibm_radius};
+            ibm_bbox = {p.ibm_cx - p.ibm_radius, p.ibm_cx + p.ibm_radius, p.ibm_cy - p.ibm_radius,
+                        p.ibm_cy + p.ibm_radius};
             ibm_factory = [shape = p.ibm_shape, r = p.ibm_radius, cx = p.ibm_cx, cy = p.ibm_cy, rho = p.rho_in,
                            pout = p.p_out, cz = p.ibm_cz](const Mesh& m) {
                 return ImmersedBoundary(m, shape, r, cx, cy, rho, pout, cz);
@@ -288,7 +318,8 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                 std::printf("[IBM] %s at (%g, %g) r=%g -> %d solid cells\n", p.ibm_shape.c_str(), p.ibm_cx, p.ibm_cy,
                             p.ibm_radius, ibm->solid_count());
         }
-        if (ibm->solid_count() == 0) std::printf("[WARNING] The IBM body covers no cell: check its size and position\n");
+        if (ibm->solid_count() == 0)
+            std::printf("[WARNING] The IBM body covers no cell: check its size and position\n");
         if (verbose && p.reynolds > 0.0) std::printf("[PHYSICS] Re = %g -> mu = %g\n", p.reynolds, p.mu);
     }
 
@@ -325,8 +356,10 @@ void Simulation::setup(const SimParams& params, bool verbose) {
 
     if (p.use_bodyforce) {
         body_force = std::make_unique<ConstantBodyForce>(ConstantBodyForce{p.gx, p.gy, mesh.is3d() ? p.gz : 0.0});
-        if (verbose && mesh.is3d()) std::printf("[PHYSICS] Body Forces enabled: gx=%g, gy=%g, gz=%g\n", p.gx, p.gy, p.gz);
-        else if (verbose)           std::printf("[PHYSICS] Body Forces enabled: gx=%g, gy=%g\n", p.gx, p.gy);
+        if (verbose && mesh.is3d())
+            std::printf("[PHYSICS] Body Forces enabled: gx=%g, gy=%g, gz=%g\n", p.gx, p.gy, p.gz);
+        else if (verbose)
+            std::printf("[PHYSICS] Body Forces enabled: gx=%g, gy=%g\n", p.gx, p.gy);
     } else {
         body_force.reset();
     }
@@ -338,10 +371,10 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     if (p.use_amr) {
         amr_tree = std::make_unique<AMRTree>(p.Lx, p.Ly, p.amr_patch_nx, p.amr_patch_ny, p.amr_max_level,
                                              p.nx / p.amr_patch_nx, p.ny / p.amr_patch_ny);
-        amr_indicator = std::make_unique<AMRErrorIndicator>(p.amr_refine_threshold, p.amr_derefine_threshold,
-                                                            p.amr_buffer_layers);
+        amr_indicator =
+            std::make_unique<AMRErrorIndicator>(p.amr_refine_threshold, p.amr_derefine_threshold, p.amr_buffer_layers);
         amr_indicator->use_density = p.amr_indicator != "velocity";
-        amr_indicator->use_speed   = p.amr_indicator != "density";
+        amr_indicator->use_speed = p.amr_indicator != "density";
         if (p.use_ibm && p.amr_refine_ibm)
             amr_indicator->force_refine = [this](const AMRPatch& patch) { return patch_touches_body(patch); };
         if (verbose)
@@ -358,18 +391,21 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             amr_par.allgatherv = [](const double* send, int n, double* recv, const int* counts, const int* displs) {
                 MPI_Allgatherv(send, n, MPI_DOUBLE, recv, counts, displs, MPI_DOUBLE, MPI_COMM_WORLD);
             };
-            amr_par.exchange = [](const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) {
+            amr_par.exchange = [](const std::vector<std::vector<double>>& send,
+                                  std::vector<std::vector<double>>& recv) {
                 std::vector<MPI_Request> req;
                 req.reserve(send.size() + recv.size());
                 for (size_t r = 0; r < recv.size(); ++r)
                     if (!recv[r].empty()) {
                         req.emplace_back();
-                        MPI_Irecv(recv[r].data(), static_cast<int>(recv[r].size()), MPI_DOUBLE, static_cast<int>(r), 77, MPI_COMM_WORLD, &req.back());
+                        MPI_Irecv(recv[r].data(), static_cast<int>(recv[r].size()), MPI_DOUBLE, static_cast<int>(r), 77,
+                                  MPI_COMM_WORLD, &req.back());
                     }
                 for (size_t r = 0; r < send.size(); ++r)
                     if (!send[r].empty()) {
                         req.emplace_back();
-                        MPI_Isend(send[r].data(), static_cast<int>(send[r].size()), MPI_DOUBLE, static_cast<int>(r), 77, MPI_COMM_WORLD, &req.back());
+                        MPI_Isend(send[r].data(), static_cast<int>(send[r].size()), MPI_DOUBLE, static_cast<int>(r), 77,
+                                  MPI_COMM_WORLD, &req.back());
                     }
                 MPI_Waitall(static_cast<int>(req.size()), req.data(), MPI_STATUSES_IGNORE);
             };
@@ -429,8 +465,10 @@ void Simulation::initialize_field() {
             // exact initial discontinuities rather than their interpolation from the base grid
             for (AMRPatch* patch : amr_tree->leaves()) {
                 if (!owned(patch)) continue;
-                Mesh pm = patch->mesh;   // cell positions of the patch, but Lx / Ly of the domain (expressions like Lx/2)
-                pm.Lx = mesh.Lx;  pm.Ly = mesh.Ly;
+                Mesh pm =
+                    patch->mesh;   // cell positions of the patch, but Lx / Ly of the domain (expressions like Lx/2)
+                pm.Lx = mesh.Lx;
+                pm.Ly = mesh.Ly;
                 patch->U = test_case->initialize(pm, fluid, p.source);
             }
         }
@@ -438,11 +476,12 @@ void Simulation::initialize_field() {
             for (AMRPatch* patch : amr_tree->leaves()) {
                 if (!owned(patch)) continue;
                 ensure_patch_masks(*patch);
-                ImmersedBoundary(patch->nx(), patch->ny(), patch->solid, p.rho_in, p.p_out).apply_forcing(patch->U, fluid);
+                ImmersedBoundary(patch->nx(), patch->ny(), patch->solid, p.rho_in, p.p_out)
+                    .apply_forcing(patch->U, fluid);
             }
         if (amr_dist) {
             refresh_halos(*amr_tree, amr_par);   // the halo copies get the owners' initial state
-            Field().swap(U);                      // the global field (hot start) is not needed any more
+            Field().swap(U);                     // the global field (hot start) is not needed any more
         }
     }
 }
@@ -486,13 +525,19 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     if (halos) {
         // MPI halos override the physical-BC ghost states at interface faces
         if (halos->dir == 'y') {
-            if (halos->lo) for (int i = 0; i < nx; ++i) UL_[m.boundary_face(Face::Bottom, i)] = (*halos->lo)[(D - 1) * nx + i];
-            if (halos->hi) for (int i = 0; i < nx; ++i) UR_[m.boundary_face(Face::Top, i)] = (*halos->hi)[i];
-            mh.b = halos->lo; mh.t = halos->hi;
+            if (halos->lo)
+                for (int i = 0; i < nx; ++i) UL_[m.boundary_face(Face::Bottom, i)] = (*halos->lo)[(D - 1) * nx + i];
+            if (halos->hi)
+                for (int i = 0; i < nx; ++i) UR_[m.boundary_face(Face::Top, i)] = (*halos->hi)[i];
+            mh.b = halos->lo;
+            mh.t = halos->hi;
         } else {
-            if (halos->lo) for (int j = 0; j < ny; ++j) UL_[m.boundary_face(Face::Left, j)] = (*halos->lo)[j * D + D - 1];
-            if (halos->hi) for (int j = 0; j < ny; ++j) UR_[m.boundary_face(Face::Right, j)] = (*halos->hi)[j * D];
-            mh.l = halos->lo; mh.r = halos->hi;
+            if (halos->lo)
+                for (int j = 0; j < ny; ++j) UL_[m.boundary_face(Face::Left, j)] = (*halos->lo)[j * D + D - 1];
+            if (halos->hi)
+                for (int j = 0; j < ny; ++j) UR_[m.boundary_face(Face::Right, j)] = (*halos->hi)[j * D];
+            mh.l = halos->lo;
+            mh.r = halos->hi;
         }
     }
     // Periodic axes inside the (sub)domain: wrap-around halos so MUSCL also reconstructs
@@ -507,12 +552,14 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
                 perL_[j * D + d] = (*Uc)[j * nx + nx - D + d];
                 perR_[j * D + d] = (*Uc)[j * nx + d];
             }
-        mh.l = &perL_; mh.r = &perR_;
+        mh.l = &perL_;
+        mh.r = &perR_;
     }
     if (mu && per_y && !mh.b && !mh.t && ny >= D) {
         perB_.assign(Uc->end() - static_cast<std::ptrdiff_t>(D) * nx, Uc->end());
         perT_.assign(Uc->begin(), Uc->begin() + static_cast<std::ptrdiff_t>(D) * nx);
-        mh.b = &perB_; mh.t = &perT_;
+        mh.b = &perB_;
+        mh.t = &perT_;
     }
     if (mu) mu->reconstruct(UL_, UR_, *Uc, nx, ny, mh);
 
@@ -520,7 +567,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
 
     R.resize(Uc->size());
     const double area = m.cell_area(), dxl = m.dx, dyl = m.dy;
-#pragma omp parallel for schedule(static) if(nx * ny >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
     for (int j = 0; j < ny; ++j)
         for (int i = 0; i < nx; ++i) {
             const State& fl = F_[j * (nx + 1) + i];
@@ -537,11 +584,15 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         if (halos) {
             const int PW = nx + 2;
             if (halos->dir == 'y') {
-                if (halos->lo) for (int i = 0; i < nx; ++i) Upad_[i + 1] = (*halos->lo)[(D - 1) * nx + i];
-                if (halos->hi) for (int i = 0; i < nx; ++i) Upad_[(ny + 1) * PW + i + 1] = (*halos->hi)[i];
+                if (halos->lo)
+                    for (int i = 0; i < nx; ++i) Upad_[i + 1] = (*halos->lo)[(D - 1) * nx + i];
+                if (halos->hi)
+                    for (int i = 0; i < nx; ++i) Upad_[(ny + 1) * PW + i + 1] = (*halos->hi)[i];
             } else {
-                if (halos->lo) for (int j = 0; j < ny; ++j) Upad_[(j + 1) * PW] = (*halos->lo)[j * D + D - 1];
-                if (halos->hi) for (int j = 0; j < ny; ++j) Upad_[(j + 1) * PW + nx + 1] = (*halos->hi)[j * D];
+                if (halos->lo)
+                    for (int j = 0; j < ny; ++j) Upad_[(j + 1) * PW] = (*halos->lo)[j * D + D - 1];
+                if (halos->hi)
+                    for (int j = 0; j < ny; ++j) Upad_[(j + 1) * PW + nx + 1] = (*halos->hi)[j * D];
             }
         }
         compute_gradients(Upad_, nx, ny, m.dx, m.dy, gX_, gY_);
@@ -552,17 +603,21 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         if (halos) {
             cg.dir = halos->dir;
             if (halos->lo) {
-                strip_tangential_derivs(fluid, bm, m, halos->dir, adjacent_strip(*halos->lo, halos->dir, true, nx, ny), lo_a, lo_b);
-                cg.lo_a = lo_a.data(); cg.lo_b = lo_b.data();
+                strip_tangential_derivs(fluid, bm, m, halos->dir, adjacent_strip(*halos->lo, halos->dir, true, nx, ny),
+                                        lo_a, lo_b);
+                cg.lo_a = lo_a.data();
+                cg.lo_b = lo_b.data();
             }
             if (halos->hi) {
-                strip_tangential_derivs(fluid, bm, m, halos->dir, adjacent_strip(*halos->hi, halos->dir, false, nx, ny), hi_a, hi_b);
-                cg.hi_a = hi_a.data(); cg.hi_b = hi_b.data();
+                strip_tangential_derivs(fluid, bm, m, halos->dir, adjacent_strip(*halos->hi, halos->dir, false, nx, ny),
+                                        hi_a, hi_b);
+                cg.hi_a = hi_a.data();
+                cg.hi_b = hi_b.data();
             }
         }
         const double dt_visc = ns->viscous_residual(*Uc, gX_, gY_, m, Upad_, Rv_, &cg);
         const int n = static_cast<int>(R.size());
-#pragma omp parallel for schedule(static) if(n >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
         for (int c = 0; c < n; ++c)
             for (int q = 0; q < kNVar; ++q) R[c][q] += Rv_[c][q];
         const double min_delta = std::min(m.dx, m.dy);
@@ -595,16 +650,19 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         if (halos->dir == 'y') {
             for (int k = 0; k < nz; ++k)
                 for (int i = 0; i < nx; ++i) {
-                    if (halos->lo) UL_[m.boundary_face(Face::Bottom, k * nx + i)] = (*halos->lo)[((D - 1) * nz + k) * nx + i];
+                    if (halos->lo)
+                        UL_[m.boundary_face(Face::Bottom, k * nx + i)] = (*halos->lo)[((D - 1) * nz + k) * nx + i];
                     if (halos->hi) UR_[m.boundary_face(Face::Top, k * nx + i)] = (*halos->hi)[k * nx + i];
                 }
-            mh.b = halos->lo; mh.t = halos->hi;
+            mh.b = halos->lo;
+            mh.t = halos->hi;
         } else {
             for (int s = 0; s < ny * nz; ++s) {
                 if (halos->lo) UL_[m.boundary_face(Face::Left, s)] = (*halos->lo)[s * D + D - 1];
                 if (halos->hi) UR_[m.boundary_face(Face::Right, s)] = (*halos->hi)[s * D];
             }
-            mh.l = halos->lo; mh.r = halos->hi;
+            mh.l = halos->lo;
+            mh.r = halos->hi;
         }
     }
     // Periodic axes: wrap-around MUSCL halos (the boundary faces are then 2nd order too)
@@ -621,7 +679,8 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
                         perL_[(k * ny + j) * D + d] = Uv[m.cell(nx - D + d, j, k)];
                         perR_[(k * ny + j) * D + d] = Uv[m.cell(d, j, k)];
                     }
-            mh.l = &perL_; mh.r = &perR_;
+            mh.l = &perL_;
+            mh.r = &perR_;
         }
         if (per[1] && !mh.b && !mh.t && ny >= D) {
             perB_.resize(static_cast<size_t>(D) * nz * nx);
@@ -632,7 +691,8 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
                         perB_[(d * nz + k) * nx + i] = Uv[m.cell(i, ny - D + d, k)];
                         perT_[(d * nz + k) * nx + i] = Uv[m.cell(i, d, k)];
                     }
-            mh.b = &perB_; mh.t = &perT_;
+            mh.b = &perB_;
+            mh.t = &perT_;
         }
         if (per[2] && nz >= D) {
             perF_.resize(static_cast<size_t>(D) * ny * nx);
@@ -643,7 +703,8 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
                         perF_[(d * ny + j) * nx + i] = Uv[m.cell(i, j, nz - D + d)];
                         perK_[(d * ny + j) * nx + i] = Uv[m.cell(i, j, d)];
                     }
-            mh.f = &perF_; mh.bk = &perK_;
+            mh.f = &perF_;
+            mh.bk = &perK_;
         }
         mu->reconstruct_3d(UL_, UR_, Uv, m, mh);
     }
@@ -652,7 +713,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
 
     R.resize(Uv.size());
     const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), vol = m.cell_volume();
-#pragma omp parallel for schedule(static) if(nx * ny * nz >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
     for (int kj = 0; kj < ny * nz; ++kj) {
         const int j = kj % ny, k = kj / ny;
         for (int i = 0; i < nx; ++i) {
@@ -664,7 +725,8 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
             const State& fk = F_[m.zface(i, j, k + 1)];
             State& r = R[m.cell(i, j, k)];
             for (int q = 0; q < kNVar; ++q)
-                r[q] = (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) / vol;
+                r[q] =
+                    (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) / vol;
         }
     }
 
@@ -677,7 +739,9 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         std::vector<double> gh[8];   // MPI cross ghosts: lo a, b, c, d, hi a, b, c, d
         if (halos) {
             const int PX = nx + 2, PY = ny + 2;
-            auto P = [&](int ii, int jj, int kk) -> State& { return Upad_[(static_cast<size_t>(kk) * PY + jj) * PX + ii]; };
+            auto P = [&](int ii, int jj, int kk) -> State& {
+                return Upad_[(static_cast<size_t>(kk) * PY + jj) * PX + ii];
+            };
             if (halos->dir == 'y') {
                 for (int k = 0; k < nz; ++k)
                     for (int i = 0; i < nx; ++i) {
@@ -704,7 +768,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         compute_gradients_3d(Upad_, m, gX_, gY_, gZ_);
         const double dt_visc = ns->viscous_residual_3d(Uv, gX_, gY_, gZ_, m, Upad_, Rv_, &cg);
         const int n = static_cast<int>(R.size());
-#pragma omp parallel for schedule(static) if(n >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
         for (int cc = 0; cc < n; ++cc)
             for (int q = 0; q < kNVar; ++q) R[cc][q] += Rv_[cc][q];
         S = std::max(S, p.cfl * dt_length / (dt_visc + 1e-12));
@@ -719,8 +783,8 @@ double Simulation::residual(const Field& Uin, Field& R) {
 
 bool Simulation::patch_touches_body(const AMRPatch& patch) const {
     const double mx = patch.mesh.dx, my = patch.mesh.dy;
-    return patch.xmax + mx >= ibm_bbox[0] && patch.xmin - mx <= ibm_bbox[1] &&
-           patch.ymax + my >= ibm_bbox[2] && patch.ymin - my <= ibm_bbox[3];
+    return patch.xmax + mx >= ibm_bbox[0] && patch.xmin - mx <= ibm_bbox[1] && patch.ymax + my >= ibm_bbox[2] &&
+           patch.ymin - my <= ibm_bbox[3];
 }
 
 void Simulation::refine_body_patches() {
@@ -736,9 +800,12 @@ void Simulation::ensure_patch_masks(AMRPatch& patch) const {
     patch.solid = ibm_factory(m).mask();
     // Mask of the two-cell ghost ring from the same geometry; 0 outside the domain
     Mesh me = m;
-    me.nx += 4;  me.ny += 4;
-    me.x0 -= 2.0 * m.dx;  me.y0 -= 2.0 * m.dy;
-    me.Lx = me.nx * m.dx;  me.Ly = me.ny * m.dy;
+    me.nx += 4;
+    me.ny += 4;
+    me.x0 -= 2.0 * m.dx;
+    me.y0 -= 2.0 * m.dy;
+    me.Lx = me.nx * m.dx;
+    me.Ly = me.ny * m.dy;
     patch.solid_ext = ibm_factory(me).mask();
     const int PW = m.nx + 4;
     for (int jj = 0; jj < m.ny + 4; ++jj)
@@ -747,13 +814,15 @@ void Simulation::ensure_patch_masks(AMRPatch& patch) const {
             const double x = m.x0 + (ii - 1.5) * m.dx, y = m.y0 + (jj - 1.5) * m.dy;
             const bool inside = x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly;
             char& c = patch.solid_ext[jj * PW + ii];
-            if (interior) c = patch.solid[(jj - 2) * m.nx + ii - 2];
-            else if (!inside) c = 0;
+            if (interior)
+                c = patch.solid[(jj - 2) * m.nx + ii - 2];
+            else if (!inside)
+                c = 0;
         }
 }
 
-double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& Uc_in, Field& R,
-                                  Field& flux_x, Field& flux_y) {
+double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& Uc_in, Field& R, Field& flux_x,
+                                  Field& flux_y) {
     // Physical BCs only where the patch touches the domain boundary; internal
     // faces start transmissive and are overwritten from the neighbouring leaf.
     constexpr double eps = 1e-10;
@@ -796,7 +865,10 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
         static thread_local State out;
         const AMRPatch* lf = leaf_at(x, y);
         if (!lf) return nullptr;
-        if (lf->level == patch.level) { out = cell_at(lf, x, y); return &out; }
+        if (lf->level == patch.level) {
+            out = cell_at(lf, x, y);
+            return &out;
+        }
         if (lf->level > patch.level) {   // finer: mean of the 2 x 2 fine cells under the ghost cell
             out = State{0, 0, 0, 0, 0};
             for (double sx : {-0.25, 0.25})
@@ -827,7 +899,9 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
         c = *g;
         if (p.use_ibm && patch.ext_solid(ix, iy)) {
             State W = fluid.cons_to_prim(c);
-            W[1] = 0.0; W[2] = 0.0; W[4] = 0.0;
+            W[1] = 0.0;
+            W[2] = 0.0;
+            W[4] = 0.0;
             c = fluid.prim_to_cons(W);
         }
         return true;
@@ -874,28 +948,35 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
     constexpr int HD = kHaloDepth;
     thread_local Field hl, hr, hb, ht;
     Halos mh;
-    auto nearest = [&](int ix, int iy, const State& own) { State c; return ghost_cell(ix, iy, c) ? c : own; };
+    auto nearest = [&](int ix, int iy, const State& own) {
+        State c;
+        return ghost_cell(ix, iy, c) ? c : own;
+    };
     if (if_l) {
         hl.resize(static_cast<size_t>(ny) * HD);
-        for (int j = 0; j < ny; ++j) for (int d = 0; d < HD; ++d) hl[j * HD + d] = nearest(d - HD, j, Uc[j * nx]);
+        for (int j = 0; j < ny; ++j)
+            for (int d = 0; d < HD; ++d) hl[j * HD + d] = nearest(d - HD, j, Uc[j * nx]);
         for (int j = 0; j < ny; ++j) pUL[m.boundary_face(Face::Left, j)] = hl[j * HD + HD - 1];
         mh.l = &hl;
     }
     if (if_r) {
         hr.resize(static_cast<size_t>(ny) * HD);
-        for (int j = 0; j < ny; ++j) for (int d = 0; d < HD; ++d) hr[j * HD + d] = nearest(nx + d, j, Uc[j * nx + nx - 1]);
+        for (int j = 0; j < ny; ++j)
+            for (int d = 0; d < HD; ++d) hr[j * HD + d] = nearest(nx + d, j, Uc[j * nx + nx - 1]);
         for (int j = 0; j < ny; ++j) pUR[m.boundary_face(Face::Right, j)] = hr[j * HD];
         mh.r = &hr;
     }
     if (if_b) {
         hb.resize(static_cast<size_t>(HD) * nx);
-        for (int d = 0; d < HD; ++d) for (int i = 0; i < nx; ++i) hb[d * nx + i] = nearest(i, d - HD, Uc[i]);
+        for (int d = 0; d < HD; ++d)
+            for (int i = 0; i < nx; ++i) hb[d * nx + i] = nearest(i, d - HD, Uc[i]);
         for (int i = 0; i < nx; ++i) pUL[m.boundary_face(Face::Bottom, i)] = hb[(HD - 1) * nx + i];
         mh.b = &hb;
     }
     if (if_t) {
         ht.resize(static_cast<size_t>(HD) * nx);
-        for (int d = 0; d < HD; ++d) for (int i = 0; i < nx; ++i) ht[d * nx + i] = nearest(i, ny + d, Uc[(ny - 1) * nx + i]);
+        for (int d = 0; d < HD; ++d)
+            for (int i = 0; i < nx; ++i) ht[d * nx + i] = nearest(i, ny + d, Uc[(ny - 1) * nx + i]);
         for (int i = 0; i < nx; ++i) pUR[m.boundary_face(Face::Top, i)] = ht[i];
         mh.t = &ht;
     }
@@ -922,7 +1003,8 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
         for (int jj = 0; jj < PH; ++jj)
             for (int ii = 0; ii < PW; ++ii) {
                 State c;
-                if (!(ii >= 1 && ii <= nx && jj >= 1 && jj <= ny) && ghost_cell(ii - 1, jj - 1, c)) Pad[jj * PW + ii] = c;
+                if (!(ii >= 1 && ii <= nx && jj >= 1 && jj <= ny) && ghost_cell(ii - 1, jj - 1, c))
+                    Pad[jj * PW + ii] = c;
             }
         // Ghost cells at the corner of an interface and a physical boundary: the boundary condition
         // applied to the ghost cell next to it, as the neighbouring patch does for its own cell
@@ -946,7 +1028,8 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
         for (int ii : {0, nx + 1}) {
             if (!(ii == 0 ? edge_l : edge_r)) continue;
             for (int jj : {0, ny + 1})
-                if (jj == 0 ? if_b : if_t) Pad[jj * PW + ii] = bc_pad(Pad[jj * PW + (ii == 0 ? 1 : nx)], false, ii != 0);
+                if (jj == 0 ? if_b : if_t)
+                    Pad[jj * PW + ii] = bc_pad(Pad[jj * PW + (ii == 0 ? 1 : nx)], false, ii != 0);
         }
         compute_gradients(Pad, nx, ny, m.dx, m.dy, gX, gY);
 
@@ -956,7 +1039,8 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
         auto ghost_derivs = [&](bool column, int side, std::vector<double>& a, std::vector<double>& b) {
             const int n = column ? ny : nx;
             const double h2 = 2.0 * (column ? m.dy : m.dx);
-            a.resize(n);  b.resize(n);
+            a.resize(n);
+            b.resize(n);
             for (int k = 0; k < n; ++k) {
                 const int c = column ? (k + 1) * PW + (side == 0 ? 0 : nx + 1) : (side == 0 ? 0 : ny + 1) * PW + k + 1;
                 const int step = column ? PW : 1;
@@ -968,10 +1052,26 @@ double Simulation::patch_residual(AMRPatch& patch, AMRTree& tree, const Field& U
                 b[k] = (g[2] - W[2] * g[0]) / W[0];
             }
         };
-        if (if_l) { ghost_derivs(true, 0, ga[0], gb[0]);  cg.x_lo_a = ga[0].data(); cg.x_lo_b = gb[0].data(); }
-        if (if_r) { ghost_derivs(true, 1, ga[1], gb[1]);  cg.x_hi_a = ga[1].data(); cg.x_hi_b = gb[1].data(); }
-        if (if_b) { ghost_derivs(false, 0, ga[2], gb[2]); cg.y_lo_a = ga[2].data(); cg.y_lo_b = gb[2].data(); }
-        if (if_t) { ghost_derivs(false, 1, ga[3], gb[3]); cg.y_hi_a = ga[3].data(); cg.y_hi_b = gb[3].data(); }
+        if (if_l) {
+            ghost_derivs(true, 0, ga[0], gb[0]);
+            cg.x_lo_a = ga[0].data();
+            cg.x_lo_b = gb[0].data();
+        }
+        if (if_r) {
+            ghost_derivs(true, 1, ga[1], gb[1]);
+            cg.x_hi_a = ga[1].data();
+            cg.x_hi_b = gb[1].data();
+        }
+        if (if_b) {
+            ghost_derivs(false, 0, ga[2], gb[2]);
+            cg.y_lo_a = ga[2].data();
+            cg.y_lo_b = gb[2].data();
+        }
+        if (if_t) {
+            ghost_derivs(false, 1, ga[3], gb[3]);
+            cg.y_hi_a = ga[3].data();
+            cg.y_hi_b = gb[3].data();
+        }
 
         const double dt_visc = nsl.viscous_residual(Uc, gX, gY, m, Pad, Rv, &cg, &vff);
         // Total flux = convective - viscous, so that R = -div(flux) and the reflux sees both
@@ -1014,7 +1114,7 @@ void Simulation::amr_solid_reset(AMRTree& tree, const AMRParallel* par) {
         l->has_ghost = true;
     }
     const int nl = static_cast<int>(leaves.size());
-#pragma omp parallel for schedule(dynamic) if(nl > 1)
+#pragma omp parallel for schedule(dynamic) if (nl > 1)
     for (int k = 0; k < nl; ++k) {
         AMRPatch& patch = *leaves[k];
         const Mesh& m = patch.mesh;
@@ -1030,7 +1130,8 @@ void Simulation::amr_solid_reset(AMRTree& tree, const AMRParallel* par) {
                     continue;
                 }
                 const double x = m.x0 + (ii - 0.5) * m.dx, y = m.y0 + (jj - 0.5) * m.dy;
-                const State* s = (x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly) ? sample_leaf_state(tree, x, y) : nullptr;
+                const State* s =
+                    (x > 0.0 && x < mesh.Lx && y > 0.0 && y < mesh.Ly) ? sample_leaf_state(tree, x, y) : nullptr;
                 if (s) {
                     E[e] = *s;
                     mask[e] = patch.ext_solid(ii - 1, jj - 1);
@@ -1058,20 +1159,23 @@ std::string Simulation::checkpoint_path() const {
 
 void Simulation::save_checkpoint(int step) {
     const std::string path = checkpoint_path();
-    const std::string tmp  = path.substr(0, path.size() - 4) + "_tmp.npz";
-    std::vector<double>      times;
+    const std::string tmp = path.substr(0, path.size() - 4) + "_tmp.npz";
+    std::vector<double> times;
     std::vector<std::string> files;
-    for (const auto& e : exporter.collection) { times.push_back(e.time); files.push_back(e.filename); }
+    for (const auto& e : exporter.collection) {
+        times.push_back(e.time);
+        files.push_back(e.filename);
+    }
     NpzArchive a;
-    a["U"]    = field_to_npy(U, mesh.is3d() ? kNVar : 4);
-    a["t"]    = NpyArray::from_double(t);
+    a["U"] = field_to_npy(U, mesh.is3d() ? kNVar : 4);
+    a["t"] = NpyArray::from_double(t);
     a["step"] = NpyArray::from_int(step);
-    a["nx"]   = NpyArray::from_int(mesh.nx);
-    a["ny"]   = NpyArray::from_int(mesh.ny);
-    a["Lx"]   = NpyArray::from_double(mesh.Lx);
-    a["Ly"]   = NpyArray::from_double(mesh.Ly);
-    a["nz"]   = NpyArray::from_int(mesh.nz);
-    a["Lz"]   = NpyArray::from_double(mesh.Lz);
+    a["nx"] = NpyArray::from_int(mesh.nx);
+    a["ny"] = NpyArray::from_int(mesh.ny);
+    a["Lx"] = NpyArray::from_double(mesh.Lx);
+    a["Ly"] = NpyArray::from_double(mesh.Ly);
+    a["nz"] = NpyArray::from_int(mesh.nz);
+    a["Lz"] = NpyArray::from_double(mesh.Lz);
     a["collection_time"] = NpyArray::from_doubles(times, {static_cast<int64_t>(times.size())});
     a["collection_file"] = NpyArray::from_strings(files);
     write_npz(tmp, a);
@@ -1092,7 +1196,8 @@ int Simulation::load_checkpoint() {
     if (a.count("collection_time") && a.count("collection_file")) {
         const auto times = a.at("collection_time").as_doubles();
         const auto files = a.at("collection_file").as_strings();
-        for (size_t k = 0; k < std::min(times.size(), files.size()); ++k) exporter.collection.push_back({times[k], files[k]});
+        for (size_t k = 0; k < std::min(times.size(), files.size()); ++k)
+            exporter.collection.push_back({times[k], files[k]});
     } else if (a.count("collection")) {
         std::printf("[RESTART] Legacy checkpoint (pickled index): .pvd index restarts from this point\n");
     }
@@ -1114,24 +1219,28 @@ Field Simulation::load_hot_start(const std::string& path) {
     int nx_c, ny_c;
     double Lx_c, Ly_c;
     if (a.count("nx")) {
-        nx_c = static_cast<int>(a.at("nx").scalar());  ny_c = static_cast<int>(a.at("ny").scalar());
-        Lx_c = a.at("Lx").scalar();                    Ly_c = a.at("Ly").scalar();
+        nx_c = static_cast<int>(a.at("nx").scalar());
+        ny_c = static_cast<int>(a.at("ny").scalar());
+        Lx_c = a.at("Lx").scalar();
+        Ly_c = a.at("Ly").scalar();
     } else {
-        nx_c = p.hot_start_src_nx;  ny_c = p.hot_start_src_ny;
+        nx_c = p.hot_start_src_nx;
+        ny_c = p.hot_start_src_ny;
         if (nx_c <= 0 || ny_c <= 0)
             throw std::runtime_error("Hot-start file '" + path +
                                      "' has no grid metadata and no manual Nx / Ny were provided "
                                      "(set hot_start_src_nx / hot_start_src_ny).");
-        Lx_c = mesh.Lx;  Ly_c = mesh.Ly;
+        Lx_c = mesh.Lx;
+        Ly_c = mesh.Ly;
         std::printf("[Hot Start] No metadata in file - using manual dims: Nx=%d, Ny=%d, Lx=%g, Ly=%g\n", nx_c, ny_c,
                     Lx_c, Ly_c);
     }
     if (std::abs(Lx_c - mesh.Lx) > 1e-10 || std::abs(Ly_c - mesh.Ly) > 1e-10)
         std::printf("[WARNING] Hot-start domain (%g x %g) differs from target (%g x %g). "
-                    "Proceeding with coordinate rescaling.\n", Lx_c, Ly_c, mesh.Lx, mesh.Ly);
+                    "Proceeding with coordinate rescaling.\n",
+                    Lx_c, Ly_c, mesh.Lx, mesh.Ly);
     const int nz_c = a.count("nz") ? static_cast<int>(a.at("nz").scalar()) : 1;
-    if (nz_c > 1 && !mesh.is3d())
-        throw std::runtime_error("Hot start from a 3-D checkpoint needs a 3-D run (nz > 1)");
+    if (nz_c > 1 && !mesh.is3d()) throw std::runtime_error("Hot start from a 3-D checkpoint needs a 3-D run (nz > 1)");
     std::printf("[Hot Start] Mapping %d x %d x %d -> %d x %d x %d ...\n", nx_c, ny_c, nz_c, mesh.nx, mesh.ny, mesh.nz);
     const Field Uc = npy_to_field(a.at("U"));
     if (static_cast<int>(Uc.size()) != nx_c * ny_c * nz_c)
@@ -1149,7 +1258,7 @@ Field Simulation::load_hot_start(const std::string& path) {
 void Simulation::dump_final_state(int step, const Field* amr_all) const {
     if (p.dump_state.empty()) return;
     NpzArchive a;
-    a["t"]    = NpyArray::from_double(t);
+    a["t"] = NpyArray::from_double(t);
     a["step"] = NpyArray::from_int(step);
     if (amr_tree) {
         Field all;
@@ -1205,9 +1314,10 @@ void Simulation::monitor_row(std::FILE* f, int step, const std::array<double, 3>
         // L = chord (airfoil) or diameter; Cm about (ibm_cx, ibm_cy), nose-up positive
         const bool airfoil = !naca_digits(p.ibm_shape).empty() || lower(p.ibm_shape) == "airfoil";
         const double L = airfoil ? p.ibm_chord : 2.0 * p.ibm_radius;
-        const double A = !mesh.is3d() ? L
-                       : (lower(p.ibm_shape) == "sphere" ? 3.14159265358979323846 * p.ibm_radius * p.ibm_radius
-                                                         : L * mesh.Lz);
+        const double A =
+            !mesh.is3d()
+                ? L
+                : (lower(p.ibm_shape) == "sphere" ? 3.14159265358979323846 * p.ibm_radius * p.ibm_radius : L * mesh.Lz);
         const double qA = 0.5 * p.rho_in * p.u_in * p.u_in * A;
         const double Fx = (*loads)[0], Fy = (*loads)[1], Mz = (*loads)[2];
         std::fprintf(f, ",%.10e,%.10e,%.10e,%.10e,%.10e", Fx, Fy, qA > 0 ? Fx / qA : 0.0, qA > 0 ? Fy / qA : 0.0,
@@ -1225,7 +1335,10 @@ std::array<double, 3> Simulation::ibm_loads(const Mesh& m, const ImmersedBoundar
     for (int c = 0; c < m.num_cells(); ++c) {
         if (!solid[c]) continue;
         double rx = R[c][1], ry = R[c][2];
-        if (body_force) { rx -= U[c][0] * body_force->gx; ry -= U[c][0] * body_force->gy; }   // not a load
+        if (body_force) {
+            rx -= U[c][0] * body_force->gx;
+            ry -= U[c][0] * body_force->gy;
+        }   // not a load
         const double ex = rx * vol, ey = ry * vol;
         fx += ex;
         fy += ey;
@@ -1241,7 +1354,10 @@ std::array<double, 3> Simulation::ibm_loads(const Mesh& m, const ImmersedBoundar
 void Simulation::solve() {
     std::printf("=== TIME-MARCHING  (t_end = %g s) ===\n", p.t_end);
     std::fflush(stdout);
-    if (amr_tree) { solve_amr(); return; }
+    if (amr_tree) {
+        solve_amr();
+        return;
+    }
 
     const double min_delta = dt_length;
     int step = start_step;
@@ -1273,12 +1389,16 @@ void Simulation::solve() {
             exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
             save_checkpoint(step);
             char inner[32] = "";
-            if (scheme->inner_iter_last() >= 0) std::snprintf(inner, sizeof(inner), " | inner=%d", scheme->inner_iter_last());
+            if (scheme->inner_iter_last() >= 0)
+                std::snprintf(inner, sizeof(inner), " | inner=%d", scheme->inner_iter_last());
             std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s%s | wall = %s | Checkpoint saved\n",
                         step, t, r.dt, r.s_max, inner, format_elapsed(seconds_since(t0)).c_str());
             std::fflush(stdout);
         }
-        if (g_stop_requested) { interrupted = true; break; }
+        if (g_stop_requested) {
+            interrupted = true;
+            break;
+        }
         if (p.max_steps > 0 && step - start_step >= p.max_steps) break;
     }
     const double loop_wall = seconds_since(t0);
@@ -1310,14 +1430,16 @@ void Simulation::solve_amr() {
 
     // Every rank writes its own leaves; the barrier lets rank 0 index them once they are all on disk
     const auto export_leaves = [&](int st) {
-        if (par) exporter.export_amr(file_prefix, fluid, tree, t, st, par->rank, par->size, [&] { par->allreduce_max(0.0); });
-        else     exporter.export_amr(file_prefix, fluid, tree, t, st);
+        if (par)
+            exporter.export_amr(file_prefix, fluid, tree, t, st, par->rank, par->size,
+                                [&] { par->allreduce_max(0.0); });
+        else
+            exporter.export_amr(file_prefix, fluid, tree, t, st);
     };
     if (step == 0) export_leaves(step);
 
-    const PatchResidualFn pres = [this](AMRPatch& patch, AMRTree& tr, const Field& Uin, Field& R, Field& fx, Field& fy) {
-        return patch_residual(patch, tr, Uin, R, fx, fy);
-    };
+    const PatchResidualFn pres = [this](AMRPatch& patch, AMRTree& tr, const Field& Uin, Field& R, Field& fx,
+                                        Field& fy) { return patch_residual(patch, tr, Uin, R, fx, fy); };
 
     // Bootstrap S_max over all initial leaves; afterwards advance_amr_level
     // returns the max over every leaf it advanced (one-step-lag estimate).
@@ -1325,7 +1447,8 @@ void Simulation::solve_amr() {
     {
         Field R, fx, fy;
         for (AMRPatch* leaf : tree.leaves())
-            if (!par || leaf->owner == par->rank) S_max = std::max(S_max, patch_residual(*leaf, tree, leaf->U, R, fx, fy));
+            if (!par || leaf->owner == par->rank)
+                S_max = std::max(S_max, patch_residual(*leaf, tree, leaf->U, R, fx, fy));
         if (par) S_max = par->allreduce_max(S_max);
     }
 
@@ -1344,25 +1467,34 @@ void Simulation::solve_amr() {
                 s2 += c[3] * a;
                 area += a;
             }
-            o[0] = s0; o[1] = s1; o[2] = s2; o[3] = area;
+            o[0] = s0;
+            o[1] = s1;
+            o[2] = s2;
+            o[3] = area;
             o[4] = o[5] = o[6] = 0.0;
             if (p.use_ibm) {
                 AMRPatch& lf = leaf;
                 Field R, fx, fy;
                 ensure_patch_masks(lf);
                 patch_residual(lf, tree, lf.U, R, fx, fy);
-                const auto l = ibm_loads(lf.mesh, ImmersedBoundary(lf.nx(), lf.ny(), lf.solid, p.rho_in, p.p_out), lf.U, R);
+                const auto l =
+                    ibm_loads(lf.mesh, ImmersedBoundary(lf.nx(), lf.ny(), lf.solid, p.rho_in, p.p_out), lf.U, R);
                 for (int q = 0; q < 3; ++q) o[4 + q] = l[q];
             }
         });
         double sums[3] = {0.0, 0.0, 0.0}, area_tot = 0.0;
         std::array<double, 3> loads{};
         for (size_t k = 0; k < parts.size(); k += 7) {
-            for (int q = 0; q < 3; ++q) { sums[q] += parts[k + q]; loads[q] += parts[k + 4 + q]; }
+            for (int q = 0; q < 3; ++q) {
+                sums[q] += parts[k + q];
+                loads[q] += parts[k + 4 + q];
+            }
             area_tot += parts[k + 3];
         }
-        monitor_row(mon, st, {sums[0] / area_tot * mesh.cell_area(), sums[1] / area_tot * mesh.cell_area(),
-                              sums[2] / area_tot * mesh.cell_area()}, p.use_ibm ? &loads : nullptr);
+        monitor_row(mon, st,
+                    {sums[0] / area_tot * mesh.cell_area(), sums[1] / area_tot * mesh.cell_area(),
+                     sums[2] / area_tot * mesh.cell_area()},
+                    p.use_ibm ? &loads : nullptr);
     };
     if (monitoring && step == 0) row(step);
 
@@ -1382,21 +1514,23 @@ void Simulation::solve_amr() {
         t += dt;
         ++step;
 
-        if (step % p.amr_refine_every == 0) {
-            remesh(tree, *amr_indicator, par);
-        }
+        if (step % p.amr_refine_every == 0) { remesh(tree, *amr_indicator, par); }
 
         if (monitoring && step % p.monitor_interval == 0) row(step);
 
         if (step % p.save_interval == 0) {
             export_leaves(step);
             const double held = held_cells();   // collective
-            if (root) std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | patches = %zu | wall = %s%s\n", step, t,
-                        dt, S_max, tree.leaves().size(), format_elapsed(seconds_since(t0)).c_str(),
-                        par ? (" | cells/rank max " + std::to_string(static_cast<long long>(held))).c_str() : "");
+            if (root)
+                std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | patches = %zu | wall = %s%s\n",
+                            step, t, dt, S_max, tree.leaves().size(), format_elapsed(seconds_since(t0)).c_str(),
+                            par ? (" | cells/rank max " + std::to_string(static_cast<long long>(held))).c_str() : "");
             std::fflush(stdout);
         }
-        if (par ? par->allreduce_max(g_stop_requested ? 1.0 : 0.0) > 0.0 : g_stop_requested.load()) { interrupted = true; break; }
+        if (par ? par->allreduce_max(g_stop_requested ? 1.0 : 0.0) > 0.0 : g_stop_requested.load()) {
+            interrupted = true;
+            break;
+        }
         if (p.max_steps > 0 && step - start_step >= p.max_steps) break;
     }
     const double loop_wall = seconds_since(t0);
@@ -1441,8 +1575,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
         if (root) {
             std::printf("\n[MPI] %c-decomposition  -  %d ranks, global ny=%d, nx=%d\n", dir == 'y' ? 'Y' : 'X',
                         decomp.n_ranks, p.ny, p.nx);
-            std::printf("  %5s  %8s  %6s  %9s  %s\n", "Rank", dir == 'y' ? "j_start" : "i_start", dir == 'y' ? "j_end" : "i_end",
-                        dir == 'y' ? "ny_local" : "nx_local", "role");
+            std::printf("  %5s  %8s  %6s  %9s  %s\n", "Rank", dir == 'y' ? "j_start" : "i_start",
+                        dir == 'y' ? "j_end" : "i_end", dir == 'y' ? "ny_local" : "nx_local", "role");
             std::printf("  -----  --------  ------  ---------  ----------------\n");
             for (int r = 0; r < decomp.n_ranks; ++r) {
                 std::string role;
@@ -1452,7 +1586,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
                     role += dir == 'y' ? "top" : "right";
                 }
                 if (role.empty()) role = "interior";
-                std::printf("  %5d  %8d  %6d  %9d  %s\n", all[4 * r], all[4 * r + 1], all[4 * r + 2], all[4 * r + 3], role.c_str());
+                std::printf("  %5d  %8d  %6d  %9d  %s\n", all[4 * r], all[4 * r + 1], all[4 * r + 2], all[4 * r + 3],
+                            role.c_str());
             }
             std::printf("\n");
             std::fflush(stdout);
@@ -1505,8 +1640,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
         int mine = local_ibm->solid_count(), total = 0;
         MPI_Reduce(&mine, &total, 1, MPI_INT, MPI_SUM, 0, comm);
         if (root)
-            std::printf("[IBM] %s at (%g, %g) r=%g -> %d solid cells (across %d ranks)\n", p.ibm_shape.c_str(), p.ibm_cx,
-                        p.ibm_cy, p.ibm_radius, total, decomp.n_ranks);
+            std::printf("[IBM] %s at (%g, %g) r=%g -> %d solid cells (across %d ranks)\n", p.ibm_shape.c_str(),
+                        p.ibm_cx, p.ibm_cy, p.ibm_radius, total, decomp.n_ranks);
     }
 
     // MPI-interface sides start transmissive (overridden by halos anyway)
@@ -1534,7 +1669,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
             count = out[1];
         };
         // The sides parallel to the strips are split across all ranks
-        for (Face f : dir == 'y' ? std::array<Face, 2>{Face::Left, Face::Right} : std::array<Face, 2>{Face::Bottom, Face::Top})
+        for (Face f :
+             dir == 'y' ? std::array<Face, 2>{Face::Left, Face::Right} : std::array<Face, 2>{Face::Bottom, Face::Top})
             lb.set_mean_reducer(f, reducer);
         if (lm.is3d()) {   // front / back are split across every rank as well
             lb.set_mean_reducer(Face::Front, reducer);
@@ -1563,7 +1699,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
             start = load_checkpoint();
             U_global = U;
         } else {
-            if (p.resume) std::printf("\n[WARNING] No checkpoint at %s. Starting from t=0.\n", checkpoint_path().c_str());
+            if (p.resume)
+                std::printf("\n[WARNING] No checkpoint at %s. Starting from t=0.\n", checkpoint_path().c_str());
             U_global = p.use_hot_start ? load_hot_start(p.hot_start_file) : initial_field();
         }
     }
@@ -1649,7 +1786,10 @@ void Simulation::run_mpi(MPI_Comm comm) {
             }
         }
         // Agree on Ctrl+C across ranks so nobody blocks in a collective
-        if (decomp.allreduce_max(g_stop_requested ? 1.0 : 0.0) > 0.0) { interrupted = true; break; }
+        if (decomp.allreduce_max(g_stop_requested ? 1.0 : 0.0) > 0.0) {
+            interrupted = true;
+            break;
+        }
         if (p.max_steps > 0 && step - start >= p.max_steps) break;
     }
     const double loop_wall = seconds_since(t0);
@@ -1668,6 +1808,6 @@ void Simulation::run_mpi(MPI_Comm comm) {
                     loop_wall, step - start);
     }
 }
-#endif  // FV_USE_MPI
+#endif   // FV_USE_MPI
 
-}  // namespace fv
+}   // namespace fv

@@ -15,38 +15,38 @@ namespace fv {
 // share the same cell count; the cell size halves per level.
 struct AMRPatch {
     double xmin = 0, xmax = 0, ymin = 0, ymax = 0;   // physical extent
-    int    level = 0;                                 // 0 = root
-    int    id    = 0;                                 // unique, creation order
-    AMRPatch* parent = nullptr;                       // nullptr for the root
-    std::vector<AMRPatch*> children;   // [BL, BR, TL, TR] when refined
-    Mesh   mesh;                       // global coordinates (x0 = xmin, y0 = ymin)
-    Field  U;                          // conservative state, row-major
+    int level = 0;                                   // 0 = root
+    int id = 0;                                      // unique, creation order
+    AMRPatch* parent = nullptr;                      // nullptr for the root
+    std::vector<AMRPatch*> children;                 // [BL, BR, TL, TR] when refined
+    Mesh mesh;                                       // global coordinates (x0 = xmin, y0 = ymin)
+    Field U;                                         // conservative state, row-major
 
     // Immersed-boundary masks (built lazily from the body geometry, which never changes).
-    std::vector<char> solid;           // nx*ny, 1 = solid cell
-    std::vector<char> solid_ext;       // (nx+4)*(ny+4) with a two-cell ghost ring; 0 outside the domain
+    std::vector<char> solid;       // nx*ny, 1 = solid cell
+    std::vector<char> solid_ext;   // (nx+4)*(ny+4) with a two-cell ghost ring; 0 outside the domain
 
     // Distribution (see assign_ownership): the rank that advances this leaf, and whether this rank
     // holds its data at all (owned, or a halo copy of a leaf next to an owned one)
-    int   owner = 0;
-    bool  held  = true;
-    std::vector<int> viewers;          // other ranks that hold a halo copy of this leaf (sorted)
-    std::vector<int> peers;            // those of them that advance a leaf of the same level next to it
+    int owner = 0;
+    bool held = true;
+    std::vector<int> viewers;   // other ranks that hold a halo copy of this leaf (sorted)
+    std::vector<int> peers;     // those of them that advance a leaf of the same level next to it
 
     // Transient state used by advance_amr_level
-    bool  has_ghost = false;           // U_ghost holds the frozen neighbour snapshot
+    bool has_ghost = false;   // U_ghost holds the frozen neighbour snapshot
     Field U_ghost;
-    Field last_flux_x, last_flux_y;    // face flux * face length of the last stage
-    bool  has_reflux = false;          // reflux registers allocated (abuts a coarser leaf)
-    Field reflux_fx, reflux_fy;        // sum of dt_fine * fine face fluxes over the sub-steps
-    std::vector<Face> reflux_faces;    // faces touching a coarser neighbour
+    Field last_flux_x, last_flux_y;   // face flux * face length of the last stage
+    bool has_reflux = false;          // reflux registers allocated (abuts a coarser leaf)
+    Field reflux_fx, reflux_fy;       // sum of dt_fine * fine face fluxes over the sub-steps
+    std::vector<Face> reflux_faces;   // faces touching a coarser neighbour
 
     // True if the patch has no children (an active computational block).
     bool is_leaf() const { return children.empty(); }
     // Cells in x.
-    int  nx() const { return mesh.nx; }
+    int nx() const { return mesh.nx; }
     // Cells in y.
-    int  ny() const { return mesh.ny; }
+    int ny() const { return mesh.ny; }
     // Solid flag of cell (ix, iy), -2 <= ix < nx+2, -2 <= iy < ny+2 (ghost ring included).
     char ext_solid(int ix, int iy) const { return solid_ext[(iy + 2) * (nx() + 4) + ix + 2]; }
     // State neighbours must read: the frozen snapshot during a level advance.
@@ -61,11 +61,11 @@ public:
     // throws otherwise.
     AMRTree(double Lx, double Ly, int nx_patch, int ny_patch, int max_level = 2, int nroot_x = 1, int nroot_y = 1);
 
-    std::vector<AMRPatch*> leaves() const;          // root by root (row-major), DFS inside each
+    std::vector<AMRPatch*> leaves() const;   // root by root (row-major), DFS inside each
     // Leaf covering the point (nullptr outside the domain). Uses an index rebuilt after every tree
     // change; the first call after a change (leaves() makes one) must not be inside a parallel region.
-    AMRPatch*              leaf_at(double x, double y) const;
-    std::vector<AMRPatch*> all_patches() const;     // by creation id
+    AMRPatch* leaf_at(double x, double y) const;
+    std::vector<AMRPatch*> all_patches() const;   // by creation id
 
     // Split a leaf into 4 children [BL, BR, TL, TR] by conservative injection; throws at max_level.
     std::vector<AMRPatch*> refine_patch(AMRPatch* patch);
@@ -75,21 +75,21 @@ public:
     void enforce_2to1_balance();
 
     // First leaf across `face` (nullptr at the domain boundary).
-    AMRPatch*              get_neighbour(const AMRPatch* patch, Face face) const;
+    AMRPatch* get_neighbour(const AMRPatch* patch, Face face) const;
     // Every leaf across `face` (up to 2 finer leaves under 2:1 balance).
     std::vector<AMRPatch*> neighbour_leaves(const AMRPatch* patch, Face face) const;
     // Every other leaf touching the box of `patch` grown by `cells` of its own cells on all sides
     // (corners included): the leaves whose data a residual of `patch` may read.
     std::vector<AMRPatch*> leaves_near(const AMRPatch* patch, int cells) const;
 
-    AMRPatch* root = nullptr;                // roots[0]; the level-0 patch when the tree has a single root
-    std::vector<AMRPatch*> roots;            // level-0 patches, row-major (x fastest)
+    AMRPatch* root = nullptr;       // roots[0]; the level-0 patch when the tree has a single root
+    std::vector<AMRPatch*> roots;   // level-0 patches, row-major (x fastest)
     // False in a distributed run: a patch is created without state, which only the ranks holding it
     // allocate (refine / derefine skip the arithmetic where the source has no data).
-    bool   store_state = true;
-    double Lx, Ly;                           // domain size
-    int    nx_patch, ny_patch, max_level;    // block size and refinement depth
-    int    nroot_x, nroot_y;                 // level-0 patches per axis
+    bool store_state = true;
+    double Lx, Ly;                       // domain size
+    int nx_patch, ny_patch, max_level;   // block size and refinement depth
+    int nroot_x, nroot_y;                // level-0 patches per axis
 
 private:
     AMRPatch* new_patch(double x0, double x1, double y0, double y1, int level, AMRPatch* parent);
@@ -101,9 +101,9 @@ private:
     // Leaf list and slot grid (one slot per finest-level patch footprint), valid unless dirty_
     mutable std::vector<AMRPatch*> leaf_cache_;
     mutable std::vector<AMRPatch*> slot_;
-    mutable bool                   dirty_ = true;
-    int                            nslot_x_ = 1, nslot_y_ = 1;
-    double                         slot_w_ = 1.0, slot_h_ = 1.0;
+    mutable bool dirty_ = true;
+    int nslot_x_ = 1, nslot_y_ = 1;
+    double slot_w_ = 1.0, slot_h_ = 1.0;
 
     std::map<int, std::unique_ptr<AMRPatch>> patches_;
     int next_id_ = 0;
@@ -121,14 +121,14 @@ public:
     // f = density and / or the speed |u| (the largest of the enabled ones).
     double indicator(const AMRPatch& patch) const;
     // Leaves to refine (flagged + buffer, sorted by id) and parents to derefine.
-    void   mark(AMRTree& tree, std::vector<AMRPatch*>& to_refine, std::vector<AMRPatch*>& to_derefine) const;
+    void mark(AMRTree& tree, std::vector<AMRPatch*>& to_refine, std::vector<AMRPatch*>& to_derefine) const;
     // The same, from the indicator of every leaf (by patch id) computed elsewhere.
-    void   mark(AMRTree& tree, const std::map<int, double>& eta, std::vector<AMRPatch*>& to_refine,
-                std::vector<AMRPatch*>& to_derefine) const;
+    void mark(AMRTree& tree, const std::map<int, double>& eta, std::vector<AMRPatch*>& to_refine,
+              std::vector<AMRPatch*>& to_derefine) const;
 
     double refine_threshold, derefine_threshold;   // eta thresholds
-    int    buffer_layers;                          // halo rings around flagged patches
-    bool   use_density = true, use_speed = false;  // fields the ratio is taken of
+    int buffer_layers;                             // halo rings around flagged patches
+    bool use_density = true, use_speed = false;    // fields the ratio is taken of
     // Optional: leaves for which this is true are refined to max_level whatever eta says, and their
     // parents are never derefined (an immersed body kept at the finest level).
     std::function<bool(const AMRPatch&)> force_refine;
@@ -136,8 +136,8 @@ public:
 
 // Residual of one leaf patch: fills R (cells) and flux_x / flux_y (face flux *
 // face length) and returns S_max.
-using PatchResidualFn = std::function<double(AMRPatch& patch, AMRTree& tree, const Field& U,
-                                             Field& R, Field& flux_x, Field& flux_y)>;
+using PatchResidualFn =
+    std::function<double(AMRPatch& patch, AMRTree& tree, const Field& U, Field& R, Field& flux_x, Field& flux_y)>;
 
 // Distributed advance: every rank holds the whole tree (so every rank takes the same remesh decisions); the
 // leaves of each level are split over the ranks (assign_ownership), each rank advances its own, and the
@@ -187,4 +187,4 @@ void remesh(AMRTree& tree, const AMRErrorIndicator& indicator, const AMRParallel
 // Test hook: disables the coarse-fine reflux correction (negative control).
 extern bool g_amr_disable_reflux;
 
-}  // namespace fv
+}   // namespace fv

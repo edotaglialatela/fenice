@@ -22,7 +22,7 @@ public:
 
 private:
     std::vector<double> xs_, ys_;
-    const Field&        v_;
+    const Field& v_;
 };
 
 // Bilinear coarse -> fine mapping over the same [0,Lx]x[0,Ly] domain.
@@ -35,4 +35,4 @@ Field map_solution_3d(const Field& U_coarse, int nx_c, int ny_c, int nz_c, int n
 // Conservative area-weighted restriction of a fine patch onto a coarser one.
 Field restrict_patch(const Field& U_fine, int nx_f, int ny_f, int nx_c, int ny_c);
 
-}  // namespace fv
+}   // namespace fv

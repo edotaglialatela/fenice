@@ -25,22 +25,22 @@ public:
 
     // Exchange kHaloDepth slices; has_lo/has_hi report whether a neighbour
     // (or periodic wrap) exists.  Layouts match Halos (Schemes.hpp).
-    void exchange_halos(const Field& U_local, bool periodic, Field& halo_lo, Field& halo_hi,
-                        bool& has_lo, bool& has_hi) const;
+    void exchange_halos(const Field& U_local, bool periodic, Field& halo_lo, Field& halo_hi, bool& has_lo,
+                        bool& has_hi) const;
 
     // Global maximum of v over all ranks.
     double allreduce_max(double v) const;
 
-    MPI_Comm comm;                       // communicator
-    int  rank = 0, n_ranks = 1;          // this rank, number of ranks
-    int  nx, ny, nz = 1;                 // global mesh size (strips span all z layers)
-    char dir = 'y';                      // 'y': row strips, 'x': column strips
-    int  nx_local = 0, ny_local = 0;     // size of this rank's strip
-    int  i_start = 0, j_start = 0;       // global index of the strip's first column / row
+    MPI_Comm comm;                               // communicator
+    int rank = 0, n_ranks = 1;                   // this rank, number of ranks
+    int nx, ny, nz = 1;                          // global mesh size (strips span all z layers)
+    char dir = 'y';                              // 'y': row strips, 'x': column strips
+    int nx_local = 0, ny_local = 0;              // size of this rank's strip
+    int i_start = 0, j_start = 0;                // global index of the strip's first column / row
     bool is_lo_rank = true, is_hi_rank = true;   // bottom/top (y) or left/right (x)
     std::vector<int> counts, offsets;            // rows (y) or columns (x) per rank
 };
 
-}  // namespace fv
+}   // namespace fv
 
-#endif  // FV_USE_MPI
+#endif   // FV_USE_MPI

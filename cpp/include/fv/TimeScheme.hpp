@@ -13,7 +13,7 @@ using ResidualFn = std::function<double(const Field& U, Field& R)>;
 
 // Outcome of one time step.
 struct StepResult {
-    double dt    = 0.0;   // time step taken [s]
+    double dt = 0.0;      // time step taken [s]
     double s_max = 0.0;   // maximum wave speed seen [m/s]
 };
 
@@ -51,7 +51,7 @@ class ExplicitEuler : public TimeScheme {
 public:
     using TimeScheme::TimeScheme;
     StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
-    double     advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
+    double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
 };
 
 // Two-stage strong-stability-preserving Runge-Kutta (Shu-Osher form), 2nd order.
@@ -59,7 +59,7 @@ class SSPRK2 : public TimeScheme {
 public:
     using TimeScheme::TimeScheme;
     StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
-    double     advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
+    double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
 };
 
 // Classical four-stage Runge-Kutta, 4th order.
@@ -67,7 +67,7 @@ class RungeKutta4 : public TimeScheme {
 public:
     using TimeScheme::TimeScheme;
     StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
-    double     advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
+    double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
 };
 
 // BDF2 physical time stepping with an explicit-Euler pseudo-time inner loop.
@@ -77,22 +77,22 @@ public:
     // or when the modified residual drops by `inner_tol_rel`.  Throws if dt_phys <= 0.
     BDF2DualTime(double cfl, double dt_phys, int max_inner_iter = 50, double inner_tol_rel = 1e-3);
     StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
-    int        inner_iter_last() const override { return inner_iter_last_; }
+    int inner_iter_last() const override { return inner_iter_last_; }
 
     // Global max across MPI ranks (identity in serial).
     std::function<double(double)> global_norm = [](double x) { return x; };
 
 private:
     double dt_phys_;
-    int    max_inner_iter_;
+    int max_inner_iter_;
     double inner_tol_rel_;
-    Field  U_prev_;
-    bool   first_step_ = true;
-    int    inner_iter_last_ = 0;
+    Field U_prev_;
+    bool first_step_ = true;
+    int inner_iter_last_ = 0;
 };
 
 // Factory: the integrator for `type` (BDF2 uses dt_phys / max_inner_iter / inner_tol_rel).
-std::unique_ptr<TimeScheme> make_time_scheme(TimeSchemeType type, double cfl, double dt_phys,
-                                             int max_inner_iter, double inner_tol_rel);
+std::unique_ptr<TimeScheme> make_time_scheme(TimeSchemeType type, double cfl, double dt_phys, int max_inner_iter,
+                                             double inner_tol_rel);
 
-}  // namespace fv
+}   // namespace fv

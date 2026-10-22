@@ -20,8 +20,7 @@ class RiemannSolver {
 public:
     RiemannSolver() = default;
     // Solver of the given type; `ma_cut` is the cut-off Mach number of the preconditioned variant.
-    RiemannSolver(const EOS& eos, RiemannType type, double ma_cut = 0.1)
-        : eos_(eos), type_(type), ma_cut_(ma_cut) {}
+    RiemannSolver(const EOS& eos, RiemannType type, double ma_cut = 0.1) : eos_(eos), type_(type), ma_cut_(ma_cut) {}
 
     // Numerical flux at every face of `mesh`; returns the maximum wave speed.
     double compute_flux(const Field& UL, const Field& UR, const Mesh& mesh, Field& F) const;
@@ -35,9 +34,9 @@ public:
 private:
     State hllc(const State& UL, const State& UR, int axis, double& smax) const;
 
-    EOS         eos_;
-    RiemannType type_   = RiemannType::HLLC;
-    double      ma_cut_ = 0.1;
+    EOS eos_;
+    RiemannType type_ = RiemannType::HLLC;
+    double ma_cut_ = 0.1;
 };
 
 // ---------------------------------------------------------------------------
@@ -54,9 +53,7 @@ Limiter parse_limiter(const std::string& s);
 inline double sgn(double x) { return (x > 0.0) ? 1.0 : ((x < 0.0) ? -1.0 : 0.0); }
 
 // Minmod: 0.5 (sgn a + sgn b) min(|a|, |b|).
-inline double lim_minmod(double a, double b) {
-    return 0.5 * (sgn(a) + sgn(b)) * std::min(std::abs(a), std::abs(b));
-}
+inline double lim_minmod(double a, double b) { return 0.5 * (sgn(a) + sgn(b)) * std::min(std::abs(a), std::abs(b)); }
 // Van Leer: harmonic mean 2ab/(a+b) when ab > 0, else 0.
 inline double lim_vanleer(double a, double b) {
     const double ab = a * b;
@@ -75,10 +72,10 @@ inline double lim_koren(double a, double b) {
 // Dispatch phi(a, b) to the chosen limiter.
 inline double apply_limiter(Limiter l, double a, double b) {
     switch (l) {
-        case Limiter::Minmod:  return lim_minmod(a, b);
-        case Limiter::VanLeer: return lim_vanleer(a, b);
-        case Limiter::MC:      return lim_mc(a, b);
-        default:               return lim_koren(a, b);
+    case Limiter::Minmod: return lim_minmod(a, b);
+    case Limiter::VanLeer: return lim_vanleer(a, b);
+    case Limiter::MC: return lim_mc(a, b);
+    default: return lim_koren(a, b);
     }
 }
 
@@ -96,12 +93,12 @@ constexpr int kHaloDepth = 2;
 //   f / bk : front / back   [ (d*ny + j)*nx + i ]          (3-D only)
 // With nz = 1 these reduce to the 2-D layouts [d*nx + i] and [j*kHaloDepth + d].
 struct Halos {
-    const Field* b = nullptr;   // below
-    const Field* t = nullptr;   // above
-    const Field* l = nullptr;   // left
-    const Field* r = nullptr;   // right
-    const Field* f = nullptr;   // front (z-min)
-    const Field* bk = nullptr;  // back (z-max)
+    const Field* b = nullptr;    // below
+    const Field* t = nullptr;    // above
+    const Field* l = nullptr;    // left
+    const Field* r = nullptr;    // right
+    const Field* f = nullptr;    // front (z-min)
+    const Field* bk = nullptr;   // back (z-max)
 };
 class MusclReconstruction {
 public:
@@ -119,8 +116,8 @@ public:
     Limiter limiter() const { return lim_; }
 
 private:
-    EOS     eos_;
+    EOS eos_;
     Limiter lim_;
 };
 
-}  // namespace fv
+}   // namespace fv

@@ -25,7 +25,7 @@ bool parse_pair(const std::string& line, double& x, double& y) {
     return end != s2;
 }
 
-}  // namespace
+}   // namespace
 
 bool Polygon2D::contains(double x, double y) const {
     bool in = false;
@@ -84,8 +84,8 @@ Polygon2D load_airfoil(const std::string& path) {
     if (poly.pts.size() < 3) throw std::runtime_error(path + ": an airfoil needs at least 3 points");
 
     // Normalise: leading edge (smallest x) at the origin, chord 1 along x
-    const auto le = std::min_element(poly.pts.begin(), poly.pts.end(),
-                                     [](const auto& p, const auto& q) { return p[0] < q[0]; });
+    const auto le =
+        std::min_element(poly.pts.begin(), poly.pts.end(), [](const auto& p, const auto& q) { return p[0] < q[0]; });
     const double x0 = (*le)[0], y0 = (*le)[1];
     double xmax = x0;
     for (const auto& p : poly.pts) xmax = std::max(xmax, p[0]);
@@ -98,7 +98,8 @@ Polygon2D load_airfoil(const std::string& path) {
 std::string naca_digits(const std::string& shape) {
     std::string s;
     for (const char ch : shape)
-        if (!std::isspace(static_cast<unsigned char>(ch))) s += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+        if (!std::isspace(static_cast<unsigned char>(ch)))
+            s += static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
     if (s.size() != 8 || s.compare(0, 4, "naca") != 0) return "";
     for (size_t i = 4; i < 8; ++i)
         if (!std::isdigit(static_cast<unsigned char>(s[i]))) return "";
@@ -106,7 +107,8 @@ std::string naca_digits(const std::string& shape) {
 }
 
 Polygon2D naca4(const std::string& digits, int n) {
-    if (digits.size() != 4 || !std::all_of(digits.begin(), digits.end(), [](char ch) { return std::isdigit(static_cast<unsigned char>(ch)); }))
+    if (digits.size() != 4 || !std::all_of(digits.begin(), digits.end(),
+                                           [](char ch) { return std::isdigit(static_cast<unsigned char>(ch)); }))
         throw std::invalid_argument("NACA 4-digit code must be 4 digits, got '" + digits + "'");
     const double m = (digits[0] - '0') / 100.0, p = (digits[1] - '0') / 10.0;
     const double t = std::stoi(digits.substr(2)) / 100.0;
@@ -115,13 +117,18 @@ Polygon2D naca4(const std::string& digits, int n) {
     std::vector<std::array<double, 2>> up(n + 1), lo(n + 1);
     for (int i = 0; i <= n; ++i) {
         const double x = 0.5 * (1.0 - std::cos(kPi * i / n));   // cosine spacing: dense at both edges
-        const double yt = 5.0 * t * (0.2969 * std::sqrt(x) - 0.1260 * x - 0.3516 * x * x + 0.2843 * x * x * x -
-                                     0.1036 * x * x * x * x);   // closed trailing edge
+        const double yt = 5.0 * t *
+                          (0.2969 * std::sqrt(x) - 0.1260 * x - 0.3516 * x * x + 0.2843 * x * x * x -
+                           0.1036 * x * x * x * x);   // closed trailing edge
         double yc = 0.0, dyc = 0.0;
         if (m > 0.0) {
-            if (x < p) { yc = m / (p * p) * (2.0 * p * x - x * x);  dyc = 2.0 * m / (p * p) * (p - x); }
-            else       { yc = m / ((1 - p) * (1 - p)) * (1.0 - 2.0 * p + 2.0 * p * x - x * x);
-                         dyc = 2.0 * m / ((1 - p) * (1 - p)) * (p - x); }
+            if (x < p) {
+                yc = m / (p * p) * (2.0 * p * x - x * x);
+                dyc = 2.0 * m / (p * p) * (p - x);
+            } else {
+                yc = m / ((1 - p) * (1 - p)) * (1.0 - 2.0 * p + 2.0 * p * x - x * x);
+                dyc = 2.0 * m / ((1 - p) * (1 - p)) * (p - x);
+            }
         }
         const double th = std::atan(dyc);
         up[i] = {x - yt * std::sin(th), yc + yt * std::cos(th)};
@@ -138,10 +145,10 @@ Polygon2D place_airfoil(const Polygon2D& unit, double chord, double aoa_deg, dou
     Polygon2D out;
     out.pts.reserve(unit.pts.size());
     for (const auto& p : unit.pts) {
-        const double x = (p[0] - 0.25) * chord, y = p[1] * chord;   // quarter chord at the origin
+        const double x = (p[0] - 0.25) * chord, y = p[1] * chord;          // quarter chord at the origin
         out.pts.push_back({xq + x * ca + y * sa, yq - x * sa + y * ca});   // clockwise by aoa: nose up
     }
     return out;
 }
 
-}  // namespace fv
+}   // namespace fv

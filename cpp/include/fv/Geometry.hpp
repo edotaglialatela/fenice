@@ -35,4 +35,4 @@ std::string naca_digits(const std::string& shape);
 // for a flow along +x) and moved so the quarter chord sits at (xq, yq).
 Polygon2D place_airfoil(const Polygon2D& unit, double chord, double aoa_deg, double xq, double yq);
 
-}  // namespace fv
+}   // namespace fv

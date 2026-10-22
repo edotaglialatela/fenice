@@ -6,7 +6,10 @@ namespace fv {
 
 std::vector<double> linspace(double a, double b, int n) {
     std::vector<double> v(std::max(n, 0));
-    if (n == 1) { v[0] = a; return v; }
+    if (n == 1) {
+        v[0] = a;
+        return v;
+    }
     const double step = (b - a) / (n - 1);
     for (int k = 0; k < n; ++k) v[k] = k * step + a;
     if (n > 1) v[n - 1] = b;
@@ -18,13 +21,17 @@ namespace {
 // normalised distance (unclamped -> linear extrapolation).
 inline void find_index(const std::vector<double>& g, double x, int& i, double& t) {
     const int n = static_cast<int>(g.size());
-    if (n < 2) { i = 0; t = 0.0; return; }
+    if (n < 2) {
+        i = 0;
+        t = 0.0;
+        return;
+    }
     i = static_cast<int>(std::lower_bound(g.begin(), g.end(), x) - g.begin()) - 1;
     if (i < 0) i = 0;
     if (i > n - 2) i = n - 2;
     t = (x - g[i]) / (g[i + 1] - g[i]);
 }
-}  // namespace
+}   // namespace
 
 State GridInterp2D::operator()(double x, double y) const {
     const int nx = static_cast<int>(xs_.size());
@@ -48,12 +55,12 @@ State GridInterp2D::operator()(double x, double y) const {
 Field map_solution(const Field& U_coarse, int nx_c, int ny_c, int nx_f, int ny_f, double Lx, double Ly) {
     const double dx_c = Lx / nx_c, dy_c = Ly / ny_c;
     const double dx_f = Lx / nx_f, dy_f = Ly / ny_f;
-    GridInterp2D interp(linspace(dx_c / 2.0, Lx - dx_c / 2.0, nx_c),
-                        linspace(dy_c / 2.0, Ly - dy_c / 2.0, ny_c), U_coarse);
+    GridInterp2D interp(linspace(dx_c / 2.0, Lx - dx_c / 2.0, nx_c), linspace(dy_c / 2.0, Ly - dy_c / 2.0, ny_c),
+                        U_coarse);
     const auto x_f = linspace(dx_f / 2.0, Lx - dx_f / 2.0, nx_f);
     const auto y_f = linspace(dy_f / 2.0, Ly - dy_f / 2.0, ny_f);
     Field U_fine(static_cast<size_t>(nx_f) * ny_f);
-#pragma omp parallel for schedule(static) if(nx_f * ny_f >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (nx_f * ny_f >= kOmpMinWork)
     for (int j = 0; j < ny_f; ++j)
         for (int i = 0; i < nx_f; ++i) U_fine[j * nx_f + i] = interp(x_f[i], y_f[j]);
     return U_fine;
@@ -61,19 +68,26 @@ Field map_solution(const Field& U_coarse, int nx_c, int ny_c, int nx_f, int ny_f
 
 Field map_solution_3d(const Field& U_c, int nx_c, int ny_c, int nz_c, int nx_f, int ny_f, int nz_f, double Lx,
                       double Ly, double Lz) {
-    auto centres = [](double L, int n) { const double h = L / n; return linspace(h / 2.0, L - h / 2.0, n); };
+    auto centres = [](double L, int n) {
+        const double h = L / n;
+        return linspace(h / 2.0, L - h / 2.0, n);
+    };
     const auto xc = centres(Lx, nx_c), yc = centres(Ly, ny_c), zc = centres(Lz, nz_c);
     const auto xf = centres(Lx, nx_f), yf = centres(Ly, ny_f), zf = centres(Lz, nz_f);
     // Interval index and weight per axis (scipy RegularGridInterpolator: clamped index, extrapolating weight)
     auto locate = [](const std::vector<double>& g, double x, int& i, double& t) {
         const int n = static_cast<int>(g.size());
-        if (n < 2) { i = 0; t = 0.0; return; }
+        if (n < 2) {
+            i = 0;
+            t = 0.0;
+            return;
+        }
         i = static_cast<int>(std::lower_bound(g.begin(), g.end(), x) - g.begin()) - 1;
         i = std::min(std::max(i, 0), n - 2);
         t = (x - g[i]) / (g[i + 1] - g[i]);
     };
     Field U_f(static_cast<size_t>(nx_f) * ny_f * nz_f);
-#pragma omp parallel for schedule(static) if(nx_f * ny_f * nz_f >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (nx_f * ny_f * nz_f >= kOmpMinWork)
     for (int k = 0; k < nz_f; ++k)
         for (int j = 0; j < ny_f; ++j)
             for (int i = 0; i < nx_f; ++i) {
@@ -112,4 +126,4 @@ Field restrict_patch(const Field& U_fine, int nx_f, int ny_f, int nx_c, int ny_c
     return U_c;
 }
 
-}  // namespace fv
+}   // namespace fv

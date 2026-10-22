@@ -18,7 +18,7 @@ inline int isize(const Field& f) { return static_cast<int>(f.size()); }
 void axpy(Field& out, const Field& a, double s, const Field& b) {
     const int n = isize(a);
     out.resize(a.size());
-#pragma omp parallel for schedule(static) if(n >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int c = 0; c < n; ++c)
         for (int q = 0; q < kNVar; ++q) out[c][q] = a[c][q] + s * b[c][q];
 }
@@ -28,14 +28,14 @@ std::string lower(std::string s) {
     return s;
 }
 
-}  // namespace
+}   // namespace
 
 TimeSchemeType parse_time_scheme(const std::string& s_in) {
     const std::string s = lower(s_in);
     if (s == "explicit euler" || s == "euler" || s == "explicit_euler") return TimeSchemeType::ExplicitEuler;
-    if (s == "ssp runge-kutta 2" || s == "ssprk2" || s == "rk2")        return TimeSchemeType::SSPRK2;
-    if (s == "runge-kutta 4" || s == "rk4")                             return TimeSchemeType::RungeKutta4;
-    if (s == "bdf2 dual time" || s == "bdf2")                           return TimeSchemeType::BDF2DualTime;
+    if (s == "ssp runge-kutta 2" || s == "ssprk2" || s == "rk2") return TimeSchemeType::SSPRK2;
+    if (s == "runge-kutta 4" || s == "rk4") return TimeSchemeType::RungeKutta4;
+    if (s == "bdf2 dual time" || s == "bdf2") return TimeSchemeType::BDF2DualTime;
     throw std::invalid_argument("Unknown time scheme: '" + s_in + "'");
 }
 
@@ -71,11 +71,11 @@ namespace {
 // U <- 0.5*U + 0.5*(U1 + dt*R2)
 void ssp_combine(Field& U, const Field& U1, double dt, const Field& R2) {
     const int n = isize(U);
-#pragma omp parallel for schedule(static) if(n >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int c = 0; c < n; ++c)
         for (int q = 0; q < kNVar; ++q) U[c][q] = 0.5 * U[c][q] + 0.5 * (U1[c][q] + dt * R2[c][q]);
 }
-}  // namespace
+}   // namespace
 
 StepResult SSPRK2::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
     const double s1 = res(U, R1_);
@@ -104,12 +104,11 @@ namespace {
 void rk4_combine(Field& U, double dt, const Field& k1, const Field& k2, const Field& k3, const Field& k4) {
     const int n = isize(U);
     const double w = dt / 6.0;
-#pragma omp parallel for schedule(static) if(n >= kOmpMinWork)
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int c = 0; c < n; ++c)
-        for (int q = 0; q < kNVar; ++q)
-            U[c][q] = U[c][q] + w * (k1[c][q] + 2.0 * k2[c][q] + 2.0 * k3[c][q] + k4[c][q]);
+        for (int q = 0; q < kNVar; ++q) U[c][q] = U[c][q] + w * (k1[c][q] + 2.0 * k2[c][q] + 2.0 * k3[c][q] + k4[c][q]);
 }
-}  // namespace
+}   // namespace
 
 StepResult RungeKutta4::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
     const double s1 = res(U, R1_);
@@ -148,17 +147,17 @@ BDF2DualTime::BDF2DualTime(double cfl, double dt_phys, int max_inner_iter, doubl
 
 StepResult BDF2DualTime::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
     const double dt_phys = std::min(dt_phys_, t_max - t);
-    const bool   bdf1    = first_step_;   // BDF1 bootstrap: U^{n-1} := U^n
-    const double alpha   = bdf1 ? 1.0 / dt_phys : 1.5 / dt_phys;
-    const Field& U_n     = U;
-    const int    n       = isize(U);
+    const bool bdf1 = first_step_;   // BDF1 bootstrap: U^{n-1} := U^n
+    const double alpha = bdf1 ? 1.0 / dt_phys : 1.5 / dt_phys;
+    const Field& U_n = U;
+    const int n = isize(U);
 
-    Field  U_star = U;
-    Field& R      = R1_;
+    Field U_star = U;
+    Field& R = R1_;
     Field& R_star = R2_;
     R_star.resize(U.size());
     double S_last = 1.0;
-    double R0     = -1.0;
+    double R0 = -1.0;
     inner_iter_last_ = max_inner_iter_;
 
     for (int k = 0; k < max_inner_iter_; ++k) {
@@ -167,7 +166,7 @@ StepResult BDF2DualTime::step(Field& U, const ResidualFn& res, double min_delta,
         S_last = S;
 
         double local_max = 0.0;
-#pragma omp parallel if(n >= kOmpMinWork)
+#pragma omp parallel if (n >= kOmpMinWork)
         {
             double lm = 0.0;
 #pragma omp for schedule(static) nowait
@@ -192,20 +191,21 @@ StepResult BDF2DualTime::step(Field& U, const ResidualFn& res, double min_delta,
         axpy(U_star, U_star, dt_pseudo, R_star);
     }
 
-    U_prev_     = U;
+    U_prev_ = U;
     first_step_ = false;
     U.swap(U_star);
     return {dt_phys, S_last};
 }
 
-std::unique_ptr<TimeScheme> make_time_scheme(TimeSchemeType type, double cfl, double dt_phys,
-                                             int max_inner_iter, double inner_tol_rel) {
+std::unique_ptr<TimeScheme> make_time_scheme(TimeSchemeType type, double cfl, double dt_phys, int max_inner_iter,
+                                             double inner_tol_rel) {
     switch (type) {
-        case TimeSchemeType::SSPRK2:       return std::make_unique<SSPRK2>(cfl);
-        case TimeSchemeType::RungeKutta4:  return std::make_unique<RungeKutta4>(cfl);
-        case TimeSchemeType::BDF2DualTime: return std::make_unique<BDF2DualTime>(cfl, dt_phys, max_inner_iter, inner_tol_rel);
-        default:                           return std::make_unique<ExplicitEuler>(cfl);
+    case TimeSchemeType::SSPRK2: return std::make_unique<SSPRK2>(cfl);
+    case TimeSchemeType::RungeKutta4: return std::make_unique<RungeKutta4>(cfl);
+    case TimeSchemeType::BDF2DualTime:
+        return std::make_unique<BDF2DualTime>(cfl, dt_phys, max_inner_iter, inner_tol_rel);
+    default: return std::make_unique<ExplicitEuler>(cfl);
     }
 }
 
-}  // namespace fv
+}   // namespace fv

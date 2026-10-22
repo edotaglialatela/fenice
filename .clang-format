@@ -1,0 +1,26 @@
+---
+# Style of the existing sources, written down so that clang-format keeps it.
+# Run:  clang-format -i $(git ls-files 'cpp/*.cpp' 'cpp/*.hpp' ':!cpp/third_party')
+BasedOnStyle: LLVM
+Language: Cpp
+Standard: c++17
+IndentWidth: 4
+ColumnLimit: 120
+AccessModifierOffset: -4
+PointerAlignment: Left
+NamespaceIndentation: None
+BreakBeforeBraces: Attach
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+AllowShortBlocksOnASingleLine: Always
+AllowShortCaseLabelsOnASingleLine: true
+AllowShortLambdasOnASingleLine: All
+AlignConsecutiveAssignments: None
+AlignConsecutiveDeclarations: None
+AlignTrailingComments: true
+SpacesBeforeTrailingComments: 3
+# Keep comments, includes and the wording of the code as written
+ReflowComments: false
+SortIncludes: Never
+IndentPPDirectives: None

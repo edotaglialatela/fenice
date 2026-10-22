@@ -23,14 +23,13 @@ AMRTree::AMRTree(double Lx_, double Ly_, int nxp, int nyp, int max_lvl, int nrx,
     // must tile 1 coarse cell: odd dimensions break conservation.
     if (max_level > 0 && (nxp % 2 != 0 || nyp % 2 != 0))
         throw std::invalid_argument(
-            "AMR patch dimensions must be EVEN for refinement to align 2:1 (got nx_patch=" +
-            std::to_string(nxp) + ", ny_patch=" + std::to_string(nyp) +
-            "). Odd dimensions break conservation.");
+            "AMR patch dimensions must be EVEN for refinement to align 2:1 (got nx_patch=" + std::to_string(nxp) +
+            ", ny_patch=" + std::to_string(nyp) + "). Odd dimensions break conservation.");
     if (nrx < 1 || nry < 1) throw std::invalid_argument("AMR needs at least one root patch per axis");
     nslot_x_ = nrx << max_level;
     nslot_y_ = nry << max_level;
-    slot_w_  = Lx / nslot_x_;
-    slot_h_  = Ly / nslot_y_;
+    slot_w_ = Lx / nslot_x_;
+    slot_h_ = Ly / nslot_y_;
     for (int j = 0; j < nry; ++j)
         for (int i = 0; i < nrx; ++i)
             roots.push_back(new_patch(Lx * i / nrx, Lx * (i + 1) / nrx, Ly * j / nry, Ly * (j + 1) / nry, 0, nullptr));
@@ -39,11 +38,14 @@ AMRTree::AMRTree(double Lx_, double Ly_, int nxp, int nyp, int max_lvl, int nrx,
 
 AMRPatch* AMRTree::new_patch(double x0, double x1, double y0, double y1, int level, AMRPatch* parent) {
     auto p = std::make_unique<AMRPatch>();
-    p->xmin = x0; p->xmax = x1; p->ymin = y0; p->ymax = y1;
-    p->level  = level;
+    p->xmin = x0;
+    p->xmax = x1;
+    p->ymin = y0;
+    p->ymax = y1;
+    p->level = level;
     p->parent = parent;
-    p->id     = next_id_++;
-    p->mesh   = generate_cartesian_mesh(x1 - x0, y1 - y0, nx_patch, ny_patch, x0, y0);
+    p->id = next_id_++;
+    p->mesh = generate_cartesian_mesh(x1 - x0, y1 - y0, nx_patch, ny_patch, x0, y0);
     // Cell size from the base grid by exact halving, so tiled patches share the uniform mesh's dx
     p->mesh.dx = std::ldexp(Lx / (nroot_x * nx_patch), -level);
     p->mesh.dy = std::ldexp(Ly / (nroot_y * ny_patch), -level);
@@ -55,7 +57,10 @@ AMRPatch* AMRTree::new_patch(double x0, double x1, double y0, double y1, int lev
 }
 
 void AMRTree::collect_leaves(AMRPatch* p, std::vector<AMRPatch*>& out) {
-    if (p->is_leaf()) { out.push_back(p); return; }
+    if (p->is_leaf()) {
+        out.push_back(p);
+        return;
+    }
     for (AMRPatch* c : p->children) collect_leaves(c, out);
 }
 
@@ -210,12 +215,28 @@ std::vector<AMRPatch*> AMRTree::neighbour_leaves(const AMRPatch* p, Face face) c
     slots_of(p, i0, i1, j0, j1);
     // Slot range just outside the patch along `face`
     switch (face) {
-        case Face::Left:   if (i0 <= 0) return out;           i1 = i0;     i0 = i0 - 1; break;
-        case Face::Right:  if (i1 >= nslot_x_) return out;    i0 = i1;     i1 = i1 + 1; break;
-        case Face::Bottom: if (j0 <= 0) return out;           j1 = j0;     j0 = j0 - 1; break;
-        case Face::Top:    if (j1 >= nslot_y_) return out;    j0 = j1;     j1 = j1 + 1; break;
-        case Face::Front:
-        case Face::Back:   return out;   // AMR is 2-D only
+    case Face::Left:
+        if (i0 <= 0) return out;
+        i1 = i0;
+        i0 = i0 - 1;
+        break;
+    case Face::Right:
+        if (i1 >= nslot_x_) return out;
+        i0 = i1;
+        i1 = i1 + 1;
+        break;
+    case Face::Bottom:
+        if (j0 <= 0) return out;
+        j1 = j0;
+        j0 = j0 - 1;
+        break;
+    case Face::Top:
+        if (j1 >= nslot_y_) return out;
+        j0 = j1;
+        j1 = j1 + 1;
+        break;
+    case Face::Front:
+    case Face::Back: return out;   // AMR is 2-D only
     }
     for (int j = j0; j < j1; ++j)
         for (int i = i0; i < i1; ++i) {
@@ -252,15 +273,15 @@ namespace {
 std::uint64_t morton_key(std::uint32_t x, std::uint32_t y) {
     auto spread = [](std::uint64_t v) {
         v = (v | (v << 16)) & 0x0000FFFF0000FFFFull;
-        v = (v | (v << 8))  & 0x00FF00FF00FF00FFull;
-        v = (v | (v << 4))  & 0x0F0F0F0F0F0F0F0Full;
-        v = (v | (v << 2))  & 0x3333333333333333ull;
-        v = (v | (v << 1))  & 0x5555555555555555ull;
+        v = (v | (v << 8)) & 0x00FF00FF00FF00FFull;
+        v = (v | (v << 4)) & 0x0F0F0F0F0F0F0F0Full;
+        v = (v | (v << 2)) & 0x3333333333333333ull;
+        v = (v | (v << 1)) & 0x5555555555555555ull;
         return v;
     };
     return spread(x) | (spread(y) << 1);
 }
-}  // namespace
+}   // namespace
 
 void assign_ownership(AMRTree& tree, int rank, int size) {
     constexpr int kStencil = 2;   // cells of the owner's own level a residual reads across an interface
@@ -271,12 +292,16 @@ void assign_ownership(AMRTree& tree, int rank, int size) {
         for (AMRPatch* p : lv)
             if (p->level == level)
                 at.emplace_back(morton_key(static_cast<std::uint32_t>(std::lround(p->xmin / sw)),
-                                           static_cast<std::uint32_t>(std::lround(p->ymin / sh))), p);
+                                           static_cast<std::uint32_t>(std::lround(p->ymin / sh))),
+                                p);
         std::sort(at.begin(), at.end(), [](const auto& a, const auto& b) { return a.first < b.first; });
         const long long n = static_cast<long long>(at.size());
         for (long long k = 0; k < n; ++k) at[k].second->owner = static_cast<int>(k * size / n);
     }
-    for (AMRPatch* p : lv) { p->viewers.clear(); p->peers.clear(); }
+    for (AMRPatch* p : lv) {
+        p->viewers.clear();
+        p->peers.clear();
+    }
     auto add = [](std::vector<int>& v, int r) {
         const auto it = std::lower_bound(v.begin(), v.end(), r);
         if (it == v.end() || *it != r) v.insert(it, r);
@@ -297,8 +322,7 @@ void assign_ownership(AMRTree& tree, int rank, int size) {
 
 namespace {
 // Lohner ratio of the scalar `value(cell)` over a patch
-template <class F>
-double lohner_eta(const AMRPatch& patch, F value) {
+template <class F> double lohner_eta(const AMRPatch& patch, F value) {
     const int nx = patch.nx(), ny = patch.ny();
     const int PW = nx + 2;
     // Anti-symmetric (odd) reflection: ghost = 2*edge - interior, so a linear
@@ -313,11 +337,11 @@ double lohner_eta(const AMRPatch& patch, F value) {
         }
     auto R = [&](int jj, int ii) -> double& { return rp[jj * PW + ii]; };
     for (int j = 1; j <= ny; ++j) {
-        R(j, 0)      = 2.0 * R(j, 1) - (nx > 1 ? R(j, 2) : R(j, 1));
+        R(j, 0) = 2.0 * R(j, 1) - (nx > 1 ? R(j, 2) : R(j, 1));
         R(j, nx + 1) = 2.0 * R(j, nx) - (nx > 1 ? R(j, nx - 1) : R(j, nx));
     }
     for (int i = 1; i <= nx; ++i) {
-        R(0, i)      = 2.0 * R(1, i) - (ny > 1 ? R(2, i) : R(1, i));
+        R(0, i) = 2.0 * R(1, i) - (ny > 1 ? R(2, i) : R(1, i));
         R(ny + 1, i) = 2.0 * R(ny, i) - (ny > 1 ? R(ny - 1, i) : R(ny, i));
     }
     const double floor = 0.01 * (rho_max + 1e-12);
@@ -333,15 +357,15 @@ double lohner_eta(const AMRPatch& patch, F value) {
         }
     return eta;
 }
-}  // namespace
+}   // namespace
 
 double AMRErrorIndicator::indicator(const AMRPatch& patch) const {
     double eta = 0.0;
     if (use_density) eta = lohner_eta(patch, [](const State& c) { return c[0]; });
     if (use_speed)
         eta = std::max(eta, lohner_eta(patch, [](const State& c) {
-            return std::sqrt(c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0];
-        }));
+                           return std::sqrt(c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0];
+                       }));
     return eta;
 }
 
@@ -374,7 +398,10 @@ void AMRErrorIndicator::mark(AMRTree& tree, const std::map<int, double>& eta_in,
             bool ok = true;
             for (AMRPatch* s : p->parent->children) {
                 auto it = eta.find(s->id);
-                if (!s->is_leaf() || (it == eta.end() ? 999.0 : it->second) >= derefine_threshold) { ok = false; break; }
+                if (!s->is_leaf() || (it == eta.end() ? 999.0 : it->second) >= derefine_threshold) {
+                    ok = false;
+                    break;
+                }
             }
             if (ok && std::find(to_derefine.begin(), to_derefine.end(), p->parent) == to_derefine.end())
                 to_derefine.push_back(p->parent);
@@ -420,12 +447,24 @@ namespace {
 void face_edge_indices(int nx, int ny, Face face, char& which, std::vector<int>& idx) {
     idx.clear();
     switch (face) {
-        case Face::Left:   which = 'x'; for (int j = 0; j < ny; ++j) idx.push_back(j * (nx + 1)); break;
-        case Face::Right:  which = 'x'; for (int j = 0; j < ny; ++j) idx.push_back(j * (nx + 1) + nx); break;
-        case Face::Bottom: which = 'y'; for (int i = 0; i < nx; ++i) idx.push_back(i); break;
-        case Face::Top:    which = 'y'; for (int i = 0; i < nx; ++i) idx.push_back(ny * nx + i); break;
-        case Face::Front:
-        case Face::Back:   break;   // AMR is 2-D only
+    case Face::Left:
+        which = 'x';
+        for (int j = 0; j < ny; ++j) idx.push_back(j * (nx + 1));
+        break;
+    case Face::Right:
+        which = 'x';
+        for (int j = 0; j < ny; ++j) idx.push_back(j * (nx + 1) + nx);
+        break;
+    case Face::Bottom:
+        which = 'y';
+        for (int i = 0; i < nx; ++i) idx.push_back(i);
+        break;
+    case Face::Top:
+        which = 'y';
+        for (int i = 0; i < nx; ++i) idx.push_back(ny * nx + i);
+        break;
+    case Face::Front:
+    case Face::Back: break;   // AMR is 2-D only
     }
 }
 
@@ -458,7 +497,7 @@ void accumulate_fine_face_fluxes(AMRTree& tree, int level, double dt_fine, int r
         for (Face face : f->reflux_faces) {
             face_edge_indices(f->nx(), f->ny(), face, which, idx);
             const Field& src = (which == 'x') ? f->last_flux_x : f->last_flux_y;
-            Field&       reg = (which == 'x') ? f->reflux_fx : f->reflux_fy;
+            Field& reg = (which == 'x') ? f->reflux_fx : f->reflux_fy;
             for (int k : idx)
                 for (int q = 0; q < kNVar; ++q) reg[k][q] += dt_fine * src[k][q];
         }
@@ -505,8 +544,10 @@ void apply_reflux(AMRTree& tree, int level, double dt, int rank, bool dist) {
                     face_edge_indices(g->nx(), g->ny(), opp, which_g, idx_g);
                     const Field& reg = (which_g == 'x') ? g->reflux_fx : g->reflux_fy;
                     int kf;
-                    if (vertical) kf = std::min(std::max(static_cast<int>((coord - g->ymin) / g->mesh.dy), 0), g->ny() - 1);
-                    else          kf = std::min(std::max(static_cast<int>((coord - g->xmin) / g->mesh.dx), 0), g->nx() - 1);
+                    if (vertical)
+                        kf = std::min(std::max(static_cast<int>((coord - g->ymin) / g->mesh.dy), 0), g->ny() - 1);
+                    else
+                        kf = std::min(std::max(static_cast<int>((coord - g->xmin) / g->mesh.dx), 0), g->nx() - 1);
                     for (int q = 0; q < kNVar; ++q) sumF[q] += reg[idx_g[kf]][q];
                 }
                 const int ic = vertical ? (face == Face::Left ? 0 : nx_c - 1) : k;
@@ -544,8 +585,8 @@ bool has_rank(const std::vector<int>& v, int r) { return std::find(v.begin(), v.
 // Send the data of every leaf of `list` from its owner to the ranks dest[k] names (the receivers
 // resize their copy to the expected size). Every rank calls this with the same arguments; a rank
 // with nothing to send or receive just passes empty buffers.
-void push_fields(const AMRParallel& par, const std::vector<AMRPatch*>& list, const std::vector<std::vector<int>>& dest, Kind kind,
-                 const std::vector<int>* src = nullptr) {
+void push_fields(const AMRParallel& par, const std::vector<AMRPatch*>& list, const std::vector<std::vector<int>>& dest,
+                 Kind kind, const std::vector<int>* src = nullptr) {
     std::vector<std::vector<double>> send(par.size), recv(par.size);
     auto from = [&](size_t k) { return src ? (*src)[k] : list[k]->owner; };
     for (size_t k = 0; k < list.size(); ++k) {
@@ -604,7 +645,7 @@ void exchange_reflux(AMRTree& tree, int level, const AMRParallel& par) {
     push_fields(par, list, dest, Kind::Reflux);
 }
 
-}  // namespace
+}   // namespace
 
 std::vector<double> allgather_leaf_values(AMRTree& tree, const AMRParallel* par, int width,
                                           const std::function<void(AMRPatch&, double*)>& fn) {
@@ -647,11 +688,15 @@ Field gather_leaves_on_root(AMRTree& tree, const AMRParallel& par) {
     if (par.rank != 0) return all;
     std::vector<size_t> pos(par.size, 0);
     for (const AMRPatch* p : lv) {
-        if (p->owner == 0) { all.insert(all.end(), p->U.begin(), p->U.end()); continue; }
+        if (p->owner == 0) {
+            all.insert(all.end(), p->U.begin(), p->U.end());
+            continue;
+        }
         const size_t n = static_cast<size_t>(p->nx()) * p->ny();
         for (size_t c = 0; c < n; ++c) {
             State st;
-            std::copy(recv[p->owner].begin() + pos[p->owner], recv[p->owner].begin() + pos[p->owner] + kNVar, st.begin());
+            std::copy(recv[p->owner].begin() + pos[p->owner], recv[p->owner].begin() + pos[p->owner] + kNVar,
+                      st.begin());
             pos[p->owner] += kNVar;
             all.push_back(st);
         }
@@ -691,12 +736,14 @@ void check_same_tree(AMRTree& tree, const AMRParallel& par) {
     if (par.allreduce_max(v) != v || par.allreduce_max(-v) != -v)
         throw std::runtime_error("AMR: the ranks' trees diverged after the remesh");
 }
-}  // namespace
+}   // namespace
 
 void allocate_held(AMRTree& tree) {
     for (AMRPatch* l : tree.leaves()) {
-        if (l->held) { if (l->U.empty()) l->U.assign(static_cast<size_t>(l->nx()) * l->ny(), State{0, 0, 0, 0}); }
-        else release_leaf(*l);
+        if (l->held) {
+            if (l->U.empty()) l->U.assign(static_cast<size_t>(l->nx()) * l->ny(), State{0, 0, 0, 0});
+        } else
+            release_leaf(*l);
     }
 }
 
@@ -705,7 +752,8 @@ void remesh(AMRTree& tree, const AMRErrorIndicator& ind, const AMRParallel* par)
     std::vector<AMRPatch*> to_refine, to_derefine;
     if (dist) {
         const auto lv = tree.leaves();
-        const auto eta = allgather_leaf_values(tree, par, 1, [&](AMRPatch& leaf, double* o) { *o = ind.indicator(leaf); });
+        const auto eta =
+            allgather_leaf_values(tree, par, 1, [&](AMRPatch& leaf, double* o) { *o = ind.indicator(leaf); });
         std::map<int, double> by_id;
         for (size_t k = 0; k < lv.size(); ++k) by_id[lv[k]->id] = eta[k];
         ind.mark(tree, by_id, to_refine, to_derefine);
@@ -730,7 +778,10 @@ void remesh(AMRTree& tree, const AMRErrorIndicator& ind, const AMRParallel* par)
         bool leaf_kids = !parent->is_leaf();
         for (AMRPatch* c : parent->children) leaf_kids = leaf_kids && c->is_leaf();
         if (!leaf_kids) continue;
-        if (!dist) { tree.derefine_patch(parent); continue; }
+        if (!dist) {
+            tree.derefine_patch(parent);
+            continue;
+        }
         // The owner of the first child averages: its halo contains the siblings, so no message is needed
         const int collector = parent->children[0]->owner;
         for (const AMRPatch* c : parent->children)
@@ -761,7 +812,8 @@ void remesh(AMRTree& tree, const AMRErrorIndicator& ind, const AMRParallel* par)
         if (!have) throw std::logic_error("AMR remesh: a leaf has no known holder");
         std::vector<int> need = l->viewers, missing;
         need.push_back(l->owner);
-        for (int r : need) if (!has_rank(*have, r)) missing.push_back(r);
+        for (int r : need)
+            if (!has_rank(*have, r)) missing.push_back(r);
         if (missing.empty()) continue;
         std::sort(missing.begin(), missing.end());
         moved.push_back(l);
@@ -770,7 +822,8 @@ void remesh(AMRTree& tree, const AMRErrorIndicator& ind, const AMRParallel* par)
     }
     push_fields(*par, moved, dest, Kind::State, &src);
     for (AMRPatch* l : lv) {
-        if (!l->held) release_leaf(*l);
+        if (!l->held)
+            release_leaf(*l);
         else if (l->owner != par->rank) {   // a halo copy: no masks, they follow the owner
             std::vector<char>().swap(l->solid);
             std::vector<char>().swap(l->solid_ext);
@@ -808,8 +861,11 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
         // Freeze every leaf so patches of other levels read one neighbour snapshot
         // (guardcell-then-advance); required for flux conservation.
         for (AMRPatch* p : lv) {
-            if (!dist || p->held) p->U_ghost = p->U;
-            else p->U_ghost.assign(p->U.size(), State{kPoison, kPoison, kPoison, kPoison, kPoison});   // not held: must not be read
+            if (!dist || p->held)
+                p->U_ghost = p->U;
+            else
+                p->U_ghost.assign(p->U.size(),
+                                  State{kPoison, kPoison, kPoison, kPoison, kPoison});   // not held: must not be read
             p->has_ghost = true;
         }
         // The patches of this level are one ODE system: concatenate them and advance with a single
@@ -826,17 +882,19 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
         for (int k = 0; k < n_at; ++k) std::copy(mine[k]->U.begin(), mine[k]->U.end(), Ucat.begin() + off[k]);
         const ResidualFn res = [&](const Field& Uin, Field& R) {
             R.resize(Uin.size());
-            for (int k = 0; k < n_at; ++k) std::copy(Uin.begin() + off[k], Uin.begin() + off[k + 1], mine[k]->U_ghost.begin());
+            for (int k = 0; k < n_at; ++k)
+                std::copy(Uin.begin() + off[k], Uin.begin() + off[k + 1], mine[k]->U_ghost.begin());
             if (dist) push_fields(*par, at_level, stage_dest, Kind::Ghost);   // same-level neighbours at this stage
             double s_max = 0.0;
-#pragma omp parallel if(n_at > 1)
+#pragma omp parallel if (n_at > 1)
             {
                 Field Rk;
                 double s_local = 0.0;
 #pragma omp for schedule(dynamic)
                 for (int k = 0; k < n_at; ++k) {
                     AMRPatch* patch = mine[k];
-                    s_local = std::max(s_local, residual(*patch, tree, patch->U_ghost, Rk, patch->last_flux_x, patch->last_flux_y));
+                    s_local = std::max(
+                        s_local, residual(*patch, tree, patch->U_ghost, Rk, patch->last_flux_x, patch->last_flux_y));
                     std::copy(Rk.begin(), Rk.end(), R.begin() + off[k]);
                 }
 #pragma omp critical(fv_amr_smax)
@@ -859,4 +917,4 @@ double advance_amr_level(AMRTree& tree, int level, double dt, double current_tim
     return S_max;
 }
 
-}  // namespace fv
+}   // namespace fv

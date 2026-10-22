@@ -51,11 +51,15 @@ void append_base64(std::string& s, const uint8_t* d, size_t n) {
     size_t i = 0;
     for (; i + 2 < n; i += 3) {
         const uint32_t v = (uint32_t(d[i]) << 16) | (uint32_t(d[i + 1]) << 8) | d[i + 2];
-        s += abc[v >> 18]; s += abc[(v >> 12) & 63]; s += abc[(v >> 6) & 63]; s += abc[v & 63];
+        s += abc[v >> 18];
+        s += abc[(v >> 12) & 63];
+        s += abc[(v >> 6) & 63];
+        s += abc[v & 63];
     }
     if (i < n) {
         const uint32_t v = (uint32_t(d[i]) << 16) | (i + 1 < n ? uint32_t(d[i + 1]) << 8 : 0u);
-        s += abc[v >> 18]; s += abc[(v >> 12) & 63];
+        s += abc[v >> 18];
+        s += abc[(v >> 12) & 63];
         s += i + 1 < n ? abc[(v >> 6) & 63] : '=';
         s += '=';
     }
@@ -89,16 +93,19 @@ void data_array(std::string& s, const char* attrs, const std::vector<double>& d,
 }
 
 // One RectilinearGrid piece; `level` < 0 means no AMR_Level field.
-std::string build_vtr(const EOS& eos, const Field& U, int nx, int ny, double x0, double x1,
-                      double y0, double y1, int level, bool binary, int nz = 1, double z0 = 0.0, double z1 = 0.0) {
+std::string build_vtr(const EOS& eos, const Field& U, int nx, int ny, double x0, double x1, double y0, double y1,
+                      int level, bool binary, int nz = 1, double z0 = 0.0, double z1 = 0.0) {
     const int n = nx * ny * nz;
     const bool three_d = nz > 1;
     std::vector<double> rho(n), u(n), v(n), w(n), p(n), T(n), mach(n);
     for (int c = 0; c < n; ++c) {
         const State W = eos.cons_to_prim(U[c]);
-        rho[c] = sanitize(W[0]); u[c] = sanitize(W[1]); v[c] = sanitize(W[2]); p[c] = sanitize(W[3]);
-        w[c]   = sanitize(W[4]);
-        T[c]   = sanitize(p[c] / (rho[c] + 1e-12));
+        rho[c] = sanitize(W[0]);
+        u[c] = sanitize(W[1]);
+        v[c] = sanitize(W[2]);
+        p[c] = sanitize(W[3]);
+        w[c] = sanitize(W[4]);
+        T[c] = sanitize(p[c] / (rho[c] + 1e-12));
         const double cs = eos.sound_speed(p[c], rho[c]);
         mach[c] = sanitize(std::sqrt(u[c] * u[c] + v[c] * v[c] + (three_d ? w[c] * w[c] : 0.0)) / (cs + 1e-12));
     }
@@ -153,7 +160,7 @@ std::string step_name(const std::string& prefix, int step, const char* ext) {
     return prefix + buf + ext;
 }
 
-}  // namespace
+}   // namespace
 
 // ---------------------------------------------------------------------------
 // VTKExporter
@@ -165,8 +172,8 @@ VTKExporter::VTKExporter(std::string output_dir, bool verbose, bool binary)
     if (verbose) std::printf("[EXPORTER] Output directory: '%s' (%s VTK)\n", dir_.c_str(), binary ? "binary" : "ASCII");
 }
 
-void VTKExporter::export_vtr(const std::string& prefix, const EOS& eos, const Field& U, const Mesh& mesh,
-                             double time, int step) {
+void VTKExporter::export_vtr(const std::string& prefix, const EOS& eos, const Field& U, const Mesh& mesh, double time,
+                             int step) {
     const std::string name = step_name(prefix, step, ".vtr");
     write_file_atomic(fs::path(dir_) / name, build_vtr(eos, U, mesh.nx, mesh.ny, 0.0, mesh.Lx, 0.0, mesh.Ly, -1,
                                                        binary_, mesh.nz, 0.0, mesh.Lz));
@@ -185,8 +192,8 @@ void VTKExporter::export_amr(const std::string& prefix, const EOS& eos, const AM
         std::snprintf(base, sizeof(base), "p%04d.vtr", idx++);
         if (size == 1 || patch->owner == rank)
             write_file_atomic(fs::path(dir_) / block_dir / base,
-                              build_vtr(eos, patch->U, patch->nx(), patch->ny(), patch->xmin, patch->xmax,
-                                        patch->ymin, patch->ymax, patch->level, binary_));
+                              build_vtr(eos, patch->U, patch->nx(), patch->ny(), patch->xmin, patch->xmax, patch->ymin,
+                                        patch->ymax, patch->level, binary_));
         leaf_files.push_back(block_dir + "/" + base);
     }
     if (size > 1) {
@@ -202,8 +209,8 @@ void VTKExporter::export_amr(const std::string& prefix, const EOS& eos, const AM
                     "  <vtkMultiBlockDataSet>\n";
     char line[512];
     for (size_t k = 0; k < leaf_files.size(); ++k) {
-        std::snprintf(line, sizeof(line), "    <DataSet index=\"%zu\" name=\"patch_%04zu\" file=\"%s\"/>\n",
-                      k, k, leaf_files[k].c_str());
+        std::snprintf(line, sizeof(line), "    <DataSet index=\"%zu\" name=\"patch_%04zu\" file=\"%s\"/>\n", k, k,
+                      leaf_files[k].c_str());
         s += line;
     }
     s += "  </vtkMultiBlockDataSet>\n</VTKFile>\n";
@@ -250,14 +257,22 @@ std::vector<double> NpyArray::as_doubles() const {
             out[static_cast<size_t>(k)] = static_cast<double>(v);
         }
     };
-    if (t == "f8") get(double{});
-    else if (t == "f4") get(float{});
-    else if (t == "i8") get(int64_t{});
-    else if (t == "i4") get(int32_t{});
-    else if (t == "u8") get(uint64_t{});
-    else if (t == "u4") get(uint32_t{});
-    else if (t == "b1") get(uint8_t{});
-    else throw std::runtime_error("Unsupported .npy dtype '" + descr + "'");
+    if (t == "f8")
+        get(double{});
+    else if (t == "f4")
+        get(float{});
+    else if (t == "i8")
+        get(int64_t{});
+    else if (t == "i4")
+        get(int32_t{});
+    else if (t == "u8")
+        get(uint64_t{});
+    else if (t == "u4")
+        get(uint32_t{});
+    else if (t == "b1")
+        get(uint8_t{});
+    else
+        throw std::runtime_error("Unsupported .npy dtype '" + descr + "'");
     return out;
 }
 
@@ -272,10 +287,21 @@ std::vector<std::string> NpyArray::as_strings() const {
             uint32_t cp;
             std::memcpy(&cp, data.data() + (k * width + c) * 4, 4);
             if (cp == 0) break;
-            if (cp < 0x80) s += static_cast<char>(cp);
-            else if (cp < 0x800) { s += static_cast<char>(0xC0 | (cp >> 6)); s += static_cast<char>(0x80 | (cp & 0x3F)); }
-            else if (cp < 0x10000) { s += static_cast<char>(0xE0 | (cp >> 12)); s += static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); s += static_cast<char>(0x80 | (cp & 0x3F)); }
-            else { s += static_cast<char>(0xF0 | (cp >> 18)); s += static_cast<char>(0x80 | ((cp >> 12) & 0x3F)); s += static_cast<char>(0x80 | ((cp >> 6) & 0x3F)); s += static_cast<char>(0x80 | (cp & 0x3F)); }
+            if (cp < 0x80)
+                s += static_cast<char>(cp);
+            else if (cp < 0x800) {
+                s += static_cast<char>(0xC0 | (cp >> 6));
+                s += static_cast<char>(0x80 | (cp & 0x3F));
+            } else if (cp < 0x10000) {
+                s += static_cast<char>(0xE0 | (cp >> 12));
+                s += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                s += static_cast<char>(0x80 | (cp & 0x3F));
+            } else {
+                s += static_cast<char>(0xF0 | (cp >> 18));
+                s += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
+                s += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
+                s += static_cast<char>(0x80 | (cp & 0x3F));
+            }
         }
         out.push_back(s);
     }
@@ -354,7 +380,8 @@ std::string npy_bytes(const NpyArray& a) {
     header += '\n';
 
     std::string out = "\x93NUMPY";
-    out += '\x01'; out += '\x00';
+    out += '\x01';
+    out += '\x00';
     const uint16_t hl = static_cast<uint16_t>(header.size());
     out += static_cast<char>(hl & 0xFF);
     out += static_cast<char>(hl >> 8);
@@ -367,8 +394,13 @@ NpyArray parse_npy(const uint8_t* p, size_t n) {
     if (n < 10 || std::memcmp(p, "\x93NUMPY", 6) != 0) throw std::runtime_error("Not a .npy entry");
     const int major = p[6];
     size_t hlen, off;
-    if (major == 1) { hlen = p[8] | (p[9] << 8); off = 10; }
-    else { hlen = p[8] | (p[9] << 8) | (static_cast<size_t>(p[10]) << 16) | (static_cast<size_t>(p[11]) << 24); off = 12; }
+    if (major == 1) {
+        hlen = p[8] | (p[9] << 8);
+        off = 10;
+    } else {
+        hlen = p[8] | (p[9] << 8) | (static_cast<size_t>(p[10]) << 16) | (static_cast<size_t>(p[11]) << 24);
+        off = 12;
+    }
     const std::string h(reinterpret_cast<const char*>(p + off), hlen);
 
     NpyArray a;
@@ -411,8 +443,14 @@ uint32_t crc32(const uint8_t* d, size_t n) {
     return c ^ 0xFFFFFFFFu;
 }
 
-void put16(std::string& s, uint32_t v) { s += static_cast<char>(v & 0xFF); s += static_cast<char>((v >> 8) & 0xFF); }
-void put32(std::string& s, uint32_t v) { put16(s, v & 0xFFFF); put16(s, v >> 16); }
+void put16(std::string& s, uint32_t v) {
+    s += static_cast<char>(v & 0xFF);
+    s += static_cast<char>((v >> 8) & 0xFF);
+}
+void put32(std::string& s, uint32_t v) {
+    put16(s, v & 0xFFFF);
+    put16(s, v >> 16);
+}
 
 uint64_t get(const std::vector<uint8_t>& b, size_t at, int bytes) {
     if (at + bytes > b.size()) throw std::runtime_error("Truncated zip archive");
@@ -421,7 +459,7 @@ uint64_t get(const std::vector<uint8_t>& b, size_t at, int bytes) {
     return v;
 }
 
-}  // namespace
+}   // namespace
 
 void write_npz(const std::string& path, const NpzArchive& arrays) {
     std::string zip, central;
@@ -435,19 +473,35 @@ void write_npz(const std::string& path, const NpzArchive& arrays) {
         const uint32_t offset = static_cast<uint32_t>(zip.size());
 
         zip += "PK\x03\x04";
-        put16(zip, 20); put16(zip, 0); put16(zip, 0);       // version, flags, stored
-        put16(zip, 0); put16(zip, 0x21);                    // time, date (1980-01-01)
-        put32(zip, crc); put32(zip, static_cast<uint32_t>(body.size())); put32(zip, static_cast<uint32_t>(body.size()));
-        put16(zip, static_cast<uint32_t>(name.size())); put16(zip, 0);
+        put16(zip, 20);
+        put16(zip, 0);
+        put16(zip, 0);   // version, flags, stored
+        put16(zip, 0);
+        put16(zip, 0x21);   // time, date (1980-01-01)
+        put32(zip, crc);
+        put32(zip, static_cast<uint32_t>(body.size()));
+        put32(zip, static_cast<uint32_t>(body.size()));
+        put16(zip, static_cast<uint32_t>(name.size()));
+        put16(zip, 0);
         zip += name;
         zip += body;
 
         central += "PK\x01\x02";
-        put16(central, 20); put16(central, 20); put16(central, 0); put16(central, 0);
-        put16(central, 0); put16(central, 0x21);
-        put32(central, crc); put32(central, static_cast<uint32_t>(body.size())); put32(central, static_cast<uint32_t>(body.size()));
-        put16(central, static_cast<uint32_t>(name.size())); put16(central, 0); put16(central, 0);
-        put16(central, 0); put16(central, 0); put32(central, 0);
+        put16(central, 20);
+        put16(central, 20);
+        put16(central, 0);
+        put16(central, 0);
+        put16(central, 0);
+        put16(central, 0x21);
+        put32(central, crc);
+        put32(central, static_cast<uint32_t>(body.size()));
+        put32(central, static_cast<uint32_t>(body.size()));
+        put16(central, static_cast<uint32_t>(name.size()));
+        put16(central, 0);
+        put16(central, 0);
+        put16(central, 0);
+        put16(central, 0);
+        put32(central, 0);
         put32(central, offset);
         central += name;
         ++count;
@@ -455,8 +509,13 @@ void write_npz(const std::string& path, const NpzArchive& arrays) {
     const uint32_t cd_offset = static_cast<uint32_t>(zip.size());
     zip += central;
     zip += "PK\x05\x06";
-    put16(zip, 0); put16(zip, 0); put16(zip, count); put16(zip, count);
-    put32(zip, static_cast<uint32_t>(central.size())); put32(zip, cd_offset); put16(zip, 0);
+    put16(zip, 0);
+    put16(zip, 0);
+    put16(zip, count);
+    put16(zip, count);
+    put32(zip, static_cast<uint32_t>(central.size()));
+    put32(zip, cd_offset);
+    put16(zip, 0);
 
     std::ofstream out(path, std::ios::binary | std::ios::trunc);
     if (!out) throw std::runtime_error("Cannot write " + path);
@@ -473,14 +532,17 @@ NpzArchive read_npz(const std::string& path) {
     size_t eocd = std::string::npos;
     const size_t lo = b.size() > 65557 ? b.size() - 65557 : 0;
     for (size_t k = b.size() - 22 + 1; k-- > lo;)
-        if (get(b, k, 4) == 0x06054b50) { eocd = k; break; }
+        if (get(b, k, 4) == 0x06054b50) {
+            eocd = k;
+            break;
+        }
     if (eocd == std::string::npos) throw std::runtime_error("No end-of-central-directory in " + path);
     uint64_t entries = get(b, eocd + 10, 2);
-    uint64_t cd_off  = get(b, eocd + 16, 4);
+    uint64_t cd_off = get(b, eocd + 16, 4);
     if ((entries == 0xFFFF || cd_off == 0xFFFFFFFF) && eocd >= 20 && get(b, eocd - 20, 4) == 0x07064b50) {
         const size_t z = static_cast<size_t>(get(b, eocd - 20 + 8, 8));
         entries = get(b, z + 32, 8);
-        cd_off  = get(b, z + 48, 8);
+        cd_off = get(b, z + 48, 8);
     }
 
     NpzArchive out;
@@ -500,9 +562,18 @@ NpzArchive read_npz(const std::string& path) {
             const uint64_t id = get(b, x, 2), sz = get(b, x + 2, 2);
             if (id == 0x0001) {
                 size_t y = x + 4;
-                if (usize == 0xFFFFFFFF) { usize = get(b, y, 8); y += 8; }
-                if (csize == 0xFFFFFFFF) { csize = get(b, y, 8); y += 8; }
-                if (loff  == 0xFFFFFFFF) { loff  = get(b, y, 8); y += 8; }
+                if (usize == 0xFFFFFFFF) {
+                    usize = get(b, y, 8);
+                    y += 8;
+                }
+                if (csize == 0xFFFFFFFF) {
+                    csize = get(b, y, 8);
+                    y += 8;
+                }
+                if (loff == 0xFFFFFFFF) {
+                    loff = get(b, y, 8);
+                    y += 8;
+                }
             }
             x += 4 + static_cast<size_t>(sz);
         }
@@ -519,4 +590,4 @@ NpzArchive read_npz(const std::string& path) {
     return out;
 }
 
-}  // namespace fv
+}   // namespace fv

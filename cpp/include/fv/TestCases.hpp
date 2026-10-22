@@ -11,13 +11,13 @@ namespace fv {
 
 // A test case, as loaded from its case file.
 struct TestCase {
-    std::string key;                 // registry key ([case] name), e.g. "Sod Shock Tube"
+    std::string key;   // registry key ([case] name), e.g. "Sod Shock Tube"
     std::string description;
-    std::string source;              // the case.toml it came from
-    bool        requires_viscosity = false;   // warn when run without Navier-Stokes
-    bool        three_d = false;     // initialize() expects a 3-D mesh (otherwise 2-D, extruded along z)
-    Params      defaults;            // case parameters (override baseline_defaults)
-    InitialSpec initial;             // as written in the case file
+    std::string source;                // the case.toml it came from
+    bool requires_viscosity = false;   // warn when run without Navier-Stokes
+    bool three_d = false;              // initialize() expects a 3-D mesh (otherwise 2-D, extruded along z)
+    Params defaults;                   // case parameters (override baseline_defaults)
+    InitialSpec initial;               // as written in the case file
     // Initial conservative field on `mesh`; `run` holds the resolved run parameters.
     std::function<Field(const Mesh& mesh, const EOS& eos, const Params& run)> initialize;
 };
@@ -64,4 +64,4 @@ State taylor_green_3d_initial(double x, double y, double z, double gamma);
 // centred at (Lx/2, Ly/2) at t = 0, periodic images handled by minimum-image distance).
 State isentropic_vortex_exact(double x, double y, double t, double Lx, double Ly, double gamma);
 
-}  // namespace fv
+}   // namespace fv

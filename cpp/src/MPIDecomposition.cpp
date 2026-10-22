@@ -8,30 +8,32 @@
 namespace fv {
 
 namespace {
-constexpr int kTagUp   = 10;   // lower rank -> higher rank
+constexpr int kTagUp = 10;     // lower rank -> higher rank
 constexpr int kTagDown = 20;   // higher rank -> lower rank
 constexpr int kDoublesPerCell = kNVar;
-}  // namespace
+}   // namespace
 
 MPIDecomposition::MPIDecomposition(int nx_, int ny_, MPI_Comm c, int nz_) : comm(c), nx(nx_), ny(ny_), nz(nz_) {
     MPI_Comm_rank(comm, &rank);
     MPI_Comm_size(comm, &n_ranks);
     if (n_ranks > std::max(nx, ny))
-        throw std::invalid_argument("n_ranks (" + std::to_string(n_ranks) + ") exceeds both nx (" +
-                                    std::to_string(nx) + ") and ny (" + std::to_string(ny) +
-                                    "). Reduce the number of MPI ranks.");
+        throw std::invalid_argument("n_ranks (" + std::to_string(n_ranks) + ") exceeds both nx (" + std::to_string(nx) +
+                                    ") and ny (" + std::to_string(ny) + "). Reduce the number of MPI ranks.");
     // Prefer row strips; each strip needs >= kHaloDepth cells for the halo exchange.
     // (Choosing 'y' whenever ny >= n_ranks would allow 1-row strips, whose halo
     // exchange reads uninitialised memory.)
-    if (ny >= kHaloDepth * n_ranks || (n_ranks == 1)) dir = 'y';
-    else if (nx >= kHaloDepth * n_ranks)              dir = 'x';
-    else dir = (ny >= nx) ? 'y' : 'x';   // rejected below
+    if (ny >= kHaloDepth * n_ranks || (n_ranks == 1))
+        dir = 'y';
+    else if (nx >= kHaloDepth * n_ranks)
+        dir = 'x';
+    else
+        dir = (ny >= nx) ? 'y' : 'x';   // rejected below
     const int n = (dir == 'y') ? ny : nx;
     const int base = n / n_ranks, rem = n % n_ranks;
     counts.resize(n_ranks);
     offsets.resize(n_ranks);
     for (int r = 0, off = 0; r < n_ranks; ++r) {
-        counts[r]  = base + (r < rem ? 1 : 0);
+        counts[r] = base + (r < rem ? 1 : 0);
         offsets[r] = off;
         off += counts[r];
     }
@@ -41,9 +43,13 @@ MPIDecomposition::MPIDecomposition(int nx_, int ny_, MPI_Comm c, int nz_) : comm
                                     " cells across its strip (" + std::to_string(n) + " cells over " +
                                     std::to_string(n_ranks) + " ranks). Reduce the number of MPI ranks.");
     if (dir == 'y') {
-        ny_local = counts[rank]; nx_local = nx; j_start = offsets[rank];
+        ny_local = counts[rank];
+        nx_local = nx;
+        j_start = offsets[rank];
     } else {
-        nx_local = counts[rank]; ny_local = ny; i_start = offsets[rank];
+        nx_local = counts[rank];
+        ny_local = ny;
+        i_start = offsets[rank];
     }
     is_lo_rank = (rank == 0);
     is_hi_rank = (rank == n_ranks - 1);
@@ -64,14 +70,15 @@ Field MPIDecomposition::scatter(const Field& U_global) const {
                         for (int i = 0; i < nx; ++i) packed.push_back(U_global[(k * ny + j) * nx + i]);
                 } else {
                     for (int j = 0; j < ny; ++j)
-                        for (int i = offsets[r]; i < offsets[r] + counts[r]; ++i) packed.push_back(U_global[(k * ny + j) * nx + i]);
+                        for (int i = offsets[r]; i < offsets[r] + counts[r]; ++i)
+                            packed.push_back(U_global[(k * ny + j) * nx + i]);
                 }
             }
             sc[r] = static_cast<int>(packed.size()) * kDoublesPerCell - so[r];
         }
     }
-    MPI_Scatterv(rank == 0 ? packed.data()->data() : nullptr, sc.data(), so.data(), MPI_DOUBLE,
-                 local.data()->data(), static_cast<int>(local.size()) * kDoublesPerCell, MPI_DOUBLE, 0, comm);
+    MPI_Scatterv(rank == 0 ? packed.data()->data() : nullptr, sc.data(), so.data(), MPI_DOUBLE, local.data()->data(),
+                 static_cast<int>(local.size()) * kDoublesPerCell, MPI_DOUBLE, 0, comm);
     return local;
 }
 
@@ -103,8 +110,8 @@ Field MPIDecomposition::gather(const Field& U_local) const {
     return U;
 }
 
-void MPIDecomposition::exchange_halos(const Field& U, bool periodic, Field& lo, Field& hi,
-                                      bool& has_lo, bool& has_hi) const {
+void MPIDecomposition::exchange_halos(const Field& U, bool periodic, Field& lo, Field& hi, bool& has_lo,
+                                      bool& has_hi) const {
     has_lo = has_hi = false;
     if (n_ranks == 1) return;
     constexpr int D = kHaloDepth;
@@ -140,15 +147,23 @@ void MPIDecomposition::exchange_halos(const Field& U, bool periodic, Field& lo, 
     MPI_Request reqs[4];
     int nreq = 0;
     // Upward / rightward (tag 10)
-    if (!is_hi_rank)    MPI_Isend(send_hi.data()->data(), cnt, MPI_DOUBLE, rank + 1, kTagUp, comm, &reqs[nreq++]);
-    else if (periodic)  MPI_Isend(send_hi.data()->data(), cnt, MPI_DOUBLE, 0, kTagUp, comm, &reqs[nreq++]);
-    if (!is_lo_rank)    MPI_Irecv(lo.data()->data(), cnt, MPI_DOUBLE, rank - 1, kTagUp, comm, &reqs[nreq++]);
-    else if (periodic)  MPI_Irecv(lo.data()->data(), cnt, MPI_DOUBLE, n_ranks - 1, kTagUp, comm, &reqs[nreq++]);
+    if (!is_hi_rank)
+        MPI_Isend(send_hi.data()->data(), cnt, MPI_DOUBLE, rank + 1, kTagUp, comm, &reqs[nreq++]);
+    else if (periodic)
+        MPI_Isend(send_hi.data()->data(), cnt, MPI_DOUBLE, 0, kTagUp, comm, &reqs[nreq++]);
+    if (!is_lo_rank)
+        MPI_Irecv(lo.data()->data(), cnt, MPI_DOUBLE, rank - 1, kTagUp, comm, &reqs[nreq++]);
+    else if (periodic)
+        MPI_Irecv(lo.data()->data(), cnt, MPI_DOUBLE, n_ranks - 1, kTagUp, comm, &reqs[nreq++]);
     // Downward / leftward (tag 20)
-    if (!is_lo_rank)    MPI_Isend(send_lo.data()->data(), cnt, MPI_DOUBLE, rank - 1, kTagDown, comm, &reqs[nreq++]);
-    else if (periodic)  MPI_Isend(send_lo.data()->data(), cnt, MPI_DOUBLE, n_ranks - 1, kTagDown, comm, &reqs[nreq++]);
-    if (!is_hi_rank)    MPI_Irecv(hi.data()->data(), cnt, MPI_DOUBLE, rank + 1, kTagDown, comm, &reqs[nreq++]);
-    else if (periodic)  MPI_Irecv(hi.data()->data(), cnt, MPI_DOUBLE, 0, kTagDown, comm, &reqs[nreq++]);
+    if (!is_lo_rank)
+        MPI_Isend(send_lo.data()->data(), cnt, MPI_DOUBLE, rank - 1, kTagDown, comm, &reqs[nreq++]);
+    else if (periodic)
+        MPI_Isend(send_lo.data()->data(), cnt, MPI_DOUBLE, n_ranks - 1, kTagDown, comm, &reqs[nreq++]);
+    if (!is_hi_rank)
+        MPI_Irecv(hi.data()->data(), cnt, MPI_DOUBLE, rank + 1, kTagDown, comm, &reqs[nreq++]);
+    else if (periodic)
+        MPI_Irecv(hi.data()->data(), cnt, MPI_DOUBLE, 0, kTagDown, comm, &reqs[nreq++]);
     MPI_Waitall(nreq, reqs, MPI_STATUSES_IGNORE);
 
     has_lo = !is_lo_rank || periodic;
@@ -161,6 +176,6 @@ double MPIDecomposition::allreduce_max(double v) const {
     return out;
 }
 
-}  // namespace fv
+}   // namespace fv
 
-#endif  // FV_USE_MPI
+#endif   // FV_USE_MPI

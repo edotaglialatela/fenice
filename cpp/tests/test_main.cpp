@@ -31,25 +31,29 @@ struct Registrar {
     Registrar(const char* n, void (*f)()) { registry().push_back({n, f}); }
 };
 
-#define TEST(name)                                   \
-    static void name();                              \
-    static Registrar reg_##name(#name, &name);       \
+#define TEST(name)                                                                                                     \
+    static void name();                                                                                                \
+    static Registrar reg_##name(#name, &name);                                                                         \
     static void name()
 
-#define CHECK(cond)                                                                    \
-    do {                                                                               \
-        ++g_checks;                                                                    \
-        if (!(cond)) { ++g_fail; std::printf("    FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond); } \
+#define CHECK(cond)                                                                                                    \
+    do {                                                                                                               \
+        ++g_checks;                                                                                                    \
+        if (!(cond)) {                                                                                                 \
+            ++g_fail;                                                                                                  \
+            std::printf("    FAIL %s:%d  %s\n", __FILE__, __LINE__, #cond);                                            \
+        }                                                                                                              \
     } while (0)
 
-#define CHECK_NEAR(a, b, tol)                                                          \
-    do {                                                                               \
-        ++g_checks;                                                                    \
-        const double va_ = (a), vb_ = (b);                                             \
-        if (!(std::abs(va_ - vb_) <= (tol))) {                                         \
-            ++g_fail;                                                                  \
-            std::printf("    FAIL %s:%d  %s = %.15g, expected %.15g (tol %g)\n", __FILE__, __LINE__, #a, va_, vb_, (double)(tol)); \
-        }                                                                              \
+#define CHECK_NEAR(a, b, tol)                                                                                          \
+    do {                                                                                                               \
+        ++g_checks;                                                                                                    \
+        const double va_ = (a), vb_ = (b);                                                                             \
+        if (!(std::abs(va_ - vb_) <= (tol))) {                                                                         \
+            ++g_fail;                                                                                                  \
+            std::printf("    FAIL %s:%d  %s = %.15g, expected %.15g (tol %g)\n", __FILE__, __LINE__, #a, va_, vb_,     \
+                        (double)(tol));                                                                                \
+        }                                                                                                              \
     } while (0)
 
 fs::path tmp_dir() {
@@ -85,7 +89,7 @@ double max_abs(const Field& R) {
     return m;
 }
 
-}  // namespace
+}   // namespace
 
 // ---------------------------------------------------------------------------
 // EOS / mesh / limiters
@@ -225,8 +229,8 @@ TEST(nonreflecting_outlet) {
     // alpha = sigma (1 + M) h / L with M the outward Mach number
     for (int side = 0; side < 2; ++side) {
         const double s = side == 0 ? -1.0 : 1.0;   // outward normal: -x on the left, +x on the right
-        const State Wg = eos.cons_to_prim(side == 0 ? UL[m.boundary_face(Face::Left, 1)]
-                                                    : UR[m.boundary_face(Face::Right, 1)]);
+        const State Wg =
+            eos.cons_to_prim(side == 0 ? UL[m.boundary_face(Face::Left, 1)] : UR[m.boundary_face(Face::Right, 1)]);
         const double dp = Wg[3] - p, du = s * (Wg[1] - u), drho = Wg[0] - rho;
         const double alpha = 0.28 * (1.0 + s * u / c) * m.dx / 2.0;
         CHECK_NEAR(dp - rho * c * du, -alpha * (p - 1.0), 1e-12);   // incoming w1 = p - rho c u_out
@@ -249,14 +253,20 @@ TEST(nonreflecting_outlet) {
     U = uniform_field(eos, m.num_cells(), rho, 2.5 * c, 0.0, p);
     bm.apply_boundary_conditions(U, UL, UR);
     CHECK(same(UR[m.boundary_face(Face::Right, 0)], U[m.nx - 1]));
-    CHECK(parse_bc("Non-Reflecting Outlet") == BCType::NonReflecting && bc_name(BCType::NonReflecting) == "nonreflecting");
+    CHECK(parse_bc("Non-Reflecting Outlet") == BCType::NonReflecting &&
+          bc_name(BCType::NonReflecting) == "nonreflecting");
 
     // A tube open at both ends with p above p_out: the NRBC relaxes the pressure to p_out,
     // transmissive keeps it (perfectly non-reflecting, so nothing anchors the level)
     for (const char* bc : {"transmissive", "nonreflecting"}) {
         Simulation sim;
-        sim.setup(params_for("Sod Shock Tube", {{"nx", "100"}, {"ny", "2"}, {"bc_left", bc}, {"bc_right", bc},
-                                                {"p_out", "1.0"}, {"nrbc_sigma", "1.0"}, {"t_end", "30"}}),
+        sim.setup(params_for("Sod Shock Tube", {{"nx", "100"},
+                                                {"ny", "2"},
+                                                {"bc_left", bc},
+                                                {"bc_right", bc},
+                                                {"p_out", "1.0"},
+                                                {"nrbc_sigma", "1.0"},
+                                                {"t_end", "30"}}),
                   false);
         sim.U = uniform_field(sim.fluid, sim.mesh.num_cells(), 1.0, 0.0, 0.0, 1.1);
         const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
@@ -264,8 +274,10 @@ TEST(nonreflecting_outlet) {
         while (t < 30.0) t += sim.scheme->step(sim.U, res, sim.dt_length, t, 30.0).dt;
         const double p_mid = sim.fluid.cons_to_prim(sim.U[50])[3];
         std::printf("    %s: p after 30 acoustic times %.6f (p_out 1, start 1.1)\n", bc, p_mid);
-        if (std::string(bc) == "transmissive") CHECK(std::abs(p_mid - 1.1) < 1e-9);
-        else                                   CHECK(std::abs(p_mid - 1.0) < 0.01);
+        if (std::string(bc) == "transmissive")
+            CHECK(std::abs(p_mid - 1.1) < 1e-9);
+        else
+            CHECK(std::abs(p_mid - 1.0) < 0.01);
     }
 }
 
@@ -273,7 +285,8 @@ TEST(airfoil_geometry) {
     // NACA 0012: symmetric, 12 % thick at 30 % chord, closed trailing edge
     const Polygon2D naca = naca4("0012");
     CHECK(naca_digits("NACA 0012") == "0012" && naca_digits("naca2412") == "2412" && naca_digits("Cylinder").empty());
-    CHECK(naca.contains(0.3, 0.0) && naca.contains(0.3, 0.055) && !naca.contains(0.3, 0.065) && !naca.contains(-0.01, 0.0));
+    CHECK(naca.contains(0.3, 0.0) && naca.contains(0.3, 0.055) && !naca.contains(0.3, 0.065) &&
+          !naca.contains(-0.01, 0.0));
     double area = 0.0;   // shoelace; NACA 4-digit: 0.6851 t c^2
     for (size_t i = 0, j = naca.pts.size() - 1; i < naca.pts.size(); j = i++)
         area += naca.pts[j][0] * naca.pts[i][1] - naca.pts[i][0] * naca.pts[j][1];
@@ -285,8 +298,14 @@ TEST(airfoil_geometry) {
     CHECK(placed.contains(2.0, 1.0));
     double y_le = 0.0, y_te = 0.0, x_min = 1e9, x_max = -1e9;
     for (const auto& q : placed.pts) {
-        if (q[0] < x_min) { x_min = q[0]; y_le = q[1]; }
-        if (q[0] > x_max) { x_max = q[0]; y_te = q[1]; }
+        if (q[0] < x_min) {
+            x_min = q[0];
+            y_le = q[1];
+        }
+        if (q[0] > x_max) {
+            x_max = q[0];
+            y_te = q[1];
+        }
     }
     CHECK(y_le > 1.0 && y_te < 1.0);
     CHECK_NEAR(y_le - 1.0, 0.5 * std::sin(10.0 * 3.14159265358979 / 180.0), 0.02);
@@ -315,10 +334,13 @@ TEST(airfoil_geometry) {
         CHECK(same);
     }
     bool threw = false;
-    { std::ofstream bad((dir / "bad.dat").string()); bad << "name\n0 0\n1 x\n"; }
-    try { load_airfoil((dir / "bad.dat").string()); } catch (const std::runtime_error& e) {
-        threw = std::string(e.what()).find("bad.dat:3") != std::string::npos;
+    {
+        std::ofstream bad((dir / "bad.dat").string());
+        bad << "name\n0 0\n1 x\n";
     }
+    try {
+        load_airfoil((dir / "bad.dat").string());
+    } catch (const std::runtime_error& e) { threw = std::string(e.what()).find("bad.dat:3") != std::string::npos; }
     CHECK(threw);
 
     // IBM mask of a placed section: area within 2 % of the polygon's on 100 cells per chord
@@ -369,10 +391,15 @@ TEST(uniform_flow_is_preserved) {
         for (const char* muscl : {"false", "true"})
             for (const char* visc : {"false", "true"}) {
                 Simulation sim;
-                sim.setup(params_for("Sod Shock Tube", {{"nx", "12"}, {"ny", "8"}, {"riemann_solver", rs},
-                                                        {"use_muscl", muscl}, {"use_viscous", visc},
-                                                        {"bc_left", "transmissive"}, {"bc_right", "transmissive"},
-                                                        {"bc_bottom", "transmissive"}, {"bc_top", "transmissive"}}),
+                sim.setup(params_for("Sod Shock Tube", {{"nx", "12"},
+                                                        {"ny", "8"},
+                                                        {"riemann_solver", rs},
+                                                        {"use_muscl", muscl},
+                                                        {"use_viscous", visc},
+                                                        {"bc_left", "transmissive"},
+                                                        {"bc_right", "transmissive"},
+                                                        {"bc_bottom", "transmissive"},
+                                                        {"bc_top", "transmissive"}}),
                           false);
                 const Field U = uniform_field(sim.fluid, sim.mesh.num_cells(), 1.3, 0.4, -0.2, 2.0);
                 Field R;
@@ -504,11 +531,13 @@ TEST(ibm_mask_and_reset) {
     CHECK(U[50 * 100 + 50][1] == 0.0);
     CHECK_NEAR(U[5][1], 1.1 * 0.5, 1e-12);
     ib.apply_solid_reset(U, eos);
-    CHECK(U[50 * 100 + 50][0] == 1.0);                                    // deep solid -> rho_ref
-    CHECK_NEAR(U[50 * 100 + 50][3], 1.0 / 0.4, 1e-12);                    // p_ref / (gamma-1)
+    CHECK(U[50 * 100 + 50][0] == 1.0);                                                 // deep solid -> rho_ref
+    CHECK_NEAR(U[50 * 100 + 50][3], 1.0 / 0.4, 1e-12);                                 // p_ref / (gamma-1)
     CHECK(ImmersedBoundary(m, "cylinder", 0.2, 0.5, 0.5, 1, 1).mask() == ib.mask());   // case-insensitive
     bool threw = false;
-    try { ImmersedBoundary(m, "Circle", 0.2, 0.5, 0.5, 1, 1); } catch (const std::invalid_argument&) { threw = true; }
+    try {
+        ImmersedBoundary(m, "Circle", 0.2, 0.5, 0.5, 1, 1);
+    } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);   // unknown shape
 }
 
@@ -533,7 +562,9 @@ TEST(amr_refine_derefine_conservative) {
     CHECK_NEAR(total(tree, 0), m0, 1e-12);
     CHECK_NEAR(total(tree, 3), e0, 1e-12);
     bool odd_rejected = false;
-    try { AMRTree bad(1.0, 1.0, 5, 8, 1); } catch (const std::invalid_argument&) { odd_rejected = true; }
+    try {
+        AMRTree bad(1.0, 1.0, 5, 8, 1);
+    } catch (const std::invalid_argument&) { odd_rejected = true; }
     CHECK(odd_rejected);
 }
 
@@ -563,15 +594,18 @@ TEST(amr_ownership_and_halo) {
                 held[rank].push_back(p->held);
                 if (p->owner == rank) CHECK(p->held);
                 // everything an owned leaf can read is held
-                if (p->owner == rank) for (AMRPatch* nb : tree.leaves_near(p, 2)) CHECK(nb->held);
+                if (p->owner == rank)
+                    for (AMRPatch* nb : tree.leaves_near(p, 2)) CHECK(nb->held);
             }
         }
         for (int rank = 1; rank < size; ++rank) CHECK(owners[rank] == owners[0]);   // same partition everywhere
         // per level the blocks differ by at most one patch
         for (int level = 0; level <= tree.max_level; ++level) {
             std::vector<int> count(size, 0);
-            for (AMRPatch* p : tree.leaves()) if (p->level == level) ++count[p->owner];
-            const int lo = *std::min_element(count.begin(), count.end()), hi = *std::max_element(count.begin(), count.end());
+            for (AMRPatch* p : tree.leaves())
+                if (p->level == level) ++count[p->owner];
+            const int lo = *std::min_element(count.begin(), count.end()),
+                      hi = *std::max_element(count.begin(), count.end());
             CHECK(hi - lo <= 1);
         }
     }
@@ -585,7 +619,7 @@ TEST(amr_error_indicator) {
     CHECK(ind.indicator(*tree.root) < 1e-12);   // linear ramp
     for (int j = 0; j < 8; ++j)
         for (int i = 0; i < 8; ++i) tree.root->U[j * 8 + i][0] = i < 4 ? 1.0 : 0.125;
-    CHECK(ind.indicator(*tree.root) > 0.3);     // discontinuity
+    CHECK(ind.indicator(*tree.root) > 0.3);   // discontinuity
     // A shear layer: uniform density, speed jump. Only the speed indicator sees it.
     const EOS eos = EOS::ideal(1.4);
     for (int j = 0; j < 8; ++j)
@@ -599,19 +633,27 @@ TEST(amr_error_indicator) {
 
 namespace {
 SimParams amr_params(const char* scheme = "SSP Runge-Kutta 2", const char* bcs = "transmissive") {
-    return params_for("Sod Shock Tube", {{"Lx", "1.0"}, {"Ly", "1.0"}, {"nx", "8"}, {"ny", "8"},
-                                         {"bc_left", bcs}, {"bc_right", bcs}, {"bc_bottom", "wall"}, {"bc_top", "wall"},
-                                         {"time_scheme", scheme}, {"use_amr", "true"}, {"amr_max_level", "2"},
-                                         {"amr_patch_nx", "8"}, {"amr_patch_ny", "8"}});
+    return params_for("Sod Shock Tube", {{"Lx", "1.0"},
+                                         {"Ly", "1.0"},
+                                         {"nx", "8"},
+                                         {"ny", "8"},
+                                         {"bc_left", bcs},
+                                         {"bc_right", bcs},
+                                         {"bc_bottom", "wall"},
+                                         {"bc_top", "wall"},
+                                         {"time_scheme", scheme},
+                                         {"use_amr", "true"},
+                                         {"amr_max_level", "2"},
+                                         {"amr_patch_nx", "8"},
+                                         {"amr_patch_ny", "8"}});
 }
 AMRPatch* sorted_leaf(AMRTree& tree, int k) {
     auto lv = tree.leaves();
-    std::sort(lv.begin(), lv.end(), [](AMRPatch* a, AMRPatch* b) {
-        return a->ymin != b->ymin ? a->ymin < b->ymin : a->xmin < b->xmin;
-    });
+    std::sort(lv.begin(), lv.end(),
+              [](AMRPatch* a, AMRPatch* b) { return a->ymin != b->ymin ? a->ymin < b->ymin : a->xmin < b->xmin; });
     return lv[k];
 }
-}  // namespace
+}   // namespace
 
 TEST(amr_sample_leaf_state) {
     AMRTree tree(1.0, 1.0, 4, 4, 1);
@@ -627,7 +669,8 @@ TEST(amr_patch_coupling) {
     sim.setup(amr_params(), false);
     AMRTree& tree = *sim.amr_tree;
     tree.refine_patch(tree.root);
-    AMRPatch *bl = sorted_leaf(tree, 0), *br = sorted_leaf(tree, 1), *tl = sorted_leaf(tree, 2), *tr = sorted_leaf(tree, 3);
+    AMRPatch *bl = sorted_leaf(tree, 0), *br = sorted_leaf(tree, 1), *tl = sorted_leaf(tree, 2),
+             *tr = sorted_leaf(tree, 3);
     const int n = bl->mesh.num_cells();
     // Uniform state everywhere -> zero residual across internal faces
     for (AMRPatch* p : tree.leaves()) p->U = uniform_field(sim.fluid, n, 1.0, 0, 0, 1.0);
@@ -642,7 +685,7 @@ TEST(amr_patch_coupling) {
     double right_col = 0.0, left_col = 0.0;
     for (int j = 0; j < bl->ny(); ++j) {
         right_col = std::max(right_col, std::abs(R[j * bl->nx() + bl->nx() - 1][1]));
-        left_col  = std::max(left_col, max_abs(Field{R[j * bl->nx()]}));
+        left_col = std::max(left_col, max_abs(Field{R[j * bl->nx()]}));
     }
     CHECK(right_col > 1e-8);
     CHECK(left_col < 1e-8);
@@ -663,7 +706,8 @@ void seed_blast(AMRTree& tree, const EOS& eos) {
         for (int j = 0; j < p->ny(); ++j)
             for (int i = 0; i < p->nx(); ++i) {
                 const double dx = p->mesh.xc(i) - 0.45, dy = p->mesh.yc(j) - 0.25;
-                p->U[j * p->nx() + i] = eos.prim_to_cons({1.0, 0, 0, 1.0 + 2.0 * std::exp(-(dx * dx + dy * dy) / 0.01)});
+                p->U[j * p->nx() + i] =
+                    eos.prim_to_cons({1.0, 0, 0, 1.0 + 2.0 * std::exp(-(dx * dx + dy * dy) / 0.01)});
             }
 }
 void run_closed_box(double& m0, double& m1, double& e0, double& e1) {
@@ -674,7 +718,8 @@ void run_closed_box(double& m0, double& m1, double& e0, double& e1) {
     tree.refine_patch(sorted_leaf(tree, 0));
     tree.enforce_2to1_balance();
     seed_blast(tree, sim.fluid);
-    m0 = total(tree, 0); e0 = total(tree, 3);
+    m0 = total(tree, 0);
+    e0 = total(tree, 3);
     const PatchResidualFn pr = [&](AMRPatch& p, AMRTree& t, const Field& U, Field& R, Field& fx, Field& fy) {
         return sim.patch_residual(p, t, U, R, fx, fy);
     };
@@ -686,10 +731,14 @@ void run_closed_box(double& m0, double& m1, double& e0, double& e1) {
     }
     const double dt = 0.3 * finest / (S0 + 1e-12);
     double t = 0.0;
-    for (int k = 0; k < 15; ++k) { advance_amr_level(tree, 0, dt, t, 1e9, pr, *sim.scheme); t += dt; }
-    m1 = total(tree, 0); e1 = total(tree, 3);
+    for (int k = 0; k < 15; ++k) {
+        advance_amr_level(tree, 0, dt, t, 1e9, pr, *sim.scheme);
+        t += dt;
+    }
+    m1 = total(tree, 0);
+    e1 = total(tree, 3);
 }
-}  // namespace
+}   // namespace
 
 TEST(amr_reflux_conservation) {
     double m0, m1, e0, e1;
@@ -723,7 +772,7 @@ SimParams airfoil_params(std::initializer_list<std::pair<const char*, const char
     for (const auto& e : kv) pr.set(e.first, e.second);
     return SimParams::from(pr);
 }
-}  // namespace
+}   // namespace
 
 TEST(amr_root_patch_matches_uniform_residual) {
     // One root patch (no interfaces) must reproduce the uniform-mesh residual: IBM forcing,
@@ -731,23 +780,35 @@ TEST(amr_root_patch_matches_uniform_residual) {
     for (const char* gy : {"0.0", "-0.3"}) {
         const bool gravity = std::string(gy) != "0.0";
         Simulation uni, amr;
-        uni.setup(airfoil_params({{"nx", "192"}, {"ny", "96"}, {"use_bodyforce", gravity ? "true" : "false"}, {"gy", gy}}), false);
-        amr.setup(airfoil_params({{"nx", "192"}, {"ny", "96"}, {"use_bodyforce", gravity ? "true" : "false"}, {"gy", gy},
-                                  {"use_amr", "true"}, {"amr_patch_nx", "192"}, {"amr_patch_ny", "96"},
-                                  {"amr_max_level", "0"}}), false);
+        uni.setup(
+            airfoil_params({{"nx", "192"}, {"ny", "96"}, {"use_bodyforce", gravity ? "true" : "false"}, {"gy", gy}}),
+            false);
+        amr.setup(airfoil_params({{"nx", "192"},
+                                  {"ny", "96"},
+                                  {"use_bodyforce", gravity ? "true" : "false"},
+                                  {"gy", gy},
+                                  {"use_amr", "true"},
+                                  {"amr_patch_nx", "192"},
+                                  {"amr_patch_ny", "96"},
+                                  {"amr_max_level", "0"}}),
+                  false);
         uni.initialize_field();
         amr.initialize_field();
         CHECK(uni.ibm->solid_count() > 20);
         AMRPatch& root = *amr.amr_tree->root;
         for (int j = 0; j < uni.mesh.ny; ++j)
             for (int i = 0; i < uni.mesh.nx; ++i)
-                uni.U[j * uni.mesh.nx + i] = root.U[j * uni.mesh.nx + i] = test_state(uni.fluid, uni.mesh.xc(i), uni.mesh.yc(j));
+                uni.U[j * uni.mesh.nx + i] = root.U[j * uni.mesh.nx + i] =
+                    test_state(uni.fluid, uni.mesh.xc(i), uni.mesh.yc(j));
         Field Ru, Ra, fx, fy;
         const double Su = uni.residual(uni.U, Ru);
         const double Sa = amr.patch_residual(root, *amr.amr_tree, root.U, Ra, fx, fy);
         double d = 0.0, m = 0.0;
         for (size_t c = 0; c < Ru.size(); ++c)
-            for (int q = 0; q < 4; ++q) { d = std::max(d, std::abs(Ru[c][q] - Ra[c][q])); m = std::max(m, std::abs(Ru[c][q])); }
+            for (int q = 0; q < 4; ++q) {
+                d = std::max(d, std::abs(Ru[c][q] - Ra[c][q]));
+                m = std::max(m, std::abs(Ru[c][q]));
+            }
         CHECK(m > 1e-3);
         CHECK(d <= 1e-12 * m);
         CHECK_NEAR(Sa, Su, 1e-12 * Su);
@@ -766,8 +827,16 @@ TEST(amr_ibm_masks_and_reset_across_patches) {
     // reset (fringe cells read across interfaces) must not depend on how the domain is split.
     Simulation uni, sim;
     uni.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}}), false);
-    sim.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}, {"use_amr", "true"},
-                              {"amr_patch_nx", "48"}, {"amr_patch_ny", "24"}, {"amr_max_level", "1"}, {"amr_refine_ibm", "false"}}), false);
+    sim.setup(airfoil_params({{"nx", "96"},
+                              {"ny", "48"},
+                              {"ibm_cx", "6.0"},
+                              {"ibm_cy", "3.0"},
+                              {"use_amr", "true"},
+                              {"amr_patch_nx", "48"},
+                              {"amr_patch_ny", "24"},
+                              {"amr_max_level", "1"},
+                              {"amr_refine_ibm", "false"}}),
+              false);
     uni.initialize_field();
     sim.initialize_field();
     AMRTree& tree = *sim.amr_tree;
@@ -806,9 +875,20 @@ TEST(amr_same_level_patches_match_uniform_residual) {
     // uniform one, so interface ghosts, corner BC ghosts and solid ghosts are exact (1st order:
     // MUSCL has a 1st-order seam at patch interfaces).
     Simulation uni, sim;
-    uni.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}, {"use_muscl", "false"}}), false);
-    sim.setup(airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}, {"use_muscl", "false"},
-                              {"use_amr", "true"}, {"amr_patch_nx", "48"}, {"amr_patch_ny", "24"}, {"amr_max_level", "1"}, {"amr_refine_ibm", "false"}}), false);
+    uni.setup(
+        airfoil_params({{"nx", "96"}, {"ny", "48"}, {"ibm_cx", "6.0"}, {"ibm_cy", "3.0"}, {"use_muscl", "false"}}),
+        false);
+    sim.setup(airfoil_params({{"nx", "96"},
+                              {"ny", "48"},
+                              {"ibm_cx", "6.0"},
+                              {"ibm_cy", "3.0"},
+                              {"use_muscl", "false"},
+                              {"use_amr", "true"},
+                              {"amr_patch_nx", "48"},
+                              {"amr_patch_ny", "24"},
+                              {"amr_max_level", "1"},
+                              {"amr_refine_ibm", "false"}}),
+              false);
     uni.initialize_field();
     sim.initialize_field();
     AMRTree& tree = *sim.amr_tree;
@@ -824,7 +904,8 @@ TEST(amr_same_level_patches_match_uniform_residual) {
     Field Ru;
     const double Su = uni.residual(uni.U, Ru);
     double m = 0.0;
-    for (const State& r : Ru) for (int q = 0; q < 4; ++q) m = std::max(m, std::abs(r[q]));
+    for (const State& r : Ru)
+        for (int q = 0; q < 4; ++q) m = std::max(m, std::abs(r[q]));
     double d = 0.0, Smax = 0.0;
     for (AMRPatch* lf : tree.leaves()) {
         Field R, fx, fy;
@@ -845,14 +926,22 @@ TEST(amr_body_kept_at_max_level) {
     // Tiled root, airfoil: after seeding every leaf that touches the body is at max_level, the tree is
     // 2:1 balanced, and a remesh (which sees a uniform flow, eta = 0) never coarsens the body
     Simulation sim;
-    sim.setup(airfoil_params({{"nx", "192"}, {"ny", "96"}, {"use_amr", "true"}, {"amr_patch_nx", "16"},
-                              {"amr_patch_ny", "16"}, {"amr_max_level", "2"}}), false);
+    sim.setup(airfoil_params({{"nx", "192"},
+                              {"ny", "96"},
+                              {"use_amr", "true"},
+                              {"amr_patch_nx", "16"},
+                              {"amr_patch_ny", "16"},
+                              {"amr_max_level", "2"}}),
+              false);
     sim.initialize_field();
     AMRTree& tree = *sim.amr_tree;
     auto check = [&] {
         int body = 0;
         for (AMRPatch* lf : tree.leaves()) {
-            if (sim.patch_touches_body(*lf)) { CHECK(lf->level == tree.max_level); ++body; }
+            if (sim.patch_touches_body(*lf)) {
+                CHECK(lf->level == tree.max_level);
+                ++body;
+            }
             for (Face f : kAllFaces)
                 for (AMRPatch* nb : tree.neighbour_leaves(lf, f)) CHECK(std::abs(nb->level - lf->level) <= 1);
         }
@@ -862,7 +951,8 @@ TEST(amr_body_kept_at_max_level) {
     std::vector<AMRPatch*> to_ref, to_der;
     for (int pass = 0; pass < 3; ++pass) {
         sim.amr_indicator->mark(tree, to_ref, to_der);
-        for (AMRPatch* p : to_ref) if (p->is_leaf() && p->level < tree.max_level) tree.refine_patch(p);
+        for (AMRPatch* p : to_ref)
+            if (p->is_leaf() && p->level < tree.max_level) tree.refine_patch(p);
         for (AMRPatch* par : to_der) {
             bool kids = !par->is_leaf();
             for (AMRPatch* c : par->children) kids = kids && c->is_leaf();
@@ -883,24 +973,30 @@ double tiled_vs_uniform(const char* scheme, const char* muscl, int nsteps, bool 
         if (ibm_visc) {
             pr.merge(get_test_case("IBM Airfoil").defaults);
             pr.set("test_case", "IBM Airfoil");
-            pr.set("ibm_cx", "6.0");  pr.set("ibm_cy", "3.0");
+            pr.set("ibm_cx", "6.0");
+            pr.set("ibm_cy", "3.0");
         } else {
             pr.merge(get_test_case("Sod Shock Tube").defaults);
             pr.set("test_case", "Sod Shock Tube");
-            pr.set("Lx", "12.0");  pr.set("Ly", "6.0");
+            pr.set("Lx", "12.0");
+            pr.set("Ly", "6.0");
         }
         pr.set("output_root", tmp_dir().string());
         pr.set("use_mpi", "false");
         for (const auto& e : base) pr.set(e.first, e.second);
         if (amr) {
-            pr.set("use_amr", "true");  pr.set("amr_patch_nx", "48");  pr.set("amr_patch_ny", "24");
+            pr.set("use_amr", "true");
+            pr.set("amr_patch_nx", "48");
+            pr.set("amr_patch_ny", "24");
             pr.set("amr_max_level", "0");
         }
         return SimParams::from(pr);
     };
     Simulation uni, sim;
-    uni.setup(make(false), false);  uni.initialize_field();
-    sim.setup(make(true), false);   sim.initialize_field();
+    uni.setup(make(false), false);
+    uni.initialize_field();
+    sim.setup(make(true), false);
+    sim.initialize_field();
     AMRTree& tree = *sim.amr_tree;
     for (int j = 0; j < uni.mesh.ny; ++j)
         for (int i = 0; i < uni.mesh.nx; ++i)
@@ -938,7 +1034,7 @@ double tiled_vs_uniform(const char* scheme, const char* muscl, int nsteps, bool 
     }
     return d;
 }
-}  // namespace
+}   // namespace
 
 TEST(amr_tiled_matches_uniform_steps) {
     // A level-0 tiling must be the uniform solver: the same fixed-dt steps give the same state, for every
@@ -953,11 +1049,20 @@ TEST(amr_tiled_matches_uniform_steps) {
 namespace {
 void run_viscous_box(double& e0, double& e1, double& m0, double& m1) {
     Simulation sim;
-    sim.setup(params_for("Lid Driven Cavity",
-                         {{"Lx", "1.0"}, {"Ly", "1.0"}, {"nx", "8"}, {"ny", "8"}, {"use_mpi", "false"},
-                          {"bc_top", "no_slip"}, {"time_scheme", "Explicit Euler"}, {"use_muscl", "false"},
-                          {"mu", "0.02"}, {"use_amr", "true"}, {"amr_max_level", "2"},
-                          {"amr_patch_nx", "8"}, {"amr_patch_ny", "8"}}), false);
+    sim.setup(params_for("Lid Driven Cavity", {{"Lx", "1.0"},
+                                               {"Ly", "1.0"},
+                                               {"nx", "8"},
+                                               {"ny", "8"},
+                                               {"use_mpi", "false"},
+                                               {"bc_top", "no_slip"},
+                                               {"time_scheme", "Explicit Euler"},
+                                               {"use_muscl", "false"},
+                                               {"mu", "0.02"},
+                                               {"use_amr", "true"},
+                                               {"amr_max_level", "2"},
+                                               {"amr_patch_nx", "8"},
+                                               {"amr_patch_ny", "8"}}),
+              false);
     AMRTree& tree = *sim.amr_tree;
     tree.refine_patch(tree.root);
     tree.refine_patch(sorted_leaf(tree, 0));
@@ -966,12 +1071,13 @@ void run_viscous_box(double& e0, double& e1, double& m0, double& m1) {
         for (int j = 0; j < lf->ny(); ++j)
             for (int i = 0; i < lf->nx(); ++i) {
                 const double x = lf->mesh.xc(i), y = lf->mesh.yc(j);
-                lf->U[j * lf->nx() + i] = sim.fluid.prim_to_cons(
-                    {1.0 + 0.2 * std::exp(-30 * ((x - 0.3) * (x - 0.3) + (y - 0.3) * (y - 0.3))),
-                     0.5 * std::sin(3.14159 * x) * std::sin(2 * 3.14159 * y),
-                     0.3 * std::sin(2 * 3.14159 * x) * std::sin(3.14159 * y), 1.0});
+                lf->U[j * lf->nx() + i] =
+                    sim.fluid.prim_to_cons({1.0 + 0.2 * std::exp(-30 * ((x - 0.3) * (x - 0.3) + (y - 0.3) * (y - 0.3))),
+                                            0.5 * std::sin(3.14159 * x) * std::sin(2 * 3.14159 * y),
+                                            0.3 * std::sin(2 * 3.14159 * x) * std::sin(3.14159 * y), 1.0});
             }
-    e0 = total(tree, 3);  m0 = total(tree, 0);
+    e0 = total(tree, 3);
+    m0 = total(tree, 0);
     const PatchResidualFn pr = [&](AMRPatch& p, AMRTree& t, const Field& U, Field& R, Field& fx, Field& fy) {
         return sim.patch_residual(p, t, U, R, fx, fy);
     };
@@ -983,10 +1089,14 @@ void run_viscous_box(double& e0, double& e1, double& m0, double& m1) {
     }
     const double dt = 0.3 * finest / (S0 + 1e-12);
     double t = 0.0;
-    for (int k = 0; k < 20; ++k) { advance_amr_level(tree, 0, dt, t, 1e9, pr, *sim.scheme); t += dt; }
-    e1 = total(tree, 3);  m1 = total(tree, 0);
+    for (int k = 0; k < 20; ++k) {
+        advance_amr_level(tree, 0, dt, t, 1e9, pr, *sim.scheme);
+        t += dt;
+    }
+    e1 = total(tree, 3);
+    m1 = total(tree, 0);
 }
-}  // namespace
+}   // namespace
 
 TEST(amr_viscous_reflux_conservation) {
     // Closed no-slip box: viscous work only heats the gas, so total energy and mass are conserved.
@@ -1016,7 +1126,8 @@ TEST(solution_mapping) {
     double err = 0.0;
     for (int j = 0; j < 20; ++j)
         for (int i = 0; i < 40; ++i) {
-            err = std::max(err, std::abs(Uf[j * 40 + i][0] - (1.0 + 2.0 * xf[i] - yf[j])));   // linear: exact (extrapolated too)
+            err = std::max(
+                err, std::abs(Uf[j * 40 + i][0] - (1.0 + 2.0 * xf[i] - yf[j])));   // linear: exact (extrapolated too)
             err = std::max(err, std::abs(Uf[j * 40 + i][1] - 3.0));
         }
     CHECK(err < 1e-12);
@@ -1223,14 +1334,16 @@ TEST(time_scheme_stages_and_bdf2) {
     calls = 0;
     const StepResult r4 = RungeKutta4(0.5).step(U, res, 1.0, 0.0, 10.0);
     CHECK(calls == 4);
-    CHECK(r4.s_max == 3.0);              // max over the stages
+    CHECK(r4.s_max == 3.0);                          // max over the stages
     CHECK_NEAR(r4.dt, 0.5 / (1.0 + 1e-10), 1e-12);   // dt from the first stage
     calls = 0;
     SSPRK2(0.5).step(U, res, 1.0, 0.0, 10.0);
     CHECK(calls == 2);
     // BDF2: invalid dt rejected, zero RHS converges in one iteration, dt == dt_phys
     bool threw = false;
-    try { BDF2DualTime bad(0.5, 0.0); } catch (const std::invalid_argument&) { threw = true; }
+    try {
+        BDF2DualTime bad(0.5, 0.0);
+    } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);
     BDF2DualTime bdf(0.5, 0.25, 7, 1e-3);
     calls = 0;
@@ -1257,14 +1370,21 @@ TEST(amr_tree_structure) {
     auto kids = tree.refine_patch(tree.root);
     CHECK(kids.size() == 4);
     double area = 0.0;
-    for (AMRPatch* k : kids) { CHECK(k->level == 1); area += (k->xmax - k->xmin) * (k->ymax - k->ymin); }
+    for (AMRPatch* k : kids) {
+        CHECK(k->level == 1);
+        area += (k->xmax - k->xmin) * (k->ymax - k->ymin);
+    }
     CHECK_NEAR(area, 2.0, 1e-14);
     bool threw = false;
-    try { tree.refine_patch(tree.root); } catch (const std::invalid_argument&) { threw = true; }
+    try {
+        tree.refine_patch(tree.root);
+    } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);   // non-leaf
     tree.refine_patch(kids[1]);
     threw = false;
-    try { tree.refine_patch(kids[1]->children[0]); } catch (const std::invalid_argument&) { threw = true; }
+    try {
+        tree.refine_patch(kids[1]->children[0]);
+    } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);   // at max_level
     // A coarse face sees the two finer leaves across it; domain edges have none
     CHECK(tree.neighbour_leaves(kids[0], Face::Right).size() == 2);
@@ -1288,8 +1408,8 @@ TEST(amr_marking_and_buffer) {
         for (int i = 0; i < 8; ++i) bl->U[j * 8 + i][0] = i < 4 ? 1.0 : 0.125;   // discontinuity
     ind.mark(tree, ref, der);
     CHECK(std::find(ref.begin(), ref.end(), bl) != ref.end());
-    CHECK(ref.size() == 3);                           // + the two face neighbours (buffer ring)
-    CHECK(der.empty());                               // guard: buffered child protects the parent
+    CHECK(ref.size() == 3);   // + the two face neighbours (buffer ring)
+    CHECK(der.empty());       // guard: buffered child protects the parent
     ind.mark(tree, ref, der);
     const AMRErrorIndicator tight(0.3, 0.1, 0);
     tight.mark(tree, ref, der);
@@ -1304,7 +1424,7 @@ TEST(vtk_export_layout) {
     const EOS eos = EOS::ideal(1.4);
     const Mesh m = generate_cartesian_mesh(1.0, 0.5, 4, 2);
     Field U = uniform_field(eos, m.num_cells(), 1.0, 0.1, 0.0, 1.0);
-    U[3][0] = std::nan("");                            // must be sanitised, not crash
+    U[3][0] = std::nan("");   // must be sanitised, not crash
     ex.export_vtr("case", eos, U, m, 0.0, 0);
     ex.export_vtr("case", eos, U, m, 0.5, 7);
     ex.write_pvd("case");
@@ -1356,7 +1476,7 @@ TEST(checkpoint_edge_cases) {
     a.U = uniform_field(a.fluid, 16, 1, 0, 0, 1);
     a.save_checkpoint(1);
     a.U[0][0] = 3.0;
-    a.save_checkpoint(2);              // overwrites atomically
+    a.save_checkpoint(2);   // overwrites atomically
     CHECK(!fs::exists(a.checkpoint_path().substr(0, a.checkpoint_path().size() - 4) + "_tmp.npz"));
     Simulation b;
     b.setup(params_for("Sod Shock Tube", {{"nx", "8"}, {"ny", "2"}, {"output_root", ck.c_str()}}), false);
@@ -1365,11 +1485,17 @@ TEST(checkpoint_edge_cases) {
     const std::string legacy = (tmp_dir() / "legacy.npz").string();
     write_npz(legacy, {{"U", field_to_npy(a.U)}});
     bool threw = false;
-    try { b.load_hot_start(legacy); } catch (const std::runtime_error&) { threw = true; }
+    try {
+        b.load_hot_start(legacy);
+    } catch (const std::runtime_error&) { threw = true; }
     CHECK(threw);
     Simulation c;
-    c.setup(params_for("Sod Shock Tube", {{"nx", "16"}, {"ny", "4"}, {"hot_start_src_nx", "8"}, {"hot_start_src_ny", "2"},
-                                          {"output_root", ck2.c_str()}}), false);
+    c.setup(params_for("Sod Shock Tube", {{"nx", "16"},
+                                          {"ny", "4"},
+                                          {"hot_start_src_nx", "8"},
+                                          {"hot_start_src_ny", "2"},
+                                          {"output_root", ck2.c_str()}}),
+            false);
     CHECK(c.load_hot_start(legacy).size() == 64);
 }
 
@@ -1377,14 +1503,17 @@ TEST(solution_mapping_properties) {
     const EOS eos = EOS::ideal(1.4);
     Field U(6 * 4);
     for (int c = 0; c < 24; ++c) U[c] = eos.prim_to_cons({1.0 + 0.1 * (c % 6), 0.2, 0.0, 1.0 + 0.05 * (c / 6)});
-    CHECK(map_solution(U, 6, 4, 6, 4, 1.0, 1.0) == U);                     // same grid: identity
-    const Field coarse = map_solution(U, 6, 4, 3, 2, 1.0, 1.0);            // coarsening also works
+    CHECK(map_solution(U, 6, 4, 6, 4, 1.0, 1.0) == U);            // same grid: identity
+    const Field coarse = map_solution(U, 6, 4, 3, 2, 1.0, 1.0);   // coarsening also works
     CHECK(coarse.size() == 6);
     const Field fine = map_solution(U, 6, 4, 24, 16, 1.0, 1.0);
     double m0 = 0, m1 = 0;
     bool positive = true;
     for (const State& c : U) m0 += c[0] / 24.0;
-    for (const State& c : fine) { m1 += c[0] / 384.0; positive = positive && c[0] > 0 && eos.cons_to_prim(c)[3] > 0; }
+    for (const State& c : fine) {
+        m1 += c[0] / 384.0;
+        positive = positive && c[0] > 0 && eos.cons_to_prim(c)[3] > 0;
+    }
     CHECK(positive);
     CHECK(std::abs(m1 - m0) / m0 < 1e-2);
 }
@@ -1436,10 +1565,12 @@ double tgv_velocity_error(const Field& U, const Mesh& m, const EOS& eos, double 
 
 // L1 density error of the isentropic vortex at time t on an n x n mesh.
 double vortex_density_error(int n, double t_end) {
-    const SimParams sp = params_for("Isentropic Vortex", {{"nx", std::to_string(n).c_str()}, {"ny", std::to_string(n).c_str()}});
+    const SimParams sp =
+        params_for("Isentropic Vortex", {{"nx", std::to_string(n).c_str()}, {"ny", std::to_string(n).c_str()}});
     Simulation init;
     init.setup(sp, false);
-    const Field U = run_to(sp, get_test_case("Isentropic Vortex").initialize(init.mesh, init.fluid, init.p.source), t_end);
+    const Field U =
+        run_to(sp, get_test_case("Isentropic Vortex").initialize(init.mesh, init.fluid, init.p.source), t_end);
     double err = 0.0;
     for (int j = 0; j < n; ++j)
         for (int i = 0; i < n; ++i)
@@ -1447,7 +1578,7 @@ double vortex_density_error(int n, double t_end) {
                             isentropic_vortex_exact(init.mesh.xc(i), init.mesh.yc(j), t_end, 10.0, 10.0, 1.4)[0]);
     return err / (n * n);
 }
-}  // namespace
+}   // namespace
 
 TEST(periodic_translation_invariance) {
     // A periodic domain has no special place: shifting the initial field by whole cells
@@ -1455,23 +1586,26 @@ TEST(periodic_translation_invariance) {
     const int nx = 16, ny = 12, sx = 5, sy = 3;
     for (const char* muscl : {"false", "true"})
         for (const char* visc : {"false", "true"}) {
-            const SimParams sp = params_for("Taylor-Green Vortex", {{"nx", "16"}, {"ny", "12"}, {"use_muscl", muscl},
-                                                                    {"use_viscous", visc}, {"mu", "0.05"}});
+            const SimParams sp =
+                params_for("Taylor-Green Vortex",
+                           {{"nx", "16"}, {"ny", "12"}, {"use_muscl", muscl}, {"use_viscous", visc}, {"mu", "0.05"}});
             Simulation s;
             s.setup(sp, false);
             Field U(nx * ny);
             for (int j = 0; j < ny; ++j)
                 for (int i = 0; i < nx; ++i) {
                     const double x = 2 * kPi * (i + 0.5) / nx, y = 2 * kPi * (j + 0.5) / ny;
-                    U[j * nx + i] = s.fluid.prim_to_cons({1.0 + 0.1 * std::sin(x + 0.3) * std::cos(y), 0.3 * std::sin(y + 1.0),
-                                                          0.2 * std::cos(x - 0.5) + 0.1 * std::sin(2 * y), 100.0 + 2.0 * std::cos(x + y)});
+                    U[j * nx + i] = s.fluid.prim_to_cons(
+                        {1.0 + 0.1 * std::sin(x + 0.3) * std::cos(y), 0.3 * std::sin(y + 1.0),
+                         0.2 * std::cos(x - 0.5) + 0.1 * std::sin(2 * y), 100.0 + 2.0 * std::cos(x + y)});
                 }
             const Field A = run_to(sp, U, 1e9, 6);
             const Field B = run_to(sp, roll(U, nx, ny, sx, sy), 1e9, 6);
             const Field Ar = roll(A, nx, ny, sx, sy);
             double diff = 0.0;
             for (size_t c = 0; c < B.size(); ++c)
-                for (int q = 0; q < kNVar; ++q) diff = std::max(diff, std::abs(Ar[c][q] - B[c][q]) / (1.0 + std::abs(B[c][q])));
+                for (int q = 0; q < kNVar; ++q)
+                    diff = std::max(diff, std::abs(Ar[c][q] - B[c][q]) / (1.0 + std::abs(B[c][q])));
             std::printf("    muscl=%s viscous=%s: max shifted difference %.3e\n", muscl, visc, diff);
             CHECK(diff < 1e-13);
         }
@@ -1482,7 +1616,8 @@ TEST(taylor_green_viscous_decay) {
     // without viscous fluxes (numerical dissipation) must recover the physical nu.
     const double mu = 0.05, t_end = 1.0;
     const SimParams visc = params_for("Taylor-Green Vortex", {{"nx", "32"}, {"ny", "32"}, {"mu", "0.05"}});
-    const SimParams invisc = params_for("Taylor-Green Vortex", {{"nx", "32"}, {"ny", "32"}, {"mu", "0.05"}, {"use_viscous", "false"}});
+    const SimParams invisc =
+        params_for("Taylor-Green Vortex", {{"nx", "32"}, {"ny", "32"}, {"mu", "0.05"}, {"use_viscous", "false"}});
     Simulation s;
     s.setup(visc, false);
     const Field U0 = get_test_case("Taylor-Green Vortex").initialize(s.mesh, s.fluid, s.p.source);
@@ -1507,8 +1642,9 @@ TEST(taylor_green_convergence) {
         const SimParams sp = params_for("Taylor-Green Vortex", {{"nx", n.c_str()}, {"ny", n.c_str()}, {"mu", "0.05"}});
         Simulation s;
         s.setup(sp, false);
-        e[k] = tgv_velocity_error(run_to(sp, get_test_case("Taylor-Green Vortex").initialize(s.mesh, s.fluid, s.p.source), t_end),
-                                  s.mesh, s.fluid, t_end, mu);
+        e[k] = tgv_velocity_error(
+            run_to(sp, get_test_case("Taylor-Green Vortex").initialize(s.mesh, s.fluid, s.p.source), t_end), s.mesh,
+            s.fluid, t_end, mu);
     }
     const double o1 = std::log2(e[0] / e[1]), o2 = std::log2(e[1] / e[2]);
     std::printf("    errors %.3e %.3e %.3e, observed orders %.2f %.2f\n", e[0], e[1], e[2], o1, o2);
@@ -1517,7 +1653,8 @@ TEST(taylor_green_convergence) {
 
 TEST(isentropic_vortex_convergence) {
     // Smooth inviscid advection: MUSCL + SSP-RK2 must converge at (close to) 2nd order
-    const double e20 = vortex_density_error(20, 1.0), e40 = vortex_density_error(40, 1.0), e80 = vortex_density_error(80, 1.0);
+    const double e20 = vortex_density_error(20, 1.0), e40 = vortex_density_error(40, 1.0),
+                 e80 = vortex_density_error(80, 1.0);
     const double o1 = std::log2(e20 / e40), o2 = std::log2(e40 / e80);
     std::printf("    L1 density errors %.3e %.3e %.3e, observed orders %.2f %.2f\n", e20, e40, e80, o1, o2);
     CHECK(o2 > 1.7);
@@ -1570,11 +1707,15 @@ State smooth_3d(const EOS& eos, double x, double y, double z) {
                              0.4 * std::sin(y + 1.0) * std::cos(z), 0.3 * std::cos(x - 0.5) * std::sin(z + 0.7),
                              100.0 + 2.0 * std::cos(x + y - z), 0.2 * std::sin(x) * std::cos(y + 0.4)});
 }
-}  // namespace
+}   // namespace
 
 TEST(extrusion_matches_2d) {
     // A 2-D case extruded along a periodic z must reproduce the 2-D solution in every layer
-    struct Case { const char* name; std::vector<std::pair<const char*, const char*>> ov; int steps; };
+    struct Case {
+        const char* name;
+        std::vector<std::pair<const char*, const char*>> ov;
+        int steps;
+    };
     const std::vector<Case> cases = {
         {"Sod Shock Tube", {{"nx", "40"}, {"ny", "4"}, {"use_muscl", "true"}, {"time_scheme", "ssprk2"}}, 15},
         {"Lid Driven Cavity", {{"nx", "12"}, {"ny", "12"}, {"use_muscl", "true"}}, 20},
@@ -1615,12 +1756,14 @@ TEST(taylor_green_rotated_planes) {
     const SimParams p2 = params_for("Taylor-Green Vortex", {{"nx", "16"}, {"ny", "16"}, {"mu", "0.05"}});
     Simulation s2;
     s2.setup(p2, false);
-    const Field A = run_to(p2, get_test_case("Taylor-Green Vortex").initialize(s2.mesh, s2.fluid, s2.p.source), 1e9, 12);
+    const Field A =
+        run_to(p2, get_test_case("Taylor-Green Vortex").initialize(s2.mesh, s2.fluid, s2.p.source), 1e9, 12);
     for (int plane = 0; plane < 2; ++plane) {   // 0: x-z plane, 1: y-z plane
         const char* nx = plane == 0 ? "16" : "3";
         const char* ny = plane == 0 ? "3" : "16";
-        const SimParams p3 = params_for("Taylor-Green Vortex 3D", {{"nx", nx}, {"ny", ny}, {"nz", "16"}, {"mu", "0.05"},
-                                                                  {"riemann_solver", "HLLC (Low-Mach Thornber)"}});
+        const SimParams p3 = params_for(
+            "Taylor-Green Vortex 3D",
+            {{"nx", nx}, {"ny", ny}, {"nz", "16"}, {"mu", "0.05"}, {"riemann_solver", "HLLC (Low-Mach Thornber)"}});
         Simulation s3;
         s3.setup(p3, false);
         const Mesh& m = s3.mesh;
@@ -1629,9 +1772,11 @@ TEST(taylor_green_rotated_planes) {
             for (int j = 0; j < m.ny; ++j)
                 for (int i = 0; i < m.nx; ++i) {
                     const int a = plane == 0 ? i : j;   // in-plane first coordinate
-                    const State W = taylor_green_exact(m.xc(0) * 0 + (a + 0.5) * 2 * kPi / n, m.zc(k), 0.0, 2 * kPi, 0.05);
+                    const State W =
+                        taylor_green_exact(m.xc(0) * 0 + (a + 0.5) * 2 * kPi / n, m.zc(k), 0.0, 2 * kPi, 0.05);
                     // 2-D (u, v) -> 3-D (u, w) for x-z, (v, w) for y-z
-                    const State W3 = plane == 0 ? State{W[0], W[1], 0.0, W[3], W[2]} : State{W[0], 0.0, W[1], W[3], W[2]};
+                    const State W3 =
+                        plane == 0 ? State{W[0], W[1], 0.0, W[3], W[2]} : State{W[0], 0.0, W[1], W[3], W[2]};
                     U0[m.cell(i, j, k)] = s3.fluid.prim_to_cons(W3);
                 }
         const Field B = run_field_3d(p3, U0, 12, std::min(s2.mesh.dx, s2.mesh.dy));   // same steps as the 2-D run
@@ -1639,7 +1784,8 @@ TEST(taylor_green_rotated_planes) {
         for (int k = 0; k < n; ++k)
             for (int a = 0; a < n; ++a) {
                 const State& u2 = A[k * n + a];
-                const State expect = plane == 0 ? State{u2[0], u2[1], 0.0, u2[3], u2[2]} : State{u2[0], 0.0, u2[1], u2[3], u2[2]};
+                const State expect =
+                    plane == 0 ? State{u2[0], u2[1], 0.0, u2[3], u2[2]} : State{u2[0], 0.0, u2[1], u2[3], u2[2]};
                 for (int b = 0; b < 3; ++b)
                     diff = std::max(diff, rel_diff(B[plane == 0 ? m.cell(a, b, k) : m.cell(b, a, k)], expect));
             }
@@ -1652,8 +1798,8 @@ TEST(axis_permutation_3d) {
     // Cyclic relabelling x -> y -> z of a fully 3-D field must relabel the solution
     const int n = 10;
     const std::string ns = std::to_string(n);
-    const SimParams sp = params_for("Taylor-Green Vortex 3D", {{"nx", ns.c_str()}, {"ny", ns.c_str()}, {"nz", ns.c_str()},
-                                                              {"mu", "0.05"}});
+    const SimParams sp = params_for("Taylor-Green Vortex 3D",
+                                    {{"nx", ns.c_str()}, {"ny", ns.c_str()}, {"nz", ns.c_str()}, {"mu", "0.05"}});
     Simulation s;
     s.setup(sp, false);
     const Mesh& m = s.mesh;
@@ -1677,7 +1823,8 @@ TEST(axis_permutation_3d) {
 
 TEST(periodic_translation_invariance_3d) {
     const int nx = 12, ny = 10, nz = 8, sx = 5, sy = 3, sz = 2;
-    const SimParams sp = params_for("Taylor-Green Vortex 3D", {{"nx", "12"}, {"ny", "10"}, {"nz", "8"}, {"mu", "0.05"}});
+    const SimParams sp =
+        params_for("Taylor-Green Vortex 3D", {{"nx", "12"}, {"ny", "10"}, {"nz", "8"}, {"mu", "0.05"}});
     Simulation s;
     s.setup(sp, false);
     const Mesh& m = s.mesh;
@@ -1689,7 +1836,8 @@ TEST(periodic_translation_invariance_3d) {
         Field out(F.size());
         for (int k = 0; k < nz; ++k)
             for (int j = 0; j < ny; ++j)
-                for (int i = 0; i < nx; ++i) out[m.cell((i + sx) % nx, (j + sy) % ny, (k + sz) % nz)] = F[m.cell(i, j, k)];
+                for (int i = 0; i < nx; ++i)
+                    out[m.cell((i + sx) % nx, (j + sy) % ny, (k + sz) % nz)] = F[m.cell(i, j, k)];
         return out;
     };
     const Field A = shift(run_field_3d(sp, U, 6)), B = run_field_3d(sp, shift(U), 6);
@@ -1703,10 +1851,16 @@ TEST(uniform_flow_is_preserved_3d) {
     for (const char* rs : {"HLLC", "HLLC (Low-Mach Thornber)", "HLLC (Preconditioned)"})
         for (const char* visc : {"false", "true"}) {
             Simulation sim;
-            sim.setup(params_for("Taylor-Green Vortex 3D", {{"nx", "6"}, {"ny", "5"}, {"nz", "4"}, {"riemann_solver", rs},
-                                                            {"use_viscous", visc}, {"bc_left", "transmissive"},
-                                                            {"bc_right", "transmissive"}, {"bc_bottom", "transmissive"},
-                                                            {"bc_top", "transmissive"}, {"bc_front", "transmissive"},
+            sim.setup(params_for("Taylor-Green Vortex 3D", {{"nx", "6"},
+                                                            {"ny", "5"},
+                                                            {"nz", "4"},
+                                                            {"riemann_solver", rs},
+                                                            {"use_viscous", visc},
+                                                            {"bc_left", "transmissive"},
+                                                            {"bc_right", "transmissive"},
+                                                            {"bc_bottom", "transmissive"},
+                                                            {"bc_top", "transmissive"},
+                                                            {"bc_front", "transmissive"},
                                                             {"bc_back", "transmissive"}}),
                       false);
             const Field U(sim.mesh.num_cells(), sim.fluid.prim_to_cons({1.3, 0.4, -0.2, 2.0, 0.3}));
@@ -1745,9 +1899,11 @@ TEST(taylor_green_3d_default_is_stable) {
 TEST(taylor_green_3d_initial_dissipation) {
     // At t = 0 the 3-D Taylor-Green kinetic energy decays at eps = nu <|omega|^2> = 0.75 nu
     const double mu = 0.01, t_end = 0.1;
-    const SimParams visc = params_for("Taylor-Green Vortex 3D", {{"nx", "24"}, {"ny", "24"}, {"nz", "24"}, {"mu", "0.01"}, {"t_end", "0.1"}});
-    const SimParams inv = params_for("Taylor-Green Vortex 3D", {{"nx", "24"}, {"ny", "24"}, {"nz", "24"}, {"mu", "0.01"},
-                                                               {"t_end", "0.1"}, {"use_viscous", "false"}});
+    const SimParams visc = params_for("Taylor-Green Vortex 3D",
+                                      {{"nx", "24"}, {"ny", "24"}, {"nz", "24"}, {"mu", "0.01"}, {"t_end", "0.1"}});
+    const SimParams inv = params_for(
+        "Taylor-Green Vortex 3D",
+        {{"nx", "24"}, {"ny", "24"}, {"nz", "24"}, {"mu", "0.01"}, {"t_end", "0.1"}, {"use_viscous", "false"}});
     auto ke_mean = [](const Field& U) {
         double ke = 0.0;
         for (const State& c : U) ke += 0.5 * (c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0];
@@ -1778,9 +1934,7 @@ std::string write_case(const std::string& name, const std::string& text) {
 std::string case_error(const std::string& name, const std::string& text) {
     try {
         load_case_file(write_case(name, text));
-    } catch (const std::exception& e) {
-        return e.what();
-    }
+    } catch (const std::exception& e) { return e.what(); }
     return "";
 }
 
@@ -1790,7 +1944,7 @@ name = "Minimal"
 [initial]
 state = { rho = 1.0, p = 1.0 }
 )toml";
-}  // namespace
+}   // namespace
 
 TEST(every_parameter_has_a_case_section) {
     const Params base = baseline_defaults();
@@ -1810,9 +1964,7 @@ TEST(parameter_validation) {
         try {
             check_parameter_keys(p, "--set");
             SimParams::from(p);
-        } catch (const std::invalid_argument& e) {
-            return e.what();
-        }
+        } catch (const std::invalid_argument& e) { return e.what(); }
         return "";
     };
     CHECK(error_of({}).empty());
@@ -1828,10 +1980,13 @@ TEST(parameter_validation) {
     CHECK(error_of({{"use_amr", "true"}, {"nx", "100"}}).find("multiples") != std::string::npos);   // patch 8
     CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}, {"bc_left", "periodic"}, {"bc_right", "periodic"}})
               .find("periodic") != std::string::npos);
-    CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}, {"time_scheme", "BDF2 Dual Time"}}).find("BDF2") != std::string::npos);
+    CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}, {"time_scheme", "BDF2 Dual Time"}}).find("BDF2") !=
+          std::string::npos);
     CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}}).empty());
     bool threw = false;
-    try { parse_limiter("superbee"); } catch (const std::invalid_argument&) { threw = true; }
+    try {
+        parse_limiter("superbee");
+    } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);
 }
 
@@ -1889,15 +2044,18 @@ TEST(case_file_errors_are_helpful) {
     CHECK(has(case_error("e1", base + "[thermo]\ngama = 1.4\n"), "did you mean 'gamma'"));
     CHECK(has(case_error("e2", base + "[run]\nnx = 10\n"), "'nx' belongs in [mesh], not [run]"));
     CHECK(has(case_error("e3", base + "[numeric]\ncfl = 0.5\n"), "did you mean 'numerics'"));
-    CHECK(has(case_error("e4", base + "[[initial.region]]\nshape = \"sphear\"\ncenter = [0, 0]\nradius = 1\nstate = { rho = 2 }\n"),
-              "did you mean 'sphere'"));
+    CHECK(has(
+        case_error("e4",
+                   base + "[[initial.region]]\nshape = \"sphear\"\ncenter = [0, 0]\nradius = 1\nstate = { rho = 2 }\n"),
+        "did you mean 'sphere'"));
     CHECK(has(case_error("e5", base + "[[initial.region]]\nshape = \"box\"\nmin = [0, 0]\nstate = { rho = 2 }\n"),
               "a box needs 'min' and 'max'"));
     CHECK(has(case_error("e6", "[case]\nname = \"x\"\n[initial]\nstate = { rho = 1.0 }\n"), "at least rho and p"));
     CHECK(has(case_error("e7", "[case]\nname = \"x\"\n[initial]\nstate = { rho = \"1 + sin(xx)\", p = 1.0 }\n"),
               "did you mean 'x'"));
-    CHECK(has(case_error("e8", "[case]\nname = \"x\"\n[initial]\nstate = { rh = 1.0, p = 1.0 }\n"), "did you mean 'rho'"));
-    CHECK(has(case_error("e9", base + "[mesh]\nnx = = 3\n"), "case.toml:"));                // TOML syntax, with a line
+    CHECK(has(case_error("e8", "[case]\nname = \"x\"\n[initial]\nstate = { rh = 1.0, p = 1.0 }\n"),
+              "did you mean 'rho'"));
+    CHECK(has(case_error("e9", base + "[mesh]\nnx = = 3\n"), "case.toml:"));   // TOML syntax, with a line
     CHECK(has(case_error("e10", base + "[mesh]\ntest_case = \"Sod\"\n"), "cannot be set in a case file"));
     CHECK(has(case_error("e11", "[initial]\nstate = { rho = 1.0, p = 1.0 }\n"), "missing [case] name"));
     CHECK(case_error("ok", base).empty());
@@ -1919,7 +2077,7 @@ TEST(initial_regions_and_expressions) {
     InitialRegion half;
     half.shape = "halfspace";
     half.point = {"0.0", "0.8"};
-    half.normal = {"0.0", "1.0"};        // y >= 0.8
+    half.normal = {"0.0", "1.0"};   // y >= 0.8
     half.state = {{"p", "5.0"}, {"v", "-1.0"}};
     InitialRegion circle;
     circle.shape = "sphere";
@@ -1940,7 +2098,10 @@ TEST(initial_regions_and_expressions) {
             const double x = m.xc(i), y = m.yc(j);
             State W{1.0 + 0.5 * x, 0.75, 0.0, 2.0, 0.0};
             if (x <= 0.5 && y <= 0.5) W[0] = 3.0;
-            if (y >= 0.8) { W[3] = 5.0; W[2] = -1.0; }
+            if (y >= 0.8) {
+                W[3] = 5.0;
+                W[2] = -1.0;
+            }
             if ((x - 0.3) * (x - 0.3) + (y - 0.3) * (y - 0.3) <= 0.08 * 0.08) W[0] = 9.0;
             if ((x - 0.7) * (x - 0.7) + (y - 0.2) * (y - 0.2) <= (1.0 / 12) * (1.0 / 12)) W[0] = 7.0;
             const State E = eos.prim_to_cons(W);
@@ -1949,7 +2110,10 @@ TEST(initial_regions_and_expressions) {
     CHECK(ok);
     // The circle and the cylinder each cover the 4 cells around their centre
     int n9 = 0, n7 = 0;
-    for (const State& s : U) { n9 += s[0] == 9.0; n7 += s[0] == 7.0; }
+    for (const State& s : U) {
+        n9 += s[0] == 9.0;
+        n7 += s[0] == 7.0;
+    }
     CHECK(n9 == 4);
     CHECK(n7 == 4);
 
@@ -1963,8 +2127,10 @@ TEST(initial_regions_and_expressions) {
     const Field P = evaluate_initial(ps, m, eos, run, &base);
     int kept = 0, changed = 0;
     for (int c = 0; c < m.num_cells(); ++c) {
-        if (P[c] == base[c]) ++kept;
-        else if (std::abs(eos.cons_to_prim(P[c])[0] - 0.5) < 1e-14) ++changed;
+        if (P[c] == base[c])
+            ++kept;
+        else if (std::abs(eos.cons_to_prim(P[c])[0] - 0.5) < 1e-14)
+            ++changed;
     }
     CHECK(kept == 96);
     CHECK(changed == 4);
@@ -2043,10 +2209,10 @@ state = { p = 9.0 }
 
 TEST(builtin_cases_and_save_case) {
     // The shipped case files: names, order and flags
-    const std::vector<std::string> names = {"Sod Shock Tube", "Poiseuille Flow", "Lid Driven Cavity",
-                                            "IBM Flow over Cylinder", "IBM Airfoil", "IBM Airfoil AMR", "Shu-Osher Test",
-                                            "IBM Supersonic Flow over Cylinder", "Taylor-Green Vortex",
-                                            "Isentropic Vortex", "Taylor-Green Vortex 3D"};
+    const std::vector<std::string> names = {
+        "Sod Shock Tube",      "Poiseuille Flow",   "Lid Driven Cavity",     "IBM Flow over Cylinder",
+        "IBM Airfoil",         "IBM Airfoil AMR",   "Shu-Osher Test",        "IBM Supersonic Flow over Cylinder",
+        "Taylor-Green Vortex", "Isentropic Vortex", "Taylor-Green Vortex 3D"};
     std::vector<std::string> got;
     for (const TestCase& tc : test_registry()) got.push_back(tc.key);
     CHECK(std::search(got.begin(), got.end(), names.begin(), names.end()) == got.begin());
@@ -2055,7 +2221,9 @@ TEST(builtin_cases_and_save_case) {
     CHECK(!get_test_case("Sod Shock Tube").requires_viscosity);
     CHECK(&get_test_case("sod_shock_tube") == &get_test_case("Sod Shock Tube"));   // folder name
     bool threw = false;
-    try { get_test_case("Sod Shok Tube"); } catch (const std::invalid_argument& e) {
+    try {
+        get_test_case("Sod Shok Tube");
+    } catch (const std::invalid_argument& e) {
         threw = std::string(e.what()).find("did you mean 'Sod Shock Tube'") != std::string::npos;
     }
     CHECK(threw);
@@ -2077,7 +2245,9 @@ TEST(builtin_cases_and_save_case) {
     CHECK(!saved.defaults.has("output_root"));
     CHECK(saved.requires_viscosity);
     bool refused = false;
-    try { save_case(get_test_case("Lid Driven Cavity"), run, dir, "Saved cavity 2"); } catch (const std::runtime_error&) { refused = true; }
+    try {
+        save_case(get_test_case("Lid Driven Cavity"), run, dir, "Saved cavity 2");
+    } catch (const std::runtime_error&) { refused = true; }
     CHECK(refused);
     CHECK(fs::exists(file));
 }

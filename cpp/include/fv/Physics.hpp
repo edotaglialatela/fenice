@@ -9,8 +9,7 @@
 namespace fv {
 
 // Central-difference cell-centre gradients from a (ny+2)*(nx+2) padded state.
-void compute_gradients(const Field& U_pad, int nx, int ny, double dx, double dy,
-                       Field& grad_x, Field& grad_y);
+void compute_gradients(const Field& U_pad, int nx, int ny, double dx, double dy, Field& grad_x, Field& grad_y);
 // 3-D version from a (nz+2)*(ny+2)*(nx+2) padded state.
 void compute_gradients_3d(const Field& U_pad, const Mesh& mesh, Field& grad_x, Field& grad_y, Field& grad_z);
 
@@ -35,10 +34,14 @@ struct CrossGhosts {
     // 2-D only, AMR patch sides (any combination, independent of `dir`): tangential derivatives of
     // the ghost cells across a patch interface. x_*: left / right ghost column, du/dy and dv/dy,
     // index j. y_*: bottom / top ghost row, du/dx and dv/dx, index i. nullptr: edge cell.
-    const double* x_lo_a = nullptr; const double* x_lo_b = nullptr;
-    const double* x_hi_a = nullptr; const double* x_hi_b = nullptr;
-    const double* y_lo_a = nullptr; const double* y_lo_b = nullptr;
-    const double* y_hi_a = nullptr; const double* y_hi_b = nullptr;
+    const double* x_lo_a = nullptr;
+    const double* x_lo_b = nullptr;
+    const double* x_hi_a = nullptr;
+    const double* x_hi_b = nullptr;
+    const double* y_lo_a = nullptr;
+    const double* y_lo_b = nullptr;
+    const double* y_hi_a = nullptr;
+    const double* y_hi_b = nullptr;
 };
 
 // Viscous face fluxes of a 2-D patch, flux * face length, as added to the cell residual
@@ -56,9 +59,9 @@ public:
 
     // Writes the viscous residual into R_visc and returns the parabolic
     // time-scale limit dt_visc.  U_pad is the BC-aware padded state.
-    double viscous_residual(const Field& U, const Field& grad_x, const Field& grad_y,
-                            const Mesh& mesh, const Field& U_pad, Field& R_visc,
-                            const CrossGhosts* cross = nullptr, ViscousFaceFluxes* faces = nullptr) const;
+    double viscous_residual(const Field& U, const Field& grad_x, const Field& grad_y, const Mesh& mesh,
+                            const Field& U_pad, Field& R_visc, const CrossGhosts* cross = nullptr,
+                            ViscousFaceFluxes* faces = nullptr) const;
     // 3-D version: full stress tensor tau_ij = mu (du_i/dx_j + du_j/dx_i) - 2/3 mu delta_ij div u.
     double viscous_residual_3d(const Field& U, const Field& grad_x, const Field& grad_y, const Field& grad_z,
                                const Mesh& mesh, const Field& U_pad, Field& R_visc,
@@ -68,7 +71,7 @@ public:
     double mu() const { return mu_; }
 
 private:
-    EOS    eos_;
+    EOS eos_;
     double mu_, Pr_;
     mutable Field W_, W_pad_;
     mutable std::vector<double> scratch_;
@@ -85,10 +88,10 @@ struct ConstantBodyForce {
 // Neighbour cells across the MPI interfaces of a strip, for the fringe test of
 // the solid reset.  dir 'y': lo/hi rows, index k*nx + i; dir 'x': columns, index k*ny + j.
 struct SolidResetHalo {
-    char dir = 'y';                              // decomposition direction
-    const Field*             lo = nullptr;       // neighbour states, low side
-    const Field*             hi = nullptr;       // neighbour states, high side
-    const std::vector<char>* mask_lo = nullptr;  // solid mask of those neighbours
+    char dir = 'y';                               // decomposition direction
+    const Field* lo = nullptr;                    // neighbour states, low side
+    const Field* hi = nullptr;                    // neighbour states, high side
+    const std::vector<char>* mask_lo = nullptr;   // solid mask of those neighbours
     const std::vector<char>* mask_hi = nullptr;
 };
 
@@ -99,8 +102,8 @@ public:
     // Obstacle of `radius` centred at (cx, cy[, cz]); deep solid cells are frozen to
     // (rho_ref, p_ref).  2-D: "Cylinder" and "Sphere" are both a circle.  3-D: "Sphere"
     // is a sphere, "Cylinder" an infinite cylinder along z.  Case-insensitive; other shapes throw.
-    ImmersedBoundary(const Mesh& mesh, const std::string& shape, double radius, double cx, double cy,
-                     double rho_ref, double p_ref, double cz = 0.0);
+    ImmersedBoundary(const Mesh& mesh, const std::string& shape, double radius, double cx, double cy, double rho_ref,
+                     double p_ref, double cz = 0.0);
     // Body bounded by a closed polygon in the x-y plane (an airfoil section): a cell is solid
     // when its centre is inside. 3-D: the section extruded along z (a wing of infinite span).
     ImmersedBoundary(const Mesh& mesh, const Polygon2D& section, double rho_ref, double p_ref);
@@ -114,7 +117,7 @@ public:
     void apply_solid_reset(Field& U, const EOS& eos, const SolidResetHalo* halo = nullptr) const;
 
     // Number of solid cells.
-    int  solid_count() const;
+    int solid_count() const;
     // Solid mask, one entry per cell (1 = solid).
     const std::vector<char>& mask() const { return mask_; }
 
@@ -124,4 +127,4 @@ private:
     std::vector<char> mask_;
 };
 
-}  // namespace fv
+}   // namespace fv
