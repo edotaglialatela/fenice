@@ -35,7 +35,7 @@ level jump uses its unreconstructed state; Morton keys for the domain decomposit
 * Balance: **corner (vertex) 2:1 balance**, not face balance only. With face balance alone the far children of the block
   beyond `c2` can be two levels finer, and the viscous cross terms, the IBM fringe and the halos reach diagonal neighbours.
   Corner balance keeps every stencil within one level of the cell that reads it, so the virtual values of 2.3 are defined by
-  injection / mean of the four children only (no recursive averages).
+  injection / the mean of the leaves under a block (recursive: the far children of a refined block may be finer, see section 9).
 
 ### 2.2 Faces
 * A face belongs to the level of the finer of its two cells. Kinds: same-level, coarse-fine (the fine leaf and the coarse
@@ -230,16 +230,25 @@ decision 5; suggested: 1.5x on the airfoil study).
   MUSCL wrap needs 2 cells); no time stepping; no viscous / IBM / sources.
 
 ### Gate measurement (`build/release/bench_cellflux.exe 768 384 20`, MUSCL Van Leer, HLLC, Euler, 8-core machine)
+The bench asserts that the face residual equals the uniform one bit for bit on the 768x384 mesh before timing. Timings fluctuate by
+10-20 % between runs on this machine (8-thread uniform: 24-31 ns/cell), so ratios are quoted as ranges.
+
 | | 1 thread | 8 threads |
 |---|---|---|
-| uniform `Simulation::residual`, 294 912 cells | 140.5 ns/cell | 30.9 ns/cell |
-| face engine on the same level-0 mesh | 125.2 ns/cell (0.89x) | 26.9 ns/cell (0.87x) |
-| face engine on an adapted mesh (68 283 leaves, 2 levels, 731 virtual cells) | 124.3 ns/cell (0.88x) | 21.6 ns/cell (0.70x) |
-| stencil build, 68 283 leaves | 3.2 ms (0.4 residuals) | 2.1 ms |
-| no-change `adapt` + build, 68 283 leaves | 17 ms (2 residuals) | 19 ms (13 residuals) |
+| uniform `Simulation::residual`, 294 912 cells | 139 ns/cell | 24-31 ns/cell |
+| face engine, same level-0 mesh | 124 ns/cell (0.90x) | 22-26 ns/cell (0.85-0.92x) |
+| uniform at the adapted size (384x192, 73 728 cells) | 138 ns/cell | 31 ns/cell |
+| face engine, adapted (68 283 leaves: 12 899 / 11 048 / 44 336 on levels 0 / 1 / 2, 731 virtual cells) | 126 ns/cell (0.91x of matched) | 26 ns/cell (0.86-1.1x of matched) |
+| stencil build alone | 2.1 ms | 2-3 ms |
+| no-change `adapt` + build (serial code) | 18 ms = 2.1 residuals | 17-20 ms = 7-13 residuals |
+| remesh every 10 coarse steps (SSP-RK2, subcycling x2; 1 coarse step = 6.2 full-mesh residuals) | 3.3 % of the run | 13 % of the run |
 
-The face engine is **not slower** per cell than the uniform kernel (it is 11-30 % faster). With the P0 upper bound (airfoil: 52 224 cells held
-by the patch AMR, 18 992 needed) the projected residual-cost gain over the patch engine is about 2.7 x / 0.88 = 3.1x at most, and the
-remesh overhead (adapt + stencil rebuild, 2 residual-equivalents on 68 k leaves single-threaded, every `amr_refine_every` = 10 coarse
-steps, each of which is several residuals) is below 1 % of the run. Not yet measured: the indicator, the data transfer and the later
-physics (viscous, IBM), whose cost per cell will come with P4/P5. The threshold is the user's decision (section 7, item 5).
+Reading: the per-cell cost of the face engine is the same as the uniform kernel (0.85-1.1x, inside the noise at 8 threads; 0.9x at 1 thread).
+**The remesh is serial and does not scale with the threads**: with 8 threads it costs about 13 % of the run at `amr_refine_every` = 10
+(plus the indicator and the data transfer, not yet measured), against 3 % at 1 thread. A parallel / incremental rebuild is a P5/P8 item.
+
+Projected gain over the patch AMR (P0 airfoil numbers of section 5). Wall time goes as sum(cells x 2^level) because the fine levels take 2^l substeps:
+held 13 312 + 2 x 14 336 + 4 x 24 576 = 140 288; needed (upper bound) 13 312 + 2 x 568 + 4 x 5 112 = 34 896; weighted ratio 4.0x (the plain
+cell-count ratio is 2.7x). Divided by the per-cell cost ratio (about 1) and reduced by the remesh share, the projected residual-cost gain is
+about 3.5-4x at most at 1 thread and about 3.5x at 8 threads. It is an upper bound (end-of-run snapshot, no refined band around the body, no
+history of the flagged region). The threshold is the user's decision (section 7, item 5).

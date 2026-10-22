@@ -2767,6 +2767,29 @@ TEST(cellflux_level0_matches_uniform_residual_bitwise) {
             ++n_cases;
         }
     CHECK(n_cases == 35);
+
+    // above kOmpMinWork the loops run in parallel: same bits
+    for (const BCs& bc : {BCs{"wall", "outlet", "no_slip", "moving_wall"}, BCs{"periodic", "periodic", "wall", "wall"}}) {
+        Simulation sim;
+        sim.setup(cell_flux_params({{"nx", "96"}, {"ny", "64"}, {"bc_left", bc.l}, {"bc_right", bc.r}, {"bc_bottom", bc.b},
+                                    {"bc_top", bc.t}, {"use_muscl", "true"}, {"muscl_limiter", "MC"}}),
+                  false);
+        const Mesh& u = sim.mesh;
+        CellMesh cm(u.Lx, u.Ly, u.nx, u.ny, 0, sim.boundaries.type(Face::Left) == BCType::Periodic, false, u.x0, u.y0);
+        CHECK(cm.num_leaves() >= kOmpMinWork);
+        Field Uu(static_cast<size_t>(u.num_cells()));
+        for (int j = 0; j < u.ny; ++j)
+            for (int i = 0; i < u.nx; ++i) Uu[j * u.nx + i] = test_state(sim.fluid, u.xc(i), u.yc(j));
+        cm.U.resize(cm.num_leaves());
+        for (int c = 0; c < cm.num_leaves(); ++c) cm.U[c] = Uu[cm.cj[c] * u.nx + cm.ci[c]];
+        Field Ru, Rc, Rperm(Uu.size());
+        const double Su = sim.residual(Uu, Ru);
+        CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+        eng.build(cm);
+        const double Sc = eng.residual(cm, cm.U, Rc);
+        for (int c = 0; c < cm.num_leaves(); ++c) Rperm[c] = Ru[cm.cj[c] * u.nx + cm.ci[c]];
+        CHECK(bits_equal(Rperm, Rc) && Su == Sc);
+    }
 }
 
 namespace {
@@ -2818,10 +2841,7 @@ TEST(cellflux_free_stream_is_exact_across_level_jumps) {
 TEST(cellflux_residual_is_conservative_on_adapted_meshes) {
     const EOS eos = EOS::ideal(1.4);
     for (int per = 0; per < 4; ++per) {
-        const bool px = per & 1, py = per & 2;
         CellMesh m = random_adapted_mesh(true, true, 5u + static_cast<unsigned>(per));
-        (void)px;
-        (void)py;
         BoundaryManager bm(generate_cartesian_mesh(1.5, 1.0, 6, 5), eos);
         bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Periodic, BCType::Periodic);
         RiemannSolver rs(eos, per % 2 ? RiemannType::LowMachHLLC : RiemannType::HLLC);

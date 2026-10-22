@@ -64,6 +64,30 @@ int main(int argc, char** argv) {
     t0 = Clock::now();
     for (int r = 0; r < reps; ++r) e0.residual(m0, m0.U, R);
     const double t_face0 = seconds(t0, Clock::now()) / reps;
+    {
+        Field Ru, Rf;
+        sim.residual(Uu, Ru);
+        e0.residual(m0, m0.U, Rf);
+        for (int c = 0; c < m0.num_leaves(); ++c)
+            for (int q = 0; q < kNVar; ++q)
+                if (!(Ru[m0.cj[c] * u.nx + m0.ci[c]][q] == Rf[c][q])) {
+                    std::printf("MISMATCH between the uniform and the face residual\n");
+                    return 1;
+                }
+    }
+
+    // uniform at the size of the adapted mesh (the working set changes ns/cell)
+    p.set("nx", std::to_string(nx / 2));
+    p.set("ny", std::to_string(ny / 2));
+    Simulation small;
+    small.setup(SimParams::from(p), false);
+    Field Us(static_cast<size_t>(small.mesh.num_cells())), Rs;
+    for (int j = 0; j < small.mesh.ny; ++j)
+        for (int i = 0; i < small.mesh.nx; ++i) Us[j * small.mesh.nx + i] = smooth_state(small.fluid, small.mesh.xc(i), small.mesh.yc(j));
+    small.residual(Us, Rs);
+    t0 = Clock::now();
+    for (int r = 0; r < reps; ++r) small.residual(Us, Rs);
+    const double cus = seconds(t0, Clock::now()) / reps / small.mesh.num_cells();
 
     // face engine on an adapted mesh: two levels, refined around a moving-front-like band
     CellMesh ma(u.Lx, u.Ly, u.nx / 4, u.ny / 4, 2);
@@ -93,6 +117,18 @@ int main(int argc, char** argv) {
     std::printf("face engine, level-0 same mesh: %.4f s, %.1f ns/cell, ratio %.2f\n", t_face0, 1e9 * cf0, cf0 / cu);
     std::printf("face engine, adapted (%d leaves, %d virtual): %.4f s, %.1f ns/cell, ratio %.2f\n", ma.num_leaves(),
                 ea.num_virtual(), t_adapt, 1e9 * cfa, cfa / cu);
+    std::printf("uniform %dx%d (%d cells), matched size: %.1f ns/cell; adapted / matched = %.2f\n", small.mesh.nx, small.mesh.ny,
+                small.mesh.num_cells(), 1e9 * cus, cfa / cus);
+    // cost of one coarse step (SSP-RK2: 2 stages, level l advanced 2^l times) and the share of a remesh every 10 steps
+    double leaf_evals = 0.0;
+    for (int l = 0; l <= ma.max_level; ++l) {
+        const int n = ma.level_begin[l + 1] - ma.level_begin[l];
+        std::printf("  level %d: %d leaves\n", l, n);
+        leaf_evals += 2.0 * (1 << l) * n;
+    }
+    const double t_step = leaf_evals * cfa;
+    std::printf("coarse step ~ %.4f s (%.1f full-mesh residuals); remesh every 10 steps = %.1f %% of the run\n", t_step,
+                leaf_evals / ma.num_leaves(), 100.0 * t_remesh / (10.0 * t_step + t_remesh));
     std::printf("stencil build (%d leaves): %.4f s = %.2f residuals; adapt-without-change + build: %.4f s = %.2f residuals\n",
                 ma.num_leaves(), t_build, t_build / t_adapt, t_remesh, t_remesh / t_adapt);
     return 0;
