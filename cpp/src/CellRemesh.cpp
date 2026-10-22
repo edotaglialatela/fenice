@@ -114,7 +114,12 @@ bool CellAdaptor::remesh() {
         }
     }
     const auto t1 = Clock::now();
+    const int before = mesh_.num_leaves();
+    long long nr = 0;
+    for (int c = 0; c < N; ++c) nr += refine[c];
     const bool changed = mesh_.adapt(refine, coarsen);
+    n_refined += nr;
+    n_joined += std::max(0, before + 3 * static_cast<int>(nr) - mesh_.num_leaves()) / 3;   // each refined leaf adds 3; each join removes 3
     const auto t2 = Clock::now();
     if (changed) engine_.build(mesh_);
     const auto t3 = Clock::now();

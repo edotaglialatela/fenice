@@ -3726,7 +3726,7 @@ TEST(cellremesh_dynamic_sod_follows_the_waves) {
             t += dt;
             ++steps;
             leaf_sum += m.num_leaves();
-            if (max_level > 0 && steps % 4 == 0) ad.remesh();
+            if (max_level > 0 && steps % 4 == 0 && ad.remesh()) S = eng.residual(m, m.U, R);   // the speed bound follows the new leaves
         }
         CHECK_NEAR(cell_total(m, 0), mass0, 1e-12 * mass0);
         mean_leaves = leaf_sum / steps;
@@ -3778,7 +3778,7 @@ TEST(cellremesh_sod_indicator_study) {
             t += dt;
             ++steps;
             sum += m.num_leaves();
-            if (max_level > 0 && steps % 4 == 0) ad.remesh();
+            if (max_level > 0 && steps % 4 == 0 && ad.remesh()) S = eng.residual(m, m.U, R);   // the speed bound follows the new leaves
         }
         mean_leaves = sum / steps;
         double err = 0.0, area = 0.0;

@@ -374,3 +374,29 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
 * Remesh cost (serial code; 255 remeshes in that run, 13 ms each): indicator 0.23 s, `CellMesh::adapt` 1.25 s, `CellFluxEngine::build` 1.89 s, together 29 % of the wall time. This
   is the first thing to optimise in P8 (incremental face / stencil update, no hash maps and ordered maps in the rebuild, parallel rebuild).
 * Figures: `python cases/validation/amr/cell_amr_p5.py` (runs `cell_amr_demo`, writes `results/cell_amr/*.png`).
+* **Deviations from the reference indicator** (the user accepts or rejects them): (1) refinement ripples to coarser neighbours instead of being forbidden next to one;
+  (2) siblings are joined when all FOUR CHILDREN have `xi < join`, where the reference tests the parent's own `xi`, computed at the parent level; (3) pressure and velocity are
+  always tested (the reference skips them where `xi` is already above 0.99, which does not change the result); (4) faces on a physical edge are ignored.
+* **Finding: the mesh flickers at the edge of the refined region.** In the airfoil run 13 067 leaves were flagged for refinement and about 11 850 sibling groups joined over 255 remeshes
+  (about 50 and 46 per remesh) in a nearly steady flow; the isolated level-1 island at (5.5, 3.1) of the figure has `xi = 0` at the end (it is not in the join / split
+  hysteresis band: 25 of the 461 level-1 leaves are, 373 are below `join`). Likely cause, consistent with deviation (2): a marginal gradient is flagged on the coarse leaves,
+  the refined children see half the variation per face (the same ramp over twice the faces) and fall below the criterion, they join at the next remesh, and the cycle repeats. Testing the
+  parent's own `xi` at the parent level (what the reference does) keeps a refined cell refined while its coarse-level variation is above the criterion and should remove it; this is the
+  proposed fix, not implemented (the user decides). The churn also feeds the remesh cost below and, through injection and averaging, a little numerical diffusion.
+* **Airfoil accuracy against the cached studies** (`results/validation/airfoil_amr`, same case, t = 6, loads from the monitor / the net momentum flux into the solid leaves, mean over the last
+  unit of time, then the value at t ~ 6; the instantaneous Cl at one time is noisy), all runs with all threads of the same 8-core machine:
+
+  | run | cells at the end | wall | Cd mean | Cl mean | Cd(6) | Cl(6) |
+  |---|---|---|---|---|---|---|
+  | uniform 768 x 384 (reference) | 294 912 | 244 s | 0.1498 | 0.2171 | 0.1655 | 0.3540 |
+  | uniform 384 x 192 | 73 728 | | 0.1557 | 0.1717 | 0.1652 | 0.3203 |
+  | uniform 192 x 96 | 18 432 | 2.5 s | 0.1397 | 0.1027 | 0.1376 | 0.0910 |
+  | patch engine (`main`), 192 x 96 + 2 levels | 52 224 | 22.1 s | 0.1483 | 0.2304 | 0.1542 | 0.2956 |
+  | cell engine, criterion 0.1, density + velocity | 22 284 | 11.6 s (remesh 31 %) | 0.1511 | 0.2289 | 0.1656 | 0.3621 |
+  | cell engine, criterion 0.05, density + velocity | 23 997 | 12.7 s (remesh 32 %) | 0.1496 | 0.2288 | 0.1628 | 0.3515 |
+
+  Mean loads: Cd within 1 % of the reference for both AMR engines, Cl 5-6 % high for both; the cell engine uses 2.2x fewer leaves and 1.9x less wall time than the patch engine. Cl is the
+  quantity that differs from the reference by the same amount for both engines, so that part is not specific to the new engine.
+* Remesh cost, one more time: indicator 0.23 s, `CellMesh::adapt` 1.25 s, `CellFluxEngine::build` 1.96 s of a 11.6 s run; the churn above multiplies it.
+* After a remesh that changed the leaves the wave-speed bound is recomputed (the viscous part scales with the level of each leaf); the tests and the demo do it.
+* Not done in P5 (moved to P7 with the parameters): `amr_init_levels` (the initial adaptation makes `max_level + 1` passes) and the hot start from a uniform checkpoint.

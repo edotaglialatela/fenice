@@ -2,6 +2,7 @@
 //   cell_amr_demo "<case>" [key=value ...] [--out dir] [--levels n] [--every n] [--tend t]
 //                 [--criterion x] [--split x] [--join x] [--vars rho,p,u] [--diffusion n]
 // Parameters come from the case as usual; amr_max_level / amr_refine_every are used when --levels / --every are absent.
+#include <array>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -99,6 +100,25 @@ int main(int argc, char** argv) {
     Field R;
     double S = eng.residual(mesh, mesh.U, R), t = 0.0, remesh_wall = 0.0, leaf_sum = 0.0;
     int step = 0;
+    // loads on the body: the net momentum flux into the solid leaves (sum of their residuals times the area), the same
+    // definition as the monitor of the uniform solver; coefficients on q L, L the chord (airfoil) or the diameter
+    std::vector<std::array<double, 3>> history;   // t, Cd, Cl
+    const bool airfoil_body = sim.p.use_ibm;
+    const double q_ref = 0.5 * sim.p.rho_in * sim.p.u_in * sim.p.u_in *
+                         (sim.p.ibm_shape.find("NACA") != std::string::npos || sim.p.ibm_shape == "Airfoil" ? sim.p.ibm_chord
+                                                                                                               : 2.0 * sim.p.ibm_radius);
+    const auto sample_loads = [&](double time) {
+        if (!airfoil_body || q_ref <= 0.0) return;
+        Field Rl;
+        eng.residual(mesh, mesh.U, Rl);
+        double fx = 0.0, fy = 0.0;
+        for (int c = 0; c < mesh.num_leaves(); ++c)
+            if (eng.solid()[c]) {
+                fx += Rl[c][1] * mesh.area(c);
+                fy += Rl[c][2] * mesh.area(c);
+            }
+        history.push_back({time, fx / q_ref, fy / q_ref});
+    };
     const auto t0 = Clock::now();
     while (t < tend) {
         const double dt = std::min(sim.p.cfl * std::min(mesh.dx(0), mesh.dy(0)) / S, tend - t);
@@ -109,13 +129,15 @@ int main(int argc, char** argv) {
         leaf_sum += mesh.num_leaves();
         if (levels > 0 && step % every == 0) {
             const auto r0 = Clock::now();
-            adaptor.remesh();
+            if (adaptor.remesh()) S = eng.residual(mesh, mesh.U, R);   // the wave-speed bound follows the new leaves
             remesh_wall += std::chrono::duration<double>(Clock::now() - r0).count();
         }
+        if (step % 10 == 0) sample_loads(t);
         if (step % 100 == 0) std::printf("step %6d  t = %.5f  leaves %d\n", step, t, mesh.num_leaves());
     }
     const double wall = std::chrono::duration<double>(Clock::now() - t0).count();
     std::printf("[cell-amr] remesh parts: indicator %.2f s, adapt %.2f s, engine build %.2f s\n", adaptor.t_indicator, adaptor.t_adapt, adaptor.t_build);
+    std::printf("[cell-amr] churn: %lld leaves flagged for refinement, about %lld sibling groups joined over %d steps%s", adaptor.n_refined, adaptor.n_joined, step, "\n");
     std::vector<int> per_level(static_cast<size_t>(levels) + 1, 0);
     for (int c = 0; c < mesh.num_leaves(); ++c) ++per_level[mesh.level[c]];
     std::printf("[cell-amr] %d steps, wall %.2f s (remesh %.2f s = %.1f %%), mean leaves %.0f, final leaves %d (", step, wall,
@@ -123,13 +145,27 @@ int main(int argc, char** argv) {
     for (int l = 0; l <= levels; ++l) std::printf("%sL%d %d", l ? ", " : "", l, per_level[l]);
     std::printf(")\n");
 
+    if (!history.empty()) {
+        double cd = 0.0, cl = 0.0;
+        int n = 0;
+        for (const auto& h : history)
+            if (h[0] > tend - 1.0) {
+                cd += h[1];
+                cl += h[2];
+                ++n;
+            }
+        std::printf("[cell-amr] loads: t = %.3f Cd %.4f Cl %.4f; mean over the last unit of time Cd %.4f Cl %.4f\n", history.back()[0],
+                    history.back()[1], history.back()[2], cd / n, cl / n);
+    }
     std::filesystem::create_directories(out);
     std::ofstream f(out + "/leaves.csv");
-    f << "x,y,dx,level,rho,u,v,p,solid\n";
+    const std::vector<double> xi_end = ind.xi(mesh, mesh.U, sim.fluid);   // the indicator of the final leaves
+    f << "x,y,dx,level,rho,u,v,p,solid,xi\n";
     for (int c = 0; c < mesh.num_leaves(); ++c) {
         const State W = sim.fluid.cons_to_prim(mesh.U[c]);
         f << mesh.xc(c) << ',' << mesh.yc(c) << ',' << mesh.dx(mesh.level[c]) << ',' << mesh.level[c] << ',' << W[0] << ','
-          << W[1] << ',' << W[2] << ',' << W[3] << ',' << (eng.has_body() && eng.solid()[c] ? 1 : 0) << '\n';
+          << W[1] << ',' << W[2] << ',' << W[3] << ',' << (eng.has_body() && eng.solid()[c] ? 1 : 0) << ',' << xi_end[c]
+          << '\n';
     }
     std::printf("[cell-amr] leaves written to %s/leaves.csv\n", out.c_str());
     return 0;
