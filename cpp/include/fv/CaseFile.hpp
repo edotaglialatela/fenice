@@ -77,7 +77,8 @@ Field evaluate_initial(const InitialSpec& spec, const Mesh& mesh, const EOS& eos
 // The source terms of the run (source_rho, source_mx, source_my, source_E, source_mz: numbers or expressions of
 // x, y, z, pi, e and the numeric run parameters) at the cell centres of `mesh`, in the slot order of the state,
 // [S_rho, S_mx, S_my, S_E, S_mz]. The equations solved are dU/dt + div(F - F_viscous) = S, so a steady manufactured
-// solution U_m needs S = div(F(U_m) - F_viscous(U_m)).
-Field evaluate_source(const Mesh& mesh, const Params& run);
+// solution U_m needs S = div(F(U_m) - F_viscous(U_m)). The expressions may also use the time `t` (an unsteady
+// manufactured solution, S = dU_m/dt + div(...)); `t` is the time the source is evaluated at (0 by default).
+Field evaluate_source(const Mesh& mesh, const Params& run, double t = 0.0);
 
 }   // namespace fv

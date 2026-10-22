@@ -35,7 +35,7 @@ try:
 except ImportError as exc:   # pragma: no cover
     raise ImportError("fenice.mms needs sympy (pip install sympy)") from exc
 
-x, y, z = sp.symbols("x y z", real=True)
+x, y, z, t = sp.symbols("x y z t", real=True)
 SLOTS = ("source_rho", "source_mx", "source_my", "source_E", "source_mz")   # order of the state [rho, mx, my, E, mz]
 K = 2 * sp.pi   # wave number of the unit domain [0, 1]^d
 U_WALL = "0.1"   # velocity of the moving bottom wall of the "walls" solution
@@ -61,13 +61,18 @@ class Solution:
     * "outflow": y periodic; left NoSlip, right Transmissive. rho, p even about x = 0 and x = 1, u and v odd about
       x = 0 and even about x = 1 (zero normal gradient).
 
-    The symmetry is checked numerically at construction (check_symmetry)."""
+    The symmetry is checked numerically at construction (check_symmetry).
+
+    unsteady (2-D periodic only): the waves of the solution travel (the time t enters their phases), the source gets
+    the dU_m/dt term and its expressions use the variable `t`, which the solver evaluates at the time of every
+    stage; the initial state is the solution at t = 0. It verifies the time integration (stage times, BDF2)."""
     dim: int = 2
     viscous: bool = True
     mu: float = 0.02
     pr: float = 0.72
     gamma: float = 1.4
     kind: str = "periodic"
+    unsteady: bool = False
 
     def __post_init__(self):
         if self.dim not in (2, 3):
@@ -76,6 +81,9 @@ class Solution:
             raise ValueError("kind must be periodic, walls or outflow")
         if self.kind != "periodic" and self.dim != 2:
             raise ValueError("the non-periodic solutions are 2-D")
+        if self.unsteady and (self.kind != "periodic" or self.dim != 2):
+            raise ValueError("the unsteady solution is the 2-D periodic one")
+        tt = t if self.unsteady else 0   # a zero phase disappears from the expression: the steady text is unchanged
         k = K
         if self.kind == "walls":
             c = sp.cos(sp.pi * y)   # even about y = 0 and y = 1
@@ -98,11 +106,11 @@ class Solution:
             self.p = 1 + _r("0.2") * sp.cos(k * y + _r("0.6") - _r("0.5") * c) + _r("0.1") * c
             self.check_symmetry()
         elif self.dim == 2:
-            self.rho = 1 + _r("0.2") * sp.sin(k * x + _r("0.4")) * sp.cos(2 * k * y - _r("0.3"))
-            self.u = _r("0.3") * sp.sin(k * (x + y) + _r("0.5")) + _r("0.1") * sp.cos(2 * k * x)
-            self.v = -_r("0.25") * sp.cos(k * (x - y) + _r("0.2")) + _r("0.1") * sp.sin(2 * k * y + _r("0.9"))
+            self.rho = 1 + _r("0.2") * sp.sin(k * x + _r("0.4") - 3 * tt) * sp.cos(2 * k * y - _r("0.3") - 2 * tt)
+            self.u = _r("0.3") * sp.sin(k * (x + y) + _r("0.5") - 4 * tt) + _r("0.1") * sp.cos(2 * k * x + 2 * tt)
+            self.v = -_r("0.25") * sp.cos(k * (x - y) + _r("0.2") + 3 * tt) + _r("0.1") * sp.sin(2 * k * y + _r("0.9") - 3 * tt)
             self.w = sp.Integer(0)
-            self.p = 1 + _r("0.2") * sp.cos(k * x - 2 * k * y + _r("0.6")) + _r("0.1") * sp.sin(k * y + _r("0.3"))
+            self.p = 1 + _r("0.2") * sp.cos(k * x - 2 * k * y + _r("0.6") + 4 * tt) + _r("0.1") * sp.sin(k * y + _r("0.3") - 2 * tt)
         else:
             self.rho = (1 + _r("0.2") * sp.sin(k * x + _r("0.4")) * sp.cos(2 * k * y - _r("0.3"))) * (
                 1 + _r("0.15") * sp.sin(k * z + _r("0.1")))
@@ -170,24 +178,31 @@ class Solution:
                        - (sp.Rational(2, 3) * mu * div if i == d else 0) for i in range(3)]
                 fv = [0, tau[0], tau[1], sum(vel[i] * tau[i] for i in range(3)) + k_cond * sp.diff(T, coords[d]), tau[2]]
                 flux[d] = [flux[d][q] - fv[q] for q in range(5)]
-        S = [sum(sp.diff(flux[d][q], coords[d]) for d in range(self.dim)) for q in range(5)]
+        S = [sum(sp.diff(flux[d][q], coords[d]) for d in range(self.dim)) + (sp.diff(U[q], t) if self.unsteady else 0)
+             for q in range(5)]
         return dict(zip(SLOTS, S))
 
     # ------------------------------------------------------------------ evaluation
     def exact(self):
-        """f(x, y, z) -> (rho, u, v, w, p) as numpy arrays (z may be 0 in 2-D)."""
-        f = sp.lambdify((x, y, z), [self.rho, self.u, self.v, self.w, self.p], "numpy")
-        return lambda X, Y, Z=0.0: tuple(np.broadcast_to(np.asarray(a, float), np.broadcast(X, Y, Z).shape)
-                                         for a in f(X, Y, Z))
+        """f(x, y, z, t=0) -> (rho, u, v, w, p) as numpy arrays (z may be 0 in 2-D)."""
+        f = sp.lambdify((x, y, z, t), [self.rho, self.u, self.v, self.w, self.p], "numpy")
+        return lambda X, Y, Z=0.0, T=0.0: tuple(np.broadcast_to(np.asarray(a, float), np.broadcast(X, Y, Z).shape)
+                                                for a in f(X, Y, Z, T))
 
     def source_functions(self):
-        """{slot: f(x, y, z)} of the source terms, for checking what the solver computes."""
+        """{slot: f(x, y, z, t=0)} of the source terms, for checking what the solver computes."""
         src = self.source()
-        return {k: sp.lambdify((x, y, z), e, "numpy") for k, e in src.items()}
+        out = {}
+        for k, e in src.items():
+            f = sp.lambdify((x, y, z, t), e, "numpy")
+            out[k] = (lambda f: lambda X, Y, Z=0.0, T=0.0: f(X, Y, Z, T))(f)
+        return out
 
     # ------------------------------------------------------------------ case files
     def primitive_strings(self) -> dict[str, str]:
-        out = {"rho": tinyexpr(self.rho), "u": tinyexpr(self.u), "v": tinyexpr(self.v), "p": tinyexpr(self.p)}
+        at0 = lambda e: sp.sympify(e).subs(t, 0)   # the initial state is the solution at t = 0
+        out = {"rho": tinyexpr(at0(self.rho)), "u": tinyexpr(at0(self.u)), "v": tinyexpr(at0(self.v)),
+               "p": tinyexpr(at0(self.p))}
         if self.dim == 3:
             out["w"] = tinyexpr(self.w)
         return out
@@ -197,9 +212,12 @@ class Solution:
 
     def name(self) -> str:
         return ("Manufactured Solution" + {"periodic": "", "walls": " Walls", "outflow": " Outflow"}[self.kind] +
-                ("" if self.viscous else " Euler") + (" 3D" if self.dim == 3 else ""))
+                (" Unsteady" if self.unsteady else "") + ("" if self.viscous else " Euler") +
+                (" 3D" if self.dim == 3 else ""))
 
     def kind_label(self) -> str:
+        if self.unsteady:
+            return "periodic, unsteady"
         return {"periodic": "periodic", "walls": "moving and slip walls", "outflow": "no-slip wall and outflow"}[self.kind]
 
     def boundaries(self) -> dict[str, str]:
@@ -229,14 +247,19 @@ class Solution:
         """The text of cases/<folder>/case.toml."""
         order = {("periodic", 2, True): 100, ("periodic", 2, False): 101, ("periodic", 3, True): 102,
                  ("walls", 2, True): 103, ("outflow", 2, True): 104}.get((self.kind, self.dim, self.viscous), 105)
+        if self.unsteady:
+            order = 105
         n = 32 if self.dim == 2 else 16
         lines = [
             f"# Manufactured solution of the {'Navier-Stokes' if self.viscous else 'Euler'} equations, {self.dim}-D, "
             + {"periodic": "periodic unit", "walls": "moving wall below, slip wall above, periodic in x,",
                "outflow": "no-slip wall on the left, transmissive on the right, periodic in y,"}[self.kind],
             "# domain (Roache 2009, ch. 3). GENERATED by `python -m fenice.mms --write`: do not edit by hand. The source",
-            "# terms S = div(F - F_v) of the exact solution below are evaluated at the cell centres, so the run should",
-            "# stay close to the initial state; the error against it falls at the order of the scheme.",
+            *(["# terms S = dU/dt + div(F - F_v) of the exact solution below are evaluated at the cell centres and at the",
+               "# time of every stage (t); the initial state is the solution at t = 0 and the error against the exact",
+               "# solution at the end time falls at the order of the scheme in space and time."] if self.unsteady else
+              ["# terms S = div(F - F_v) of the exact solution below are evaluated at the cell centres, so the run should",
+               "# stay close to the initial state; the error against it falls at the order of the scheme."]),
             "[case]",
             f'name = "{self.name()}"',
             f'description = "Code verification by manufactured solution, {self.kind_label()}, source terms"',
@@ -300,7 +323,7 @@ def tinyexpr(e: sp.Expr) -> str:
         v = float(e)
         s = repr(v)
         return f"({s})" if v < 0 else s
-    if e is x or e is y or e is z:
+    if e is x or e is y or e is z or e is t:
         return str(e)
     if e == sp.pi:
         return repr(float(sp.pi))
@@ -320,7 +343,8 @@ def tinyexpr(e: sp.Expr) -> str:
 
 def default_solutions() -> list[Solution]:
     """The three cases of the repository."""
-    return [Solution(2, True), Solution(2, False), Solution(3, True), Solution(kind="walls"), Solution(kind="outflow")]
+    return [Solution(2, True), Solution(2, False), Solution(3, True), Solution(kind="walls"), Solution(kind="outflow"),
+            Solution(2, False, unsteady=True)]
 
 
 def main(argv=None) -> int:

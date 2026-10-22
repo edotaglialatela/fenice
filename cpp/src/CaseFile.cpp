@@ -196,6 +196,7 @@ public:
         add("x", 0.0);
         add("y", 0.0);
         add("z", 0.0);
+        add("t", 0.0);   // time: 0 except for the source terms of an unsteady manufactured solution (set_time)
         for (const auto& [k, v] : run.values()) {
             double d;
             if (parse_number(v, d)) add(k, d);
@@ -247,6 +248,8 @@ public:
         values_[1] = y;
         values_[2] = z;
     }
+
+    void set_time(double t) { values_[3] = t; }
 
     double eval(int i) const {
         const Item& it = items_[static_cast<size_t>(i)];
@@ -649,10 +652,11 @@ Field evaluate_initial(const InitialSpec& spec, const Mesh& m, const EOS& eos, c
 }
 
 
-Field evaluate_source(const Mesh& m, const Params& run) {
+Field evaluate_source(const Mesh& m, const Params& run, double t) {
     // Parameter keys in the slot order of the state [rho, rho u, rho v, rho E, rho w]
     static const char* const kKeys[kNVar] = {"source_rho", "source_mx", "source_my", "source_E", "source_mz"};
     Evaluator ev(run, m);
+    ev.set_time(t);
     int item[kNVar];
     for (int q = 0; q < kNVar; ++q) item[q] = ev.compile(run.str(kKeys[q], "0"), kKeys[q]);
     Field S(static_cast<size_t>(m.num_cells()));

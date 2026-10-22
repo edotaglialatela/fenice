@@ -1724,6 +1724,73 @@ TEST(source_terms_3d_slots) {
     CHECK(other == 0.0);
 }
 
+namespace {
+// Density after one step of the scheme on a uniform periodic state with only source_rho = f(t), started at t0.
+// A uniform state has no flux divergence, so the step integrates drho/dt = f(t) with the scheme's own stage times.
+double density_after_step(const char* scheme, const char* f, double t0, double* dt_out, int steps = 1) {
+    const SimParams sp = params_for("Taylor-Green Vortex",
+                                    {{"nx", "8"}, {"ny", "8"}, {"time_scheme", scheme}, {"source_rho", f},
+                                     {"dt_phys", "0.05"}, {"max_inner_iter", "100000"}, {"inner_tol_rel", "1e-14"}});
+    Simulation sim;
+    sim.setup(sp, false);
+    sim.U = uniform_field(sim.fluid, sim.mesh.num_cells(), 1.0, 0.0, 0.0, 1.0);
+    const ResidualFn res = [&](const Field& U, Field& R) { return sim.residual(U, R); };
+    double t = t0;
+    for (int n = 0; n < steps; ++n) {
+        const StepResult r = sim.scheme->step(sim.U, res, std::min(sim.mesh.dx, sim.mesh.dy), t, 1e9);
+        t += r.dt;
+        *dt_out = r.dt;
+    }
+    return sim.U[0][0];
+}
+double f_poly(double t) { return 1.0 + 2.0 * t + 3.0 * t * t + 4.0 * t * t * t; }
+}   // namespace
+
+TEST(time_dependent_source_stage_times) {
+    // Each scheme must evaluate the source at ITS stage times, started from an arbitrary absolute time t0 (resume):
+    // Euler at t0; SSP-RK2 (Heun) at t0 and t0 + dt, the trapezoid rule; RK4 at t0, twice t0 + dt/2, t0 + dt, which
+    // is Simpson's rule. This is independent of the spatial scheme and of the limiter.
+    const char* f = "1 + 2*t + 3*t*t + 4*t*t*t";
+    const double t0 = 0.37;
+    double dt = 0.0;
+    double rho = density_after_step("Explicit Euler", f, t0, &dt);
+    CHECK_NEAR(rho - 1.0, dt * f_poly(t0), 1e-14);
+    rho = density_after_step("SSP Runge-Kutta 2", f, t0, &dt);
+    CHECK_NEAR(rho - 1.0, 0.5 * dt * (f_poly(t0) + f_poly(t0 + dt)), 1e-14);
+    rho = density_after_step("Runge-Kutta 4", f, t0, &dt);
+    CHECK_NEAR(rho - 1.0, dt / 6.0 * (f_poly(t0) + 4.0 * f_poly(t0 + 0.5 * dt) + f_poly(t0 + dt)), 1e-14);
+    // Simpson integrates a cubic exactly: the step is the integral of f over [t0, t0 + dt]
+    const auto F = [](double t) { return t + t * t + t * t * t + t * t * t * t; };
+    CHECK_NEAR(rho - 1.0, F(t0 + dt) - F(t0), 1e-14);
+}
+
+TEST(time_dependent_source_bdf2) {
+    // BDF2 evaluates the source at the new time in every inner iteration: with a tight inner tolerance the first step
+    // is BDF1, rho1 = rho0 + dt f(t0 + dt), and the second is (3 rho2 - 4 rho1 + rho0) / (2 dt) = f(t0 + 2 dt)
+    const char* f = "1 + 2*t + 3*t*t + 4*t*t*t";
+    const double t0 = 0.2;
+    double dt = 0.0;
+    const double rho1 = density_after_step("BDF2 Dual Time", f, t0, &dt, 1);
+    CHECK_NEAR(rho1 - 1.0, dt * f_poly(t0 + dt), 1e-9);
+    const double rho2 = density_after_step("BDF2 Dual Time", f, t0, &dt, 2);
+    CHECK_NEAR(rho2, (4.0 * rho1 - 1.0 + 2.0 * dt * f_poly(t0 + 2.0 * dt)) / 3.0, 1e-9);
+}
+
+TEST(source_time_dependence_is_detected_by_identifier) {
+    // `t` as a whole identifier only: sqrt, tan, t_end and the exponent of 1e-3 do not count
+    const auto unsteady = [](const char* e) {
+        return params_for("Taylor-Green Vortex", {{"source_rho", e}}).source_unsteady;
+    };
+    CHECK(!unsteady("0"));
+    CHECK(!unsteady("sqrt(2)*x + tan(y) + 1e-3 + 2.5e+2*x"));
+    CHECK(!unsteady("sin(x)*cos(y) + 5e-1"));
+    CHECK(unsteady("sin(t)"));
+    CHECK(unsteady("x*t"));
+    CHECK(unsteady("1e-3*t"));
+    CHECK(unsteady("pow(x,2)+pow(t,2)"));
+    CHECK(unsteady("(t)"));
+}
+
 TEST(source_terms_are_rejected_where_unsupported) {
     bool amr_throws = false, ibm_throws = false;
     try {

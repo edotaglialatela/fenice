@@ -2,6 +2,7 @@
 
 #include <chrono>
 #include <cstdio>
+#include <limits>
 #include <map>
 #include <filesystem>
 #include <fstream>
@@ -789,6 +790,18 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
 const Field& Simulation::source_for(const Mesh& m) {
     const std::array<double, 9> key = {static_cast<double>(m.nx), static_cast<double>(m.ny),
                                        static_cast<double>(m.nz), m.dx, m.dy, m.dz, m.x0, m.y0, m.z0};
+    if (p.source_unsteady) {
+        const double t = scheme ? scheme->stage_time : 0.0;
+        auto ut = unsteady_source_cache_.find(key);
+        if (ut == unsteady_source_cache_.end())
+            ut = unsteady_source_cache_.emplace(key, std::make_pair(std::numeric_limits<double>::quiet_NaN(), Field{}))
+                     .first;
+        if (!(ut->second.first == t)) {   // also true for the NaN of a new entry
+            ut->second.second = evaluate_source(m, p.source, t);
+            ut->second.first = t;
+        }
+        return ut->second.second;
+    }
     auto it = source_cache_.find(key);
     if (it == source_cache_.end()) it = source_cache_.emplace(key, evaluate_source(m, p.source)).first;
     return it->second;

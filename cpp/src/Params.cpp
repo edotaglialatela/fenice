@@ -213,11 +213,27 @@ SimParams SimParams::from(const Params& p) {
     s.gy = p.num("gy", 0.0);
     s.gz = p.num("gz", 0.0);
     s.use_source = false;
+    s.source_unsteady = false;
     for (const char* key : {"source_rho", "source_mx", "source_my", "source_mz", "source_E"}) {
         const std::string v = p.str(key, "0");
         char* end = nullptr;
         const double d = std::strtod(v.c_str(), &end);
         if (!(end && *end == '\0' && d == 0.0)) s.use_source = true;   // an expression, or a non-zero number
+        // The identifier `t` (not the t of sqrt, t_end or tan: whole identifiers only; numbers like 1e-3 are skipped)
+        for (size_t i = 0; i < v.size();) {
+            if (std::isdigit(static_cast<unsigned char>(v[i])) || v[i] == '.') {
+                while (i < v.size() && (std::isalnum(static_cast<unsigned char>(v[i])) || v[i] == '.' ||
+                                        ((v[i] == '+' || v[i] == '-') && (v[i - 1] == 'e' || v[i - 1] == 'E'))))
+                    ++i;
+            } else if (std::isalpha(static_cast<unsigned char>(v[i])) || v[i] == '_') {
+                size_t j = i;
+                while (j < v.size() && (std::isalnum(static_cast<unsigned char>(v[j])) || v[j] == '_')) ++j;
+                if (j - i == 1 && v[i] == 't') s.source_unsteady = true;
+                i = j;
+            } else {
+                ++i;
+            }
+        }
     }
     s.resume = p.flag("resume");
     s.use_mpi = p.flag("use_mpi");

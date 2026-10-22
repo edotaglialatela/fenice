@@ -42,6 +42,11 @@ public:
 
     double cfl;   // CFL number
 
+    // Absolute time of the stage whose residual is being evaluated (set by every step() before each call of the
+    // residual: t, t + dt, ... of the Runge-Kutta stages; t + dt for BDF2). Only the time-dependent source terms
+    // read it; the fixed-dt path of the AMR subcycling does not set it.
+    double stage_time = 0.0;
+
 protected:
     Field R1_, R2_, R3_, R4_, tmp_;
 };

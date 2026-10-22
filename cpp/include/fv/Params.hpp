@@ -62,6 +62,7 @@ struct SimParams {
     bool use_bodyforce;
     double gx, gy, gz;
     bool use_source;   // any of source_rho / source_mx / source_my / source_mz / source_E is not 0 (see SimParams::source)
+    bool source_unsteady;   // a source expression uses the time `t`: it is evaluated at every stage time
     bool resume;
     bool use_mpi;
     int n_cpus;

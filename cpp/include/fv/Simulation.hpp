@@ -110,6 +110,9 @@ public:
     // Source terms of the case (source_*), evaluated once per mesh the residual is assembled on (the whole mesh,
     // or an MPI strip); keyed by (nx, ny, nz, dx, dy, dz, x0, y0, z0)
     std::map<std::array<double, 9>, Field> source_cache_;
+    // Unsteady sources (a source expression uses t): per mesh, the field of the last stage time it was asked for;
+    // the inner iterations of BDF2 and the stages that share a time reuse it
+    std::map<std::array<double, 9>, std::pair<double, Field>> unsteady_source_cache_;
     const Field& source_for(const Mesh& m);
     std::unique_ptr<ImmersedBoundary> ibm;                      // optional obstacle
     std::function<ImmersedBoundary(const Mesh&)> ibm_factory;   // same body on any (patch) mesh

@@ -50,6 +50,7 @@ double TimeScheme::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) 
 // ---------------------------------------------------------------------------
 
 StepResult ExplicitEuler::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
+    stage_time = t;
     const double s = res(U, R1_);
     double dt = cfl * min_delta / (s + kDtEps);
     dt = std::min(dt, t_max - t);
@@ -78,10 +79,12 @@ void ssp_combine(Field& U, const Field& U1, double dt, const Field& R2) {
 }   // namespace
 
 StepResult SSPRK2::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
+    stage_time = t;
     const double s1 = res(U, R1_);
     double dt = cfl * min_delta / (s1 + kDtEps);
     dt = std::min(dt, t_max - t);
     axpy(tmp_, U, dt, R1_);
+    stage_time = t + dt;
     const double s2 = res(tmp_, R2_);
     ssp_combine(U, tmp_, dt, R2_);
     return {dt, std::max(s1, s2)};
@@ -111,14 +114,17 @@ void rk4_combine(Field& U, double dt, const Field& k1, const Field& k2, const Fi
 }   // namespace
 
 StepResult RungeKutta4::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
+    stage_time = t;
     const double s1 = res(U, R1_);
     double dt = cfl * min_delta / (s1 + kDtEps);
     dt = std::min(dt, t_max - t);
     axpy(tmp_, U, 0.5 * dt, R1_);
+    stage_time = t + 0.5 * dt;
     const double s2 = res(tmp_, R2_);
     axpy(tmp_, U, 0.5 * dt, R2_);
     const double s3 = res(tmp_, R3_);
     axpy(tmp_, U, dt, R3_);
+    stage_time = t + dt;
     const double s4 = res(tmp_, R4_);
     rk4_combine(U, dt, R1_, R2_, R3_, R4_);
     return {dt, std::max(std::max(s1, s2), std::max(s3, s4))};
@@ -147,6 +153,7 @@ BDF2DualTime::BDF2DualTime(double cfl, double dt_phys, int max_inner_iter, doubl
 
 StepResult BDF2DualTime::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
     const double dt_phys = std::min(dt_phys_, t_max - t);
+    stage_time = t + dt_phys;   // the implicit stage: the residual of every inner iteration is at the new time
     const bool bdf1 = first_step_;   // BDF1 bootstrap: U^{n-1} := U^n
     const double alpha = bdf1 ? 1.0 / dt_phys : 1.5 / dt_phys;
     const Field& U_n = U;
