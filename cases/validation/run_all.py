@@ -31,6 +31,7 @@ STUDIES = {
     "cylinder_loads": (["ibm_loads.py", "cylinder"], True),
     "airfoil_loads": (["ibm_loads.py", "airfoil"], True),
     "airfoil_amr": (["airfoil_amr.py"], True),
+    "amr_mpi": (["amr_mpi.py"], True),   # timings: needs an idle machine
     "cylinder_mesh_transition": (["cylinder_mesh_transition.py"], True),
 }
 

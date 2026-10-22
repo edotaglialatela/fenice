@@ -165,20 +165,26 @@ that they hold the same tree. Every rank writes the VTK files of its own patches
 arithmetic does not depend on its rank, so the result is identical to the serial run for
 any number of ranks, including more ranks than patches.
 
-A 720×360 airfoil on 24×24 patches, 50 steps (16 logical processors):
+<figure style="margin:1em 0;">
+<img src="{{root}}img/amr_mpi.png" style="width:100%">
+<figcaption>AMR airfoil on a 720×360 base mesh with 24×24 patches, 50 steps, 16 logical processors
+(<code>cases/validation/amr_mpi.py</code>). Left: wall time on OpenMP threads and on MPI ranks.
+Right: cells stored by the busiest rank. Every final state is bit for bit the serial one.</figcaption>
+</figure>
 
-| run | wall time |
-|---|---:|
-| serial, 1 thread | 16.3 s |
-| OpenMP, 4 / 8 / 16 threads | 4.8 / 3.1 / 2.7 s |
-| MPI, 2 / 4 / 8 / 16 ranks | 8.7 / 5.2 / 3.9 / 5.0 s |
+| run | wall time | speed-up | cells on the busiest rank |
+|---|---:|---:|---:|
+| serial, 1 thread | 16.4 s | 1.0 | 100 % |
+| OpenMP, 2 / 4 / 8 / 16 threads | 8.8 / 5.1 / 3.2 / 2.9 s | 1.9 / 3.2 / 5.2 / 5.6 | 100 % |
+| MPI, 2 / 4 / 8 / 16 ranks | 8.9 / 5.2 / 4.0 / 4.6 s | 1.8 / 3.2 / 4.1 / 3.5 | 61 / 41 / 26 / 20 % |
 
-On one node OpenMP is still the faster choice (threads share the memory and need no
-halo copies); MPI is for runs that do not fit one node's cores or memory. Memory per rank
-is the owned patches plus their halo copies: on the 16×16-patch airfoil case (249 patches)
-the busiest of 2 / 4 / 8 / 16 ranks holds 78 / 60 / 42 / 27 % of the cells. The halo is
-large when a rank owns few patches (it is a perimeter), so the saving grows with the
-number of patches per rank.
+On one node OpenMP is still the faster choice (threads share the memory and need no halo
+copies): the MPI run matches it up to 4 ranks and falls behind beyond that, where the
+halo exchanges and the 16 logical processors of this machine (8 cores) limit it. MPI is for
+runs that do not fit one node's cores or memory. A rank stores its patches plus the halo
+copies of their neighbours; the halo is a perimeter, so the share falls towards 1/N as the
+number of patches per rank grows (here 621 patches; with 249 patches of 16×16 the busiest of
+2 / 4 / 8 / 16 ranks holds 78 / 60 / 42 / 27 % of the cells).
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/sod_amr.png" style="width:100%">

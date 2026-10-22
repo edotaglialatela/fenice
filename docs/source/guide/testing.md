@@ -132,5 +132,6 @@ python cases\validation\sod.py --force              # one study, re-running its 
 | `cavity.py` | cavity centrelines and vortex vs Ghia (1982), 32²-128², both orders |
 | `taylor_green_3d.py` | 3-D Taylor-Green energy, dissipation, vorticity, Q-criterion animation |
 | `airfoil_amr.py` | AMR airfoil against uniform 192×96 and 768×384 meshes (cells, time, rms error of Cd and Cl) |
+| `amr_mpi.py` | AMR airfoil on OpenMP threads and MPI ranks: states identical to serial, time and cells per rank |
 | `ibm_loads.py cylinder` / `airfoil` | IBM loads from the monitor, Strouhal number |
 | `cylinder_mesh_transition.py` | cylinder loads across a 400×200 → 800×400 hot start (animation) |
