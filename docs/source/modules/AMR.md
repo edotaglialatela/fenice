@@ -150,6 +150,14 @@ colours the refinement level.
 
 The patches of each level advance concurrently on all OpenMP threads.
 
+**Choosing the patch size.** Aim for patches of about 16 to 30 cells per side, so that there
+are several hundred of them (at least some 20 per thread or rank). Smaller patches cost a
+little more per cell (more interfaces and halo copies); larger ones refine whole blocks,
+which keeps cells the flow does not need, and leave too few patches to share out. On the
+720×360 airfoil, 50 steps on 16 threads, 12², 20², 24², 30², 40², 60² and 90² cells took
+3.5, 3.1, 3.1, 3.1, 3.4, 4.7 and 8.8 s (2211 down to 68 patches, 318 000 up to 551 000
+cells). The patch size must be even and divide `nx` and `ny`.
+
 **MPI.** With `use_mpi`, every rank holds the whole tree (extents, levels, owners: a few
 numbers per patch), so all ranks take the same remeshing and 2:1-balance decisions, but the
 state of a patch exists only on the rank that owns it and on the ranks that need a copy of
