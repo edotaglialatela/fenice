@@ -26,6 +26,7 @@ $$\mathrm{St} = \frac{f\,D}{u_{\rm in}} \approx 0.165 \quad (\mathrm{Re} = 100)$
 ```powershell
 build\release\fenice.exe --case "IBM Flow over Cylinder"          # uses MPI (16 ranks) by default
 python cases\validation\benchmarks\ibm_loads.py cylinder                # loads, Strouhal number
+python cases\validation\features\cylinder_mesh_transition.py         # hot start 400×200 -> 800×400, from that run
 ```
 
 ## Default parameters
@@ -73,6 +74,14 @@ C<sub>d</sub> = 1.41, C<sub>l</sub> = ±0.28 (still decaying from ±0.34 at $t \
 not yet a limit cycle) and St = 0.175, against 1.33-1.35, ±0.33 and 0.164-0.166 in the literature for
 Re = 100 (unbounded domain; the 4×2 box with slip walls blocks 10 % of the channel, which raises both
 C<sub>d</sub> and St). The run is <code>benchmarks/ibm_loads.py cylinder</code>.</figcaption>
+</figure>
+<figure>
+<img src="{{root}}img/cylinder_mesh_transition.gif" style="width:100%">
+<figcaption>Loads across a hot start: the 400×200 run of the loads study ($t \le 80$, developed street), then 800×400 mapped
+from its checkpoint for three more time units. Shedding carries on without a new start-up transient. After a short
+drag spike while the field adapts to the finer mask, C<sub>l</sub> has an amplitude of 0.21 (0.17 on the coarse mesh
+over the last two time units, where it is still decaying slowly) and C<sub>d</sub> averages 1.43 (1.40 on the coarse mesh)
+(<code>cases/validation/features/cylinder_mesh_transition.py</code>).</figcaption>
 </figure>
 <figure>
 <img src="{{root}}img/cylinder_loads_1200x600.gif" style="width:100%">

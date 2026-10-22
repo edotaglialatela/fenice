@@ -3,10 +3,11 @@
     python cases/validation/features/cylinder_mesh_transition.py            # results/validation/cylinder_mesh_transition/
     python cases/validation/features/cylinder_mesh_transition.py --docs     # also docs/img/cylinder_mesh_transition.gif
 
-Runs the "IBM Flow over Cylinder" case on the default 400 x 200 mesh to t = 6, then continues
-on 800 x 400 for 3 more time units by hot start from the coarse checkpoint (16 MPI ranks unless
---mpi says otherwise; the fine stage takes the longest). Animates Cd and Cl from the monitor of
-both stages: the shedding carries on across the switch, without a new start-up transient.
+Takes the 400 x 200 run of the cylinder study (benchmarks/ibm_loads.py cylinder, to t = 80, whose
+checkpoint holds a developed vortex street) as the coarse stage and continues on 800 x 400 for 3
+more time units by hot start from its checkpoint (16 MPI ranks unless --mpi says otherwise; the
+fine stage takes about ten minutes). Animates Cd and Cl from the monitor of both stages: the
+shedding carries on across the switch, without a new start-up transient.
 Figure: cylinder_mesh_transition.gif (plus a still, cylinder_mesh_transition.png).
 """
 import numpy as np
@@ -15,7 +16,7 @@ import fenice
 from fenice import study
 
 STUDY, CASE = "cylinder_mesh_transition", "IBM Flow over Cylinder"
-COARSE, FINE, T_COARSE, T_FINE = (400, 200), (800, 400), 6.0, 3.0
+COARSE, FINE, T_FINE, T_SHOW = (400, 200), (800, 400), 3.0, 12.0   # T_SHOW: coarse time shown before the switch
 CD_REF = 1.34   # Re = 100 (Williamson 1996; Park et al. 1998)
 
 
@@ -24,8 +25,9 @@ def main():
     plt = study.use_style()
     from matplotlib.animation import FuncAnimation, PillowWriter
     mpi = args.mpi or 16
-    coarse = study.run_cached(STUDY, "coarse", CASE, f"nx={COARSE[0]}", f"ny={COARSE[1]}", f"t_end={T_COARSE}",
-                              "monitor_interval=20", mpi=mpi, force=args.force, done="*/*_monitor.csv")
+    coarse = study.study_dir("cylinder_loads") / "run"   # the 400 x 200 run to t = 80 of ibm_loads.py cylinder
+    if not any(coarse.glob("*/*_restart.npz")):
+        raise SystemExit("Run benchmarks/ibm_loads.py cylinder first: its checkpoint is the starting point")
     src = next(coarse.glob("*/*_restart.npz"))
     fine = study.run_cached(STUDY, "fine", CASE, f"nx={FINE[0]}", f"ny={FINE[1]}", f"t_end={T_FINE}",
                             "monitor_interval=20", "use_hot_start=true", f"hot_start_file={src.as_posix()}",
@@ -42,11 +44,13 @@ def main():
     fig.suptitle(rf"Cylinder, $Re = 100$: hot start {COARSE[0]}$\times${COARSE[1]} $\to$ {FINE[0]}$\times${FINE[1]}",
                  fontsize=15, fontweight="bold")
     t_end = tf[-1]
-    ys = {"Cd": np.concatenate([mc["Cd"], mf["Cd"]]), "Cl": np.concatenate([mc["Cl"], mf["Cl"]])}
+    t_show = tc[-1] - T_SHOW
+    shown = tc >= t_show
+    ys = {"Cd": np.concatenate([mc["Cd"][shown], mf["Cd"]]), "Cl": np.concatenate([mc["Cl"][shown], mf["Cl"]])}
     for ax, key, label in ((a1, "Cd", "$C_d$"), (a2, "Cl", "$C_l$")):
-        ax.set_xlim(0, t_end)
-        pad = 0.1 * np.ptp(ys[key][tc.size // 6:])
-        ax.set_ylim(ys[key][tc.size // 6:].min() - pad, ys[key][tc.size // 6:].max() + pad)
+        ax.set_xlim(t_show, t_end)
+        pad = 0.1 * np.ptp(ys[key])
+        ax.set_ylim(ys[key].min() - pad, ys[key].max() + pad)
         ax.axvline(tc[-1], color="k", ls="-.", lw=1.3, alpha=0.8)
         ax.set_ylabel(label)
     a1.axhline(CD_REF, color="gray", ls="--", lw=1.2, label=f"Literature $C_d$ = {CD_REF}")
@@ -60,7 +64,7 @@ def main():
     a1.legend(loc="upper left", ncol=3)
     plt.tight_layout()
 
-    frames = np.linspace(tc[1], t_end, 120)
+    frames = np.linspace(t_show, t_end, 120)
 
     def draw(t):
         for key, m in (("Cd", None), ("Cl", None)):
