@@ -1356,7 +1356,6 @@ void Simulation::solve_amr() {
 
     const auto t0 = Clock::now();
     bool interrupted = false;
-    std::vector<AMRPatch*> to_refine, to_derefine;
     while (t < p.t_end) {
         double dt = scheme->cfl * min_delta_base / (S_max + 1e-10);
         dt = std::min(dt, p.t_end - t);
@@ -1367,16 +1366,7 @@ void Simulation::solve_amr() {
         ++step;
 
         if (step % p.amr_refine_every == 0) {
-            amr_indicator->mark(tree, to_refine, to_derefine);
-            for (AMRPatch* patch : to_refine)
-                if (patch->is_leaf() && patch->level < tree.max_level) tree.refine_patch(patch);
-            for (AMRPatch* parent : to_derefine) {
-                bool leaf_kids = !parent->is_leaf();
-                for (AMRPatch* c : parent->children) leaf_kids = leaf_kids && c->is_leaf();
-                if (leaf_kids) tree.derefine_patch(parent);
-            }
-            tree.enforce_2to1_balance();
-            if (par) assign_ownership(tree, par->rank, par->size);
+            remesh(tree, *amr_indicator, par);
         }
 
         if (monitoring && step % p.monitor_interval == 0) row(step);

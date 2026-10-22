@@ -333,11 +333,17 @@ double AMRErrorIndicator::indicator(const AMRPatch& patch) const {
 
 void AMRErrorIndicator::mark(AMRTree& tree, std::vector<AMRPatch*>& to_refine,
                              std::vector<AMRPatch*>& to_derefine) const {
+    std::map<int, double> eta;
+    for (AMRPatch* p : tree.leaves()) eta[p->id] = indicator(*p);
+    mark(tree, eta, to_refine, to_derefine);
+}
+
+void AMRErrorIndicator::mark(AMRTree& tree, const std::map<int, double>& eta_in, std::vector<AMRPatch*>& to_refine,
+                             std::vector<AMRPatch*>& to_derefine) const {
     to_refine.clear();
     to_derefine.clear();
     const auto lv = tree.leaves();
-    std::map<int, double> eta;
-    for (AMRPatch* p : lv) eta[p->id] = indicator(*p);
+    const std::map<int, double>& eta = eta_in;
 
     std::set<int> forced;
     if (force_refine)
@@ -346,7 +352,7 @@ void AMRErrorIndicator::mark(AMRTree& tree, std::vector<AMRPatch*>& to_refine,
 
     std::vector<AMRPatch*> flagged;
     for (AMRPatch* p : lv) {
-        const double e = eta[p->id];
+        const double e = eta.at(p->id);
         if ((e > refine_threshold || forced.count(p->id)) && p->level < tree.max_level) {
             flagged.push_back(p);
         } else if (e < derefine_threshold && p->parent && p->level > 0) {
@@ -639,6 +645,28 @@ Field gather_leaves_on_root(AMRTree& tree, const AMRParallel& par) {
 void refresh_halos(AMRTree& tree, const AMRParallel& par) {
     const auto lv = tree.leaves();
     push_fields(par, lv, dest_of(lv, false), Kind::State);
+}
+
+void remesh(AMRTree& tree, const AMRErrorIndicator& ind, const AMRParallel* par) {
+    std::vector<AMRPatch*> to_refine, to_derefine;
+    if (par && par->size > 1) {
+        const auto lv = tree.leaves();
+        const auto eta = allgather_leaf_values(tree, par, 1, [&](AMRPatch& leaf, double* o) { *o = ind.indicator(leaf); });
+        std::map<int, double> by_id;
+        for (size_t k = 0; k < lv.size(); ++k) by_id[lv[k]->id] = eta[k];
+        ind.mark(tree, by_id, to_refine, to_derefine);
+    } else {
+        ind.mark(tree, to_refine, to_derefine);
+    }
+    for (AMRPatch* patch : to_refine)
+        if (patch->is_leaf() && patch->level < tree.max_level) tree.refine_patch(patch);
+    for (AMRPatch* parent : to_derefine) {
+        bool leaf_kids = !parent->is_leaf();
+        for (AMRPatch* c : parent->children) leaf_kids = leaf_kids && c->is_leaf();
+        if (leaf_kids) tree.derefine_patch(parent);
+    }
+    tree.enforce_2to1_balance();
+    if (par && par->size > 1) assign_ownership(tree, par->rank, par->size);
 }
 
 void gather_leaf_state(AMRTree& tree, const AMRParallel& par) {

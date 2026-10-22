@@ -119,6 +119,9 @@ public:
     double indicator(const AMRPatch& patch) const;
     // Leaves to refine (flagged + buffer, sorted by id) and parents to derefine.
     void   mark(AMRTree& tree, std::vector<AMRPatch*>& to_refine, std::vector<AMRPatch*>& to_derefine) const;
+    // The same, from the indicator of every leaf (by patch id) computed elsewhere.
+    void   mark(AMRTree& tree, const std::map<int, double>& eta, std::vector<AMRPatch*>& to_refine,
+                std::vector<AMRPatch*>& to_derefine) const;
 
     double refine_threshold, derefine_threshold;   // eta thresholds
     int    buffer_layers;                          // halo rings around flagged patches
@@ -171,6 +174,10 @@ void assign_ownership(AMRTree& tree, int rank, int size);
 // level are shared out over the ranks (contiguous blocks in leaf order).
 double advance_amr_level(AMRTree& tree, int level, double dt, double current_time, double max_time,
                          const PatchResidualFn& residual, TimeScheme& scheme, const AMRParallel* par = nullptr);
+
+// Mark, refine, derefine and rebalance the tree. With `par` every rank computes the indicator of its own
+// leaves, the values are shared, and all ranks then take the same decisions on their copy of the tree.
+void remesh(AMRTree& tree, const AMRErrorIndicator& indicator, const AMRParallel* par = nullptr);
 
 // Test hook: disables the coarse-fine reflux correction (negative control).
 extern bool g_amr_disable_reflux;
