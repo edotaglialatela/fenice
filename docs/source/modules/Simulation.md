@@ -38,7 +38,7 @@ z halos and the 3-D viscous residual.
 4. **Riemann fluxes** $\mathbf F^*_f$, and the convective divergence
    $\mathcal R_{\rm conv,i} = -\frac1{V_i}\sum_f \mathbf F^*_f\,A_f$.
 5. **Viscous residual** (optional) from the padded state and cell gradients. It returns the
-   speed $\max_d|u_d| + c + h/(2\Delta t_{\rm visc})$ of the worst cell, where $\Delta t_{\rm visc}$ is the
+   speed $\max_d|u_d| + c + h/\Delta t_{\rm visc}$ of the worst cell, where $\Delta t_{\rm visc}$ is the
    parabolic limit and $h$ = `dt_length` is the length the time loop uses ($\min(\Delta x,\Delta y)$
    in 2-D, $2/\sum_d \Delta x_d^{-1}$ in 3-D); $S_{\max}$ is the larger of this and the convective
    wave speed, so the convective and viscous stability limits are used together (see

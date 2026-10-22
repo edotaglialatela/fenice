@@ -23,18 +23,21 @@ instead would allow a sum of $3\,\mathrm{CFL}$: the default 3-D Taylor-Green run
 blows up after about 30 steps that way.
 
 **Viscous flows.** The convective and the viscous (diffusive) eigenvalues of the explicit operator
-share one stability budget, so the step must satisfy
-$\Delta t\,(2 S_{\rm adv}/h + 1/\Delta t_{\rm visc}) \le 2\,\mathrm{CFL}$, with the parabolic limit
+share one stability budget, and the viscous one is counted twice, so the step must satisfy
+$\Delta t\,(2 S_{\rm adv}/h + 2/\Delta t_{\rm visc}) \le 2\,\mathrm{CFL}$, with the parabolic limit
 $\Delta t_{\rm visc} = 1/(2\,\nu \sum_d \Delta x_d^{-2})$ ($\Delta x^2/4\nu$ on a square 2-D cell). The residual
 callback folds it into the speed, cell by cell,
 
-$$S = \max_d|u_d| + c + \frac{h}{2\,\Delta t_{\rm visc}}, \qquad \nu = \max\!\Bigl(\frac{\mu}{\rho}, \frac{k}{\rho\, c_p}\Bigr),$$
+$$S = \max_d|u_d| + c + \frac{h}{\Delta t_{\rm visc}}, \qquad \nu = \max\!\Bigl(\frac{\mu}{\rho}, \frac{k}{\rho\, c_p}\Bigr),$$
 
 and takes the maximum over the cells, so it is the same on every MPI strip and AMR patch. A viscosity
 that goes to zero leaves $S$ at the convective wave speed. Taking only the smaller of the two
 limits is not enough: at CFL 0.5 the convective part alone uses the whole 2-D budget, and a viscous
 flow with a cell Reynolds number of order one (Taylor-Green at $\nu = 0.1$) then loses energy too fast
-or goes unstable.
+or goes unstable. Adding the two eigenvalues once is not enough either, because both are already at their
+marginal limit at CFL 0.5: a manufactured solution with $\mu = 0.02$ goes unstable at CFL 0.5 with the plain
+sum and is stable up to CFL 0.7 with the viscous term counted twice, which is what the solver does (for pure
+diffusion the step is then $\mathrm{CFL}\cdot\Delta t_{\rm visc}$).
 
 It is clamped so that the run ends exactly at `t_end`. $S_{\max}$ is taken from the first
 stage of each step. `advance_fixed_dt` instead advances by an imposed $\Delta t$; the

@@ -193,16 +193,18 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
 
     // Speed that bounds the explicit time step. The convective eigenvalue (2 S / L) and the viscous one, from the
     // parabolic limit dt_visc = 1 / (2 max(nu, alpha_th) (1/dx^2 + 1/dy^2)) (0.25 h^2 / nu on square cells), share
-    // one stability budget: dt (2 S / L + 1 / dt_visc) <= 2 CFL, so the solver divides CFL L by
-    // S = (|u| + c) + L / (2 dt_visc) of the worst cell. A maximum over cells is the same on any partition (MPI
-    // strips, AMR patches), and it stays below the face wave speed as the viscosity goes to zero.
+    // one stability budget, and the viscous one counts twice (at CFL 0.5 both are at their marginal limit, so
+    // their plain sum has no margin left: a manufactured solution with mu = 0.02 is unstable at CFL 0.5 with the
+    // plain sum and stable up to 0.7 with this weight): dt (2 S / L + 2 / dt_visc) <= 2 CFL, so the solver divides
+    // CFL L by S = (|u| + c) + L / dt_visc of the worst cell. A maximum over cells is the same on any partition
+    // (MPI strips, AMR patches), and it stays below the face wave speed as the viscosity goes to zero.
     const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
     double s_max = 0.0;
     for (int c = 0; c < n; ++c) {
         const double rho = W[c][0];
         const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
         const double s =
-            std::max(std::abs(W[c][1]), std::abs(W[c][2])) + eos_.sound_speed(W[c][3], rho) + L * inv_h2 * nu_eff;
+            std::max(std::abs(W[c][1]), std::abs(W[c][2])) + eos_.sound_speed(W[c][3], rho) + 2.0 * L * inv_h2 * nu_eff;
         s_max = std::max(s_max, s);
     }
     return s_max;
@@ -384,7 +386,7 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
 
     // Speed that bounds the explicit time step, as in the 2-D version. The parabolic limit of the 3-D heat
     // equation is dt_visc = 1 / (2 nu sum 1/h^2) (h^2/6nu on cubes; the 2-D 0.25 min(h)^2 / nu is the same
-    // bound for square cells) and the convective length is L = 2 / sum(1/h), so L / (2 dt_visc) = L nu sum 1/h^2.
+    // bound for square cells) and the convective length is L = 2 / sum(1/h), so L / dt_visc = 2 L nu sum 1/h^2.
     const double inv_h2 = 1.0 / (m.dx * m.dx) + 1.0 / (m.dy * m.dy) + 1.0 / (m.dz * m.dz);
     const double L = length > 0.0 ? length : 2.0 / (1.0 / m.dx + 1.0 / m.dy + 1.0 / m.dz);
     double s_max = 0.0;
@@ -392,7 +394,7 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
         const double rho = W[cc][0];
         const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
         const double s = std::max({std::abs(W[cc][1]), std::abs(W[cc][2]), std::abs(W[cc][4])}) +
-                         eos_.sound_speed(W[cc][3], rho) + L * inv_h2 * nu_eff;
+                         eos_.sound_speed(W[cc][3], rho) + 2.0 * L * inv_h2 * nu_eff;
         s_max = std::max(s_max, s);
     }
     return s_max;
