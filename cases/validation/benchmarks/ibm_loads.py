@@ -19,8 +19,8 @@ BODIES = {
     # case, reference length (Strouhal), averaging start, vorticity window and colour range,
     # extra --set, reference values
     "airfoil": dict(case="IBM Airfoil", L=1.0, t_avg=10.0, window=(1.5, 9.0, 1.5, 4.5), wmax=8.0, sets=(), ref=None),
-    "cylinder": dict(case="IBM Flow over Cylinder", L=0.2, t_avg=2.0, window=(0.5, 4.0, 0.5, 1.5), wmax=20.0,
-                     sets=("monitor_interval=20",),
+    "cylinder": dict(case="IBM Flow over Cylinder", L=0.2, t_avg=50.0, window=(0.5, 4.0, 0.5, 1.5), wmax=20.0,
+                     sets=("t_end=80", "monitor_interval=20"),
                      ref="Re = 100 (Williamson 1996; Park et al. 1998): St = 0.164-0.166, Cd = 1.33-1.35"),
 }
 
@@ -82,7 +82,8 @@ def main():
     a1.plot(t, cm, color="#7f8c8d", lw=1.2, label=rf"$C_m$ (mean {cm[late].mean():.3f})")
     a1.axvspan(t_avg, t[-1], color="#bdc3c7", alpha=0.25, lw=0, label=f"average, St = {st:.3f}")
     a1.set_xlim(t[0], t[-1])
-    a1.set_ylim(min(-0.1, cl.min(), cm.min()) * 1.15, max(cl[t > 1].max(), cd.max()) * 1.25)
+    settled = t > min(2.0, 0.1 * t[-1])   # the impulsive-start spike would flatten everything else
+    a1.set_ylim(min(-0.1, cl[settled].min(), cm[settled].min()) * 1.15, max(cl[settled].max(), cd[settled].max()) * 1.25)
     a1.set_xlabel("Time, $t$")
     a1.set_ylabel("Coefficient")
     a1.legend(loc="upper right", ncol=4, frameon=True)

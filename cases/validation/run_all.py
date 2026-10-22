@@ -38,6 +38,7 @@ GROUPS = {
         "cavity": (["benchmarks/cavity.py"], False),
         "taylor_green_3d": (["benchmarks/taylor_green_3d.py", "--grids", "32", "64", "96", "--vorticity-n", "96",
                              "--mpi", "16", "--q-animation"], True),   # the settings of the docs figures
+        "gci": (["benchmarks/gci.py"], True),   # grid convergence index of the cavity, airfoil and 3-D TG results
         "cylinder_loads": (["benchmarks/ibm_loads.py", "cylinder"], True),
         "airfoil_loads": (["benchmarks/ibm_loads.py", "airfoil"], True),
     },

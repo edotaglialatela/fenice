@@ -5,9 +5,8 @@
 
 Runs the "Taylor-Green Vortex" case (64 x 64, t = 10) once with snapshots, at a viscosity five
 times the case's (nu = 0.1) so that the decay is clearly visible: the energy falls to
-exp(-4) of its initial value, with CFL = 0.25: at this viscosity the default 0.5 lets a slowly
-growing mode eat the energy after t ~ 2 (the time step is the smaller of the convective and
-the viscous limits, not a combination of them), and at nu = 0.2 it is unstable. Each frame shows the vorticity w = dv/dx - du/dy of the solver as
+exp(-4) of its initial value; the time step takes the convective and the viscous stability limits
+together, so the default CFL of 0.5 is stable at this viscosity. Each frame shows the vorticity w = dv/dx - du/dy of the solver as
 a surface z = w(x, y), with the exact w = 2 k cos(kx) cos(ky) exp(-2 nu k^2 t) as a wireframe
 over it, and the kinetic energy against exp(-4 nu k^2 t). Figure: taylor_green_animation.gif
 (plus a still, taylor_green_animation.png).
@@ -41,7 +40,7 @@ def snapshots(run_dir):
 def main():
     args = study.parser(__doc__.splitlines()[0]).parse_args()
     plt = study.use_style()
-    run = study.run_cached(STUDY, "run", CASE, f"nx={N}", f"ny={N}", f"mu={MU}", f"t_end={T_END}", "cfl=0.25", "save_interval=80",
+    run = study.run_cached(STUDY, "run", CASE, f"nx={N}", f"ny={N}", f"mu={MU}", f"t_end={T_END}", "save_interval=48",
                            mpi=args.mpi, force=args.force)
     data = snapshots(run)
     ke = np.array([d[4] for d in data]) / data[0][4]
