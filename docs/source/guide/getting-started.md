@@ -113,7 +113,7 @@ mpiexec -n 8 build\release\fenice.exe --case "IBM Supersonic Flow over Cylinder"
 Each rank owns a strip of rows or columns; see
 [MPIDecomposition]({{root}}modules/MPIDecomposition.html). The MPI result is
 identical to the serial one, also for AMR (every rank holds the tree, the patches of each
-level are shared out; see [AMR]({{root}}modules/AMR.html)).
+level are distributed over the ranks; see [AMR]({{root}}modules/AMR.html)).
 
 ### GUI
 

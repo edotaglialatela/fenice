@@ -62,7 +62,7 @@ and exits non-zero on failure. Its 55 tests cover:
 
 ## Regression references (`regression.py`)
 
-`cpp/tests/reference/` stores final states for 29 short configurations. Sixteen were
+`cpp/tests/reference/` stores final states for 30 short configurations. Sixteen were
 produced by an independent implementation of the same schemes. The Taylor-Green and
 isentropic-vortex references are validated against their exact solutions; the five
 3-D references (Taylor-Green 3-D, an x-decomposed thin box, a no-slip cavity, Sod between
@@ -71,8 +71,9 @@ three non-reflecting-outlet references (2-D vortex in Y- and X-decomposition, 3-
 Taylor-Green with non-reflecting x and z sides) by the `nonreflecting_outlet` test and the
 reflection measurements on the [Boundaries]({{root}}modules/Boundaries.html) page; the IBM
 airfoil reference (NACA 0012 at 10°) by the `airfoil_geometry` test; the AMR airfoil
-reference (tiled root, body at the finest level) by `amr_tiled_matches_uniform_steps`, and all four AMR
-references are also run on 2 to 7 MPI ranks, which must give the same state.
+reference (tiled root, body at the finest level) by `amr_tiled_matches_uniform_steps`, and all five AMR
+references are also run on 2 to 7 MPI ranks, which must give the same state (one of them has only two
+root patches, so most ranks own nothing at the coarse levels).
 Together they cover:
 
 * every Riemann solver, limiter and time scheme;

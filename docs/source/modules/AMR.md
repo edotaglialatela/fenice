@@ -150,17 +150,35 @@ colours the refinement level.
 
 The patches of each level advance concurrently on all OpenMP threads.
 
-**MPI.** With `use_mpi`, every rank holds the whole tree and all patch data, so remeshing,
-refluxing, the solid reset and the 2:1 balance need no communication and every rank takes
-the same decisions. The patches of each level are shared out over the ranks in contiguous
-blocks (leaf order), each rank advances its own, and the replicas are refreshed with an
-`MPI_Allgatherv` after every stage (the same-level neighbours' state) and after every
-level (state and face fluxes). A patch's arithmetic does not depend on its rank, so the
-result is identical to the serial run for any number of ranks. The cost is memory (one
-full copy per rank) and a gather per stage; rank 0 writes the output. On one node the OpenMP
-threads of a serial run are faster (a 720×360 airfoil on 24×24 patches, 50 steps: 1.8 s on 16
-threads, 13.6 s on 16 ranks); MPI is for runs that do not fit one node's cores, and a patch store
-distributed over the ranks (exchanging only the interface patches) is the next step for those.
+**MPI.** With `use_mpi`, every rank holds the whole tree (extents, levels, owners: a few
+numbers per patch), so all ranks take the same remeshing and 2:1-balance decisions, but the
+state of a patch exists only on the rank that owns it and on the ranks that need a copy of
+it. Each level is cut into contiguous blocks along a Morton (Z-order) curve through the
+patch positions, so a rank's patches are compact in space and few of its neighbours live
+elsewhere. A rank keeps a copy of every patch within two of its own cells of a patch it owns
+(corners included); which ranks those are is computed from the tree on every rank, so
+nothing is negotiated. The owner of a patch sends it point to point to the ranks holding a
+copy: the same-level neighbours after every Runge-Kutta stage, the patches of a level
+once the level is final (after the reflux), the reflux registers from the fine to the
+coarse owner. After a remesh the patches that changed owner are moved, and the ranks check
+that they hold the same tree. Every rank writes the VTK files of its own patches. A patch's
+arithmetic does not depend on its rank, so the result is identical to the serial run for
+any number of ranks, including more ranks than patches.
+
+A 720×360 airfoil on 24×24 patches, 50 steps (16 logical processors):
+
+| run | wall time |
+|---|---:|
+| serial, 1 thread | 16.3 s |
+| OpenMP, 4 / 8 / 16 threads | 4.8 / 3.1 / 2.7 s |
+| MPI, 2 / 4 / 8 / 16 ranks | 8.7 / 5.2 / 3.9 / 5.0 s |
+
+On one node OpenMP is still the faster choice (threads share the memory and need no
+halo copies); MPI is for runs that do not fit one node's cores or memory. Memory per rank
+is the owned patches plus their halo copies: on the 16×16-patch airfoil case (249 patches)
+the busiest of 2 / 4 / 8 / 16 ranks holds 78 / 60 / 42 / 27 % of the cells. The halo is
+large when a rank owns few patches (it is a perimeter), so the saving grows with the
+number of patches per rank.
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/sod_amr.png" style="width:100%">

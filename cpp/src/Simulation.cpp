@@ -1365,6 +1365,12 @@ void Simulation::solve_amr() {
     };
     if (monitoring && step == 0) row(step);
 
+    // Cells with an allocated state on this rank (owned + halo), maximum over the ranks
+    const auto held_cells = [&]() {
+        double n = 0.0;
+        for (const AMRPatch* leaf : tree.leaves()) n += static_cast<double>(leaf->U.size());
+        return par ? par->allreduce_max(n) : n;
+    };
     const auto t0 = Clock::now();
     bool interrupted = false;
     while (t < p.t_end) {
@@ -1383,8 +1389,10 @@ void Simulation::solve_amr() {
 
         if (step % p.save_interval == 0) {
             export_leaves(step);
-            if (root) std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | patches = %zu | wall = %s\n", step, t,
-                        dt, S_max, tree.leaves().size(), format_elapsed(seconds_since(t0)).c_str());
+            const double held = held_cells();   // collective
+            if (root) std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | patches = %zu | wall = %s%s\n", step, t,
+                        dt, S_max, tree.leaves().size(), format_elapsed(seconds_since(t0)).c_str(),
+                        par ? (" | cells/rank max " + std::to_string(static_cast<long long>(held))).c_str() : "");
             std::fflush(stdout);
         }
         if (par ? par->allreduce_max(g_stop_requested ? 1.0 : 0.0) > 0.0 : g_stop_requested.load()) { interrupted = true; break; }

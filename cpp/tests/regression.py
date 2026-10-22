@@ -67,6 +67,10 @@ CASES = {
                                                    amr_patch_nx=8, amr_patch_ny=8, amr_max_level=3, amr_refine_every=2,
                                                    amr_init_levels=1, time_scheme="Runge-Kutta 4",
                                                    amr_refine_threshold=0.2, amr_derefine_threshold=0.05)),
+    # Two root patches only: under MPI most ranks own no leaf at the coarse levels (empty ranks, migration)
+    "amr_sod_few_roots":   ("Sod Shock Tube", dict(Lx=1.0, nx=32, ny=4, Ly=0.125, t_end=0.15, use_amr=True,
+                                                   amr_patch_nx=16, amr_patch_ny=4, amr_max_level=3, amr_refine_every=2,
+                                                   amr_buffer_layers=1)),
     # Added 2026-10-20 (C++ references, validated against the exact solutions)
     "taylor_green_visc":   ("Taylor-Green Vortex", dict(nx=32, ny=32, t_end=0.5, mu=0.05)),
     "isentropic_vortex":   ("Isentropic Vortex", dict(nx=40, ny=40, t_end=1.0)),
@@ -97,13 +101,13 @@ CASES = {
     "amr_naca0012":        ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.4, use_amr=True, amr_patch_nx=16, amr_patch_ny=16,
                                                 amr_max_level=2, amr_refine_every=5, use_mpi=False)),
 }
-# Cases also run under MPI (AMR: replicated tree, patches shared out per level); they cover Y- and X-decomposition,
+# Cases also run under MPI (AMR: replicated tree, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
 MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodic_x", "poiseuille_bdf2",
              "cylinder_ibm_visc", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
-             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012"]
+             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots"]
 
 
 def run_cpp(name, tmp, n_mpi=0):

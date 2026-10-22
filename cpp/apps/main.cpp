@@ -212,8 +212,9 @@ int main(int argc, char** argv) {
 
     const bool under_mpi = mpi_child || launched_by_mpiexec();
     if (sp.use_amr && sp.use_mpi && !under_mpi)
-        std::printf("[AMR] Under MPI every rank holds the whole tree and the patches of each level are shared out: the result is\n"
-                    "      identical to serial, but on one node OpenMP threads (use_mpi = false) are usually faster.\n");
+        std::printf("[AMR] Under MPI the patches of each level are distributed over the ranks (a rank stores its patches and\n"
+                    "      their neighbours): the result is identical to serial, but on one node OpenMP threads (use_mpi = false)\n"
+                    "      are usually faster.\n");
 #ifdef FV_USE_MPI
     if (sp.use_mpi && sp.n_cpus > 1 && !under_mpi) {
         // The ranks write to mpiexec's pipe: pass the colour decision down to them
@@ -252,7 +253,7 @@ int main(int argc, char** argv) {
             sim.p = sp;
             sim.run_mpi(MPI_COMM_WORLD);
 #endif
-        } else {   // serial, or AMR: every rank holds the tree and shares the patches (solve_amr)
+        } else {   // serial, or AMR (distributed over the ranks inside solve_amr)
             sim.setup(sp, rank == 0);
             sim.initialize_field();
             sim.solve();
