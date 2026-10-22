@@ -3,6 +3,7 @@
 
 #include <functional>
 #include <memory>
+#include <vector>
 
 #include "fv/Core.hpp"
 
@@ -37,6 +38,13 @@ public:
     // the first stage.  Default: first-order Euler.
     virtual double advance_fixed_dt(Field& U, const ResidualFn& res, double dt);
 
+    // What advance_fixed_dt does, stage by stage: U_new = U + dt * sum_i weights[i] * R_i, and R_i is evaluated at
+    // time t + offsets[i] * dt (offsets are 0, 1/2 or 1; the stage time is t + 0.5 * dt, t + dt as in step()).
+    // The cell-based AMR uses them to accumulate the fine fluxes seen by a coarse neighbour. The base class is
+    // forward Euler.
+    virtual std::vector<double> stage_weights() const { return {1.0}; }
+    virtual std::vector<double> stage_offsets() const { return {0.0}; }
+
     // Inner pseudo-time iterations of the last step (BDF2 only), else -1.
     virtual int inner_iter_last() const { return -1; }
 
@@ -65,6 +73,8 @@ public:
     using TimeScheme::TimeScheme;
     StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
     double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
+    std::vector<double> stage_weights() const override { return {0.5, 0.5}; }
+    std::vector<double> stage_offsets() const override { return {0.0, 1.0}; }
 };
 
 // Classical four-stage Runge-Kutta, 4th order.
@@ -73,6 +83,8 @@ public:
     using TimeScheme::TimeScheme;
     StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
     double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
+    std::vector<double> stage_weights() const override { return {1.0 / 6.0, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0}; }
+    std::vector<double> stage_offsets() const override { return {0.0, 0.5, 0.5, 1.0}; }
 };
 
 // BDF2 physical time stepping with an explicit-Euler pseudo-time inner loop.

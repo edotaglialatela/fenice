@@ -86,6 +86,17 @@ void CellFluxEngine::build(const CellMesh& m) {
         s[3] = lr >= ll ? b.beyond(r, fwd) : r;
     }
 
+    need_.assign(static_cast<size_t>(m.max_level) + 1, {});
+    if (muscl_)
+        for (int l = 0; l <= m.max_level; ++l) {
+            std::vector<int>& v = need_[static_cast<size_t>(l)];
+            for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f)
+                if (m.faces[f].kind != CellFaceKind::Boundary) v.insert(v.end(), stencil_[f].begin(), stencil_[f].end());
+            std::sort(v.begin(), v.end());
+            v.erase(std::unique(v.begin(), v.end()), v.end());
+        }
+    reg_.assign(m.faces.size(), State{});
+
     for (int s = 0; s < 4; ++s) {
         mf_face_[s].clear();
         mf_weight_[s].clear();
@@ -106,43 +117,52 @@ void CellFluxEngine::build(const CellMesh& m) {
     }
 }
 
-double CellFluxEngine::residual(const CellMesh& m, const Field& U, Field& R) {
-    const int N = m.num_leaves(), nf = static_cast<int>(m.faces.size());
-    if (N != nleaf_ || static_cast<int>(stencil_.size()) != nf)
-        throw std::logic_error("CellFluxEngine::residual: build() was not called for this mesh");
-    const Limiter lim = muscl_ ? muscl_->limiter() : Limiter::Minmod;
+void CellFluxEngine::refresh_all(const Field& U, int N) {
+    W_.resize(static_cast<size_t>(N) + vroot_.size());
     const EOS& eos = eos_;
-
-    if (muscl_) {
-        W_.resize(static_cast<size_t>(N) + vroot_.size());
 #pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
-        for (int c = 0; c < N; ++c) W_[c] = eos.cons_to_prim(U[c]);
-        for (size_t v = 0; v < vroot_.size(); ++v) W_[N + v] = eos.cons_to_prim(eval(U, vroot_[v]));
-    }
+    for (int c = 0; c < N; ++c) W_[c] = eos.cons_to_prim(U[c]);
+    for (size_t v = 0; v < vroot_.size(); ++v) W_[N + v] = eos.cons_to_prim(eval(U, vroot_[v]));
+}
 
-    // mass-flow inlet velocity per side
-    double u_target[4] = {0.0, 0.0, 0.0, 0.0};
+void CellFluxEngine::refresh_some(const Field& U, int N, const std::vector<int>& idx) {
+    W_.resize(static_cast<size_t>(N) + vroot_.size());
+    const EOS& eos = eos_;
+    const int n = static_cast<int>(idx.size());
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+    for (int k = 0; k < n; ++k) {
+        const int i = idx[k];
+        W_[i] = i < N ? eos.cons_to_prim(U[i]) : eos.cons_to_prim(eval(U, vroot_[static_cast<size_t>(i - N)]));
+    }
+}
+
+void CellFluxEngine::mass_flow_targets(const CellMesh& m, const Field& U, double* u_target) const {
     const BCParams& bp = bc_.params();
     for (int s = 0; s < 4; ++s) {
+        u_target[s] = 0.0;
         if (mf_face_[s].empty()) continue;
         double sum = 0.0, count = 0.0;
         for (size_t k = 0; k < mf_face_[s].size(); ++k) {
             const CellFace& f = m.faces[mf_face_[s][k]];
-            sum += eos.cons_to_prim(U[f.left >= 0 ? f.left : f.right])[0] * mf_weight_[s][k];
+            sum += eos_.cons_to_prim(U[f.left >= 0 ? f.left : f.right])[0] * mf_weight_[s][k];
             count += mf_weight_[s][k];
         }
         const double rho_avg = std::max(sum / count, 1e-5);
         u_target[s] = (bp.rho_in * bp.u_in) / rho_avg;
     }
+}
 
-    F_.resize(static_cast<size_t>(nf));
+double CellFluxEngine::fluxes(const CellMesh& m, const Field& U, int fb, int fe, const double* u_target) {
+    const EOS& eos = eos_;
+    const Limiter lim = muscl_ ? muscl_->limiter() : Limiter::Minmod;
+    if (F_.size() != m.faces.size()) F_.resize(m.faces.size());
     double smax_all = 0.0;
     auto roundtrip = [&](State& u) { u = eos.prim_to_cons(eos.cons_to_prim(u)); };
-#pragma omp parallel if (nf >= kOmpMinWork)
+#pragma omp parallel if (fe - fb >= kOmpMinWork)
     {
         double local = 0.0;
 #pragma omp for schedule(static) nowait
-        for (int f = 0; f < nf; ++f) {
+        for (int f = fb; f < fe; ++f) {
             const CellFace& face = m.faces[f];
             State UL, UR;
             if (face.kind == CellFaceKind::Boundary) {
@@ -179,25 +199,69 @@ double CellFluxEngine::residual(const CellMesh& m, const Field& U, Field& R) {
 #pragma omp critical(fv_cellflux_max)
         if (local > smax_all) smax_all = local;
     }
+    return smax_all;
+}
 
-    R.resize(static_cast<size_t>(N));
-#pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
-    for (int c = 0; c < N; ++c) {
+void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Field& R) {
+    R.resize(static_cast<size_t>(ce - cb));
+#pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
+    for (int c = cb; c < ce; ++c) {
         // side integrals: sum of (face flux * face length), one or two faces per side
         State G[4];
         for (int s = 0; s < 4; ++s) {
             const int b = m.side_ptr[4 * c + s], e = m.side_ptr[4 * c + s + 1];
-            const CellFace& f0 = m.faces[m.side_face[b]];
-            for (int q = 0; q < kNVar; ++q) G[s][q] = F_[m.side_face[b]][q] * f0.length;
-            if (e - b == 2) {
-                const CellFace& f1 = m.faces[m.side_face[b + 1]];
-                for (int q = 0; q < kNVar; ++q) G[s][q] += F_[m.side_face[b + 1]][q] * f1.length;
+            for (int k = b; k < e; ++k) {
+                const int fi = m.side_face[k];
+                const CellFace& f = m.faces[fi];
+                // a finer face on the side of this leaf: its coarse side uses the registered time average
+                const State& Fk = (replace && f.level > m.level[c]) ? reg_[fi] : F_[fi];
+                if (k == b)
+                    for (int q = 0; q < kNVar; ++q) G[s][q] = Fk[q] * f.length;
+                else
+                    for (int q = 0; q < kNVar; ++q) G[s][q] += Fk[q] * f.length;
             }
         }
         const double area = m.area(c);
-        for (int q = 0; q < kNVar; ++q) R[c][q] = ((0.0 - (G[1][q] - G[0][q])) - (G[3][q] - G[2][q])) / area;
+        for (int q = 0; q < kNVar; ++q) R[c - cb][q] = ((0.0 - (G[1][q] - G[0][q])) - (G[3][q] - G[2][q])) / area;
     }
-    return smax_all;
+}
+
+double CellFluxEngine::residual(const CellMesh& m, const Field& U, Field& R) {
+    const int N = m.num_leaves(), nf = static_cast<int>(m.faces.size());
+    if (N != nleaf_ || static_cast<int>(stencil_.size()) != nf)
+        throw std::logic_error("CellFluxEngine::residual: build() was not called for this mesh");
+    if (muscl_) refresh_all(U, N);
+    double u_target[4];
+    mass_flow_targets(m, U, u_target);
+    const double s = fluxes(m, U, 0, nf, u_target);
+    gather(m, 0, N, false, R);
+    return s;
+}
+
+double CellFluxEngine::compute_level_fluxes(const CellMesh& m, const Field& U, int l) {
+    if (m.num_leaves() != nleaf_ || static_cast<int>(stencil_.size()) != static_cast<int>(m.faces.size()))
+        throw std::logic_error("CellFluxEngine: build() was not called for this mesh");
+    if (muscl_) refresh_some(U, nleaf_, need_[static_cast<size_t>(l)]);
+    double u_target[4];
+    mass_flow_targets(m, U, u_target);
+    return fluxes(m, U, m.face_level_begin[l], m.face_level_begin[l + 1], u_target);
+}
+
+void CellFluxEngine::gather_level(const CellMesh& m, int l, bool replace, Field& Rl) {
+    gather(m, m.level_begin[l], m.level_begin[l + 1], replace, Rl);
+}
+
+void CellFluxEngine::clear_registers(const CellMesh& m, int l) {
+    if (reg_.size() != m.faces.size()) reg_.assign(m.faces.size(), State{});
+    for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f) reg_[f] = State{};
+}
+
+void CellFluxEngine::accumulate_registers(const CellMesh& m, int l, double w) {
+    const int fb = m.face_level_begin[l], fe = m.face_level_begin[l + 1];
+#pragma omp parallel for schedule(static) if (fe - fb >= kOmpMinWork)
+    for (int f = fb; f < fe; ++f)
+        if (m.faces[f].kind == CellFaceKind::CoarseFine)
+            for (int q = 0; q < kNVar; ++q) reg_[f][q] += w * F_[f][q];
 }
 
 }   // namespace fv

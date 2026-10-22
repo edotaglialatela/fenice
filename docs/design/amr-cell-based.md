@@ -1,6 +1,6 @@
 # Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
 
-Status: P1 and P2 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual); the P2 wall-time gate result is in section 9, decision pending with the user; P3 next. Written 2026-10-22 after a review of AMReX, SAMRAI and the ECOGEN source.
+Status: P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 next (needs the user's go). Written 2026-10-22 after a review of AMReX, SAMRAI and the ECOGEN source.
 `main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
 
 ## 1. Why
@@ -252,3 +252,26 @@ held 13 312 + 2 x 14 336 + 4 x 24 576 = 140 288; needed (upper bound) 13 312 + 2
 cell-count ratio is 2.7x). Divided by the per-cell cost ratio (about 1) and reduced by the remesh share, the projected residual-cost gain is
 about 3.5-4x at most at 1 thread and about 3.5x at 8 threads. It is an upper bound (end-of-run snapshot, no refined band around the body, no
 history of the flagged region). The threshold is the user's decision (section 7, item 5).
+
+## 10. P3 as built (`CellAdvance`, `cpp/include/fv/CellAdvance.hpp`)
+* `TimeScheme::stage_weights()` / `stage_offsets()` (new virtuals, shared code; the patch engine is untouched): Euler `[1]`/`[0]`, SSP-RK2
+  `[1/2,1/2]`/`[0,1]`, RK4 `[1/6,1/3,1/3,1/6]`/`[0,1/2,1/2,1]`. `advance_fixed_dt` is unchanged; `CellAdvance` sets `stage_time` itself
+  in the residual callback (`t`, `t + 0.5 dt`, `t + dt`, as `step()` does), which is what the unsteady sources of P4 need. BDF2 stays rejected with AMR.
+* `CellAdvance::step(dt, t)`: level l = one ODE system on its contiguous run of leaves, `advance_fixed_dt` on a copy of the slice, whose
+  stage states are written into `mesh.U` for the neighbours, the final result copied back after the scheme returns. Finer level first,
+  two substeps of `dt/2` (never clamped inside the recursion: `dt/2` is exact), the registers of level l+1 are zeroed before.
+* Per-level engine pieces: `compute_level_fluxes` (faces of level l; the primitive state is refreshed only for the cells their stencils
+  read, `need_[l]`), `accumulate_registers` (`reg += 0.5 b_i F_i` on the coarse-fine faces of the fine level, every stage), `gather_level`
+  (a face of level l+1 on a side of a level-l leaf reads the register in every stage). `residual()` is the same two pieces over all faces
+  (bit-identical, guarded by the P2 tests and the bench assert).
+* Known time seam (as in ECOGEN, accepted): the fine level reads its coarse neighbours at the start of the coarse step, the coarse level reads
+  (through its virtual cells and the first-order stencil of its same-level faces) the finer leaves at the END of the coarse step. The fluxes at
+  the jump are exact in the time average (register), the reconstruction stencils are not time-consistent. Sod shows no visible effect.
+* Tests: `celladvance_level0_steps_match_uniform_steps_bitwise` (Euler / RK2 / RK4, three boundary sets incl. periodic, 9x7 and 96x64, level-0
+  and a `max_level = 2` mesh without refinement; 4 steps equal to `advance_fixed_dt` of the uniform solver bit for bit),
+  `celladvance_conserves_across_level_jumps_and_the_control_fails` (random 3-level periodic mesh, 6 steps, relative error < 1e-13 for all three
+  schemes; with the test hook that makes the coarse side read the last computed flux it is > 1e-8), `celladvance_free_stream_and_stage_times`
+  (state unchanged bitwise for Euler / RK2, 1e-14 for RK4 whose weights sum to 1 only up to rounding; the sequence of (level, stage time) equals the
+  expected recursion bitwise), `celladvance_sod_on_a_static_refined_band` (bands fixed beforehand: AMR error <= 1.6 x the uniform-200 error and
+  < 0.5 x the uniform-50 error, against the exact Riemann solution). Measured: L1(rho) uniform 50 (200 cells) 9.96e-3, uniform 200 (3 200 cells) 2.910e-3,
+  AMR base 50 + 2 levels in a static band (2 384 cells) 2.917e-3. Changing the register weight by 2 % makes three of the tests fail.

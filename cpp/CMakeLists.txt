@@ -23,6 +23,7 @@ add_library(fenice_core STATIC
   src/AMR.cpp
   src/CellMesh.cpp
   src/CellFlux.cpp
+  src/CellAdvance.cpp
   src/IO.cpp
   src/Params.cpp
   src/TestCases.cpp
