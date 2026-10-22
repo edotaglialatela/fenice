@@ -84,8 +84,28 @@ public:
     // Time the unsteady sources are evaluated at (CellAdvance sets it from the scheme's stage time).
     double stage_time = 0.0;
 
-    // Number of virtual cells (coarse averages over finer neighbours) of the current stencils.
-    int num_virtual() const { return static_cast<int>(vroot_.size()); }
+    // Number of virtual cells (coarse averages over finer neighbours, and the interpolated coarse values) of the stencils.
+    int num_virtual() const { return static_cast<int>(vroot_.size() + interp_.size()); }
+
+    // With MUSCL: the cell a fine leaf sees across a side towards a coarser leaf is the coarse value interpolated (limited
+    // slopes of the coarse leaf, in primitive variables) to the centre of the fine cell that would sit there, instead of the
+    // injected coarse value. False (set before build) restores the injection (the test control; the first-order scheme
+    // always injects).
+    bool interpolate_jumps = true;
+    // Experiment (set before build, default off): the coarse side of a coarse-fine face is reconstructed too, with the
+    // standard limited MUSCL formula on the coarse leaf, its neighbour across the face being the mean of the fine leaves
+    // there (second-order closure on both sides of a jump).
+    bool coarse_side_second_order = false;
+    // One interpolated virtual cell: the fine leaf, the side of it facing the coarser leaf, and the coarse leaf.
+    struct InterpVirtual {
+        int fine = -1, coarse = -1;
+        Face side = Face::Left;
+        double dn = 0.0, dt = 0.0;   // offsets of the virtual centre from the coarse centre, in coarse widths, along the
+        int axis = 0;                // normal axis `axis` (of `side`) and the transverse one
+    };
+    const std::vector<InterpVirtual>& interpolated() const { return interp_; }
+    // Primitive state of interpolated virtual cell k as of the last residual / level pass.
+    const State& interpolated_state(int k) const { return Wint_[static_cast<size_t>(k)]; }
 
 private:
     State eval(const Field& U, int code) const;
@@ -115,6 +135,10 @@ private:
     // Virtual cells: root code (>= 0 a leaf, < 0 the node -1 - code) and the nodes (four children codes)
     std::vector<int> vroot_;
     std::vector<std::array<int, 4>> vnode_;
+    std::vector<InterpVirtual> interp_;   // interpolated virtual cells, numbered after the mean-type ones
+    Field Wint_;                          // their primitive state
+    std::vector<int> nbr_raw_;            // like nbr_ but injecting coarser neighbours (the slopes of the coarse leaves)
+    void eval_interp();
     const Field* us_ = nullptr;   // state the pieces read: the input, or the forced copy
     Field forced_;                // body-forced state (with a body)
     Field Vc_;                    // conservative state of the virtual cells

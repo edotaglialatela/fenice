@@ -1,6 +1,6 @@
 // Development driver of the cell-based AMR: runs a case file on an adaptive CellMesh and writes the leaves.
 //   cell_amr_demo "<case>" [key=value ...] [--out dir] [--levels n] [--every n] [--tend t]
-//                 [--criterion x] [--split x] [--join x] [--vars rho,p,u] [--diffusion n]
+//                 [--criterion x] [--split x] [--join x] [--vars rho,p,u] [--diffusion n] [--closure 0..2]
 // Parameters come from the case as usual; amr_max_level / amr_refine_every are used when --levels / --every are absent.
 #include <array>
 #include <chrono>
@@ -32,7 +32,7 @@ int main(int argc, char** argv) {
     p.set("use_mpi", "false");
     p.set("use_amr", "false");
     std::string out = "results/cell_amr/" + name;
-    int levels = -1, every = -1;
+    int levels = -1, every = -1, closure = 1;   // jump closure: 0 injection, 1 interpolated, 2 = 1 + second-order coarse side
     double tend = -1.0;
     CellIndicator ind;
     for (int a = 2; a < argc; ++a) {
@@ -46,6 +46,7 @@ int main(int argc, char** argv) {
         else if (s == "--split") ind.split = std::atof(next().c_str());
         else if (s == "--join") ind.join = std::atof(next().c_str());
         else if (s == "--diffusion") ind.diffusion = std::atoi(next().c_str());
+        else if (s == "--closure") closure = std::atoi(next().c_str());
         else if (s == "--vars") {
             const std::string v = next();
             ind.use_density = v.find("rho") != std::string::npos;
@@ -74,6 +75,8 @@ int main(int argc, char** argv) {
     }
     if (sim.p.use_ibm) ph.ibm_factory = sim.ibm_factory;
     CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+    eng.interpolate_jumps = closure == 1 || closure == 2;
+    eng.coarse_side_second_order = closure >= 2;
     eng.set_physics(ph);
     CellAdaptor adaptor(mesh, eng, sim.fluid, ind);
     if (sim.p.use_ibm) adaptor.set_body(sim.ibm_factory, 2);

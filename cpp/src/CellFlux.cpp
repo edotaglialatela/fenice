@@ -13,6 +13,10 @@ struct Builder {
     std::vector<int>& vroot;
     std::vector<std::array<int, 4>>& vnode;
     std::map<std::array<int, 3>, int> vmap;   // block (level, i, j) -> virtual cell
+    // interpolated virtual cells (created once all the mean-type ones exist: nmean is their number)
+    std::vector<CellFluxEngine::InterpVirtual>* interp = nullptr;
+    std::map<std::pair<int, int>, int> imap;   // (fine leaf, side) -> interpolated virtual cell
+    int nmean = 0;
 
     // Code of the block (l, i, j): a leaf, or a node whose children are the four sub-blocks
     int block_code(int l, int i, int j) {
@@ -25,13 +29,31 @@ struct Builder {
         return -static_cast<int>(vnode.size());   // node k <-> code -1 - k
     }
 
-    // Index into W for the cell across `side` of leaf c (the leaf itself at a physical edge: replication)
-    int beyond(int c, Face side) {
+    // Index into W for the cell across `side` of leaf c (the leaf itself at a physical edge: replication); a coarser
+    // neighbour is injected, or with `interpolate` replaced by the interpolated virtual cell
+    int beyond(int c, Face side, bool interpolate = false) {
         const CellNeighbour nb = m.neighbour(c, side);
         switch (nb.kind) {
         case CellNeighbour::Kind::Boundary: return c;   // edge replication
-        case CellNeighbour::Kind::Same:
-        case CellNeighbour::Kind::Coarser: return nb.a;   // the cell, or injection of the coarse one
+        case CellNeighbour::Kind::Same: return nb.a;
+        case CellNeighbour::Kind::Coarser: {
+            if (!interpolate) return nb.a;   // injection of the coarse value
+            const std::pair<int, int> key = {c, static_cast<int>(side)};
+            const auto it = imap.find(key);
+            if (it != imap.end()) return m.num_leaves() + nmean + it->second;
+            CellFluxEngine::InterpVirtual iv;
+            iv.fine = c;
+            iv.coarse = nb.a;
+            iv.side = side;
+            iv.axis = face_axis(side);
+            iv.dn = (static_cast<int>(side) & 1) ? -0.25 : 0.25;   // the virtual centre lies nearer to the fine leaf
+            const int idx_t = iv.axis == 0 ? m.cj[c] : m.ci[c];   // transverse half of the coarse leaf the fine leaf is in
+            iv.dt = (idx_t & 1) ? 0.25 : -0.25;
+            const int id = static_cast<int>(interp->size());
+            interp->push_back(iv);
+            imap[key] = id;
+            return m.num_leaves() + nmean + id;
+        }
         default: {
             const std::array<int, 3> key = {m.level[nb.a] - 1, m.ci[nb.a] >> 1, m.cj[nb.a] >> 1};
             const auto it = vmap.find(key);
@@ -73,7 +95,18 @@ void CellFluxEngine::build(const CellMesh& m) {
     nleaf_ = m.num_leaves();
     vroot_.clear();
     vnode_.clear();
+    interp_.clear();
     Builder b{m, vroot_, vnode_, {}};
+    b.interp = &interp_;
+    // 1) injecting neighbour codes of every leaf (slopes of the coarse leaves); creates every mean-type virtual cell
+    nbr_raw_.assign(static_cast<size_t>(4) * nleaf_, -1);
+    for (int c = 0; c < nleaf_; ++c)
+        for (int s = 0; s < 4; ++s)
+            if (m.neighbour(c, static_cast<Face>(s)).kind != CellNeighbour::Kind::Boundary)
+                nbr_raw_[static_cast<size_t>(4) * c + s] = b.beyond(c, static_cast<Face>(s));
+    b.nmean = static_cast<int>(vroot_.size());
+    // 2) stencils and gradient neighbours, with the interpolated virtual cells where enabled
+    const bool ip = muscl_ && interpolate_jumps;
     stencil_.assign(m.faces.size(), {-1, -1, -1, -1});
     for (size_t f = 0; f < m.faces.size(); ++f) {
         const CellFace& face = m.faces[f];
@@ -81,25 +114,44 @@ void CellFluxEngine::build(const CellMesh& m) {
         const Face back = face.axis == 0 ? Face::Left : Face::Bottom, fwd = face.axis == 0 ? Face::Right : Face::Top;
         const int l = face.left, r = face.right;
         std::array<int, 4>& s = stencil_[f];
-        s[1] = l;
-        s[2] = r;
         const int ll = m.level[l], lr = m.level[r];
-        s[0] = ll >= lr ? b.beyond(l, back) : l;   // a coarse c1 keeps the first-order value
-        s[3] = lr >= ll ? b.beyond(r, fwd) : r;
+        if (ll > lr) {   // fine leaf on the left: reconstructed against the virtual cell, the coarse state (s[3]) is not
+            s[0] = b.beyond(l, back, ip);
+            s[1] = l;
+            s[2] = b.beyond(l, fwd, ip);
+            s[3] = r;
+        } else if (lr > ll) {
+            s[0] = l;
+            s[1] = b.beyond(r, back, ip);
+            s[2] = r;
+            s[3] = b.beyond(r, fwd, ip);
+        } else {
+            s[0] = b.beyond(l, back, ip);
+            s[1] = l;
+            s[2] = r;
+            s[3] = b.beyond(r, fwd, ip);
+        }
     }
     // neighbour codes of every leaf (gradients, non-reflecting tangential differences)
     nbr_.assign(static_cast<size_t>(4) * nleaf_, -1);
     for (int c = 0; c < nleaf_; ++c)
         for (int s = 0; s < 4; ++s)
             if (m.neighbour(c, static_cast<Face>(s)).kind != CellNeighbour::Kind::Boundary)
-                nbr_[static_cast<size_t>(4) * c + s] = b.beyond(c, static_cast<Face>(s));
+                nbr_[static_cast<size_t>(4) * c + s] = b.beyond(c, static_cast<Face>(s), ip);
 
     need_.assign(static_cast<size_t>(m.max_level) + 1, {});
     if (muscl_)
         for (int l = 0; l <= m.max_level; ++l) {
             std::vector<int>& v = need_[static_cast<size_t>(l)];
-            for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f)
-                if (m.faces[f].kind != CellFaceKind::Boundary) v.insert(v.end(), stencil_[f].begin(), stencil_[f].end());
+            for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f) {
+                if (m.faces[f].kind == CellFaceKind::Boundary) continue;
+                v.insert(v.end(), stencil_[f].begin(), stencil_[f].end());
+                if (coarse_side_second_order && m.faces[f].kind == CellFaceKind::CoarseFine) {
+                    const int C = m.level[m.faces[f].left] > m.level[m.faces[f].right] ? stencil_[f][3] : stencil_[f][0];
+                    for (int s = 0; s < 4; ++s)
+                        if (nbr_raw_[static_cast<size_t>(4) * C + s] >= 0) v.push_back(nbr_raw_[static_cast<size_t>(4) * C + s]);
+                }
+            }
             std::sort(v.begin(), v.end());
             v.erase(std::unique(v.begin(), v.end()), v.end());
         }
@@ -213,8 +265,9 @@ void CellFluxEngine::prepare(const CellMesh& m, const Field& U, int level) {
     } else {
         us_ = &U;
     }
-    Vc_.resize(vroot_.size());
+    Vc_.resize(vroot_.size() + interp_.size());
     for (size_t v = 0; v < vroot_.size(); ++v) Vc_[v] = eval(*us_, vroot_[v]);
+    eval_interp();
     if (muscl_) {
         if (level < 0)
             refresh_all(nleaf_);
@@ -223,24 +276,53 @@ void CellFluxEngine::prepare(const CellMesh& m, const Field& U, int level) {
     }
 }
 
+void CellFluxEngine::eval_interp() {
+    if (interp_.empty()) return;
+    const EOS& eos = eos_;
+    const Limiter lim = muscl_->limiter();
+    const size_t nm = vroot_.size();
+    Wint_.resize(interp_.size());
+    for (size_t k = 0; k < interp_.size(); ++k) {
+        const InterpVirtual& iv = interp_[k];
+        const int C = iv.coarse;
+        const State Wc = eos.cons_to_prim((*us_)[C]);
+        const auto prim_at = [&](int code) { return code < 0 ? Wc : eos.cons_to_prim(cell_state(code)); };
+        State sn{}, st{};
+        for (int pass = 0; pass < 2; ++pass) {
+            const int ax = pass == 0 ? iv.axis : 1 - iv.axis;
+            const State Wb = prim_at(nbr_raw_[static_cast<size_t>(4) * C + 2 * ax]);
+            const State Wf = prim_at(nbr_raw_[static_cast<size_t>(4) * C + 2 * ax + 1]);
+            State& sl = pass == 0 ? sn : st;
+            for (int q = 0; q < kNVar; ++q) sl[q] = apply_limiter(lim, Wc[q] - Wb[q], Wf[q] - Wc[q]);
+        }
+        State w;
+        for (int q = 0; q < kNVar; ++q) w[q] = Wc[q] + iv.dn * sn[q] + iv.dt * st[q];
+        Wint_[k] = w;
+        Vc_[nm + k] = eos.prim_to_cons(w);
+    }
+}
+
 void CellFluxEngine::refresh_all(int N) {
-    W_.resize(static_cast<size_t>(N) + vroot_.size());
+    W_.resize(static_cast<size_t>(N) + vroot_.size() + interp_.size());
     const EOS& eos = eos_;
     const Field& U = *us_;
 #pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
     for (int c = 0; c < N; ++c) W_[c] = eos.cons_to_prim(U[c]);
     for (size_t v = 0; v < vroot_.size(); ++v) W_[N + v] = eos.cons_to_prim(Vc_[v]);
+    for (size_t k = 0; k < interp_.size(); ++k) W_[N + vroot_.size() + k] = Wint_[k];
 }
 
 void CellFluxEngine::refresh_some(int N, const std::vector<int>& idx) {
-    W_.resize(static_cast<size_t>(N) + vroot_.size());
+    W_.resize(static_cast<size_t>(N) + vroot_.size() + interp_.size());
+    const int nm = static_cast<int>(vroot_.size());
     const EOS& eos = eos_;
     const Field& U = *us_;
     const int n = static_cast<int>(idx.size());
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int k = 0; k < n; ++k) {
         const int i = idx[k];
-        W_[i] = i < N ? eos.cons_to_prim(U[i]) : eos.cons_to_prim(Vc_[static_cast<size_t>(i - N)]);
+        W_[i] = i < N ? eos.cons_to_prim(U[i])
+                      : (i < N + nm ? eos.cons_to_prim(Vc_[static_cast<size_t>(i - N)]) : Wint_[static_cast<size_t>(i - N - nm)]);
     }
 }
 
@@ -314,11 +396,35 @@ double CellFluxEngine::fluxes(const CellMesh& m, int fb, int fe, const double* u
                 const std::array<int, 4>& s = stencil_[f];
                 const State &w0 = W_[s[0]], &w1 = W_[s[1]], &w2 = W_[s[2]], &w3 = W_[s[3]];
                 State wl, wr;
-                for (int q = 0; q < kNVar; ++q) {
-                    const double c0 = w0[q], c1 = w1[q], c2 = w2[q], c3 = w3[q];
-                    const double bq = c2 - c1;
-                    wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, bq);
-                    wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, bq);
+                if (face.kind == CellFaceKind::CoarseFine) {
+                    // the fine side is reconstructed against the (virtual) cell across the face, the coarse side is its cell state
+                    const bool fine_left = m.level[face.left] > m.level[face.right];
+                    for (int q = 0; q < kNVar; ++q) {
+                        // coarse leaf C of the face: its state and its neighbours across the two sides along the normal
+                        const int C = fine_left ? s[3] : s[0];
+                        const int ax = face.axis;
+                        const int code_b = nbr_raw_[static_cast<size_t>(4) * C + 2 * ax];
+                        const int code_f = nbr_raw_[static_cast<size_t>(4) * C + 2 * ax + 1];
+                        const double wc = coarse_side_second_order ? W_[C][q] : 0.0;
+                        const double wb = !coarse_side_second_order ? 0.0 : (code_b < 0 ? wc : W_[code_b][q]);
+                        const double wf = !coarse_side_second_order ? 0.0 : (code_f < 0 ? wc : W_[code_f][q]);
+                        if (fine_left) {
+                            const double c0 = w0[q], c1 = w1[q], c2 = w2[q];
+                            wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, c2 - c1);
+                            wr[q] = coarse_side_second_order ? wc - 0.5 * apply_limiter(lim, wf - wc, wc - wb) : w3[q];
+                        } else {
+                            const double c1 = w1[q], c2 = w2[q], c3 = w3[q];
+                            wl[q] = coarse_side_second_order ? wc + 0.5 * apply_limiter(lim, wc - wb, wf - wc) : w0[q];
+                            wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, c2 - c1);
+                        }
+                    }
+                } else {
+                    for (int q = 0; q < kNVar; ++q) {
+                        const double c0 = w0[q], c1 = w1[q], c2 = w2[q], c3 = w3[q];
+                        const double bq = c2 - c1;
+                        wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, bq);
+                        wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, bq);
+                    }
                 }
                 UL = eos.prim_to_cons(wl);
                 UR = eos.prim_to_cons(wr);

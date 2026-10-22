@@ -400,3 +400,35 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
 * Remesh cost, one more time: indicator 0.23 s, `CellMesh::adapt` 1.25 s, `CellFluxEngine::build` 1.96 s of a 11.6 s run; the churn above multiplies it.
 * After a remesh that changed the leaves the wave-speed bound is recomputed (the viscous part scales with the level of each leaf); the tests and the demo do it.
 * Not done in P5 (moved to P7 with the parameters): `amr_init_levels` (the initial adaptation makes `max_level + 1` passes) and the hot start from a uniform checkpoint.
+
+## 14. Jump closure options tried (2026-10-22, after the user chose option (b))
+* **Implemented (b)** (`CellFluxEngine::interpolate_jumps`, default on with MUSCL): a fine leaf sees the coarse leaf across a face as a virtual cell holding the coarse value
+  interpolated, in primitive variables with the MUSCL limiter on the coarse leaf's own differences (neighbours injected, so no virtual depends on another), to the centre of the
+  fine cell that would sit there (0.25 coarse widths from the coarse centre, towards the fine leaf in the normal direction and towards its half in the transverse one). It
+  replaces the injected value in the fine-side stencil of coarse-fine faces, in the outer stencil points across a coarser neighbour of same-level faces, and in the gradient
+  neighbours of the viscous terms; the coarse side of a coarse-fine face still reads exactly the coarse leaf's state. Without MUSCL the injection stays. Test: on a linear primitive
+  field the interpolated values are within 2e-5 of the exact ones at the virtual centre (not roundoff: the coarse leaf's neighbour over the refined block is the mean of
+  conservative fine values), against 2.75e-2 for the injected values.
+* **Experiment (c)** (`coarse_side_second_order`, default off): the coarse side of a coarse-fine face is reconstructed too with the standard limited formula on the coarse leaf, its
+  neighbour across the face being the mean of the fine leaves there.
+* **Result** (`celladvance_jump_closure_study`, near-jump error of the adaptive run over the uniform base-grid error, within 2 coarse widths of a jump):
+
+  | closure | n = 16 | n = 32 | n = 64 |
+  |---|---|---|---|
+  | injection (the original, section 12) | 1.15 | 2.47 | 5.42 |
+  | (b) interpolated fine side | 1.15 | 2.52 | 5.88 |
+  | (b) + (c) second-order coarse side | 0.78 | 1.06 | 1.51 |
+  | (c) alone | 0.80 | 1.16 | 1.81 |
+
+  (b) alone does nothing measurable: the error comes from the first-order coarse side, not from the injected fine-side value. (c) removes most of it (5.4 -> 1.8), (b) on top of it
+  helps a little more (1.8 -> 1.5). The ratio still grows slowly with n for (b)+(c) (1.06 -> 1.51), so something second-order-breaking remains at the jump (the time seam, or the
+  viscous cross terms; not investigated).
+* Airfoil (same case as section 13, criterion 0.1, density + velocity; mean over the last unit of time, then at t ~ 6; uniform 768 x 384 reference: Cd 0.1498 / Cl 0.2171, at t = 6: 0.1655 / 0.3540):
+
+  | closure | Cd mean | Cl mean | Cd(6) | Cl(6) | wall |
+  |---|---|---|---|---|---|
+  | injection | 0.1511 | 0.2289 | 0.1656 | 0.3621 | 11.6 s |
+  | (b) | 0.1509 | 0.2295 | 0.1663 | 0.3621 | 12.7 s |
+  | (b) + (c) | 0.1491 | 0.2249 | 0.1637 | 0.3538 | 13.1 s |
+
+  With (b)+(c) the mean Cl error against the reference falls from 5.4 % to 3.6 % and Cl at t = 6 matches the reference (0.3538 against 0.3540), for 3 % more wall time.

@@ -3320,8 +3320,10 @@ CellPhysics physics_of(Simulation& sim) {
 }
 
 // Run the cell mesh to t_end with the scheme and CFL of the simulation.
-void run_cell_mesh(CellMesh& cm, Simulation& sim, double t_end, int nsteps_max = 100000) {
+void run_cell_mesh(CellMesh& cm, Simulation& sim, double t_end, int nsteps_max = 100000, int closure = 1) {
     CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+    eng.interpolate_jumps = closure == 1 || closure == 2;   // 0 injection, 1 interpolated coarse value, 2 = 1 + a second-order coarse side, 3 = injection + second-order coarse side
+    eng.coarse_side_second_order = closure >= 2;
     eng.set_physics(physics_of(sim));
     eng.build(cm);
     std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(sim.p.time_scheme), sim.p.cfl, 1.0, 5, 1e-3);
@@ -3484,32 +3486,28 @@ TEST(celladvance_adapted_manufactured_solutions_regression_guards) {
 }
 
 TEST(celladvance_jump_closure_study) {
-    // How big is the error of the first-order jump closure, and does it shrink with resolution?  Steady manufactured
-    // solution, base n x n with the half y < 0.5 refined once, against the uniform n x n run and the uniform 2n x 2n
-    // reference at t = 0.05. Mean absolute density difference to the reference per unit area in bins of the distance
-    // to the nearest jump line (in coarse cell widths), on the fine and on the coarse side.
+    // How big is the error of the jump closure, and does it shrink with resolution?  Steady manufactured solution, base
+    // n x n with the half y < 0.5 refined once, against the uniform n x n run and the uniform 2n x 2n reference at t = 0.05.
+    // Mean absolute density difference to the reference per unit area in bins of the distance to the nearest jump line (in
+    // coarse cell widths), on the fine and on the coarse side. Closures: 0 injection of the coarse value (the original),
+    // 1 the coarse value interpolated to the virtual fine cell (option b), 2 = 1 plus a second-order coarse side (option c,
+    // an experiment).
     const char* name = "Manufactured Solution";
-    double ratio_prev = 0.0;
+    const char* const closure_name[4] = {"injection", "interpolated (b)", "interpolated + 2nd-order coarse side (b+c)", "injection + 2nd-order coarse side (c)"};
+    double ratio_prev[4] = {0.0, 0.0, 0.0, 0.0};
     for (int n : {16, 32, 64}) {
         Simulation sn, s2;
         sn.setup(params_for(name, {{"nx", std::to_string(n).c_str()}, {"ny", std::to_string(n).c_str()}}), false);
         s2.setup(params_for(name, {{"nx", std::to_string(2 * n).c_str()}, {"ny", std::to_string(2 * n).c_str()}}), false);
-        CellMesh ref(1.0, 1.0, 2 * n, 2 * n, 0, true, true), coarse(1.0, 1.0, n, n, 0, true, true),
-            amr(1.0, 1.0, n, n, 1, true, true);
-        std::vector<char> r(static_cast<size_t>(amr.num_leaves()), 0);
-        for (int c = 0; c < amr.num_leaves(); ++c) r[c] = amr.yc(c) < 0.5;
-        amr.adapt(r);
+        CellMesh ref(1.0, 1.0, 2 * n, 2 * n, 0, true, true), coarse(1.0, 1.0, n, n, 0, true, true);
         init_cell_case(ref, s2, name);
         init_cell_case(coarse, sn, name);
-        init_cell_case(amr, sn, name);
         run_cell_mesh(ref, s2, 0.05);
         run_cell_mesh(coarse, sn, 0.05);
-        run_cell_mesh(amr, sn, 0.05);
         std::vector<double> grid(static_cast<size_t>(4 * n) * n);
         for (int c = 0; c < ref.num_leaves(); ++c) grid[static_cast<size_t>(ref.cj[c]) * 2 * n + ref.ci[c]] = ref.U[c][0];
         const double hc = 1.0 / n;
         // bins: [0,1), [1,2), [2,4), [4,inf) coarse widths; index = side * 4 + bin, side 0 = fine region (y < 0.5)
-        double ea[8] = {}, ec[8] = {}, ar[8] = {};
         const auto accumulate = [&](const CellMesh& m, double* e, double* a) {
             for (int c = 0; c < m.num_leaves(); ++c) {
                 const int rr = 2 * n / m.nx_at(m.level[c]);
@@ -3523,26 +3521,86 @@ TEST(celladvance_jump_closure_study) {
                 if (a) a[idx] += m.area(c);
             }
         };
-        accumulate(amr, ea, ar);
+        double ec[8] = {}, ar[8] = {};
         accumulate(coarse, ec, nullptr);
-        std::printf("    n = %d (jump closure study), error per unit area, adaptive / uniform n:\n", n);
-        for (int side = 0; side < 2; ++side) {
-            std::printf("      %s side:", side == 0 ? "fine  " : "coarse");
-            for (int b = 0; b < 4; ++b) {
-                const int i = side * 4 + b;
-                std::printf("  bin%d %.2e/%.2e (%.2f)", b, ea[i] / ar[i], ec[i] / ar[i], ea[i] / ec[i]);
+        for (int closure = 0; closure < 4; ++closure) {
+            CellMesh amr(1.0, 1.0, n, n, 1, true, true);
+            std::vector<char> r(static_cast<size_t>(amr.num_leaves()), 0);
+            for (int c = 0; c < amr.num_leaves(); ++c) r[c] = amr.yc(c) < 0.5;
+            amr.adapt(r);
+            init_cell_case(amr, sn, name);
+            run_cell_mesh(amr, sn, 0.05, 100000, closure);
+            double ea[8] = {};
+            std::fill(ar, ar + 8, 0.0);
+            accumulate(amr, ea, ar);
+            std::printf("    n = %d, closure %s: error per unit area, adaptive (ratio to uniform n)\n", n, closure_name[closure]);
+            for (int side = 0; side < 2; ++side) {
+                std::printf("      %s side:", side == 0 ? "fine  " : "coarse");
+                for (int b = 0; b < 4; ++b) {
+                    const int i = side * 4 + b;
+                    if (ar[i] > 0.0) std::printf("  bin%d %.2e (%.2f)", b, ea[i] / ar[i], ea[i] / ec[i]);
+                }
+                std::printf("\n");
             }
-            std::printf("\n");
+            double near_a = 0.0, near_c = 0.0;
+            for (int i : {0, 1, 4, 5}) {
+                near_a += ea[i];
+                near_c += ec[i];
+            }
+            const double ratio = near_a / near_c;
+            std::printf("      within 2 coarse widths of a jump: adaptive / uniform = %.2f\n", ratio);
+            if (n > 16) CHECK(ratio < 4.0 * ratio_prev[closure] + 1.0);   // loose guard against a runaway
+            ratio_prev[closure] = ratio;
         }
-        double near_a = 0.0, near_c = 0.0;
-        for (int i : {0, 1, 4, 5}) {
-            near_a += ea[i];
-            near_c += ec[i];
+    }
+}
+
+TEST(cellflux_interpolated_jump_values_are_exact_for_a_linear_field) {
+    // A linear primitive field: the value interpolated to the virtual fine cell across a jump is the exact one there (all
+    // limiters return the exact slope on linear data). Control: the injected coarse value is not.
+    const EOS eos = EOS::ideal(1.4);
+    const auto prim = [&](double x, double y) {
+        return State{1.0 + 0.05 * x + 0.02 * y, 0.3 + 0.04 * x - 0.01 * y, -0.2 + 0.03 * y, 2.0 - 0.06 * x + 0.05 * y, 0.0};
+    };
+    for (const Limiter lim : {Limiter::Minmod, Limiter::VanLeer, Limiter::MC, Limiter::Koren}) {
+        CellMesh m(8.0, 8.0, 8, 8, 2);
+        std::vector<char> r(static_cast<size_t>(m.num_leaves()), 0);
+        r[m.find(0, 3, 3)] = 1;   // one interior block refined: its coarse neighbours have same-level neighbours only
+        m.adapt(r);
+        BoundaryManager bm(generate_cartesian_mesh(8.0, 8.0, 8, 8), eos);
+        bm.set_boundary_types(BCType::Transmissive, BCType::Transmissive, BCType::Transmissive, BCType::Transmissive);
+        RiemannSolver rs(eos, RiemannType::HLLC);
+        MusclReconstruction mu(eos, lim);
+        CellFluxEngine eng(eos, rs, &mu, bm);
+        eng.build(m);
+        m.U.resize(m.num_leaves());
+        for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = eos.prim_to_cons(prim(m.xc(c), m.yc(c)));
+        Field R;
+        eng.residual(m, m.U, R);
+        CHECK(eng.interpolated().size() == 8);   // each of the 4 fine leaves faces a coarse leaf on two sides
+        double worst = 0.0, injected = 0.0;
+        for (size_t k = 0; k < eng.interpolated().size(); ++k) {
+            const CellFluxEngine::InterpVirtual& iv = eng.interpolated()[k];
+            const double h = m.dx(m.level[iv.fine]);
+            const int s = static_cast<int>(iv.side);
+            const double x = m.xc(iv.fine) + (s == 1 ? h : (s == 0 ? -h : 0.0)), y = m.yc(iv.fine) + (s == 3 ? h : (s == 2 ? -h : 0.0));
+            const State want = prim(x, y), got = eng.interpolated_state(static_cast<int>(k));
+            const State coarse_value = eos.cons_to_prim(m.U[iv.coarse]);
+            for (int q = 0; q < 4; ++q) {
+                worst = std::max(worst, std::abs(got[q] - want[q]));
+                injected = std::max(injected, std::abs(coarse_value[q] - want[q]));
+            }
         }
-        const double ratio = near_a / near_c;
-        std::printf("      within 2 coarse widths of a jump: adaptive / uniform = %.2f\n", ratio);
-        if (n > 16) CHECK(ratio < 4.0 * ratio_prev + 1.0);   // loose guard against a runaway
-        ratio_prev = ratio;
+        std::printf("    interpolation vs injection error on a linear field: %.3e vs %.3e\n", worst, injected);
+        // not exact to roundoff: the coarse leaf's neighbour over the refined block is the mean of CONSERVATIVE fine values,
+        // which is not the primitive-linear value (difference of order 1e-5 here); the control is a thousand times worse
+        CHECK(worst < 1e-4);
+        CHECK(injected > 1e-2 && worst < 1e-2 * injected);
+        // with the interpolation disabled there is no such cell
+        CellFluxEngine off(eos, rs, &mu, bm);
+        off.interpolate_jumps = false;
+        off.build(m);
+        CHECK(off.interpolated().empty());
     }
 }
 
