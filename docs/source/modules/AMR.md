@@ -144,15 +144,15 @@ by the owner of the fine leaf. The result is identical to the serial run for any
 
 **Known limits.** The remesh (indicator, flags, adaptation, rebuild of the face list and stencils) is replicated on every
 rank after the state is gathered, and every rank stores the whole mesh and state array. It runs OpenMP-parallel inside a rank,
-but it is a serial fraction across ranks (16 % of the time loop of the airfoil below on one thread, 25 to 55 % on 2 to 8 ranks),
+but it is a serial fraction across ranks (21 % of the time loop of the airfoil below on one thread, 32 % on 8 threads, 34 to 65 % on 2 to 16 ranks),
 so the MPI speed-up flattens at a few ranks, and the memory per rank does not fall with the number of ranks. On one node
 OpenMP is the better choice; MPI gives the same result for any rank count and a moderate speed-up, not a way to store a larger mesh.
 
 | run (720×360, 2 levels, 50 steps, 268 362 leaves) | wall time | of which remesh |
 |---|---:|---:|
-| serial, 1 thread | 9.8 s | 1.6 s |
-| OpenMP, 2 / 4 / 8 / 16 threads | 5.5 / 3.5 / 2.9 / 2.7 s | 1.0 / 0.8 / 0.8 / 0.8 s |
-| MPI, 2 / 4 / 8 / 16 ranks | 6.1 / 4.5 / 4.9 / 8.5 s | 1.6 / 1.7 / 2.5 / 5.0 s |
+| serial, 1 thread | 6.1 s | 1.3 s |
+| OpenMP, 2 / 4 / 8 / 16 threads | 3.6 / 2.5 / 2.4 / 2.3 s | 0.9 / 0.7 / 0.8 / 0.8 s |
+| MPI, 2 / 4 / 8 / 16 ranks | 4.3 / 3.5 / 4.5 / 7.7 s | 1.4 / 1.6 / 2.6 / 5.0 s |
 
 The machine has 8 cores (16 logical processors); the times vary by tens of percent from run to run, and the 16-rank row is oversubscribed.
 

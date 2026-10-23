@@ -45,3 +45,35 @@ its time stepping costs the same per leaf as the uniform solver (568 ns against 
 Six AMR references and the 32 others unchanged, `python cases/validation/amr/amr_mpi.py --check` bitwise on 1 to 7
 ranks, `python cases/validation/amr/amr_mpi.py` timings reported as the minimum of three runs, and the accuracy-per-cost
 table of section 20 re-run.
+
+## Decision and results (option 3 first)
+
+Chosen first: the SIMD flux kernel. It is the largest share of the step (the Riemann solver was 56 % of the stepping of the
+airfoil with the Low-Mach solver) and it helps uniform and adaptive runs alike. Gate before writing it: the airfoil 720x360, 50 steps,
+1 thread, with `riemann_solver = HLLC` against Low-Mach differed by 2.15 s, the 59 M face fluxes times the 34 ns of the bench
+difference predicted 2.0 s, so the solver cost in the real loop is compute-bound and not hidden by memory traffic.
+
+Done (all bitwise identical: 38 references, `amr_mpi.py --check` on 1 to 7 ranks, golden dumps of five adaptive runs, the six
+`bench_riemann` hashes scalar = batch, unit test `riemann_batch_equals_scalar_bit_for_bit` with NaN, floors, signed zeros and
+wave speeds one ulp from zero; no `vfmadd` in the object file):
+
+* `RiemannSolver::face_flux_batch`, AVX2 four faces at a time, three HLLC variants, ideal and stiffened gas: 46 / 80 / 60 ns per face
+  became 19 / 25 / 22 ns. Used by the uniform solver (`compute_flux`) and by the AMR engine.
+* `RiemannSolver::muscl_face_flux_batch`: the MUSCL reconstruction (four limiters) of the interior four-point faces fused with it.
+  Boundary and coarse-fine faces still go through the scalar reconstruction and the batch Riemann solver.
+
+| run (min of 3) | before | after |
+|---|---:|---:|
+| airfoil AMR 720x360, 50 steps, 1 thread, time loop | 10.0 s | 6.1 s |
+| same, 8 threads | 3.2 s | 2.4 s |
+| same, 4 MPI ranks | 4.5 s | 3.5 s |
+| uniform airfoil 720x360, 50 steps, 1 thread | 7.4 s | 4.6 s |
+| airfoil study, AMR 192x96 + 2 levels, t = 6 | 10.7 s | 8.0 s |
+
+Cost of the choice: the stepping is now faster and the replicated remesh did not change, so it is a larger share of the loop (21 % on
+one thread, 32 % on 8 threads, 34 to 65 % on 2 to 16 ranks) and the MPI speed-up is relatively worse (1.7x on 4 ranks against 2.6x for
+8 threads). Memory is unaffected.
+
+Left in the step (airfoil, 1 thread, seconds of 4.4): face fluxes 2.2 (of which the vector kernel about 1.3), viscous flux and cell
+quantities 1.5, cell gather 0.7, state conversion 0.3. The viscous kernels are the next candidate for the same treatment; option 1
+(incremental topology update) is now the most valuable item for the OpenMP and MPI scaling.
