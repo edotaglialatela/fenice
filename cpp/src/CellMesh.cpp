@@ -2,7 +2,6 @@
 
 #include <algorithm>
 #include <cstdlib>
-#include <functional>
 #include <iterator>
 #include <numeric>
 #include <stdexcept>
@@ -184,25 +183,32 @@ void CellMesh::rebuild(bool incremental) {
         prev2new.assign(static_cast<size_t>(old_n), -1);
         for (int c = 0; c < N; ++c)
             if (prev_leaf[c] >= 0) prev2new[static_cast<size_t>(prev_leaf[c])] = c;
-        // does block (l, i, j) (inside the domain) hold a new leaf?
-        const std::function<bool(int, int, int)> holds_new = [&](int l, int i, int j) {
-            const int k = covering(l, i, j);
-            if (k >= 0) return prev_leaf[k] < 0;
-            for (int oj = 0; oj < 2; ++oj)
-                for (int oi = 0; oi < 2; ++oi)
-                    if (holds_new(l + 1, 2 * i + oi, 2 * j + oj)) return true;
-            return false;
-        };
+        // Marked from the new leaves outward: the leaves c whose square of their size across a side holds a new leaf n are the
+        // leaves of level l(n) - 2 .. l(n) next to the block of their level that holds n, and the finer leaves on the sides of n
+        // (2:1 balance: a square next to c holds leaves of level l(c) + 2 at most, a face neighbour of n is one level finer at most).
         topo_dirty.assign(static_cast<size_t>(N), 0);
-#pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
-        for (int c = 0; c < N; ++c) {
-            bool d = prev_leaf[c] < 0;
-            for (int s = 0; s < 4 && !d; ++s) {
+        for (int n = 0; n < N; ++n) {
+            if (prev_leaf[n] >= 0) continue;
+            topo_dirty[n] = 1;
+            const int ln = level[n];
+            for (int s = 0; s < 4; ++s) {
                 const int axis = s / 2, dir = (s & 1) ? 1 : -1;
-                int ni = ci[c] + (axis == 0 ? dir : 0), nj = cj[c] + (axis == 1 ? dir : 0);
-                if (wrap(level[c], ni, nj)) d = holds_new(level[c], ni, nj);
+                const int di = axis == 0 ? dir : 0, dj = axis == 1 ? dir : 0;
+                for (int lc = std::max(0, ln - 2); lc <= ln; ++lc) {
+                    int bi = (ci[n] >> (ln - lc)) + di, bj = (cj[n] >> (ln - lc)) + dj;
+                    if (!wrap(lc, bi, bj)) continue;
+                    const int k = find(lc, bi, bj);
+                    if (k >= 0) topo_dirty[k] = 1;
+                }
+                if (ln == max_level) continue;
+                int bi = ci[n] + di, bj = cj[n] + dj;
+                if (!wrap(ln, bi, bj)) continue;
+                for (int t = 0; t < 2; ++t) {   // the two children of the block across side s that touch n
+                    const int oi = axis == 0 ? (dir > 0 ? 0 : 1) : t, oj = axis == 1 ? (dir > 0 ? 0 : 1) : t;
+                    const int k = find(ln + 1, 2 * bi + oi, 2 * bj + oj);
+                    if (k >= 0) topo_dirty[k] = 1;
+                }
             }
-            topo_dirty[c] = d ? 1 : 0;
         }
     }
     std::vector<int> off(static_cast<size_t>(N) + 1, 0);

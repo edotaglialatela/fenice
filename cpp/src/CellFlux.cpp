@@ -157,11 +157,12 @@ void CellFluxEngine::build(const CellMesh& m) {
         for (int f = 0; f < static_cast<int>(m.faces.size()); ++f) face_stencil(m, f);
     }
 
-    reg_.assign(m.faces.size(), State{});
-    regv_.assign(m.faces.size(), State{});
-    Fv_.assign(m.faces.size(), State{});
-    su_.assign(static_cast<size_t>(nleaf_), 0.0);
-    sv_ = sT_ = dudx_ = dudy_ = dvdx_ = dvdy_ = su_;
+    // Work arrays, sized only: every entry is written before it is read in a step (fluxes and cell quantities by the pass of
+    // their level, registers by clear_registers before the subcycles), as for F_; zero-filling them took ~2 % of the loop.
+    reg_.resize(m.faces.size());
+    regv_.resize(m.faces.size());
+    Fv_.resize(m.faces.size());
+    for (std::vector<double>* a : {&su_, &sv_, &sT_, &dudx_, &dudy_, &dvdx_, &dvdy_}) a->resize(static_cast<size_t>(nleaf_));
 
     // immersed body: mask of every leaf from the uniform mask of its level (a leaf kept by the adapt keeps its value)
     std::vector<char> old_solid;
