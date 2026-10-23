@@ -77,3 +77,38 @@ one thread, 32 % on 8 threads, 34 to 65 % on 2 to 16 ranks) and the MPI speed-up
 Left in the step (airfoil, 1 thread, seconds of 4.4): face fluxes 2.2 (of which the vector kernel about 1.3), viscous flux and cell
 quantities 1.5, cell gather 0.7, state conversion 0.3. The viscous kernels are the next candidate for the same treatment; option 1
 (incremental topology update) is now the most valuable item for the OpenMP and MPI scaling.
+
+## Viscous kernels and option 1 (incremental topology update): results
+
+Measured on a 4-core Linux container (Intel Xeon with AVX2, gcc 13, no MPI available there), airfoil AMR 720x360, 50 steps,
+10 remeshes, minimum of three runs, the unmodified binary of this branch against the final one. The 8-core numbers above were not
+re-measured. Bitwise after every step: the 38 references (serial; also with `FENICE_NO_SIMD=1`, `FENICE_FULL_REBUILD=1` and an
+`FV_NO_SIMD` build), golden dumps of the four `amr_mpi.py --check` cases, of three longer viscous AMR runs (MMS 40 steps, cavity 200
+steps, Sod remeshed every 2 steps) and of the 720x360 airfoil on 1 and 4 threads, and the unit tests (FakeHub 1-7 ranks). The real-MPI
+oracles (`regression.py --mpi 4`, `amr_mpi.py --check`) could not run there.
+
+* **Viscous kernels (AVX2).** `viscous_cell_quantities_run` and `viscous_speed_range` run four consecutive leaves at a time with the
+  same IEEE operations as the scalar twins; runs of leaves whose four neighbours are leaves only (the others take the scalar path),
+  neighbours and level sizes by scalar loads (gather instructions were not faster here and are slow on many CPUs). Cell quantities
+  0.93 -> 0.57 s, viscous speed bound 0.57 -> 0.25 s. The face flux stays scalar: its vector twin (bit for bit equal) was slower in
+  every variant tried (1.08-1.25 s against 0.88 s): it is load-bound with three divisions per face, and the gather and transpose cost
+  more than they save. Unit test `viscous_cell_kernels_equal_scalar_bit_for_bit`.
+* **Option 1.** Step 1 numbers the virtual cells by key (block, resp. fine leaf and side) instead of creation order, which also lets
+  the full build fill every table in parallel (engine build 1.34 -> 1.19 s). Step 2: `CellMesh::adapt` records the old index of every
+  leaf and a dirty flag (new, or a square of its size across a side holds a new leaf, marked outward from the new leaves); the faces
+  made by clean leaves are copied with the indices remapped; `CellFluxEngine::build` copies the codes of clean leaves, the stencils of
+  faces between clean leaves, the solid mask and steady sources of kept leaves, and renumbers virtual cells by key. The work arrays
+  are sized, not zero-filled (each entry is written before it is read in a step). Test `cellflux_incremental_rebuild_equals_full_rebuild`:
+  after each of 14 random adapts in four setups, faces, side lists and every engine table equal a full rebuild.
+  Engine build 1.41 -> 0.38 s, adaptation 0.59 -> 0.54 s (one run each).
+
+| run (min of 3), 4-core container | before | after |
+|---|---:|---:|
+| time loop, 1 thread | 11.3 s | 9.5 s |
+| time loop, 2 threads | 6.6 s | 5.5 s |
+| time loop, 4 threads | 4.2 s | 3.6 s |
+| remesh, 1 / 2 / 4 threads | 2.5 / 1.7 / 1.3 s | 1.5 / 1.1 / 0.9 s |
+
+Left in the remesh (1 thread, s of 1.5): wave-speed bound 0.6, indicator 0.4, adaptation 0.5 (new leaf list, face copy, side lists),
+engine build 0.4 (code copy, per-level lists). The estimate of option 1 above (adapt + build 0.85 -> 0.2 s on the 8-core machine)
+corresponds here to 2.0 -> 0.9 s. MPI timings and the 8-core table remain to be re-measured on the workstation.

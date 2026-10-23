@@ -103,7 +103,10 @@ wake, where the density barely varies, and add `pressure` for shocks in a flow w
   $t = 0$ and never joined. The test is on the finest-level mask, so a thin trailing edge cannot slip
   between cell centres.
 * **Remeshing** happens every `amr_refine_every` coarse steps. A remesh that changes no leaf costs only the
-  indicator.
+  indicator. After one that does, the face list, neighbour codes, stencils and virtual cells are updated, not rebuilt: a leaf
+  is recomputed if it is new or a square of its size across one of its sides holds a new leaf, everything else is copied with
+  the indices renumbered (virtual cells are numbered by key, so the numbering depends on the mesh only). The result is the
+  same as a full rebuild, table for table (`FENICE_FULL_REBUILD=1` forces the full one).
 
 ## Physics on the adaptive mesh
 
@@ -142,7 +145,7 @@ after it advanced, and the registers of the coarse-fine faces. A same-level face
 by the owner of the fine leaf. The result is identical to the serial run for any number of ranks (1 to 7 are checked in
 `amr_mpi.py --check`, on cases with remeshing, an immersed body, viscosity, a non-reflecting outlet and a time-dependent source).
 
-**Known limits.** The remesh (indicator, flags, adaptation, rebuild of the face list and stencils) is replicated on every
+**Known limits.** The remesh (indicator, flags, adaptation, update of the face list and stencils) is replicated on every
 rank after the state is gathered, and every rank stores the whole mesh and state array. It runs OpenMP-parallel inside a rank,
 but it is a serial fraction across ranks (21 % of the time loop of the airfoil below on one thread, 32 % on 8 threads, 34 to 65 % on 2 to 16 ranks),
 so the MPI speed-up flattens at a few ranks, and the memory per rank does not fall with the number of ranks. On one node
@@ -155,6 +158,17 @@ OpenMP is the better choice; MPI gives the same result for any rank count and a 
 | MPI, 2 / 4 / 8 / 16 ranks | 4.3 / 3.5 / 4.5 / 7.7 s | 1.4 / 1.6 / 2.6 / 5.0 s |
 
 The machine has 8 cores (16 logical processors); the times vary by tens of percent from run to run, and the 16-rank row is oversubscribed.
+This table predates the vector viscous kernels and the incremental remesh update. The same run on a 4-core Linux container
+(gcc 13, minimum of three runs, no MPI there), before and after them:
+
+| run (720×360, 2 levels, 50 steps), 4-core container | wall time before | after | remesh before | after |
+|---|---:|---:|---:|---:|
+| 1 thread | 11.3 s | 9.5 s | 2.5 s | 1.5 s |
+| 2 threads | 6.6 s | 5.5 s | 1.7 s | 1.1 s |
+| 4 threads | 4.2 s | 3.6 s | 1.3 s | 0.9 s |
+
+On one thread (one run) the remesh parts went from adaptation 0.59 s + engine build 1.41 s to 0.54 s + 0.38 s; the indicator (0.4 s) and the
+wave-speed bound (0.6 s) are unchanged. The remesh is now 16 % of the time loop on one thread and 25 % on four (it was 22 % and 30 %).
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/amr_mpi.png" style="width:100%">
