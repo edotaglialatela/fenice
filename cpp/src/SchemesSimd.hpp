@@ -1,5 +1,5 @@
-// Internal: the AVX2 kernels (SchemesAvx2.cpp): the batch of the Riemann solvers and the viscous cell kernels of the AMR engine.
-// They compute, lane by lane, the same sequence of IEEE operations as the scalar code, so their results are bit-identical.
+// Internal: the AVX2 batch of the Riemann solvers (SchemesAvx2.cpp).  The batch computes, lane by lane, the same
+// sequence of IEEE operations as RiemannSolver::face_flux, so its results are bit-identical to the scalar ones.
 #pragma once
 
 #include "fv/Schemes.hpp"
@@ -21,13 +21,6 @@ void riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, const S
 // (the four points of its stencil) and applies the limiter `lim` before the Riemann solver, as the scalar reconstruction does.
 void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, Limiter lim, const State* W, const int* st,
                               const int* axis, int n, State* F, double* smax);
-// Viscous cell kernels of the AMR engine for the leaves c0 .. c0+n-1 (n a multiple of 4), bit-identical to the scalar functions of
-// CellFlux.cpp; the arguments are those of viscous_cell_quantities_run and viscous_speed_range (CellFlux.hpp), with `out` the seven
-// arrays of ViscousCellArrays in their order (u, v, T, du/dx, du/dy, dv/dx, dv/dy).
-void viscous_cells_avx2(const EOS& eos, const State* U, const int* nbr, const int* level, const double* dxl, const double* dyl,
-                        int c0, int n, double* const* out);
-double viscous_speed_avx2(const EOS& eos, double mu, double k_cond, const State* U, const int* level, const double* dxl,
-                          const double* dyl, int c0, int n);
 #else
 inline bool avx2_available() { return false; }
 #endif

@@ -9,7 +9,7 @@ Every kernel is native C++. Three levels of parallelism combine:
 
 | Level | Mechanism | Used for |
 |---|---|---|
-| Vector | AVX2, four faces or cells at a time (x86-64) | Riemann solvers, the MUSCL reconstruction of the interior faces of AMR meshes, the viscous cell quantities and viscous time-step bound of AMR meshes |
+| Vector | AVX2, four faces at a time (x86-64) | Riemann solvers, and the MUSCL reconstruction of the interior faces of AMR meshes |
 | Loop | OpenMP `parallel for` over faces / cells | Riemann fluxes, MUSCL, BCs, gradients, viscous terms, time-scheme updates |
 | AMR faces | OpenMP over the faces and leaves of one refinement level | AMR runs |
 | Domain | MPI strips with halo exchange | large uniform meshes, multiple nodes |
@@ -22,12 +22,11 @@ selected by a mask), so the results are **bit-identical** with and without it, o
 and for the leftover faces of a batch; `FENICE_NO_SIMD=1` switches the vector kernels off (to time them, or to check the bits).
 The Riemann solver costs 46 / 80 / 60 ns per face (HLLC / Low-Mach / Preconditioned) as scalar code and 19 / 25 / 22 ns vectorised
 (`bench_riemann`).
-On AMR meshes the viscous cell quantities (velocities, temperature and the gradients from the four neighbours) and the viscous
-time-step bound also run four leaves at a time, for runs of consecutive leaves whose neighbours are leaves (a leaf next to a virtual
-cell or a physical edge takes the scalar path). They read the neighbours with scalar loads, not gather instructions, which are slow on
-many CPUs. On the 720×360 airfoil (1 thread, 4-core Linux container, gcc) they went from 0.93 to 0.57 s and from 0.57 to 0.25 s of the
-time loop. The viscous face flux stays scalar: a bit-identical vector version was slower than the scalar loop (1.1 to 1.25 s against
-0.88 s), because the kernel is dominated by loads and has only three divisions per face to vectorise.
+The viscous terms of AMR meshes stay scalar. Bit-identical vector versions were built and measured: the cell quantities and the
+viscous time-step bound were faster with gcc on an Intel container (0.93 -> 0.57 s and 0.57 -> 0.25 s of the 720×360 airfoil) but
+the stepping was 0.42 s slower with MSVC on a Ryzen 7 7800X3D, and the face flux was slower on every variant tried. These kernels
+read scattered data and do little arithmetic, so the gain depends on the compiler and the caches; vectorising the arithmetic-heavy
+Riemann solver pays everywhere.
 
 **Loop parallelism.** Loops shorter than `kOmpMinWork` (4096 items) run on one thread,
 because OpenMP fork/join would cost more than the work. All reductions, such as the

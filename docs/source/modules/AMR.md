@@ -148,7 +148,7 @@ by the owner of the fine leaf. The result is identical to the serial run for any
 **Known limits.** The remesh (indicator, flags, adaptation, update of the face list and stencils) is replicated on every
 rank after the state is gathered, and every rank stores the whole mesh and state array. It runs OpenMP-parallel inside a rank,
 but it is a serial fraction across ranks (on the 8-core workstation, before the incremental update: 21 % of the time loop of the airfoil below on one
-thread, 32 % on 8 threads, 34 to 65 % on 2 to 16 ranks; now 16 % on one thread and 25 % on four on a 4-core container),
+thread, 32 % on 8 threads, 34 to 65 % on 2 to 16 ranks; less since, see below),
 so the MPI speed-up flattens at a few ranks, and the memory per rank does not fall with the number of ranks. On one node
 OpenMP is the better choice; MPI gives the same result for any rank count and a moderate speed-up, not a way to store a larger mesh.
 
@@ -159,17 +159,8 @@ OpenMP is the better choice; MPI gives the same result for any rank count and a 
 | MPI, 2 / 4 / 8 / 16 ranks | 4.3 / 3.5 / 4.5 / 7.7 s | 1.4 / 1.6 / 2.6 / 5.0 s |
 
 The machine has 8 cores (16 logical processors); the times vary by tens of percent from run to run, and the 16-rank row is oversubscribed.
-This table predates the vector viscous kernels and the incremental remesh update. The same run on a 4-core Linux container
-(gcc 13, minimum of three runs, no MPI there), before and after them:
-
-| run (720×360, 2 levels, 50 steps), 4-core container | wall time before | after | remesh before | after |
-|---|---:|---:|---:|---:|
-| 1 thread | 11.3 s | 9.5 s | 2.5 s | 1.5 s |
-| 2 threads | 6.6 s | 5.5 s | 1.7 s | 1.1 s |
-| 4 threads | 4.2 s | 3.6 s | 1.3 s | 0.9 s |
-
-On one thread (one run) the remesh parts went from adaptation 0.59 s + engine build 1.41 s to 0.54 s + 0.38 s; the indicator (0.4 s) and the
-wave-speed bound (0.6 s) are unchanged. The remesh is now 16 % of the time loop on one thread and 25 % on four (it was 22 % and 30 %).
+This table predates the incremental remesh update and is to be re-measured; with it, the serial remesh of the same run on this
+machine went from 1.23 to 0.93 s (minimum of three runs; adaptation 0.39 -> 0.35 s, engine build 0.47 -> 0.20 s).
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/amr_mpi.png" style="width:100%">
