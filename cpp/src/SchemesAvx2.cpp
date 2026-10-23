@@ -311,7 +311,6 @@ void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, L
     _mm256_zeroupper();
 }
 
-#ifdef FV_SIMD_VISCOUS
 // ---------------------------------------------------------------------------------------------------------------------
 // Viscous cell kernels of the AMR engine (scalar twins in CellFlux.cpp: viscous_cell_quantities, viscous_cell_speed).  Same rules:
 // the operation order of the scalar code, operands of commutative operations included.  The leaves are consecutive: their states
@@ -382,7 +381,6 @@ double viscous_speed_avx2(const EOS& eos, double mu, double k_cond, const State*
     for (int i = 0; i < 4; ++i) r = (r < t[i]) ? t[i] : r;
     return r;
 }
-#endif   // FV_SIMD_VISCOUS
 
 }   // namespace detail
 }   // namespace fv

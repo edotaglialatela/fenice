@@ -749,7 +749,7 @@ void viscous_cell_quantities(const EOS& eos, const State& Ui, const State& n0, c
 void viscous_cell_quantities_run(const EOS& eos, const State* U, const int* nbr, const int* level, const double* dx_of_level,
                                  const double* dy_of_level, int c0, int n, const ViscousCellArrays& out) {
     int done = 0;
-#ifdef FV_SIMD_VISCOUS
+#ifdef FV_SIMD_AVX2
     if (detail::avx2_available()) {
         done = n & ~3;
         if (done > 0) {
@@ -778,7 +778,7 @@ double viscous_speed_range(const EOS& eos, double mu, double k_cond, const State
                            const double* dy_of_level, int cb, int ce) {
     double s_max = 0.0;
     int done = 0;
-#ifdef FV_SIMD_VISCOUS
+#ifdef FV_SIMD_AVX2
     if (detail::avx2_available()) {
         done = (ce - cb) & ~3;
         if (done > 0) s_max = detail::viscous_speed_avx2(eos, mu, k_cond, U, level, dx_of_level, dy_of_level, cb, done);
@@ -806,7 +806,7 @@ constexpr int kViscBlock = 256;   // list entries per block of the viscous loops
 
 }   // namespace
 
-#ifdef FV_SIMD_VISCOUS
+#ifdef FV_SIMD_AVX2
 void CellFluxEngine::cell_quantities(const CellMesh& m, const std::vector<int>& cells) {
     const EOS& eos = eos_;
     const Field& U = *us_;
@@ -848,7 +848,7 @@ void CellFluxEngine::cell_quantities(const CellMesh& m, const std::vector<int>& 
     }
 }
 #else
-// Without the vector kernels (MSVC, non-x86): the original loop, which MSVC compiles better than the runs above
+// Without the vector kernels (non-x86, FV_NO_SIMD): the original loop
 void CellFluxEngine::cell_quantities(const CellMesh& m, const std::vector<int>& cells) {
     const EOS& eos = eos_;
     const Field& U = *us_;
@@ -949,7 +949,7 @@ void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& f
     }
 }
 
-#ifdef FV_SIMD_VISCOUS
+#ifdef FV_SIMD_AVX2
 double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
     const NavierStokes& ns = *phys_.ns;
     const double mu = ns.mu(), gamma = eos_.gamma;
