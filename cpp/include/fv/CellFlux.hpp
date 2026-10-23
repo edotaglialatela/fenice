@@ -70,8 +70,13 @@ public:
     void set_physics(const CellPhysics& p) { phys_ = p; }
 
     // Stencils, virtual cells, solid masks and steady sources of `mesh`; call again after every CellMesh::adapt.
-    // Throws if the periodic flags of the mesh and the boundary types disagree.
+    // Throws if the periodic flags of the mesh and the boundary types disagree. Right after an adapt of the mesh this engine was
+    // last built for, only the tables of the leaves and faces the adapt touched (CellMesh::topo_dirty) are computed, the rest is
+    // copied with the indices renumbered; the tables are the same as those of a full build (FENICE_FULL_REBUILD=1 forces one).
     void build(const CellMesh& mesh);
+    // True if every table of the build (virtual cells, neighbour codes, stencils, per-level lists, solid mask, steady sources,
+    // mass-flow faces) equals that of `other`, bit for bit (tests: an incremental build against a full one).
+    bool same_tables(const CellFluxEngine& other) const;
 
     // R = dU/dt for the state U (one entry per leaf); returns the largest wave speed (convective, or the viscous
     // bound of the explicit time step when larger).
@@ -197,6 +202,11 @@ private:
     std::vector<std::array<int, 3>> vkey_;
     std::vector<std::array<int, 4>> ikey_;
     void make_virtual_cells(const CellMesh& m);   // vroot_, vnode_, interp_ from the keys
+    std::vector<char> special_;                     // leaves with a finer or coarser side
+    // the mesh (and its CellMesh::version) and the interpolation setting of the last build: the base of an incremental one
+    const CellMesh* built_mesh_ = nullptr;
+    long long built_version_ = -1;
+    bool built_ip_ = false;
     // Code of the cell across `side` of leaf c (the leaf itself at a physical edge: replication); a coarser neighbour is
     // injected, or with `interpolate` replaced by the interpolated virtual cell; a finer one is the mean-type virtual cell
     int beyond(const CellMesh& m, int c, Face side, bool interpolate) const;

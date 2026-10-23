@@ -1,6 +1,8 @@
 #include "fv/CellMesh.hpp"
 
 #include <algorithm>
+#include <cstdlib>
+#include <functional>
 #include <iterator>
 #include <numeric>
 #include <stdexcept>
@@ -112,8 +114,13 @@ CellNeighbour CellMesh::neighbour(int leaf, Face side) const {
     return n;
 }
 
-void CellMesh::rebuild() {
+void CellMesh::rebuild(bool incremental) {
     const int N = num_leaves();
+    ++version;
+    static const bool force_full = std::getenv("FENICE_FULL_REBUILD") != nullptr;
+    if (!incremental || force_full) prev_leaf.clear();
+    topo_dirty.clear();
+    prev_face.clear();
     // lookup table and level runs
     level_begin.assign(static_cast<size_t>(max_level) + 2, N);
     for (int c = N - 1; c >= 0; --c) level_begin[level[c]] = c;
@@ -167,23 +174,75 @@ void CellMesh::rebuild() {
         f.right = dir > 0 ? coarse : c;
         return true;
     };
+    // After an adapt: a kept leaf is clean if none of the four squares of its size across its sides holds a new leaf; then its
+    // neighbours are the old ones (renumbered) and so are the faces it makes. The leaves keep their relative order, so the copied
+    // faces land in the order a full rebuild gives.
+    const bool inc = !prev_leaf.empty();
+    std::vector<int> prev2new;
+    if (inc) {
+        const int old_n = static_cast<int>(face_off_.size()) - 1;
+        prev2new.assign(static_cast<size_t>(old_n), -1);
+        for (int c = 0; c < N; ++c)
+            if (prev_leaf[c] >= 0) prev2new[static_cast<size_t>(prev_leaf[c])] = c;
+        // does block (l, i, j) (inside the domain) hold a new leaf?
+        const std::function<bool(int, int, int)> holds_new = [&](int l, int i, int j) {
+            const int k = covering(l, i, j);
+            if (k >= 0) return prev_leaf[k] < 0;
+            for (int oj = 0; oj < 2; ++oj)
+                for (int oi = 0; oi < 2; ++oi)
+                    if (holds_new(l + 1, 2 * i + oi, 2 * j + oj)) return true;
+            return false;
+        };
+        topo_dirty.assign(static_cast<size_t>(N), 0);
+#pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
+        for (int c = 0; c < N; ++c) {
+            bool d = prev_leaf[c] < 0;
+            for (int s = 0; s < 4 && !d; ++s) {
+                const int axis = s / 2, dir = (s & 1) ? 1 : -1;
+                int ni = ci[c] + (axis == 0 ? dir : 0), nj = cj[c] + (axis == 1 ? dir : 0);
+                if (wrap(level[c], ni, nj)) d = holds_new(level[c], ni, nj);
+            }
+            topo_dirty[c] = d ? 1 : 0;
+        }
+    }
     std::vector<int> off(static_cast<size_t>(N) + 1, 0);
 #pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
     for (int c = 0; c < N; ++c) {
-        CellFace f;
         int k = 0;
-        for (int s = 0; s < 4; ++s) k += make_face(c, s, f) ? 1 : 0;
+        if (inc && !topo_dirty[c]) {
+            k = face_off_[static_cast<size_t>(prev_leaf[c]) + 1] - face_off_[static_cast<size_t>(prev_leaf[c])];
+        } else {
+            CellFace f;
+            for (int s = 0; s < 4; ++s) k += make_face(c, s, f) ? 1 : 0;
+        }
         off[static_cast<size_t>(c) + 1] = k;
     }
     for (int c = 0; c < N; ++c) off[static_cast<size_t>(c) + 1] += off[static_cast<size_t>(c)];
-    faces.resize(static_cast<size_t>(off[static_cast<size_t>(N)]));
+    std::vector<CellFace> nf(static_cast<size_t>(off[static_cast<size_t>(N)]));
+    if (inc) prev_face.assign(nf.size(), -1);
+    bool broken = false;
 #pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
     for (int c = 0; c < N; ++c) {
         int k = off[static_cast<size_t>(c)];
+        if (inc && !topo_dirty[c]) {
+            const int o = prev_leaf[c];
+            for (int g = face_off_[static_cast<size_t>(o)]; g < face_off_[static_cast<size_t>(o) + 1]; ++g, ++k) {
+                CellFace f = faces[static_cast<size_t>(g)];
+                if (f.left >= 0) f.left = prev2new[static_cast<size_t>(f.left)];
+                if (f.right >= 0) f.right = prev2new[static_cast<size_t>(f.right)];
+                if ((f.left < 0 && f.kind != CellFaceKind::Boundary) || (f.right < 0 && f.kind != CellFaceKind::Boundary)) broken = true;
+                nf[static_cast<size_t>(k)] = f;
+                prev_face[static_cast<size_t>(k)] = g;
+            }
+            continue;
+        }
         CellFace f;
         for (int s = 0; s < 4; ++s)
-            if (make_face(c, s, f)) faces[static_cast<size_t>(k++)] = f;
+            if (make_face(c, s, f)) nf[static_cast<size_t>(k++)] = f;
     }
+    if (broken) throw std::logic_error("CellMesh: a clean leaf's face lost a leaf (incremental rebuild)");
+    faces.swap(nf);
+    face_off_.swap(off);
     face_level_begin.assign(static_cast<size_t>(max_level) + 2, static_cast<int>(faces.size()));
     for (int f = static_cast<int>(faces.size()) - 1; f >= 0; --f) face_level_begin[faces[f].level] = f;
     for (int l = max_level; l >= 0; --l) face_level_begin[l] = std::min(face_level_begin[l], face_level_begin[l + 1]);
@@ -323,6 +382,7 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
     struct NewLeaf {
         uint64_t key;
         int i, j, src;
+        bool kept;
     };
     const bool has_u = static_cast<int>(U.size()) == N;
     const size_t nlev = static_cast<size_t>(max_level) + 1;
@@ -334,12 +394,12 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
             for (int oj = 0; oj < 2; ++oj)
                 for (int oi = 0; oi < 2; ++oi)
                     kids[static_cast<size_t>(l) + 1].push_back(
-                        {morton_key(static_cast<uint32_t>(2 * i + oi), static_cast<uint32_t>(2 * j + oj)), 2 * i + oi, 2 * j + oj, c});
+                        {morton_key(static_cast<uint32_t>(2 * i + oi), static_cast<uint32_t>(2 * j + oj)), 2 * i + oi, 2 * j + oj, c, false});
         } else if (merge_anchor[c]) {
             parents[static_cast<size_t>(l) - 1].push_back(
-                {morton_key(static_cast<uint32_t>(i >> 1), static_cast<uint32_t>(j >> 1)), i >> 1, j >> 1, -1 - c});
+                {morton_key(static_cast<uint32_t>(i >> 1), static_cast<uint32_t>(j >> 1)), i >> 1, j >> 1, -1 - c, false});
         } else {
-            keep[static_cast<size_t>(l)].push_back({mkey_[c], i, j, c});
+            keep[static_cast<size_t>(l)].push_back({mkey_[c], i, j, c, true});
         }
     }
     const auto by_key = [](const NewLeaf& x, const NewLeaf& y) { return x.key < y.key; };
@@ -357,6 +417,7 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
     const size_t nn = order.size();
     ni.resize(nn);
     nj.resize(nn);
+    prev_leaf.resize(nn);
     Field nU;
     if (has_u) nU.resize(nn);
 #pragma omp parallel for schedule(static) if (nn >= static_cast<size_t>(kOmpMinWork))
@@ -364,6 +425,7 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
         const NewLeaf& n = order[static_cast<size_t>(k)];
         ni[static_cast<size_t>(k)] = n.i;
         nj[static_cast<size_t>(k)] = n.j;
+        prev_leaf[static_cast<size_t>(k)] = n.kept ? n.src : -1;
         if (!has_u) continue;
         if (n.src >= 0) {
             nU[static_cast<size_t>(k)] = U[n.src];   // stays, or the injection into a child
@@ -380,7 +442,7 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
     ci.swap(ni);
     cj.swap(nj);
     if (has_u) U.swap(nU);
-    rebuild();
+    rebuild(true);
     return true;
 }
 

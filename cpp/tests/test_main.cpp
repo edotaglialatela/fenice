@@ -2962,6 +2962,83 @@ TEST(celladvance_jump_closure_study) {
     }
 }
 
+TEST(cellflux_incremental_rebuild_equals_full_rebuild) {
+    // After every adapt of a run of random refinements and joins, the faces and gather lists that CellMesh::adapt updates
+    // (copied for the clean leaves) and the engine tables that CellFluxEngine::build updates must equal a full rebuild of the
+    // same leaves bit for bit: walled and periodic axes, interpolated jumps on and off, an immersed body, steady sources.
+    const EOS eos = EOS::ideal(1.4);
+    unsigned seed = 2024u;
+    const auto rnd = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<double>((seed >> 8) & 0xFFFFu) / 65536.0;
+    };
+    for (int cfg = 0; cfg < 4; ++cfg) {
+        const bool periodic = cfg & 1, ip = (cfg & 2) == 0;
+        const int nx = 24, ny = 16, maxl = 3;
+        const double Lx = 3.0, Ly = 2.0;
+        const Mesh base = generate_cartesian_mesh(Lx, Ly, nx, ny);
+        BoundaryManager bm(base, eos);
+        if (periodic)
+            bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Wall, BCType::Wall);
+        else
+            bm.set_boundary_types(BCType::Transmissive, BCType::Transmissive, BCType::Wall, BCType::Wall);
+        RiemannSolver rs(eos, RiemannType::HLLC);
+        MusclReconstruction mu(eos, Limiter::VanLeer);
+        Params src;
+        src.set("source_rho", "0.1*sin(x)*cos(y)");
+        src.set("source_E", "x*y");
+        CellPhysics ph;
+        ph.source = &src;
+        ph.source_mesh = &base;
+        ph.ibm_factory = [](const Mesh& m) { return ImmersedBoundary(m, "Cylinder", 0.3, 1.2, 1.0, 1.0, 1.0); };
+        const auto make_engine = [&]() {
+            auto e = std::make_unique<CellFluxEngine>(eos, rs, &mu, bm);
+            e->interpolate_jumps = ip;
+            e->set_physics(ph);
+            return e;
+        };
+        CellMesh m(Lx, Ly, nx, ny, maxl, periodic, false);
+        auto eng = make_engine();
+        eng->build(m);
+        int incremental = 0, clean_total = 0, bad_mesh = 0, bad_eng = 0;
+        for (int it = 0; it < 14; ++it) {
+            // refine near a moving spot and at random, join at random
+            const double sx = 0.4 + 0.15 * it, sy = 1.0 + 0.5 * std::sin(0.7 * it);
+            std::vector<char> r(static_cast<size_t>(m.num_leaves()), 0), co(r.size(), 0);
+            for (int c = 0; c < m.num_leaves(); ++c) {
+                const double d = std::hypot(m.xc(c) - sx, m.yc(c) - sy);
+                r[c] = (d < 0.35 && rnd() < 0.8) || rnd() < 0.01;
+                co[c] = !r[c] && rnd() < 0.7;
+            }
+            if (!m.adapt(r, co)) continue;
+            CHECK(static_cast<int>(m.prev_leaf.size()) == m.num_leaves());
+            for (const char d : m.topo_dirty) clean_total += d ? 0 : 1;
+            eng->build(m);
+            ++incremental;
+            CellMesh full(Lx, Ly, nx, ny, maxl, periodic, false);
+            full.assign_leaves(m.level, m.ci, m.cj);
+            bool same = full.faces.size() == m.faces.size() && full.side_ptr == m.side_ptr && full.side_face == m.side_face &&
+                        full.face_level_begin == m.face_level_begin;
+            for (size_t f = 0; same && f < m.faces.size(); ++f) {
+                const CellFace &a = m.faces[f], &b = full.faces[f];
+                same = a.left == b.left && a.right == b.right && a.level == b.level && a.tpos == b.tpos && a.axis == b.axis &&
+                       a.kind == b.kind && a.side == b.side && std::memcmp(&a.length, &b.length, sizeof(double)) == 0;
+            }
+            bad_mesh += same ? 0 : 1;
+            auto ref = make_engine();
+            ref->build(m);   // a new engine: a full build
+            bad_eng += eng->same_tables(*ref) ? 0 : 1;
+        }
+        CHECK(incremental >= 8);
+        CHECK(clean_total > 0);
+        CHECK(bad_mesh == 0);
+        CHECK(bad_eng == 0);
+        if (bad_mesh || bad_eng)
+            std::printf("    periodic %d interpolate %d: %d of %d meshes, %d engines differ\n", periodic, ip, bad_mesh, incremental,
+                        bad_eng);
+    }
+}
+
 TEST(cellflux_interpolated_jump_values_are_exact_for_a_linear_field) {
     // A linear primitive field: the value interpolated to the virtual fine cell across a jump is the exact one there (all
     // limiters return the exact slope on linear data). Control: the injected coarse value is not.
