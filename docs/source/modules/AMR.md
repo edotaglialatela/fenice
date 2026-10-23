@@ -159,8 +159,18 @@ OpenMP is the better choice; MPI gives the same result for any rank count and a 
 | MPI, 2 / 4 / 8 / 16 ranks | 4.3 / 3.5 / 4.5 / 7.7 s | 1.4 / 1.6 / 2.6 / 5.0 s |
 
 The machine has 8 cores (16 logical processors); the times vary by tens of percent from run to run, and the 16-rank row is oversubscribed.
-This table predates the incremental remesh update and is to be re-measured; with it, the serial remesh of the same run on this
-machine went from 1.23 to 0.93 s (minimum of three runs; adaptation 0.39 -> 0.35 s, engine build 0.47 -> 0.20 s).
+This table predates the incremental remesh update and the viscous vector kernels and is to be re-measured. Measured since,
+serial (minimum of three runs, time loop / remesh):
+
+| machine, compiler | before | after |
+|---|---:|---:|
+| Ryzen 7 7800X3D, MSVC (Windows) | 6.01 / 1.23 s | remesh 0.93 s (time loop to be re-measured) |
+| Ryzen 7 7800X3D, gcc (WSL) | 5.95 / 1.22 s | 4.88 / 0.69 s |
+| Threadripper PRO 5965WX (24 cores), gcc (WSL) | 6.01 / 1.24 s | 5.03 / 0.74 s |
+
+On the Threadripper (gcc, without the viscous vector kernels, which save another ~0.5 s on one thread) OpenMP is fastest at
+16 threads (5.50 -> 1.45 s, 3.8×; 1.63 / 1.74 / 1.80 s on 24 / 32 / 48 threads) and MPI at 8 to 16 ranks (2.96 to 3.08 s), where the
+replicated remesh grows from 0.98 s on 2 ranks to 1.99 s on 16 and 6.1 s on 48. Every run gave the serial state bit for bit.
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/amr_mpi.png" style="width:100%">

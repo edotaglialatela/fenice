@@ -80,34 +80,46 @@ quantities 1.5, cell gather 0.7, state conversion 0.3. The viscous kernels are t
 
 ## Viscous kernels and option 1 (incremental topology update): results
 
-Measured on a 4-core Linux container (Intel Xeon with AVX2, gcc 13, no MPI available there), airfoil AMR 720x360, 50 steps,
-10 remeshes, minimum of three runs, the unmodified binary of this branch against the final one. The 8-core numbers above were not
-re-measured. Bitwise after every step: the 38 references (serial; also with `FENICE_NO_SIMD=1`, `FENICE_FULL_REBUILD=1` and an
-`FV_NO_SIMD` build), golden dumps of the four `amr_mpi.py --check` cases, of three longer viscous AMR runs (MMS 40 steps, cavity 200
-steps, Sod remeshed every 2 steps) and of the 720x360 airfoil on 1 and 4 threads, and the unit tests (FakeHub 1-7 ranks). The real-MPI
-oracles (`regression.py --mpi 4`, `amr_mpi.py --check`) could not run there.
+Bitwise after every step: the 38 references (serial; also with `FENICE_NO_SIMD=1`, `FENICE_FULL_REBUILD=1` and an `FV_NO_SIMD` build;
+serial and 4 MPI ranks in CI on Linux x64 / ARM64, macOS and Windows MSVC), golden dumps of the four `amr_mpi.py --check` cases, of
+three longer viscous AMR runs (MMS 40 steps, cavity 200 steps, Sod remeshed every 2 steps) and of the 720x360 airfoil on 1 and 4
+threads, the unit tests (FakeHub 1-7 ranks), and on the Threadripper the airfoil on 1-48 threads and 2-48 real MPI ranks.
+Timings: airfoil AMR 720x360, 50 steps, 10 remeshes, minimum of three runs; stepping = time loop - remesh.
 
-* **Viscous kernels (AVX2): built, measured, removed.** `cell_quantities` and `viscous_speed` ran four consecutive leaves at a time
-  (bit-identical twins, scalar loads, no gathers). In the container (gcc, Intel): cell quantities 0.93 -> 0.57 s, viscous speed bound
-  0.57 -> 0.25 s. On the 8-core workstation (MSVC, Ryzen 7 7800X3D, 96 MB L3), bisected commit by commit, min of 3: stepping
-  4.78 -> 5.20 s with them, the speed bound in the remesh 0.34 -> 0.28 s. Net loss on the main target, so they were reverted
-  (the scalar code is the original). The face flux twin was slower everywhere (1.08-1.25 s against 0.88 s in the container).
-  Lesson: these kernels read scattered data with little arithmetic, and the gain depends on compiler and caches; reducing the work
-  (option 1) or vectorising arithmetic-heavy kernels (the Riemann solver) wins on every machine measured.
+* **Viscous kernels (AVX2), gcc / clang only.** `viscous_cell_quantities_run` and `viscous_speed_range` run four consecutive leaves at
+  a time with the same IEEE operations as the scalar twins (runs of leaves whose four neighbours are leaves; neighbours and level
+  sizes by scalar loads, no gathers). Bisected per commit, one thread:
+
+  | machine, compiler | stepping before | with the kernels |
+  |---|---:|---:|
+  | Ryzen 7 7800X3D, MSVC (Windows) | 4.78 s | 5.20 s |
+  | Ryzen 7 7800X3D, gcc (WSL) | 4.73 s | 4.20 s |
+  | Threadripper PRO 5965WX, gcc (WSL) | 4.77 s | 4.29 s |
+  | 4-core Intel container, gcc | 8.8 s | 8.0 s |
+
+  Same CPU, opposite outcome: the MSVC code of these kernels is the problem, not the hardware. They are compiled only without
+  `_MSC_VER` (`FV_SIMD_VISCOUS` in `SchemesSimd.hpp`); MSVC builds keep the original scalar loops verbatim (the restructured scalar
+  path was not timed with MSVC). The face flux stays scalar everywhere: its vector twin (bit for bit equal) was slower in every variant
+  tried (1.08-1.25 s against 0.88 s in the container); it is load-bound with three divisions per face. Unit test
+  `viscous_cell_kernels_equal_scalar_bit_for_bit` (it says whether the vector path was built and ran).
 * **Option 1.** Step 1 numbers the virtual cells by key (block, resp. fine leaf and side) instead of creation order, which also lets
-  the full build fill every table in parallel (engine build 1.34 -> 1.19 s). Step 2: `CellMesh::adapt` records the old index of every
-  leaf and a dirty flag (new, or a square of its size across a side holds a new leaf, marked outward from the new leaves); the faces
-  made by clean leaves are copied with the indices remapped; `CellFluxEngine::build` copies the codes of clean leaves, the stencils of
-  faces between clean leaves, the solid mask and steady sources of kept leaves, and renumbers virtual cells by key. The work arrays
-  are sized, not zero-filled (each entry is written before it is read in a step). Test `cellflux_incremental_rebuild_equals_full_rebuild`:
-  after each of 14 random adapts in four setups, faces, side lists and every engine table equal a full rebuild.
-  Engine build 1.41 -> 0.38 s, adaptation 0.59 -> 0.54 s (one run each).
+  the full build fill every table in parallel. Step 2: `CellMesh::adapt` records the old index of every leaf and a dirty flag (new, or a
+  square of its size across a side holds a new leaf, marked outward from the new leaves); the faces made by clean leaves are copied
+  with the indices remapped; `CellFluxEngine::build` copies the codes of clean leaves, the stencils of faces between clean leaves, the
+  solid mask and steady sources of kept leaves, and renumbers virtual cells by key. The work arrays are sized, not zero-filled (each
+  entry is written before it is read in a step). Test `cellflux_incremental_rebuild_equals_full_rebuild`: after each of 14 random
+  adapts in four setups, faces, side lists and every engine table equal a full rebuild. Serial remesh per commit on the 7800X3D with
+  MSVC: 1.23 s (base) -> 1.14 (virtual cells by key) -> 1.03 (incremental update) -> 0.93 s (dirty marking, no zero-fill); engine build
+  0.47 -> 0.20 s, adaptation 0.39 -> 0.35 s. With gcc: 1.22 -> 0.69 s (7800X3D), 1.24 -> 0.74 s (Threadripper).
 
-Workstation (Ryzen 7 7800X3D, MSVC), serial, min of 3, per commit: remesh 1.23 s (base) -> 1.14 (virtual cells by key) -> 1.03
-(incremental update) -> 0.93 s (dirty marking from the new leaves, no zero-fill); engine build 0.47 -> 0.20 s, adaptation 0.39 -> 0.35 s.
-The time loop table of the AMR page is to be re-measured with the final code. Container numbers (4-core, gcc, min of 3) of the remesh
-alone: 2.5 -> 1.5 s on one thread.
+| serial, time loop / remesh | before | after |
+|---|---:|---:|
+| Ryzen 7 7800X3D, MSVC | 6.01 / 1.23 s | remesh 0.93 s; time loop to be re-measured with the final code |
+| Ryzen 7 7800X3D, gcc | 5.95 / 1.22 s | 4.88 / 0.69 s |
+| Threadripper PRO 5965WX, gcc | 6.01 / 1.24 s | 5.03 / 0.74 s |
 
-Left in the remesh (container, 1 thread, s of 1.5): wave-speed bound 0.6, indicator 0.4, adaptation 0.5 (new leaf list, face copy, side lists),
-engine build 0.4 (code copy, per-level lists). The estimate of option 1 above (adapt + build 0.85 -> 0.2 s on the 8-core machine)
-corresponds here to 2.0 -> 0.9 s. MPI timings and the 8-core table remain to be re-measured on the workstation.
+Threadripper (gcc, kernels off): OpenMP 1 / 2 / 4 / 8 / 12 / 16 / 24 / 32 / 48 threads 5.50 / 3.17 / 2.13 / 1.65 / 1.47 / 1.45 / 1.63 /
+1.74 / 1.80 s (remesh flat at 0.40 s from 8 threads); MPI 2 / 4 / 8 / 12 / 16 / 24 / 32 / 48 ranks 3.66 / 3.01 / 2.96 / 2.99 / 3.08 /
+4.60 / 5.91 / 8.86 s, the replicated remesh 0.98 / 1.18 / 1.56 / 1.79 / 1.99 / 3.14 / 4.15 / 6.14 s. Left in the serial remesh (gcc,
+7800X3D, s of 0.69): wave-speed bound 0.28, indicator 0.20, adaptation 0.19, engine build 0.18. Beyond a few ranks the replicated
+remesh dominates: that is option 2.
