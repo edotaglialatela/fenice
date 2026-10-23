@@ -147,7 +147,8 @@ by the owner of the fine leaf. The result is identical to the serial run for any
 
 **Known limits.** The remesh (indicator, flags, adaptation, update of the face list and stencils) is replicated on every
 rank after the state is gathered, and every rank stores the whole mesh and state array. It runs OpenMP-parallel inside a rank,
-but it is a serial fraction across ranks (21 % of the time loop of the airfoil below on one thread, 32 % on 8 threads, 34 to 65 % on 2 to 16 ranks),
+but it is a serial fraction across ranks (on the 8-core workstation, before the incremental update: 21 % of the time loop of the airfoil below on one
+thread, 32 % on 8 threads, 34 to 65 % on 2 to 16 ranks; now 16 % on one thread and 25 % on four on a 4-core container),
 so the MPI speed-up flattens at a few ranks, and the memory per rank does not fall with the number of ranks. On one node
 OpenMP is the better choice; MPI gives the same result for any rank count and a moderate speed-up, not a way to store a larger mesh.
 
