@@ -86,22 +86,23 @@ three longer viscous AMR runs (MMS 40 steps, cavity 200 steps, Sod remeshed ever
 threads, the unit tests (FakeHub 1-7 ranks), and on the Threadripper the airfoil on 1-48 threads and 2-48 real MPI ranks.
 Timings: airfoil AMR 720x360, 50 steps, 10 remeshes, minimum of three runs; stepping = time loop - remesh.
 
-* **Viscous kernels (AVX2), gcc / clang only.** `viscous_cell_quantities_run` and `viscous_speed_range` run four consecutive leaves at
-  a time with the same IEEE operations as the scalar twins (runs of leaves whose four neighbours are leaves; neighbours and level
-  sizes by scalar loads, no gathers). Bisected per commit, one thread:
+* **Viscous kernels (AVX2).** `viscous_cell_quantities_run` and `viscous_speed_range` run four consecutive leaves at a time with the
+  same IEEE operations as the scalar twins (runs of leaves whose four neighbours are leaves; neighbours and level sizes by scalar
+  loads, no gathers). Bisected per commit, one thread, min of 3:
 
   | machine, compiler | stepping before | with the kernels |
   |---|---:|---:|
-  | Ryzen 7 7800X3D, MSVC (Windows) | 4.78 s | 5.20 s |
+  | Ryzen 7 7800X3D, MSVC, file without `/arch:AVX2` | 4.78 s | 5.20 s |
+  | Ryzen 7 7800X3D, MSVC, file with `/arch:AVX2` | 4.81 s | 4.27 s |
   | Ryzen 7 7800X3D, gcc (WSL) | 4.73 s | 4.20 s |
   | Threadripper PRO 5965WX, gcc (WSL) | 4.77 s | 4.29 s |
   | 4-core Intel container, gcc | 8.8 s | 8.0 s |
 
-  Same CPU, opposite outcome: the MSVC code of these kernels is the problem, not the hardware. They are compiled only without
-  `_MSC_VER` (`FV_SIMD_VISCOUS` in `SchemesSimd.hpp`); MSVC builds keep the original scalar loops verbatim (the restructured scalar
-  path was not timed with MSVC). The face flux stays scalar everywhere: its vector twin (bit for bit equal) was slower in every variant
-  tried (1.08-1.25 s against 0.88 s in the container); it is load-bound with three divisions per face. Unit test
-  `viscous_cell_kernels_equal_scalar_bit_for_bit` (it says whether the vector path was built and ran).
+  Without `/arch:AVX2` MSVC mixes SSE and AVX code around the intrinsics and the kernels lose; with it they gain as with gcc
+  (`dumpbin /disasm` shows no `vfm`, CI bitwise on Windows). The flag applies to `SchemesAvx2.cpp` only; the CPU check moved to
+  `Schemes.cpp` so that it is never compiled for AVX2. The face flux stays scalar everywhere: its vector twin (bit for bit equal) was
+  slower in every variant tried (1.08-1.25 s against 0.88 s in the container); it is load-bound with three divisions per face.
+  Unit test `viscous_cell_kernels_equal_scalar_bit_for_bit` (it says whether the vector path was built and ran).
 * **Option 1.** Step 1 numbers the virtual cells by key (block, resp. fine leaf and side) instead of creation order, which also lets
   the full build fill every table in parallel. Step 2: `CellMesh::adapt` records the old index of every leaf and a dirty flag (new, or a
   square of its size across a side holds a new leaf, marked outward from the new leaves); the faces made by clean leaves are copied
@@ -114,7 +115,7 @@ Timings: airfoil AMR 720x360, 50 steps, 10 remeshes, minimum of three runs; step
 
 | serial, time loop / remesh | before | after |
 |---|---:|---:|
-| Ryzen 7 7800X3D, MSVC | 6.01 / 1.23 s | 5.87 / 0.98 s (one run) |
+| Ryzen 7 7800X3D, MSVC | 6.01 / 1.23 s | 5.20 / 0.93 s |
 | Ryzen 7 7800X3D, gcc | 5.95 / 1.22 s | 4.88 / 0.69 s |
 | Threadripper PRO 5965WX, gcc | 6.01 / 1.24 s | 5.03 / 0.74 s |
 
@@ -124,8 +125,14 @@ Threadripper (gcc, kernels off): OpenMP 1 / 2 / 4 / 8 / 12 / 16 / 24 / 32 / 48 t
 7800X3D, s of 0.69): wave-speed bound 0.28, indicator 0.20, adaptation 0.19, engine build 0.18. Beyond a few ranks the replicated
 remesh dominates: that is option 2.
 
-Final code on the 7800X3D with MSVC (`amr_mpi.py`, one run): serial 5.87 s (remesh 0.98), OpenMP 2 / 4 / 8 / 16 threads 3.54 / 2.29 /
+Before the `/arch:AVX2` fix, on the 7800X3D with MSVC (`amr_mpi.py`, one run): serial 5.87 s (remesh 0.98), OpenMP 2 / 4 / 8 / 16 threads 3.54 / 2.29 /
 2.08 / 2.02 s, MPI 2 / 4 / 8 / 16 ranks 3.87 / 3.05 / 3.77 / 7.46 s (remesh 1.12 / 1.26 / 2.04 / 4.40); `amr_mpi.py --check` bitwise
 on 1-7 ranks, 94 unit tests. Under MPI each level is partitioned on its own, so the fine levels (866 and 9 080 leaves here) give a
 rank a few hundred leaves and their exchanges are latency-bound; on this mesh the replicated remesh still costs more (4.4 of 7.5 s on
 16 ranks).
+
+**Accuracy per cost re-run** (`airfoil_amr.py --table`, 7800X3D, MSVC, scalar viscous loops, t = 6): the errors are those of section 20
+of `amr-cell-based.md` to every printed digit (bitwise results); the wall times of the cell engine fell by 26 to 30 % (default 10.7 ->
+7.8 s, criterion 0.005 / diffusion 4 24.7 -> 18.1 s, 0.002 / 4 72.7 -> 53.6 s). Against the patch engine as measured in section 20
+(24.4 s for 0.0074 / 0.0387 with 16x16 patches, 20.3 s for 0.0085 / 0.0457 with 8x8; it is gone and was not re-measured, and it did
+not have the vector Riemann solver), the cell engine now reaches 0.0078 / 0.0411 in 18.1 s.

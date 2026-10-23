@@ -158,13 +158,13 @@ OpenMP is the better choice; MPI gives the same result for any rank count and a 
 | OpenMP, 2 / 4 / 8 / 16 threads | 3.5 / 2.3 / 2.1 / 2.0 s | 0.75 / 0.65 / 0.65 / 0.74 s |
 | MPI, 2 / 4 / 8 / 16 ranks | 3.9 / 3.1 / 3.8 / 7.5 s | 1.1 / 1.3 / 2.0 / 4.4 s |
 
-Ryzen 7 7800X3D (8 cores, 16 logical processors), MSVC build, one run after the incremental remesh update; the 16-rank row is
-oversubscribed. Before it: serial 6.1 s (remesh 1.3 s), OpenMP 3.6 / 2.5 / 2.4 / 2.3 s, MPI 4.3 / 3.5 / 4.5 / 7.7 s. The MSVC build
-keeps the scalar viscous loops; with gcc (WSL) on the same machine the serial run takes 4.9 s (remesh 0.7 s), minimum of three:
+Ryzen 7 7800X3D (8 cores, 16 logical processors), MSVC build, one run after the incremental remesh update (scalar viscous loops); the 16-rank row is
+oversubscribed. Before it: serial 6.1 s (remesh 1.3 s), OpenMP 3.6 / 2.5 / 2.4 / 2.3 s, MPI 4.3 / 3.5 / 4.5 / 7.7 s. With the
+viscous vector kernels (MSVC with `/arch:AVX2`) the serial run takes 5.20 s (remesh 0.93 s, minimum of three). Serial, minimum of three:
 
 | machine, compiler, serial | time loop / remesh before | after |
 |---|---:|---:|
-| Ryzen 7 7800X3D, MSVC (Windows) | 6.01 / 1.23 s | 5.87 / 0.98 s |
+| Ryzen 7 7800X3D, MSVC (Windows) | 6.01 / 1.23 s | 5.20 / 0.93 s |
 | Ryzen 7 7800X3D, gcc (WSL) | 5.95 / 1.22 s | 4.88 / 0.69 s |
 | Threadripper PRO 5965WX (24 cores), gcc (WSL) | 6.01 / 1.24 s | 5.03 / 0.74 s |
 

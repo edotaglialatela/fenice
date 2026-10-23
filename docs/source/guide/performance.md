@@ -9,7 +9,7 @@ Every kernel is native C++. Three levels of parallelism combine:
 
 | Level | Mechanism | Used for |
 |---|---|---|
-| Vector | AVX2, four faces or cells at a time (x86-64) | Riemann solvers, the MUSCL reconstruction of the interior faces of AMR meshes; with gcc / clang also the viscous cell quantities and time-step bound of AMR meshes |
+| Vector | AVX2, four faces or cells at a time (x86-64) | Riemann solvers, the MUSCL reconstruction of the interior faces of AMR meshes, the viscous cell quantities and time-step bound of AMR meshes |
 | Loop | OpenMP `parallel for` over faces / cells | Riemann fluxes, MUSCL, BCs, gradients, viscous terms, time-scheme updates |
 | AMR faces | OpenMP over the faces and leaves of one refinement level | AMR runs |
 | Domain | MPI strips with halo exchange | large uniform meshes, multiple nodes |
@@ -22,13 +22,14 @@ selected by a mask), so the results are **bit-identical** with and without it, o
 and for the leftover faces of a batch; `FENICE_NO_SIMD=1` switches the vector kernels off (to time them, or to check the bits).
 The Riemann solver costs 46 / 80 / 60 ns per face (HLLC / Low-Mach / Preconditioned) as scalar code and 19 / 25 / 22 ns vectorised
 (`bench_riemann`).
-With gcc / clang, the viscous cell quantities (velocities, temperature and the gradients from the four neighbours) and the viscous
-time-step bound of AMR meshes also run four leaves at a time, for runs of consecutive leaves whose neighbours are leaves (the others
-take the scalar path). On the 720×360 airfoil (one thread) they saved 0.53 s of stepping on a Ryzen 7 7800X3D, 0.48 s on a
-Threadripper PRO 5965WX and 0.8 s on an Intel container. With MSVC the same kernels made the stepping 0.42 s slower on the
-7800X3D, so MSVC builds keep the original scalar loops; the compiler decides, not the CPU. The viscous face flux stays scalar
-everywhere: its vector version was slower than the scalar loop (1.1 to 1.25 s against 0.88 s), the kernel being dominated by
-scattered loads with three divisions per face.
+The viscous cell quantities (velocities, temperature and the gradients from the four neighbours) and the viscous time-step bound of
+AMR meshes also run four leaves at a time, for runs of consecutive leaves whose neighbours are leaves (the others take the scalar
+path). On the 720×360 airfoil (one thread) they save about 0.5 s of stepping: 0.54 s on a Ryzen 7 7800X3D with MSVC, 0.53 s there
+with gcc, 0.48 s on a Threadripper PRO 5965WX (gcc). The file of the vector kernels is compiled for AVX2 (`/arch:AVX2` with MSVC,
+`-mavx2` with gcc / clang; FMA stays off): without `/arch:AVX2` the MSVC build of these kernels was 0.42 s *slower* than the scalar
+loops. The CPU check that decides whether they run is compiled without AVX, so the program still starts on older CPUs. The viscous
+face flux stays scalar: its vector version was slower than the scalar loop (1.1 to 1.25 s against 0.88 s), the kernel being dominated
+by scattered loads with three divisions per face.
 
 **Loop parallelism.** Loops shorter than `kOmpMinWork` (4096 items) run on one thread,
 because OpenMP fork/join would cost more than the work. All reductions, such as the

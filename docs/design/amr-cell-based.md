@@ -591,17 +591,20 @@ body and the outlet, periodic viscous MMS, unsteady MMS) and of the 720x360 airf
 
   | run | cells at the end | wall [s] | Cd | Cl |
   |---|---|---|---|---|
-  | uniform 192x96 | 18 432 | 2.5 | 0.034 | 0.36 |
-  | uniform 384x192 | 73 728 | 20.7 | 0.0145 | 0.087 |
+  | uniform 192x96 | 18 432 | 2.5 (1.7) | 0.034 | 0.36 |
+  | uniform 384x192 | 73 728 | 20.7 (13.3) | 0.0145 | 0.087 |
   | patch engine, 16x16 patches | 52 224 | 24.4 | 0.0074 | 0.0387 |
   | patch engine, 8x8 patches | | 20.3 | 0.0085 | 0.0457 |
-  | cell engine, default (criterion 0.1) | 23 526 | 10.7 | 0.0106 | 0.0541 |
-  | cell engine, criterion 0.01, diffusion 2 | 36 885 | 15.8 | 0.0098 | 0.0502 |
-  | cell engine, criterion 0.01, diffusion 4 | 41 706 | 16.4 | 0.0095 | 0.0486 |
-  | cell engine, criterion 0.005, diffusion 4 | 50 262 | 24.7 | 0.0078 | 0.0411 |
-  | cell engine, criterion 0.002, diffusion 4 | 80 742 | 72.7 | 0.0056 | 0.0301 |
+  | cell engine, default (criterion 0.1) | 23 526 | 10.7 (7.8) | 0.0106 | 0.0541 |
+  | cell engine, criterion 0.01, diffusion 2 | 36 885 | 15.8 (11.0) | 0.0098 | 0.0502 |
+  | cell engine, criterion 0.01, diffusion 4 | 41 706 | 16.4 (12.1) | 0.0095 | 0.0486 |
+  | cell engine, criterion 0.005, diffusion 4 | 50 262 | 24.7 (18.1) | 0.0078 | 0.0411 |
+  | cell engine, criterion 0.002, diffusion 4 | 80 742 | 72.7 (53.6) | 0.0056 | 0.0301 |
 
-  **At matched error the two engines cost the same on this study** (cell 0.0078 / 0.0411 in 24.7 s against patch 0.0074 / 0.0387 in 24.4 s); the cell engine is cheaper only at the lower accuracies (0.0106 / 0.054 in
+  In parentheses: re-run on branch `amr-optimisation` (vector Riemann solver, incremental remesh update; same machine, MSVC, same errors
+  to every digit; the patch engine is gone and was not re-measured). Then the cell engine reaches 0.0078 / 0.0411 in 18.1 s against the
+  patch engine's 0.0074 / 0.0387 in 24.4 s (measured before the vector Riemann solver, which it did not have).
+  **As first measured, at matched error the two engines cost the same on this study** (cell 0.0078 / 0.0411 in 24.7 s against patch 0.0074 / 0.0387 in 24.4 s); the cell engine is cheaper only at the lower accuracies (0.0106 / 0.054 in
   10.7 s; the patch engine with 8x8 patches, 0.0085 / 0.0457 in 20.3 s, lies between the cell engine's 16.4 s and 24.7 s points). Settings that do not move the error: the body margin (2, 6, 12 cells: identical to 3 digits), the remesh interval (every 2), the thresholds.
   75 % of the velocity error energy of the default run sits in the finest-level region (2 % of the area): the error is made where the resolution is the same as the reference's, so it is not a matter of covering
   more area with the finest level at fixed cost. Cost scales with sum n_l 2^l (50 k leaves with 29 k at level 2 cost 3.7x the default's 38.5 k updates, 2.4x its time). The acceptance rule "wall time per accuracy
