@@ -2,6 +2,7 @@
 // Self-contained harness: run `fenice_tests` (exit code = number of failed checks).
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
