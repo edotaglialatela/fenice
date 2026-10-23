@@ -17,6 +17,7 @@ add_library(fenice_core STATIC
   src/Geometry.cpp
   src/Boundaries.cpp
   src/Schemes.cpp
+  src/SchemesAvx2.cpp
   src/Physics.cpp
   src/TimeScheme.cpp
   src/SolutionMapping.cpp
@@ -32,6 +33,12 @@ add_library(fenice_core STATIC
   src/Simulation.cpp
 )
 target_include_directories(fenice_core PUBLIC include)
+target_include_directories(fenice_core PRIVATE src)
+# AVX2 batch of the Riemann solvers (x86-64 only; the file is empty elsewhere). On GCC / Clang the intrinsics need -mavx2; FMA is not
+# enabled, so no multiply-add can be fused and the results stay bit-identical to the scalar code. MSVC needs no flag.
+if(NOT MSVC AND CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
+  set_source_files_properties(src/SchemesAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
+endif()
 target_include_directories(fenice_core PRIVATE third_party/tomlplusplus)
 
 # TinyExpr (case-file expressions): C, built with the same strict floating point as the solver

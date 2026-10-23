@@ -1,5 +1,7 @@
 #include "fv/Schemes.hpp"
 
+#include "SchemesSimd.hpp"
+
 #include <cctype>
 #include <stdexcept>
 
@@ -154,19 +156,36 @@ State RiemannSolver::face_flux(const State& UL, const State& UR, int axis, doubl
     return hllc(eos_.prim_to_cons(WL), eos_.prim_to_cons(WR), axis, smax);
 }
 
+void RiemannSolver::face_flux_batch(const State* UL, const State* UR, const int* axis, int n, State* F, double* smax) const {
+    int done = 0;
+#ifdef FV_SIMD_AVX2
+    if (detail::avx2_available()) {
+        done = n & ~3;
+        if (done > 0) detail::riemann_batch_avx2(eos_, type_, ma_cut_, UL, UR, axis, done, F, smax);
+    }
+#endif
+    for (int k = done; k < n; ++k) F[k] = face_flux(UL[k], UR[k], axis[k], smax[k]);
+}
+
 double RiemannSolver::compute_flux(const Field& UL, const Field& UR, const Mesh& mesh, Field& F) const {
     const int nf = mesh.num_faces();
     const int nxf = mesh.num_xfaces(), nxyf = nxf + mesh.num_yfaces();
     F.resize(nf);
     double smax_all = 0.0;
+    constexpr int kChunk = 512;
+    const int nchunk = (nf + kChunk - 1) / kChunk;
 #pragma omp parallel if (nf >= kOmpMinWork)
     {
         double local = 0.0;
+        int ax[kChunk];
+        double sm[kChunk];
 #pragma omp for schedule(static) nowait
-        for (int f = 0; f < nf; ++f) {
-            double s;
-            F[f] = face_flux(UL[f], UR[f], f < nxf ? 0 : (f < nxyf ? 1 : 2), s);
-            if (s > local) local = s;
+        for (int c = 0; c < nchunk; ++c) {
+            const int f0 = c * kChunk, n = std::min(kChunk, nf - f0);
+            for (int k = 0; k < n; ++k) ax[k] = f0 + k < nxf ? 0 : (f0 + k < nxyf ? 1 : 2);
+            face_flux_batch(&UL[f0], &UR[f0], ax, n, &F[f0], sm);
+            for (int k = 0; k < n; ++k)
+                if (sm[k] > local) local = sm[k];
         }
 #pragma omp critical(fv_riemann_max)
         if (local > smax_all) smax_all = local;

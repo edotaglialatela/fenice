@@ -528,6 +528,21 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
 #pragma omp parallel if (nlist >= kOmpMinWork)
     {
         double local = 0.0;
+        // The Riemann problems of the faces go to the solver in chunks (four at a time with AVX2); the results are the same as
+        // one call per face.
+        constexpr int kChunk = 256;
+        State bUL[kChunk], bUR[kChunk], bF[kChunk];
+        int bax[kChunk], bface[kChunk];
+        double bsm[kChunk];
+        int nb = 0;
+        const auto flush = [&]() {
+            riemann_.face_flux_batch(bUL, bUR, bax, nb, bF, bsm);
+            for (int k = 0; k < nb; ++k) {
+                F_[bface[k]] = bF[k];
+                if (bsm[k] > local) local = bsm[k];
+            }
+            nb = 0;
+        };
 #pragma omp for schedule(static) nowait
         for (int fi = 0; fi < nlist; ++fi) {
             const int f = faces[static_cast<size_t>(fi)];
@@ -586,10 +601,13 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                 UL = eos.prim_to_cons(wl);
                 UR = eos.prim_to_cons(wr);
             }
-            double sm;
-            F_[f] = riemann_.face_flux(UL, UR, face.axis, sm);
-            if (sm > local) local = sm;
+            bUL[nb] = UL;
+            bUR[nb] = UR;
+            bax[nb] = face.axis;
+            bface[nb] = f;
+            if (++nb == kChunk) flush();
         }
+        flush();
 #pragma omp critical(fv_cellflux_max)
         if (local > smax_all) smax_all = local;
     }

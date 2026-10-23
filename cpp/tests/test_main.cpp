@@ -3081,6 +3081,94 @@ TEST(cellindicator_diffusion_rule_at_level_jumps) {
     CHECK(xi == std::vector<double>({0.0, 0.0, 0.0, 0.0}));
 }
 
+TEST(riemann_batch_equals_scalar_bit_for_bit) {
+    // face_flux_batch (AVX2 where the CPU has it) must give the bits of face_flux for every solver, both equations of state,
+    // every axis, a batch length that is not a multiple of four, and the awkward states: densities and pressures under the
+    // floor, negative internal energy, identical and mirrored states, speeds equal to zero to the last bits, signed zeros, NaN
+    // (all region tests false: zero flux, a NaN wave speed). Two NaN count as equal.
+    unsigned long long seed = 0x9E3779B97F4A7C15ull;
+    const auto rnd = [&]() {
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        return static_cast<double>(seed >> 11) * (1.0 / 9007199254740992.0);
+    };
+    const auto same = [](double a, double b) {
+        unsigned long long x, y;
+        std::memcpy(&x, &a, 8);
+        std::memcpy(&y, &b, 8);
+        return x == y || (std::isnan(a) && std::isnan(b));
+    };
+    for (int kind = 0; kind < 2; ++kind) {
+        const EOS eos = kind == 0 ? EOS::ideal(1.4) : EOS::stiffened(4.4, 6.0e8);
+        const double p0 = kind == 0 ? 1.0 : 1.0e8;
+        const int n = 4099;   // not a multiple of four: the tail runs the scalar code
+        std::vector<State> UL(n), UR(n);
+        std::vector<int> axis(n);
+        for (int k = 0; k < n; ++k) {
+            const bool strong = rnd() < 0.15;
+            const double jump = strong ? 4.0 : 0.02;
+            State a = {0.5 + rnd(), 2.0 * rnd() - 1.0, 2.0 * rnd() - 1.0, p0 * (0.5 + rnd()), 2.0 * rnd() - 1.0};
+            State b = a;
+            b[0] *= 1.0 + jump * rnd();
+            b[1] += jump * (rnd() - 0.5);
+            b[2] += jump * (rnd() - 0.5);
+            b[3] *= 1.0 + jump * rnd();
+            b[4] += 0.1 * jump * (rnd() - 0.5);
+            UL[k] = eos.prim_to_cons(a);
+            UR[k] = eos.prim_to_cons(b);
+            axis[k] = static_cast<int>(rnd() * 3.0) % 3;
+        }
+        // awkward states in the first entries
+        int k = 0;
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const auto put = [&](State l, State r, int ax) {
+            UL[k] = l;
+            UR[k] = r;
+            axis[k] = ax;
+            ++k;
+        };
+        for (int ax = 0; ax < 3; ++ax) {
+            const State a = eos.prim_to_cons({1.0, 0.3, -0.2, p0, 0.1});
+            put(a, a, ax);
+            put(a, eos.prim_to_cons({1.0, -0.3, -0.2, p0, 0.1}), ax);
+            put(eos.prim_to_cons({1.0, 0.0, 0.0, p0, 0.0}), eos.prim_to_cons({0.125, -0.0, 0.0, 0.1 * p0, -0.0}), ax);
+            put({1e-20, 0.0, 0.0, 1e-20, 0.0}, {1.0, 0.0, 0.0, p0, 0.0}, ax);
+            put({1.0, 5.0, 0.0, 0.1, 0.0}, {1.0, 5.0, 0.0, 0.1, 0.0}, ax);
+            put({-1.0, 1.0, 0.0, 1.0, 0.0}, {1.0, 0.0, 0.0, p0, 0.0}, ax);
+            put({0.0, 0.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0, 0.0}, ax);
+            put({nan, 0.0, 0.0, p0, 0.0}, {1.0, 0.0, 0.0, p0, 0.0}, ax);
+            put(a, {1.0, nan, 0.0, p0, 0.0}, ax);
+            put(a, {1.0, 0.0, 0.0, nan, 0.0}, ax);
+            for (int ulp = -3; ulp <= 3; ++ulp) {   // normal velocity equal to the sound speed to the ulp
+                const double c = std::sqrt(eos.gamma * (p0 + (kind == 0 ? 0.0 : eos.p_inf)) / 1.0);
+                double u = c;
+                for (int q = 0; q < std::abs(ulp); ++q) u = std::nextafter(u, ulp < 0 ? 0.0 : 1e300);
+                State W = {1.0, 0.0, 0.0, p0, 0.0};
+                W[ax == 0 ? 1 : (ax == 1 ? 2 : 4)] = u;
+                State Wr = W;
+                Wr[3] *= 1.0 + 1e-3;
+                put(eos.prim_to_cons(W), eos.prim_to_cons(Wr), ax);
+                put(eos.prim_to_cons(Wr), eos.prim_to_cons(W), ax);
+            }
+        }
+        for (const RiemannType type : {RiemannType::HLLC, RiemannType::LowMachHLLC, RiemannType::PreconditionedHLLC}) {
+            const RiemannSolver rs(eos, type, 0.1);
+            std::vector<State> Fb(n);
+            std::vector<double> sb(n);
+            rs.face_flux_batch(UL.data(), UR.data(), axis.data(), n, Fb.data(), sb.data());
+            int bad = 0;
+            for (int q = 0; q < n; ++q) {
+                double ss;
+                const State Fs = rs.face_flux(UL[q], UR[q], axis[q], ss);
+                bool ok = same(ss, sb[q]);
+                for (int c = 0; c < kNVar; ++c) ok = ok && same(Fs[c], Fb[q][c]);
+                bad += ok ? 0 : 1;
+            }
+            CHECK(bad == 0);
+            if (bad) std::printf("    eos %d solver %d: %d of %d faces differ\n", kind, static_cast<int>(type), bad, n);
+        }
+    }
+}
+
 TEST(cellindicator_cell_gather_diffusion_equals_the_interface_rule_bit_for_bit) {
     // diffuse_cells (gather per cell, parallel) must give the bits of diffuse (scatter over the interface list) on any table:
     // random same-level neighbours (also a cell twice, as on a 1-cell periodic axis, and itself), coarser sides and edges.

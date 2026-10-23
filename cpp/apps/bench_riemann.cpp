@@ -95,14 +95,21 @@ int main(int argc, char** argv) {
             const RiemannSolver rs(eos, type);
             uint64_t h = 1469598103934665603ull;
             double sink = 0.0;
+            const bool batch = std::getenv("BENCH_BATCH") != nullptr;
+            std::vector<State> F(pool);
+            std::vector<double> SM(pool);
             const auto t0 = Clock::now();
-            for (int n = 0; n < calls; ++n) {
-                const int k = n & (pool - 1);
-                double sm;
-                const State F = rs.face_flux(UL[k], UR[k], axis[k], sm);
-                for (int q = 0; q < kNVar; ++q) h = (h ^ bits(F[q])) * 1099511628211ull;
-                h = (h ^ bits(sm)) * 1099511628211ull;
-                sink += sm;
+            for (int n = 0; n < calls; n += pool) {
+                if (batch) {
+                    rs.face_flux_batch(UL.data(), UR.data(), axis.data(), pool, F.data(), SM.data());
+                } else {
+                    for (int k = 0; k < pool; ++k) F[k] = rs.face_flux(UL[k], UR[k], axis[k], SM[k]);
+                }
+                for (int k = 0; k < pool; ++k) {
+                    for (int q = 0; q < kNVar; ++q) h = (h ^ bits(F[k][q])) * 1099511628211ull;
+                    h = (h ^ bits(SM[k])) * 1099511628211ull;
+                    sink += SM[k];
+                }
             }
             const double s = std::chrono::duration<double>(Clock::now() - t0).count();
             std::printf("%s %-22s %7.1f ns/call  hash %016llx  (%g)\n", eos_kind == 0 ? "ideal    " : "stiffened",

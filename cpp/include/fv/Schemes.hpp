@@ -28,6 +28,10 @@ public:
     // Flux through one face normal to xis (0 = x, 1 = y, 2 = z); smax receives max(|S_L|, |S_R|).
     State face_flux(const State& UL, const State& UR, int axis, double& smax) const;
 
+    // Fluxes of n faces: face k lies between UL[k] and UR[k] and is normal to axis[k] (0, 1, 2); F[k] and smax[k] get
+    // what face_flux gives, bit for bit (four faces at a time with AVX2 where the CPU has it, else one by one).
+    void face_flux_batch(const State* UL, const State* UR, const int* axis, int n, State* F, double* smax) const;
+
     // Solver variant.
     RiemannType type() const { return type_; }
 
