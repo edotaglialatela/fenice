@@ -114,7 +114,7 @@ Timings: airfoil AMR 720x360, 50 steps, 10 remeshes, minimum of three runs; step
 
 | serial, time loop / remesh | before | after |
 |---|---:|---:|
-| Ryzen 7 7800X3D, MSVC | 6.01 / 1.23 s | remesh 0.93 s; time loop to be re-measured with the final code |
+| Ryzen 7 7800X3D, MSVC | 6.01 / 1.23 s | 5.87 / 0.98 s (one run) |
 | Ryzen 7 7800X3D, gcc | 5.95 / 1.22 s | 4.88 / 0.69 s |
 | Threadripper PRO 5965WX, gcc | 6.01 / 1.24 s | 5.03 / 0.74 s |
 
@@ -123,3 +123,9 @@ Threadripper (gcc, kernels off): OpenMP 1 / 2 / 4 / 8 / 12 / 16 / 24 / 32 / 48 t
 4.60 / 5.91 / 8.86 s, the replicated remesh 0.98 / 1.18 / 1.56 / 1.79 / 1.99 / 3.14 / 4.15 / 6.14 s. Left in the serial remesh (gcc,
 7800X3D, s of 0.69): wave-speed bound 0.28, indicator 0.20, adaptation 0.19, engine build 0.18. Beyond a few ranks the replicated
 remesh dominates: that is option 2.
+
+Final code on the 7800X3D with MSVC (`amr_mpi.py`, one run): serial 5.87 s (remesh 0.98), OpenMP 2 / 4 / 8 / 16 threads 3.54 / 2.29 /
+2.08 / 2.02 s, MPI 2 / 4 / 8 / 16 ranks 3.87 / 3.05 / 3.77 / 7.46 s (remesh 1.12 / 1.26 / 2.04 / 4.40); `amr_mpi.py --check` bitwise
+on 1-7 ranks, 94 unit tests. Under MPI each level is partitioned on its own, so the fine levels (866 and 9 080 leaves here) give a
+rank a few hundred leaves and their exchanges are latency-bound; on this mesh the replicated remesh still costs more (4.4 of 7.5 s on
+16 ranks).

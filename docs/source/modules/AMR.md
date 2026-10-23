@@ -154,23 +154,24 @@ OpenMP is the better choice; MPI gives the same result for any rank count and a 
 
 | run (720×360, 2 levels, 50 steps, 268 362 leaves) | wall time | of which remesh |
 |---|---:|---:|
-| serial, 1 thread | 6.1 s | 1.3 s |
-| OpenMP, 2 / 4 / 8 / 16 threads | 3.6 / 2.5 / 2.4 / 2.3 s | 0.9 / 0.7 / 0.8 / 0.8 s |
-| MPI, 2 / 4 / 8 / 16 ranks | 4.3 / 3.5 / 4.5 / 7.7 s | 1.4 / 1.6 / 2.6 / 5.0 s |
+| serial, 1 thread | 5.9 s | 1.0 s |
+| OpenMP, 2 / 4 / 8 / 16 threads | 3.5 / 2.3 / 2.1 / 2.0 s | 0.75 / 0.65 / 0.65 / 0.74 s |
+| MPI, 2 / 4 / 8 / 16 ranks | 3.9 / 3.1 / 3.8 / 7.5 s | 1.1 / 1.3 / 2.0 / 4.4 s |
 
-The machine has 8 cores (16 logical processors); the times vary by tens of percent from run to run, and the 16-rank row is oversubscribed.
-This table predates the incremental remesh update and the viscous vector kernels and is to be re-measured. Measured since,
-serial (minimum of three runs, time loop / remesh):
+Ryzen 7 7800X3D (8 cores, 16 logical processors), MSVC build, one run after the incremental remesh update; the 16-rank row is
+oversubscribed. Before it: serial 6.1 s (remesh 1.3 s), OpenMP 3.6 / 2.5 / 2.4 / 2.3 s, MPI 4.3 / 3.5 / 4.5 / 7.7 s. The MSVC build
+keeps the scalar viscous loops; with gcc (WSL) on the same machine the serial run takes 4.9 s (remesh 0.7 s), minimum of three:
 
-| machine, compiler | before | after |
+| machine, compiler, serial | time loop / remesh before | after |
 |---|---:|---:|
-| Ryzen 7 7800X3D, MSVC (Windows) | 6.01 / 1.23 s | remesh 0.93 s (time loop to be re-measured) |
+| Ryzen 7 7800X3D, MSVC (Windows) | 6.01 / 1.23 s | 5.87 / 0.98 s |
 | Ryzen 7 7800X3D, gcc (WSL) | 5.95 / 1.22 s | 4.88 / 0.69 s |
 | Threadripper PRO 5965WX (24 cores), gcc (WSL) | 6.01 / 1.24 s | 5.03 / 0.74 s |
 
 On the Threadripper (gcc, without the viscous vector kernels, which save another ~0.5 s on one thread) OpenMP is fastest at
-16 threads (5.50 -> 1.45 s, 3.8×; 1.63 / 1.74 / 1.80 s on 24 / 32 / 48 threads) and MPI at 8 to 16 ranks (2.96 to 3.08 s), where the
-replicated remesh grows from 0.98 s on 2 ranks to 1.99 s on 16 and 6.1 s on 48. Every run gave the serial state bit for bit.
+16 threads (5.50 -> 1.45 s, 3.8×; 1.63 / 1.74 / 1.80 s on 24 / 32 / 48 threads) and MPI at 8 to 16 ranks (2.96 to 3.08 s). There the
+stepping alone keeps scaling up to 16 ranks (2.68 s on 2, 1.09 s on 16) while the replicated remesh grows from 0.98 s on 2 ranks to
+1.99 s on 16 and 6.1 s on 48. Every run gave the serial state bit for bit.
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/amr_mpi.png" style="width:100%">
