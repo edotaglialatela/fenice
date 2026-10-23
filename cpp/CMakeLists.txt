@@ -107,6 +107,10 @@ target_link_libraries(fenice PRIVATE fenice_core)
 add_executable(bench_cellflux apps/bench_cellflux.cpp)
 target_link_libraries(bench_cellflux PRIVATE fenice_core)
 
+# Cost and bit fingerprint of the Riemann solvers
+add_executable(bench_riemann apps/bench_riemann.cpp)
+target_link_libraries(bench_riemann PRIVATE fenice_core)
+
 if(FV_BUILD_TESTS)
   enable_testing()
   add_executable(fenice_tests tests/test_main.cpp)
