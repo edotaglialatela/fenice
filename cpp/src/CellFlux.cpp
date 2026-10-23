@@ -11,64 +11,16 @@ namespace fv {
 
 namespace {
 
-struct Builder {
-    const CellMesh& m;
-    std::vector<int>& vroot;
-    std::vector<std::array<int, 4>>& vnode;
-    std::map<std::array<int, 3>, int> vmap;   // block (level, i, j) -> virtual cell
-    // interpolated virtual cells (created once all the mean-type ones exist: nmean is their number)
-    std::vector<CellFluxEngine::InterpVirtual>* interp = nullptr;
-    std::map<std::pair<int, int>, int> imap;   // (fine leaf, side) -> interpolated virtual cell
-    int nmean = 0;
-
-    // Code of the block (l, i, j): a leaf, or a node whose children are the four sub-blocks
-    int block_code(int l, int i, int j) {
-        const int leaf = m.find(l, i, j);
-        if (leaf >= 0) return leaf;
-        std::array<int, 4> ch{};
-        for (int oj = 0; oj < 2; ++oj)
-            for (int oi = 0; oi < 2; ++oi) ch[2 * oj + oi] = block_code(l + 1, 2 * i + oi, 2 * j + oj);
-        vnode.push_back(ch);
-        return -static_cast<int>(vnode.size());   // node k <-> code -1 - k
-    }
-
-    // Index into W for the cell across `side` of leaf c (the leaf itself at a physical edge: replication); a coarser
-    // neighbour is injected, or with `interpolate` replaced by the interpolated virtual cell
-    int beyond(int c, Face side, bool interpolate = false) {
-        const CellNeighbour nb = m.neighbour(c, side);
-        switch (nb.kind) {
-        case CellNeighbour::Kind::Boundary: return c;   // edge replication
-        case CellNeighbour::Kind::Same: return nb.a;
-        case CellNeighbour::Kind::Coarser: {
-            if (!interpolate) return nb.a;   // injection of the coarse value
-            const std::pair<int, int> key = {c, static_cast<int>(side)};
-            const auto it = imap.find(key);
-            if (it != imap.end()) return m.num_leaves() + nmean + it->second;
-            CellFluxEngine::InterpVirtual iv;
-            iv.fine = c;
-            iv.coarse = nb.a;
-            iv.side = side;
-            iv.axis = face_axis(side);
-            iv.dn = (static_cast<int>(side) & 1) ? -0.25 : 0.25;   // the virtual centre lies nearer to the fine leaf
-            const int idx_t = iv.axis == 0 ? m.cj[c] : m.ci[c];   // transverse half of the coarse leaf the fine leaf is in
-            iv.dt = (idx_t & 1) ? 0.25 : -0.25;
-            const int id = static_cast<int>(interp->size());
-            interp->push_back(iv);
-            imap[key] = id;
-            return m.num_leaves() + nmean + id;
-        }
-        default: {
-            const std::array<int, 3> key = {m.level[nb.a] - 1, m.ci[nb.a] >> 1, m.cj[nb.a] >> 1};
-            const auto it = vmap.find(key);
-            if (it != vmap.end()) return m.num_leaves() + it->second;
-            const int id = static_cast<int>(vroot.size());
-            vroot.push_back(block_code(key[0], key[1], key[2]));
-            vmap[key] = id;
-            return m.num_leaves() + id;
-        }
-        }
-    }
-};
+// Code of the block (l, i, j): a leaf, or a node whose children are the four sub-blocks (appended to vnode)
+int block_code(const CellMesh& m, std::vector<std::array<int, 4>>& vnode, int l, int i, int j) {
+    const int leaf = m.find(l, i, j);
+    if (leaf >= 0) return leaf;
+    std::array<int, 4> ch{};
+    for (int oj = 0; oj < 2; ++oj)
+        for (int oi = 0; oi < 2; ++oi) ch[2 * oj + oi] = block_code(m, vnode, l + 1, 2 * i + oi, 2 * j + oj);
+    vnode.push_back(ch);
+    return -static_cast<int>(vnode.size());   // node k <-> code -1 - k
+}
 
 constexpr double kMuDiag = 4.0 / 3.0;
 constexpr double kMuOff = 2.0 / 3.0;
@@ -96,14 +48,10 @@ void CellFluxEngine::build(const CellMesh& m) {
         throw std::invalid_argument("CellFluxEngine: the periodic axes of the mesh and the boundary types differ");
 
     nleaf_ = m.num_leaves();
-    vroot_.clear();
-    vnode_.clear();
-    interp_.clear();
-    Builder b{m, vroot_, vnode_, {}};
-    b.interp = &interp_;
-    // The virtual cells are numbered in the order the loops below create them. Only a leaf with a side that is not a
-    // same-level neighbour (or an edge) creates any, so those leaves (and the faces touching them) are visited first, in
-    // the original order, by one thread; everything else only reads the finished tables and runs in parallel.
+    const bool ip = muscl_ && interpolate_jumps;
+    // 1) Virtual cells. Only a leaf with a finer side (the mean of the block across it) or, with interpolated jumps, a coarser
+    // side (the interpolated cell next to it) needs one; they are numbered by key (block, resp. fine leaf and side), so the
+    // numbering depends on the mesh only, and every table below is filled in parallel by lookups.
     std::vector<char> special(static_cast<size_t>(nleaf_), 0);
 #pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
     for (int c = 0; c < nleaf_; ++c)
@@ -111,72 +59,31 @@ void CellFluxEngine::build(const CellMesh& m) {
             const CellNeighbour::Kind k = m.neighbour(c, static_cast<Face>(s)).kind;
             if (k == CellNeighbour::Kind::Finer || k == CellNeighbour::Kind::Coarser) special[c] = 1;
         }
-    std::vector<int> special_leaves, special_faces;
-    for (int c = 0; c < nleaf_; ++c)
-        if (special[c]) special_leaves.push_back(c);
-    std::vector<char> face_special(m.faces.size(), 0);
-    for (size_t f = 0; f < m.faces.size(); ++f) {
-        const CellFace& face = m.faces[f];
-        if (face.kind == CellFaceKind::Boundary) continue;
-        if (special[face.left] || special[face.right]) {
-            face_special[f] = 1;
-            special_faces.push_back(static_cast<int>(f));
+    vkey_.clear();
+    ikey_.clear();
+    for (int c = 0; c < nleaf_; ++c) {
+        if (!special[c]) continue;
+        for (int s = 0; s < 4; ++s) {
+            const CellNeighbour nb = m.neighbour(c, static_cast<Face>(s));
+            if (nb.kind == CellNeighbour::Kind::Finer)
+                vkey_.push_back({m.level[nb.a] - 1, m.ci[nb.a] >> 1, m.cj[nb.a] >> 1});
+            else if (nb.kind == CellNeighbour::Kind::Coarser && ip)
+                ikey_.push_back({m.level[c], m.ci[c], m.cj[c], s});
         }
     }
-    // 1) injecting neighbour codes of every leaf (slopes of the coarse leaves); creates every mean-type virtual cell
+    std::sort(vkey_.begin(), vkey_.end());
+    vkey_.erase(std::unique(vkey_.begin(), vkey_.end()), vkey_.end());
+    std::sort(ikey_.begin(), ikey_.end());
+    make_virtual_cells(m);
+    // 2) injecting neighbour codes of every leaf (slopes of the coarse leaves), stencils, neighbour codes with the interpolated
+    // virtual cells where enabled (gradients, non-reflecting tangential differences)
     nbr_raw_.assign(static_cast<size_t>(4) * nleaf_, -1);
-    const auto raw_of = [&](int c) {
-        for (int s = 0; s < 4; ++s)
-            if (m.neighbour(c, static_cast<Face>(s)).kind != CellNeighbour::Kind::Boundary)
-                nbr_raw_[static_cast<size_t>(4) * c + s] = b.beyond(c, static_cast<Face>(s));
-    };
-    for (const int c : special_leaves) raw_of(c);
-#pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
-    for (int c = 0; c < nleaf_; ++c)
-        if (!special[c]) raw_of(c);
-    b.nmean = static_cast<int>(vroot_.size());
-    // 2) stencils and gradient neighbours, with the interpolated virtual cells where enabled
-    const bool ip = muscl_ && interpolate_jumps;
-    stencil_.assign(m.faces.size(), {-1, -1, -1, -1});
-    const auto stencil_of = [&](size_t f) {
-        const CellFace& face = m.faces[f];
-        if (face.kind == CellFaceKind::Boundary) return;
-        const Face back = face.axis == 0 ? Face::Left : Face::Bottom, fwd = face.axis == 0 ? Face::Right : Face::Top;
-        const int l = face.left, r = face.right;
-        std::array<int, 4>& s = stencil_[f];
-        const int ll = m.level[l], lr = m.level[r];
-        if (ll > lr) {   // fine leaf on the left: reconstructed against the virtual cell, the coarse state (s[3]) is not
-            s[0] = b.beyond(l, back, ip);
-            s[1] = l;
-            s[2] = b.beyond(l, fwd, ip);
-            s[3] = r;
-        } else if (lr > ll) {
-            s[0] = l;
-            s[1] = b.beyond(r, back, ip);
-            s[2] = r;
-            s[3] = b.beyond(r, fwd, ip);
-        } else {
-            s[0] = b.beyond(l, back, ip);
-            s[1] = l;
-            s[2] = r;
-            s[3] = b.beyond(r, fwd, ip);
-        }
-    };
-    for (const int f : special_faces) stencil_of(static_cast<size_t>(f));
-#pragma omp parallel for schedule(static) if (m.faces.size() >= static_cast<size_t>(kOmpMinWork))
-    for (int f = 0; f < static_cast<int>(m.faces.size()); ++f)
-        if (!face_special[f]) stencil_of(static_cast<size_t>(f));
-    // neighbour codes of every leaf (gradients, non-reflecting tangential differences)
     nbr_.assign(static_cast<size_t>(4) * nleaf_, -1);
-    const auto nbr_of = [&](int c) {
-        for (int s = 0; s < 4; ++s)
-            if (m.neighbour(c, static_cast<Face>(s)).kind != CellNeighbour::Kind::Boundary)
-                nbr_[static_cast<size_t>(4) * c + s] = b.beyond(c, static_cast<Face>(s), ip);
-    };
-    for (const int c : special_leaves) nbr_of(c);
 #pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
-    for (int c = 0; c < nleaf_; ++c)
-        if (!special[c]) nbr_of(c);
+    for (int c = 0; c < nleaf_; ++c) leaf_codes(m, c);
+    stencil_.assign(m.faces.size(), {-1, -1, -1, -1});
+#pragma omp parallel for schedule(static) if (m.faces.size() >= static_cast<size_t>(kOmpMinWork))
+    for (int f = 0; f < static_cast<int>(m.faces.size()); ++f) face_stencil(m, f);
 
     reg_.assign(m.faces.size(), State{});
     regv_.assign(m.faces.size(), State{});
@@ -229,6 +136,80 @@ void CellFluxEngine::build(const CellMesh& m) {
             mf_face_[s].push_back(o.second);
             mf_weight_[s].push_back(static_cast<double>(1 << (fine - m.faces[o.second].level)));
         }
+    }
+}
+
+void CellFluxEngine::make_virtual_cells(const CellMesh& m) {
+    vroot_.clear();
+    vnode_.clear();
+    for (const std::array<int, 3>& k : vkey_) vroot_.push_back(block_code(m, vnode_, k[0], k[1], k[2]));
+    interp_.clear();
+    for (const std::array<int, 4>& k : ikey_) {
+        InterpVirtual iv;
+        iv.fine = m.find(k[0], k[1], k[2]);
+        iv.side = static_cast<Face>(k[3]);
+        iv.coarse = m.neighbour(iv.fine, iv.side).a;
+        iv.axis = face_axis(iv.side);
+        iv.dn = (k[3] & 1) ? -0.25 : 0.25;   // the virtual centre lies nearer to the fine leaf
+        const int idx_t = iv.axis == 0 ? k[2] : k[1];   // transverse half of the coarse leaf the fine leaf is in
+        iv.dt = (idx_t & 1) ? 0.25 : -0.25;
+        interp_.push_back(iv);
+    }
+}
+
+int CellFluxEngine::beyond(const CellMesh& m, int c, Face side, bool interpolate) const {
+    const CellNeighbour nb = m.neighbour(c, side);
+    switch (nb.kind) {
+    case CellNeighbour::Kind::Boundary: return c;   // edge replication
+    case CellNeighbour::Kind::Same: return nb.a;
+    case CellNeighbour::Kind::Coarser: {
+        if (!interpolate) return nb.a;   // injection of the coarse value
+        const std::array<int, 4> key = {m.level[c], m.ci[c], m.cj[c], static_cast<int>(side)};
+        const auto it = std::lower_bound(ikey_.begin(), ikey_.end(), key);
+        if (it == ikey_.end() || *it != key) throw std::logic_error("CellFluxEngine: missing interpolated virtual cell");
+        return nleaf_ + static_cast<int>(vkey_.size()) + static_cast<int>(it - ikey_.begin());
+    }
+    default: {
+        const std::array<int, 3> key = {m.level[nb.a] - 1, m.ci[nb.a] >> 1, m.cj[nb.a] >> 1};
+        const auto it = std::lower_bound(vkey_.begin(), vkey_.end(), key);
+        if (it == vkey_.end() || *it != key) throw std::logic_error("CellFluxEngine: missing virtual cell");
+        return nleaf_ + static_cast<int>(it - vkey_.begin());
+    }
+    }
+}
+
+void CellFluxEngine::leaf_codes(const CellMesh& m, int c) {
+    const bool ip = muscl_ && interpolate_jumps;
+    for (int s = 0; s < 4; ++s) {
+        if (m.neighbour(c, static_cast<Face>(s)).kind == CellNeighbour::Kind::Boundary) continue;
+        nbr_raw_[static_cast<size_t>(4) * c + s] = beyond(m, c, static_cast<Face>(s), false);
+        nbr_[static_cast<size_t>(4) * c + s] = beyond(m, c, static_cast<Face>(s), ip);
+    }
+}
+
+void CellFluxEngine::face_stencil(const CellMesh& m, int f) {
+    const CellFace& face = m.faces[static_cast<size_t>(f)];
+    if (face.kind == CellFaceKind::Boundary) return;
+    const bool ip = muscl_ && interpolate_jumps;
+    const Face back = face.axis == 0 ? Face::Left : Face::Bottom, fwd = face.axis == 0 ? Face::Right : Face::Top;
+    const int l = face.left, r = face.right;
+    std::array<int, 4>& s = stencil_[static_cast<size_t>(f)];
+    const int ll = m.level[l], lr = m.level[r];
+    if (ll > lr) {   // fine leaf on the left: reconstructed against the virtual cell, the coarse state (s[3]) is not
+        s[0] = beyond(m, l, back, ip);
+        s[1] = l;
+        s[2] = beyond(m, l, fwd, ip);
+        s[3] = r;
+    } else if (lr > ll) {
+        s[0] = l;
+        s[1] = beyond(m, r, back, ip);
+        s[2] = r;
+        s[3] = beyond(m, r, fwd, ip);
+    } else {
+        s[0] = beyond(m, l, back, ip);
+        s[1] = l;
+        s[2] = r;
+        s[3] = beyond(m, r, fwd, ip);
     }
 }
 

@@ -192,6 +192,16 @@ private:
     std::vector<InterpVirtual> interp_;   // interpolated virtual cells, numbered after the mean-type ones
     Field Wint_;                          // their primitive state
     std::vector<int> nbr_raw_;            // like nbr_ but injecting coarser neighbours (the slopes of the coarse leaves)
+    // Keys of the virtual cells in their order: the block (level, i, j) of a mean-type one, the fine leaf (level, i, j) and its
+    // side of an interpolated one (numbered after the mean-type ones)
+    std::vector<std::array<int, 3>> vkey_;
+    std::vector<std::array<int, 4>> ikey_;
+    void make_virtual_cells(const CellMesh& m);   // vroot_, vnode_, interp_ from the keys
+    // Code of the cell across `side` of leaf c (the leaf itself at a physical edge: replication); a coarser neighbour is
+    // injected, or with `interpolate` replaced by the interpolated virtual cell; a finer one is the mean-type virtual cell
+    int beyond(const CellMesh& m, int c, Face side, bool interpolate) const;
+    void leaf_codes(const CellMesh& m, int c);   // nbr_raw_ and nbr_ of leaf c
+    void face_stencil(const CellMesh& m, int f);   // stencil_ of face f
     void eval_interp();
     void force_all(const CellMesh& m, const Field& U);   // every leaf (the full residual, whatever the partition)
     void rebuild_lists(const CellMesh& m, const Partition* part);
