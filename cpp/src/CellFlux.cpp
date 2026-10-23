@@ -543,6 +543,19 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
             }
             nb = 0;
         };
+        // faces with an ordinary four-point MUSCL stencil: reconstruction and Riemann solver together
+        int mst[4 * kChunk], max_[kChunk], mface[kChunk];
+        State mF[kChunk];
+        double msm[kChunk];
+        int nm = 0;
+        const auto flush_muscl = [&]() {
+            riemann_.muscl_face_flux_batch(lim, W_.data(), mst, max_, nm, mF, msm);
+            for (int k = 0; k < nm; ++k) {
+                F_[mface[k]] = mF[k];
+                if (msm[k] > local) local = msm[k];
+            }
+            nm = 0;
+        };
 #pragma omp for schedule(static) nowait
         for (int fi = 0; fi < nlist; ++fi) {
             const int f = faces[static_cast<size_t>(fi)];
@@ -591,12 +604,11 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                         }
                     }
                 } else {
-                    for (int q = 0; q < kNVar; ++q) {
-                        const double c0 = w0[q], c1 = w1[q], c2 = w2[q], c3 = w3[q];
-                        const double bq = c2 - c1;
-                        wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, bq);
-                        wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, bq);
-                    }
+                    for (int k = 0; k < 4; ++k) mst[4 * nm + k] = s[k];
+                    max_[nm] = face.axis;
+                    mface[nm] = f;
+                    if (++nm == kChunk) flush_muscl();
+                    continue;
                 }
                 UL = eos.prim_to_cons(wl);
                 UR = eos.prim_to_cons(wr);
@@ -608,6 +620,7 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
             if (++nb == kChunk) flush();
         }
         flush();
+        flush_muscl();
 #pragma omp critical(fv_cellflux_max)
         if (local > smax_all) smax_all = local;
     }

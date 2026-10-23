@@ -233,42 +233,114 @@ bool avx2_available() {
     return ok;
 }
 
+namespace {
+
+// Masks of the lanes whose axis is 1 and 2
+AxisMasks axis_masks(const int* axis) {
+    const __m128i a4 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(axis));
+    const __m256i a64 = _mm256_cvtepi32_epi64(a4);
+    AxisMasks ax;
+    ax.m1 = _mm256_castsi256_pd(_mm256_cmpeq_epi64(a64, _mm256_set1_epi64x(1)));
+    ax.m2 = _mm256_castsi256_pd(_mm256_cmpeq_epi64(a64, _mm256_set1_epi64x(2)));
+    return ax;
+}
+
+// RiemannSolver::face_flux for four faces given their left / right conservative states
+void flux4(const VEos& E, RiemannType type, double ma_cut, const AxisMasks& ax, Vec5 L, Vec5 R, Vec5& Fk, V& sm) {
+    if (type == RiemannType::LowMachHLLC) {
+        // Thornber low-Mach scaling of the velocity jump, then standard HLLC
+        Vec5 WL = E.cons_to_prim(L), WR = E.cons_to_prim(R);
+        const V c_L = E.sound_speed(WL.q[3], WL.q[0]), c_R = E.sound_speed(WR.q[3], WR.q[0]);
+        const V meps = set1(kMachEps);
+        const V M_L = dv(vsqrt(add(add(mul(WL.q[1], WL.q[1]), mul(WL.q[2], WL.q[2])), mul(WL.q[4], WL.q[4]))), add(c_L, meps));
+        const V M_R = dv(vsqrt(add(add(mul(WR.q[1], WR.q[1]), mul(WR.q[2], WR.q[2])), mul(WR.q[4], WR.q[4]))), add(c_R, meps));
+        const V z = vmin(vmax(vmax(M_L, M_R), set1(1e-4)), set1(1.0));
+        const V half = set1(0.5);
+        for (int m : {1, 2, 4}) {
+            const V avg = mul(half, add(WL.q[m], WR.q[m]));
+            const V hf = mul(half, sub(WL.q[m], WR.q[m]));
+            WL.q[m] = add(avg, mul(z, hf));
+            WR.q[m] = sub(avg, mul(z, hf));
+        }
+        L = E.prim_to_cons(WL);
+        R = E.prim_to_cons(WR);
+    }
+    hllc4(E, type, ma_cut, ax, L, R, Fk, sm);
+}
+
+void store_results(State* F, double* smax, int k, const Vec5& Fk, V sm) {
+    store4(F + k, Fk);
+    alignas(32) double t[4];
+    _mm256_store_pd(t, sm);
+    for (int i = 0; i < 4; ++i) smax[k + i] = t[i];
+}
+
+// sgn(x) of Schemes.hpp: 1 for x > 0, -1 for x < 0, 0 otherwise
+inline V vsgn(V x) {
+    const V zero = set1(0.0);
+    return blend(blend(zero, set1(-1.0), lt(x, zero)), set1(1.0), lt(zero, x));
+}
+
+// apply_limiter of Schemes.hpp
+inline V vlimiter(Limiter l, V a, V b) {
+    const V zero = set1(0.0), two = set1(2.0), half = set1(0.5);
+    switch (l) {
+    case Limiter::Minmod: return mul(mul(half, add(vsgn(a), vsgn(b))), vmin(vabs(a), vabs(b)));
+    case Limiter::VanLeer: {
+        const V ab = mul(a, b);
+        return blend(zero, dv(mul(two, ab), add(a, b)), lt(zero, ab));
+    }
+    case Limiter::MC: {
+        const V ab = mul(a, b);
+        const V v = mul(vmin(vmin(mul(two, vabs(a)), mul(half, vabs(add(a, b)))), mul(two, vabs(b))), vsgn(a));
+        return blend(zero, v, lt(zero, ab));
+    }
+    default: {   // Koren; fmin of positive finite numbers is the smaller of the two
+        const V ab = mul(a, b);
+        const V v = mul(vmin(vmin(mul(two, vabs(a)), dv(vabs(add(mul(two, a), b)), set1(3.0))), mul(two, vabs(b))), vsgn(a));
+        return blend(zero, v, lt(zero, ab));
+    }
+    }
+}
+
+// Component q of the four stencil states of four faces: lanes = faces
+inline V gather_q(const State* W, const int* st, int k, int point, int q) {
+    return _mm256_set_pd(W[st[4 * (k + 3) + point]][q], W[st[4 * (k + 2) + point]][q], W[st[4 * (k + 1) + point]][q],
+                         W[st[4 * k + point]][q]);
+}
+
+}   // namespace
+
 void riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, const State* UL, const State* UR, const int* axis, int n,
                         State* F, double* smax) {
     const VEos E(eos);
-    const V one = set1(1.0), tiny = set1(1e-4), meps = set1(kMachEps);
     for (int k = 0; k < n; k += 4) {
-        // masks of the lanes whose axis is 1 and 2
-        const __m128i a4 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(axis + k));
-        const __m256i a64 = _mm256_cvtepi32_epi64(a4);
-        AxisMasks ax;
-        ax.m1 = _mm256_castsi256_pd(_mm256_cmpeq_epi64(a64, _mm256_set1_epi64x(1)));
-        ax.m2 = _mm256_castsi256_pd(_mm256_cmpeq_epi64(a64, _mm256_set1_epi64x(2)));
-        Vec5 L = load4(UL + k), R = load4(UR + k);
-        if (type == RiemannType::LowMachHLLC) {
-            // Thornber low-Mach scaling of the velocity jump, then standard HLLC
-            Vec5 WL = E.cons_to_prim(L), WR = E.cons_to_prim(R);
-            const V c_L = E.sound_speed(WL.q[3], WL.q[0]), c_R = E.sound_speed(WR.q[3], WR.q[0]);
-            const V M_L = dv(vsqrt(add(add(mul(WL.q[1], WL.q[1]), mul(WL.q[2], WL.q[2])), mul(WL.q[4], WL.q[4]))), add(c_L, meps));
-            const V M_R = dv(vsqrt(add(add(mul(WR.q[1], WR.q[1]), mul(WR.q[2], WR.q[2])), mul(WR.q[4], WR.q[4]))), add(c_R, meps));
-            const V z = vmin(vmax(vmax(M_L, M_R), tiny), one);
-            const V half = set1(0.5);
-            for (int m : {1, 2, 4}) {
-                const V avg = mul(half, add(WL.q[m], WR.q[m]));
-                const V hf = mul(half, sub(WL.q[m], WR.q[m]));
-                WL.q[m] = add(avg, mul(z, hf));
-                WR.q[m] = sub(avg, mul(z, hf));
-            }
-            L = E.prim_to_cons(WL);
-            R = E.prim_to_cons(WR);
+        Vec5 Fk;
+        V sm;
+        flux4(E, type, ma_cut, axis_masks(axis + k), load4(UL + k), load4(UR + k), Fk, sm);
+        store_results(F, smax, k, Fk, sm);
+    }
+    _mm256_zeroupper();
+}
+
+void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, Limiter lim, const State* W, const int* st,
+                              const int* axis, int n, State* F, double* smax) {
+    const VEos E(eos);
+    const V half = set1(0.5);
+    for (int k = 0; k < n; k += 4) {
+        // MUSCL: wl = c1 + 0.5 phi(c1 - c0, c2 - c1), wr = c2 - 0.5 phi(c3 - c2, c2 - c1) for each primitive variable
+        Vec5 wl, wr;
+        for (int q = 0; q < kNVar; ++q) {
+            const V c0 = gather_q(W, st, k, 0, q), c1 = gather_q(W, st, k, 1, q), c2 = gather_q(W, st, k, 2, q),
+                    c3 = gather_q(W, st, k, 3, q);
+            const V bq = sub(c2, c1);
+            wl.q[q] = add(c1, mul(half, vlimiter(lim, sub(c1, c0), bq)));
+            wr.q[q] = sub(c2, mul(half, vlimiter(lim, sub(c3, c2), bq)));
         }
         Vec5 Fk;
         V sm;
-        hllc4(E, type, ma_cut, ax, L, R, Fk, sm);
-        store4(F + k, Fk);
-        alignas(32) double t[4];
-        _mm256_store_pd(t, sm);
-        for (int i = 0; i < 4; ++i) smax[k + i] = t[i];
+        flux4(E, type, ma_cut, axis_masks(axis + k), E.prim_to_cons(wl), E.prim_to_cons(wr), Fk, sm);
+        store_results(F, smax, k, Fk, sm);
     }
     _mm256_zeroupper();
 }
