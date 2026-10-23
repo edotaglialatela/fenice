@@ -12,13 +12,6 @@
 
 #include <immintrin.h>
 
-#include <cstdlib>
-
-#if defined(_MSC_VER)
-#include <intrin.h>
-#else
-#include <cpuid.h>
-#endif
 
 namespace fv {
 namespace detail {
@@ -205,33 +198,6 @@ void store4(State* base, const Vec5& F) {
 }
 
 }   // namespace
-
-bool avx2_available() {
-    static const bool ok = []() {
-        if (std::getenv("FENICE_NO_SIMD")) return false;
-#if defined(_MSC_VER)
-        int r[4];
-        __cpuid(r, 0);
-        if (r[0] < 7) return false;
-        __cpuid(r, 1);
-        if (!((r[2] >> 27) & 1) || !((r[2] >> 28) & 1)) return false;   // OSXSAVE and AVX
-        if ((_xgetbv(0) & 6) != 6) return false;                         // the OS saves the XMM and YMM state
-        __cpuidex(r, 7, 0);
-        return ((r[1] >> 5) & 1) != 0;
-#else
-        unsigned a, b, c, d;
-        if (!__get_cpuid(0, &a, &b, &c, &d) || a < 7) return false;
-        __get_cpuid(1, &a, &b, &c, &d);
-        if (!((c >> 27) & 1) || !((c >> 28) & 1)) return false;
-        unsigned lo, hi;
-        __asm__ volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
-        if ((lo & 6) != 6) return false;
-        __cpuid_count(7, 0, a, b, c, d);
-        return ((b >> 5) & 1) != 0;
-#endif
-    }();
-    return ok;
-}
 
 namespace {
 
