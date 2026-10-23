@@ -3254,10 +3254,10 @@ TEST(viscous_cell_kernels_equal_scalar_bit_for_bit) {
     // not a multiple of four, and the awkward states (read as a cell's own state and as its neighbours): densities under the floor
     // and negative, negative pressure, zero states, signed zeros, mirrored (wall / no-slip / moving-wall ghost) neighbours, a cell
     // that is its own neighbour, NaN in single components and whole NaN states. Two NaN count as equal.
-#ifdef FV_SIMD_VISCOUS
+#ifdef FV_SIMD_AVX2
     std::printf("    vector path: %s\n", fv::detail::avx2_available() ? "AVX2" : "scalar only (no AVX2 or FENICE_NO_SIMD)");
 #else
-    std::printf("    vector path: not built (MSVC, non-x86 or FV_NO_SIMD): scalar against scalar\n");
+    std::printf("    vector path: not built (non-x86 or FV_NO_SIMD): scalar against scalar\n");
 #endif
     unsigned long long seed = 0x2545F4914F6CDD1Dull;
     const auto rnd = [&]() {
