@@ -36,6 +36,27 @@ struct CellPhysics {
     std::function<ImmersedBoundary(const Mesh&)> ibm_factory;
 };
 
+// Viscous cell kernels of the engine.  The range functions run four cells at a time with AVX2 where the CPU has it
+// and are bit-identical to the one-element functions (FENICE_NO_SIMD=1 or a non-x86 build runs the scalar code only).
+// Sizes come from tables per level: dx_of_level[l] == CellMesh::dx(l), dy_of_level[l] == CellMesh::dy(l).
+//
+// Viscous cell quantities per leaf: u, v, T = p / rho and the gradients du/dx, du/dy, dv/dx, dv/dy.
+struct ViscousCellArrays {
+    double *u, *v, *T, *dudx, *dudy, *dvdx, *dvdy;
+};
+// Viscous cell quantities of leaf c from its conservative state Ui, the conservative states n0..n3 across its left, right, bottom
+// and top sides and its size dx x dy, written to entry c of `out`.
+void viscous_cell_quantities(const EOS& eos, const State& Ui, const State& n0, const State& n1, const State& n2, const State& n3,
+                             double dx, double dy, const ViscousCellArrays& out, int c);
+// The same for the leaves c0 .. c0+n-1, whose four neighbours (nbr[4c .. 4c+3]: left, right, bottom, top) are all leaves of U.
+void viscous_cell_quantities_run(const EOS& eos, const State* U, const int* nbr, const int* level, const double* dx_of_level,
+                                 const double* dy_of_level, int c0, int n, const ViscousCellArrays& out);
+// Viscous time-step speed of a leaf (max |u_d| + c + 2 L nu_eff sum 1/h^2, L = min(dx, dy)).
+double viscous_cell_speed(const EOS& eos, double mu, double k_cond, const State& U, double dx, double dy);
+// Maximum of viscous_cell_speed over the leaves cb .. ce-1 (0 for none; NaN speeds are ignored, like std::max(s_max, s)).
+double viscous_speed_range(const EOS& eos, double mu, double k_cond, const State* U, const int* level, const double* dx_of_level,
+                           const double* dy_of_level, int cb, int ce);
+
 // Stencils, boundary closure and face fluxes of a CellMesh; see the file header.
 class CellFluxEngine {
 public:

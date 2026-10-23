@@ -25,6 +25,7 @@
 #include "fv/CellRemesh.hpp"
 #include "fv/Simulation.hpp"
 #include "fv/SolutionMapping.hpp"
+#include "../src/SchemesSimd.hpp"   // detail::avx2_available: which path the bit-for-bit tests exercised
 
 using namespace fv;
 namespace fs = std::filesystem;
@@ -3167,6 +3168,101 @@ TEST(riemann_batch_equals_scalar_bit_for_bit) {
             CHECK(bad == 0);
             if (bad) std::printf("    eos %d solver %d: %d of %d faces differ\n", kind, static_cast<int>(type), bad, n);
         }
+    }
+}
+
+TEST(viscous_cell_kernels_equal_scalar_bit_for_bit) {
+    // The viscous cell kernels of the AMR engine (AVX2 where the CPU has it: viscous_cell_quantities_run, viscous_speed_range) must
+    // give the bits of the one-cell functions for both equations of state, runs and ranges that start anywhere and whose length is
+    // not a multiple of four, and the awkward states (read as a cell's own state and as its neighbours): densities under the floor
+    // and negative, negative pressure, zero states, signed zeros, mirrored (wall / no-slip / moving-wall ghost) neighbours, a cell
+    // that is its own neighbour, NaN in single components and whole NaN states. Two NaN count as equal.
+    std::printf("    vector path: %s\n", fv::detail::avx2_available() ? "AVX2" : "scalar only (no AVX2 or FENICE_NO_SIMD)");
+    unsigned long long seed = 0x2545F4914F6CDD1Dull;
+    const auto rnd = [&]() {
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        return static_cast<double>(seed >> 11) * (1.0 / 9007199254740992.0);
+    };
+    const auto same = [](double a, double b) {
+        unsigned long long x, y;
+        std::memcpy(&x, &a, 8);
+        std::memcpy(&y, &b, 8);
+        return x == y || (std::isnan(a) && std::isnan(b));
+    };
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double mu = 0.02, k_cond = 0.02 * 1.4 / (0.72 * 0.4);
+    const double dxl[4] = {0.05, 0.025, 0.0125, 0.00625}, dyl[4] = {0.03, 0.015, 0.0075, 0.00375};
+    for (int kind = 0; kind < 2; ++kind) {
+        const EOS eos = kind == 0 ? EOS::ideal(1.4) : EOS::stiffened(4.4, 6.0e8);
+        const double p0 = kind == 0 ? 1.0 : 1.0e8;
+        const int n = 4099;
+        std::vector<State> U(n);
+        std::vector<int> nbr(static_cast<size_t>(4) * n), level(n);
+        for (int c = 0; c < n; ++c) {
+            U[c] = eos.prim_to_cons({0.5 + rnd(), 2.0 * rnd() - 1.0, 2.0 * rnd() - 1.0, p0 * (0.5 + rnd()), 0.0});
+            level[c] = static_cast<int>(rnd() * 4.0) % 4;
+        }
+        // awkward states in the first entries; every cell's neighbours are random leaves (often one of these, itself or a repeat)
+        const State a = eos.prim_to_cons({1.0, 0.3, -0.2, p0, 0.0});
+        const State awk[] = {a,
+                             {a[0], -a[1], -a[2], a[3], 0.0},                  // no-slip ghost
+                             {a[0], -a[1], a[2], a[3], 0.0},                   // wall ghost
+                             {a[0], 2.0 * a[0] * 1.0 - a[1], -a[2], a[3], 0.0},   // moving-wall ghost
+                             {1e-20, 0.0, 0.0, 1e-20, 0.0},
+                             {-1.0, 1.0, 0.0, 1.0, 0.0},
+                             {0.0, 0.0, 0.0, 0.0, 0.0},
+                             {1.0, 5.0, 0.0, 0.1, 0.0},   // negative pressure: floored
+                             {1.0, -0.0, 0.0, p0, 0.0},
+                             {1.0, 0.0, -0.0, p0, 0.0},
+                             {nan, 0.0, 0.0, p0, 0.0},
+                             {1.0, nan, 0.0, p0, 0.0},
+                             {1.0, 0.0, nan, p0, 0.0},
+                             {1.0, 0.0, 0.0, nan, 0.0},
+                             {nan, nan, nan, nan, 0.0}};
+        const int nawk = static_cast<int>(sizeof(awk) / sizeof(awk[0]));
+        for (int c = 0; c < nawk; ++c) U[c] = awk[c];
+        for (int c = 0; c < n; ++c)
+            for (int s = 0; s < 4; ++s) {
+                const double r = rnd();
+                nbr[static_cast<size_t>(4) * c + s] = r < 0.3 ? static_cast<int>(rnd() * nawk) % nawk
+                                                      : r < 0.4 ? c
+                                                                : static_cast<int>(rnd() * n) % n;
+            }
+        std::vector<std::vector<double>> qb(7, std::vector<double>(n, -7.0)), qs = qb;
+        const auto view = [](std::vector<std::vector<double>>& q) {
+            return ViscousCellArrays{q[0].data(), q[1].data(), q[2].data(), q[3].data(), q[4].data(), q[5].data(), q[6].data()};
+        };
+        const std::pair<int, int> runs[] = {{0, n}, {0, 0}, {0, 1}, {1, 3}, {3, 4}, {5, 5}, {2, 7}, {9, 8}, {6, 9}, {13, 2000}};
+        int bad = 0;
+        for (const auto& r : runs) {
+            viscous_cell_quantities_run(eos, U.data(), nbr.data(), level.data(), dxl, dyl, r.first, r.second, view(qb));
+            for (int c = r.first; c < r.first + r.second; ++c) {
+                const int* nb = &nbr[static_cast<size_t>(4) * c];
+                viscous_cell_quantities(eos, U[c], U[nb[0]], U[nb[1]], U[nb[2]], U[nb[3]], dxl[level[c]], dyl[level[c]], view(qs), c);
+                bool ok = true;
+                for (int j = 0; j < 7; ++j) ok = ok && same(qs[j][c], qb[j][c]);
+                bad += ok ? 0 : 1;
+            }
+        }
+        CHECK(bad == 0);
+        if (bad) std::printf("    eos %d cell quantities: %d cells differ\n", kind, bad);
+
+        // wave-speed bound: the running std::max of the scalar code over any range, NaN states ignored, all-NaN ranges give 0
+        const auto serial = [&](int b, int e) {
+            double s = 0.0;
+            for (int c = b; c < e; ++c) s = std::max(s, viscous_cell_speed(eos, mu, k_cond, U[c], dxl[level[c]], dyl[level[c]]));
+            return s;
+        };
+        bad = 0;
+        for (const auto& r : runs) {
+            const double sb = viscous_speed_range(eos, mu, k_cond, U.data(), level.data(), dxl, dyl, r.first, r.first + r.second);
+            bad += same(sb, serial(r.first, r.first + r.second)) ? 0 : 1;
+        }
+        std::vector<State> Un(9, State{nan, nan, nan, nan, 0.0});
+        std::vector<int> ln(9, 1);
+        for (int e : {4, 8, 9}) bad += viscous_speed_range(eos, mu, k_cond, Un.data(), ln.data(), dxl, dyl, 0, e) == 0.0 ? 0 : 1;
+        CHECK(bad == 0);
+        if (bad) std::printf("    eos %d speed: %d ranges differ\n", kind, bad);
     }
 }
 

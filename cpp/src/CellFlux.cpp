@@ -1,8 +1,11 @@
 #include "fv/CellFlux.hpp"
 
 #include <algorithm>
+#include <cmath>
 #include <map>
 #include <stdexcept>
+
+#include "SchemesSimd.hpp"
 
 namespace fv {
 
@@ -627,35 +630,122 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
     return smax_all;
 }
 
+void viscous_cell_quantities(const EOS& eos, const State& Ui, const State& n0, const State& n1, const State& n2, const State& n3,
+                             double dx, double dy, const ViscousCellArrays& out, int c) {
+    const State W = eos.cons_to_prim(Ui);
+    double gx[3], gy[3];
+    for (int q = 0; q < 3; ++q) {
+        gx[q] = (n1[q] - n0[q]) / (2.0 * dx);
+        gy[q] = (n3[q] - n2[q]) / (2.0 * dy);
+    }
+    const double rho = W[0], u = W[1], v = W[2];
+    out.u[c] = u;
+    out.v[c] = v;
+    out.T[c] = W[3] / rho;
+    out.dudx[c] = (gx[1] - u * gx[0]) / rho;
+    out.dudy[c] = (gy[1] - u * gy[0]) / rho;
+    out.dvdx[c] = (gx[2] - v * gx[0]) / rho;
+    out.dvdy[c] = (gy[2] - v * gy[0]) / rho;
+}
+
+void viscous_cell_quantities_run(const EOS& eos, const State* U, const int* nbr, const int* level, const double* dx_of_level,
+                                 const double* dy_of_level, int c0, int n, const ViscousCellArrays& out) {
+    int done = 0;
+#ifdef FV_SIMD_AVX2
+    if (detail::avx2_available()) {
+        done = n & ~3;
+        if (done > 0) {
+            double* const o[7] = {out.u, out.v, out.T, out.dudx, out.dudy, out.dvdx, out.dvdy};
+            detail::viscous_cells_avx2(eos, U, nbr, level, dx_of_level, dy_of_level, c0, done, o);
+        }
+    }
+#endif
+    for (int c = c0 + done; c < c0 + n; ++c) {
+        const int* nb = nbr + static_cast<size_t>(4) * c;
+        viscous_cell_quantities(eos, U[c], U[nb[0]], U[nb[1]], U[nb[2]], U[nb[3]], dx_of_level[level[c]], dy_of_level[level[c]], out,
+                                c);
+    }
+}
+
+double viscous_cell_speed(const EOS& eos, double mu, double k_cond, const State& U, double dx, double dy) {
+    const double gamma = eos.gamma;
+    const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
+    const State W = eos.cons_to_prim(U);
+    const double rho = W[0];
+    const double nu_eff = std::max(mu / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+    return std::max(std::abs(W[1]), std::abs(W[2])) + eos.sound_speed(W[3], rho) + 2.0 * L * inv_h2 * nu_eff;
+}
+
+double viscous_speed_range(const EOS& eos, double mu, double k_cond, const State* U, const int* level, const double* dx_of_level,
+                           const double* dy_of_level, int cb, int ce) {
+    double s_max = 0.0;
+    int done = 0;
+#ifdef FV_SIMD_AVX2
+    if (detail::avx2_available()) {
+        done = (ce - cb) & ~3;
+        if (done > 0) s_max = detail::viscous_speed_avx2(eos, mu, k_cond, U, level, dx_of_level, dy_of_level, cb, done);
+    }
+#endif
+    for (int c = cb + done; c < ce; ++c)
+        s_max = std::max(s_max, viscous_cell_speed(eos, mu, k_cond, U[c], dx_of_level[level[c]], dy_of_level[level[c]]));
+    return s_max;
+}
+
+namespace {
+
+// Cell sizes per level (CellMesh::dx / dy) for the viscous kernels
+struct LevelSizes {
+    std::vector<double> dx, dy;
+    explicit LevelSizes(const CellMesh& m) : dx(static_cast<size_t>(m.max_level) + 1), dy(dx.size()) {
+        for (int l = 0; l <= m.max_level; ++l) {
+            dx[static_cast<size_t>(l)] = m.dx(l);
+            dy[static_cast<size_t>(l)] = m.dy(l);
+        }
+    }
+};
+
+constexpr int kViscBlock = 256;   // list entries per block of the viscous loops (the unit of the OpenMP schedule)
+
+}   // namespace
+
 void CellFluxEngine::cell_quantities(const CellMesh& m, const std::vector<int>& cells) {
     const EOS& eos = eos_;
     const Field& U = *us_;
     const int n = static_cast<int>(cells.size());
+    const LevelSizes hs(m);
+    const ViscousCellArrays out{su_.data(), sv_.data(), sT_.data(), dudx_.data(), dudy_.data(), dvdx_.data(), dvdy_.data()};
+    const int nblock = (n + kViscBlock - 1) / kViscBlock;
+    // Runs of consecutive leaves whose four neighbours are leaves go to the range kernel (four at a time with AVX2); a cell with a
+    // virtual neighbour or a physical edge is done on its own.
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-    for (int k = 0; k < n; ++k) {
-        const int c = cells[k];
-        const int l = m.level[c];
-        const State& Ui = U[c];
-        const State W = eos.cons_to_prim(Ui);
-        State nb[4];   // left, right, bottom, top values (the diffusive ghost at a physical edge)
-        for (int s = 0; s < 4; ++s) {
-            const int code = nbr_[static_cast<size_t>(4) * c + s];
-            nb[s] = code >= 0 ? cell_state(code) : bc_.viscous_ghost(static_cast<Face>(s), Ui);
+    for (int b = 0; b < nblock; ++b) {
+        const int kb = b * kViscBlock, ke = std::min(n, kb + kViscBlock);
+        int run_c = 0, run_n = 0;
+        for (int k = kb; k < ke; ++k) {
+            const int c = cells[k];
+            const int* code = &nbr_[static_cast<size_t>(4) * c];
+            const auto leaf = [&](int s) { return static_cast<unsigned>(code[s]) < static_cast<unsigned>(nleaf_); };
+            const bool leaves = leaf(0) && leaf(1) && leaf(2) && leaf(3);
+            if (leaves && run_n > 0 && c == run_c + run_n) {
+                ++run_n;
+                continue;
+            }
+            if (run_n > 0) viscous_cell_quantities_run(eos, U.data(), nbr_.data(), m.level.data(), hs.dx.data(), hs.dy.data(), run_c,
+                                                       run_n, out);
+            run_n = 0;
+            if (leaves) {
+                run_c = c;
+                run_n = 1;
+                continue;
+            }
+            const int l = m.level[c];
+            const State& Ui = U[c];
+            State nb[4];   // left, right, bottom, top values (the diffusive ghost at a physical edge)
+            for (int s = 0; s < 4; ++s) nb[s] = code[s] >= 0 ? cell_state(code[s]) : bc_.viscous_ghost(static_cast<Face>(s), Ui);
+            viscous_cell_quantities(eos, Ui, nb[0], nb[1], nb[2], nb[3], m.dx(l), m.dy(l), out, c);
         }
-        const double dx = m.dx(l), dy = m.dy(l);
-        double gx[3], gy[3];
-        for (int q = 0; q < 3; ++q) {
-            gx[q] = (nb[1][q] - nb[0][q]) / (2.0 * dx);
-            gy[q] = (nb[3][q] - nb[2][q]) / (2.0 * dy);
-        }
-        const double rho = W[0], u = W[1], v = W[2];
-        su_[c] = u;
-        sv_[c] = v;
-        sT_[c] = W[3] / rho;
-        dudx_[c] = (gx[1] - u * gx[0]) / rho;
-        dudy_[c] = (gy[1] - u * gy[0]) / rho;
-        dvdx_[c] = (gx[2] - v * gx[0]) / rho;
-        dvdy_[c] = (gy[2] - v * gy[0]) / rho;
+        if (run_n > 0)
+            viscous_cell_quantities_run(eos, U.data(), nbr_.data(), m.level.data(), hs.dx.data(), hs.dy.data(), run_c, run_n, out);
     }
 }
 
@@ -731,21 +821,18 @@ double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
     const double mu = ns.mu(), gamma = eos_.gamma;
     const double k_cond = mu * gamma / (ns.prandtl() * (gamma - 1.0));
     const Field& U = *us_;
+    const LevelSizes hs(m);
+    const int nblock = (ce - cb + kViscBlock - 1) / kViscBlock;
     double s_max = 0.0;
 #pragma omp parallel if (ce - cb >= kOmpMinWork)
     {
         double local = 0.0;
+        // blocks of consecutive leaves, four at a time with AVX2: a maximum does not depend on the grouping (every speed is > 0 or
+        // NaN, which std::max(local, s) ignores)
 #pragma omp for schedule(static) nowait
-        for (int c = cb; c < ce; ++c) {
-            const int l = m.level[c];
-            const double dx = m.dx(l), dy = m.dy(l);
-            const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
-            const State W = eos_.cons_to_prim(U[c]);
-            const double rho = W[0];
-            const double nu_eff = std::max(mu / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
-            const double s =
-                std::max(std::abs(W[1]), std::abs(W[2])) + eos_.sound_speed(W[3], rho) + 2.0 * L * inv_h2 * nu_eff;
-            local = std::max(local, s);
+        for (int b = 0; b < nblock; ++b) {
+            const int c0 = cb + b * kViscBlock, c1 = std::min(ce, c0 + kViscBlock);
+            local = std::max(local, viscous_speed_range(eos_, mu, k_cond, U.data(), m.level.data(), hs.dx.data(), hs.dy.data(), c0, c1));
         }
 #pragma omp critical(fv_cellvisc_speed)
         s_max = std::max(s_max, local);
