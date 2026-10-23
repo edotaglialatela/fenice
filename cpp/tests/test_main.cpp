@@ -2,6 +2,7 @@
 // Self-contained harness: run `fenice_tests` (exit code = number of failed checks).
 #include <cmath>
 #include <cstdio>
+#include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -24,6 +25,7 @@
 #include "fv/CellRemesh.hpp"
 #include "fv/Simulation.hpp"
 #include "fv/SolutionMapping.hpp"
+#include "../src/SchemesSimd.hpp"   // detail::avx2_available: which path the bit-for-bit tests exercised
 
 using namespace fv;
 namespace fs = std::filesystem;
@@ -2960,6 +2962,83 @@ TEST(celladvance_jump_closure_study) {
     }
 }
 
+TEST(cellflux_incremental_rebuild_equals_full_rebuild) {
+    // After every adapt of a run of random refinements and joins, the faces and gather lists that CellMesh::adapt updates
+    // (copied for the clean leaves) and the engine tables that CellFluxEngine::build updates must equal a full rebuild of the
+    // same leaves bit for bit: walled and periodic axes, interpolated jumps on and off, an immersed body, steady sources.
+    const EOS eos = EOS::ideal(1.4);
+    unsigned seed = 2024u;
+    const auto rnd = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<double>((seed >> 8) & 0xFFFFu) / 65536.0;
+    };
+    for (int cfg = 0; cfg < 4; ++cfg) {
+        const bool periodic = cfg & 1, ip = (cfg & 2) == 0;
+        const int nx = 24, ny = 16, maxl = 3;
+        const double Lx = 3.0, Ly = 2.0;
+        const Mesh base = generate_cartesian_mesh(Lx, Ly, nx, ny);
+        BoundaryManager bm(base, eos);
+        if (periodic)
+            bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Wall, BCType::Wall);
+        else
+            bm.set_boundary_types(BCType::Transmissive, BCType::Transmissive, BCType::Wall, BCType::Wall);
+        RiemannSolver rs(eos, RiemannType::HLLC);
+        MusclReconstruction mu(eos, Limiter::VanLeer);
+        Params src;
+        src.set("source_rho", "0.1*sin(x)*cos(y)");
+        src.set("source_E", "x*y");
+        CellPhysics ph;
+        ph.source = &src;
+        ph.source_mesh = &base;
+        ph.ibm_factory = [](const Mesh& m) { return ImmersedBoundary(m, "Cylinder", 0.3, 1.2, 1.0, 1.0, 1.0); };
+        const auto make_engine = [&]() {
+            auto e = std::make_unique<CellFluxEngine>(eos, rs, &mu, bm);
+            e->interpolate_jumps = ip;
+            e->set_physics(ph);
+            return e;
+        };
+        CellMesh m(Lx, Ly, nx, ny, maxl, periodic, false);
+        auto eng = make_engine();
+        eng->build(m);
+        int incremental = 0, clean_total = 0, bad_mesh = 0, bad_eng = 0;
+        for (int it = 0; it < 14; ++it) {
+            // refine near a moving spot and at random, join at random
+            const double sx = 0.4 + 0.15 * it, sy = 1.0 + 0.5 * std::sin(0.7 * it);
+            std::vector<char> r(static_cast<size_t>(m.num_leaves()), 0), co(r.size(), 0);
+            for (int c = 0; c < m.num_leaves(); ++c) {
+                const double d = std::hypot(m.xc(c) - sx, m.yc(c) - sy);
+                r[c] = (d < 0.35 && rnd() < 0.8) || rnd() < 0.01;
+                co[c] = !r[c] && rnd() < 0.7;
+            }
+            if (!m.adapt(r, co)) continue;
+            CHECK(static_cast<int>(m.prev_leaf.size()) == m.num_leaves());
+            for (const char d : m.topo_dirty) clean_total += d ? 0 : 1;
+            eng->build(m);
+            ++incremental;
+            CellMesh full(Lx, Ly, nx, ny, maxl, periodic, false);
+            full.assign_leaves(m.level, m.ci, m.cj);
+            bool same = full.faces.size() == m.faces.size() && full.side_ptr == m.side_ptr && full.side_face == m.side_face &&
+                        full.face_level_begin == m.face_level_begin;
+            for (size_t f = 0; same && f < m.faces.size(); ++f) {
+                const CellFace &a = m.faces[f], &b = full.faces[f];
+                same = a.left == b.left && a.right == b.right && a.level == b.level && a.tpos == b.tpos && a.axis == b.axis &&
+                       a.kind == b.kind && a.side == b.side && std::memcmp(&a.length, &b.length, sizeof(double)) == 0;
+            }
+            bad_mesh += same ? 0 : 1;
+            auto ref = make_engine();
+            ref->build(m);   // a new engine: a full build
+            bad_eng += eng->same_tables(*ref) ? 0 : 1;
+        }
+        CHECK(incremental >= 8);
+        CHECK(clean_total > 0);
+        CHECK(bad_mesh == 0);
+        CHECK(bad_eng == 0);
+        if (bad_mesh || bad_eng)
+            std::printf("    periodic %d interpolate %d: %d of %d meshes, %d engines differ\n", periodic, ip, bad_mesh, incremental,
+                        bad_eng);
+    }
+}
+
 TEST(cellflux_interpolated_jump_values_are_exact_for_a_linear_field) {
     // A linear primitive field: the value interpolated to the virtual fine cell across a jump is the exact one there (all
     // limiters return the exact slope on linear data). Control: the injected coarse value is not.
@@ -3079,6 +3158,193 @@ TEST(cellindicator_diffusion_rule_at_level_jumps) {
     xi = {0.0, 0.0, 0.0, 0.0};
     ind.diffuse(xi, ifaces);
     CHECK(xi == std::vector<double>({0.0, 0.0, 0.0, 0.0}));
+}
+
+TEST(riemann_batch_equals_scalar_bit_for_bit) {
+    // face_flux_batch (AVX2 where the CPU has it) must give the bits of face_flux for every solver, both equations of state,
+    // every axis, a batch length that is not a multiple of four, and the awkward states: densities and pressures under the
+    // floor, negative internal energy, identical and mirrored states, speeds equal to zero to the last bits, signed zeros, NaN
+    // (all region tests false: zero flux, a NaN wave speed). Two NaN count as equal.
+    unsigned long long seed = 0x9E3779B97F4A7C15ull;
+    const auto rnd = [&]() {
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        return static_cast<double>(seed >> 11) * (1.0 / 9007199254740992.0);
+    };
+    const auto same = [](double a, double b) {
+        unsigned long long x, y;
+        std::memcpy(&x, &a, 8);
+        std::memcpy(&y, &b, 8);
+        return x == y || (std::isnan(a) && std::isnan(b));
+    };
+    for (int kind = 0; kind < 2; ++kind) {
+        const EOS eos = kind == 0 ? EOS::ideal(1.4) : EOS::stiffened(4.4, 6.0e8);
+        const double p0 = kind == 0 ? 1.0 : 1.0e8;
+        const int n = 4099;   // not a multiple of four: the tail runs the scalar code
+        std::vector<State> UL(n), UR(n);
+        std::vector<int> axis(n);
+        for (int k = 0; k < n; ++k) {
+            const bool strong = rnd() < 0.15;
+            const double jump = strong ? 4.0 : 0.02;
+            State a = {0.5 + rnd(), 2.0 * rnd() - 1.0, 2.0 * rnd() - 1.0, p0 * (0.5 + rnd()), 2.0 * rnd() - 1.0};
+            State b = a;
+            b[0] *= 1.0 + jump * rnd();
+            b[1] += jump * (rnd() - 0.5);
+            b[2] += jump * (rnd() - 0.5);
+            b[3] *= 1.0 + jump * rnd();
+            b[4] += 0.1 * jump * (rnd() - 0.5);
+            UL[k] = eos.prim_to_cons(a);
+            UR[k] = eos.prim_to_cons(b);
+            axis[k] = static_cast<int>(rnd() * 3.0) % 3;
+        }
+        // awkward states in the first entries
+        int k = 0;
+        const double nan = std::numeric_limits<double>::quiet_NaN();
+        const auto put = [&](State l, State r, int ax) {
+            UL[k] = l;
+            UR[k] = r;
+            axis[k] = ax;
+            ++k;
+        };
+        for (int ax = 0; ax < 3; ++ax) {
+            const State a = eos.prim_to_cons({1.0, 0.3, -0.2, p0, 0.1});
+            put(a, a, ax);
+            put(a, eos.prim_to_cons({1.0, -0.3, -0.2, p0, 0.1}), ax);
+            put(eos.prim_to_cons({1.0, 0.0, 0.0, p0, 0.0}), eos.prim_to_cons({0.125, -0.0, 0.0, 0.1 * p0, -0.0}), ax);
+            put({1e-20, 0.0, 0.0, 1e-20, 0.0}, {1.0, 0.0, 0.0, p0, 0.0}, ax);
+            put({1.0, 5.0, 0.0, 0.1, 0.0}, {1.0, 5.0, 0.0, 0.1, 0.0}, ax);
+            put({-1.0, 1.0, 0.0, 1.0, 0.0}, {1.0, 0.0, 0.0, p0, 0.0}, ax);
+            put({0.0, 0.0, 0.0, 0.0, 0.0}, {0.0, 0.0, 0.0, 0.0, 0.0}, ax);
+            put({nan, 0.0, 0.0, p0, 0.0}, {1.0, 0.0, 0.0, p0, 0.0}, ax);
+            put(a, {1.0, nan, 0.0, p0, 0.0}, ax);
+            put(a, {1.0, 0.0, 0.0, nan, 0.0}, ax);
+            for (int ulp = -3; ulp <= 3; ++ulp) {   // normal velocity equal to the sound speed to the ulp
+                const double c = std::sqrt(eos.gamma * (p0 + (kind == 0 ? 0.0 : eos.p_inf)) / 1.0);
+                double u = c;
+                for (int q = 0; q < std::abs(ulp); ++q) u = std::nextafter(u, ulp < 0 ? 0.0 : 1e300);
+                State W = {1.0, 0.0, 0.0, p0, 0.0};
+                W[ax == 0 ? 1 : (ax == 1 ? 2 : 4)] = u;
+                State Wr = W;
+                Wr[3] *= 1.0 + 1e-3;
+                put(eos.prim_to_cons(W), eos.prim_to_cons(Wr), ax);
+                put(eos.prim_to_cons(Wr), eos.prim_to_cons(W), ax);
+            }
+        }
+        for (const RiemannType type : {RiemannType::HLLC, RiemannType::LowMachHLLC, RiemannType::PreconditionedHLLC}) {
+            const RiemannSolver rs(eos, type, 0.1);
+            std::vector<State> Fb(n);
+            std::vector<double> sb(n);
+            rs.face_flux_batch(UL.data(), UR.data(), axis.data(), n, Fb.data(), sb.data());
+            int bad = 0;
+            for (int q = 0; q < n; ++q) {
+                double ss;
+                const State Fs = rs.face_flux(UL[q], UR[q], axis[q], ss);
+                bool ok = same(ss, sb[q]);
+                for (int c = 0; c < kNVar; ++c) ok = ok && same(Fs[c], Fb[q][c]);
+                bad += ok ? 0 : 1;
+            }
+            CHECK(bad == 0);
+            if (bad) std::printf("    eos %d solver %d: %d of %d faces differ\n", kind, static_cast<int>(type), bad, n);
+        }
+    }
+}
+
+TEST(viscous_cell_kernels_equal_scalar_bit_for_bit) {
+    // The viscous cell kernels of the AMR engine (AVX2 where the CPU has it: viscous_cell_quantities_run, viscous_speed_range) must
+    // give the bits of the one-cell functions for both equations of state, runs and ranges that start anywhere and whose length is
+    // not a multiple of four, and the awkward states (read as a cell's own state and as its neighbours): densities under the floor
+    // and negative, negative pressure, zero states, signed zeros, mirrored (wall / no-slip / moving-wall ghost) neighbours, a cell
+    // that is its own neighbour, NaN in single components and whole NaN states. Two NaN count as equal.
+#ifdef FV_SIMD_VISCOUS
+    std::printf("    vector path: %s\n", fv::detail::avx2_available() ? "AVX2" : "scalar only (no AVX2 or FENICE_NO_SIMD)");
+#else
+    std::printf("    vector path: not built (MSVC, non-x86 or FV_NO_SIMD): scalar against scalar\n");
+#endif
+    unsigned long long seed = 0x2545F4914F6CDD1Dull;
+    const auto rnd = [&]() {
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        return static_cast<double>(seed >> 11) * (1.0 / 9007199254740992.0);
+    };
+    const auto same = [](double a, double b) {
+        unsigned long long x, y;
+        std::memcpy(&x, &a, 8);
+        std::memcpy(&y, &b, 8);
+        return x == y || (std::isnan(a) && std::isnan(b));
+    };
+    const double nan = std::numeric_limits<double>::quiet_NaN();
+    const double mu = 0.02, k_cond = 0.02 * 1.4 / (0.72 * 0.4);
+    const double dxl[4] = {0.05, 0.025, 0.0125, 0.00625}, dyl[4] = {0.03, 0.015, 0.0075, 0.00375};
+    for (int kind = 0; kind < 2; ++kind) {
+        const EOS eos = kind == 0 ? EOS::ideal(1.4) : EOS::stiffened(4.4, 6.0e8);
+        const double p0 = kind == 0 ? 1.0 : 1.0e8;
+        const int n = 4099;
+        std::vector<State> U(n);
+        std::vector<int> nbr(static_cast<size_t>(4) * n), level(n);
+        for (int c = 0; c < n; ++c) {
+            U[c] = eos.prim_to_cons({0.5 + rnd(), 2.0 * rnd() - 1.0, 2.0 * rnd() - 1.0, p0 * (0.5 + rnd()), 0.0});
+            level[c] = static_cast<int>(rnd() * 4.0) % 4;
+        }
+        // awkward states in the first entries; every cell's neighbours are random leaves (often one of these, itself or a repeat)
+        const State a = eos.prim_to_cons({1.0, 0.3, -0.2, p0, 0.0});
+        const State awk[] = {a,
+                             {a[0], -a[1], -a[2], a[3], 0.0},                  // no-slip ghost
+                             {a[0], -a[1], a[2], a[3], 0.0},                   // wall ghost
+                             {a[0], 2.0 * a[0] * 1.0 - a[1], -a[2], a[3], 0.0},   // moving-wall ghost
+                             {1e-20, 0.0, 0.0, 1e-20, 0.0},
+                             {-1.0, 1.0, 0.0, 1.0, 0.0},
+                             {0.0, 0.0, 0.0, 0.0, 0.0},
+                             {1.0, 5.0, 0.0, 0.1, 0.0},   // negative pressure: floored
+                             {1.0, -0.0, 0.0, p0, 0.0},
+                             {1.0, 0.0, -0.0, p0, 0.0},
+                             {nan, 0.0, 0.0, p0, 0.0},
+                             {1.0, nan, 0.0, p0, 0.0},
+                             {1.0, 0.0, nan, p0, 0.0},
+                             {1.0, 0.0, 0.0, nan, 0.0},
+                             {nan, nan, nan, nan, 0.0}};
+        const int nawk = static_cast<int>(sizeof(awk) / sizeof(awk[0]));
+        for (int c = 0; c < nawk; ++c) U[c] = awk[c];
+        for (int c = 0; c < n; ++c)
+            for (int s = 0; s < 4; ++s) {
+                const double r = rnd();
+                nbr[static_cast<size_t>(4) * c + s] = r < 0.3 ? static_cast<int>(rnd() * nawk) % nawk
+                                                      : r < 0.4 ? c
+                                                                : static_cast<int>(rnd() * n) % n;
+            }
+        std::vector<std::vector<double>> qb(7, std::vector<double>(n, -7.0)), qs = qb;
+        const auto view = [](std::vector<std::vector<double>>& q) {
+            return ViscousCellArrays{q[0].data(), q[1].data(), q[2].data(), q[3].data(), q[4].data(), q[5].data(), q[6].data()};
+        };
+        const std::pair<int, int> runs[] = {{0, n}, {0, 0}, {0, 1}, {1, 3}, {3, 4}, {5, 5}, {2, 7}, {9, 8}, {6, 9}, {13, 2000}};
+        int bad = 0;
+        for (const auto& r : runs) {
+            viscous_cell_quantities_run(eos, U.data(), nbr.data(), level.data(), dxl, dyl, r.first, r.second, view(qb));
+            for (int c = r.first; c < r.first + r.second; ++c) {
+                const int* nb = &nbr[static_cast<size_t>(4) * c];
+                viscous_cell_quantities(eos, U[c], U[nb[0]], U[nb[1]], U[nb[2]], U[nb[3]], dxl[level[c]], dyl[level[c]], view(qs), c);
+                bool ok = true;
+                for (int j = 0; j < 7; ++j) ok = ok && same(qs[j][c], qb[j][c]);
+                bad += ok ? 0 : 1;
+            }
+        }
+        CHECK(bad == 0);
+        if (bad) std::printf("    eos %d cell quantities: %d cells differ\n", kind, bad);
+
+        // wave-speed bound: the running std::max of the scalar code over any range, NaN states ignored, all-NaN ranges give 0
+        const auto serial = [&](int b, int e) {
+            double s = 0.0;
+            for (int c = b; c < e; ++c) s = std::max(s, viscous_cell_speed(eos, mu, k_cond, U[c], dxl[level[c]], dyl[level[c]]));
+            return s;
+        };
+        bad = 0;
+        for (const auto& r : runs) {
+            const double sb = viscous_speed_range(eos, mu, k_cond, U.data(), level.data(), dxl, dyl, r.first, r.first + r.second);
+            bad += same(sb, serial(r.first, r.first + r.second)) ? 0 : 1;
+        }
+        std::vector<State> Un(9, State{nan, nan, nan, nan, 0.0});
+        std::vector<int> ln(9, 1);
+        for (int e : {4, 8, 9}) bad += viscous_speed_range(eos, mu, k_cond, Un.data(), ln.data(), dxl, dyl, 0, e) == 0.0 ? 0 : 1;
+        CHECK(bad == 0);
+        if (bad) std::printf("    eos %d speed: %d ranges differ\n", kind, bad);
+    }
 }
 
 TEST(cellindicator_cell_gather_diffusion_equals_the_interface_rule_bit_for_bit) {

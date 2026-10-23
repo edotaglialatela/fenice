@@ -15,6 +15,8 @@ enum class RiemannType { HLLC, LowMachHLLC, PreconditionedHLLC };
 // Accepts GUI labels ("HLLC (Low-Mach Thornber)") and short aliases ("lowmach").
 RiemannType parse_riemann(const std::string& s);
 
+enum class Limiter;   // defined below
+
 // HLLC-family face-flux solver (stateless, thread-safe).
 class RiemannSolver {
 public:
@@ -27,6 +29,15 @@ public:
 
     // Flux through one face normal to xis (0 = x, 1 = y, 2 = z); smax receives max(|S_L|, |S_R|).
     State face_flux(const State& UL, const State& UR, int axis, double& smax) const;
+
+    // Fluxes of n faces: face k lies between UL[k] and UR[k] and is normal to axis[k] (0, 1, 2); F[k] and smax[k] get
+    // what face_flux gives, bit for bit (four faces at a time with AVX2 where the CPU has it, else one by one).
+    void face_flux_batch(const State* UL, const State* UR, const int* axis, int n, State* F, double* smax) const;
+
+    // Like face_flux_batch for faces whose left / right states are the MUSCL reconstruction from the primitive states
+    // W[st[4k]] .. W[st[4k+3]] (two cells each side of face k) with limiter `lim`: wl = c1 + 0.5 phi(c1 - c0, c2 - c1),
+    // wr = c2 - 0.5 phi(c3 - c2, c2 - c1) per variable, converted to conservative form. Bit-identical to doing so one face at a time.
+    void muscl_face_flux_batch(Limiter lim, const State* W, const int* st, const int* axis, int n, State* F, double* smax) const;
 
     // Solver variant.
     RiemannType type() const { return type_; }

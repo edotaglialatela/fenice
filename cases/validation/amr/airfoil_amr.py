@@ -2,6 +2,7 @@
 
     python cases/validation/amr/airfoil_amr.py             # results/validation/airfoil_amr/
     python cases/validation/amr/airfoil_amr.py --docs      # also docs/img/airfoil_amr.png
+    python cases/validation/amr/airfoil_amr.py --table     # also the accuracy-per-cost table (design doc, section 20)
 
 Runs "IBM Airfoil" on the 192 x 96 base mesh and on 768 x 384 (the resolution AMR keeps at
 the body), and "IBM Airfoil AMR" (192 x 96, two levels, body at the finest level), all on
@@ -53,8 +54,40 @@ def fine_velocity(run):
     return u, v, h, meta
 
 
+# Accuracy per cost (docs/design/amr-cell-based.md, section 20): uniform 384 x 192 and the cell engine at stricter indicator settings
+TABLE = [("uniform 384x192", CASE, ("nx=384", "ny=192")),
+         ("cell engine, default (criterion 0.1)", CASE_AMR, ()),
+         ("cell engine, criterion 0.01, diffusion 2", CASE_AMR, ("amr_criterion=0.01", "amr_diffusion=2")),
+         ("cell engine, criterion 0.01, diffusion 4", CASE_AMR, ("amr_criterion=0.01", "amr_diffusion=4")),
+         ("cell engine, criterion 0.005, diffusion 4", CASE_AMR, ("amr_criterion=0.005", "amr_diffusion=4")),
+         ("cell engine, criterion 0.002, diffusion 4", CASE_AMR, ("amr_criterion=0.002", "amr_diffusion=4"))]
+
+
+def load_errors(run, fine):
+    """rms difference of Cd(t), Cl(t) from the fine uniform run, for t >= 1."""
+    tf, cdf, clf = loads(fine)
+    t, cd, cl = loads(run)
+    m = tf >= 1.0
+    return (np.sqrt(np.mean((np.interp(tf[m], t, cd) - cdf[m]) ** 2)),
+            np.sqrt(np.mean((np.interp(tf[m], t, cl) - clf[m]) ** 2)))
+
+
+def table(args, fine, w_f):
+    """Cells at the end, wall time and load errors of the TABLE runs (and the two uniform references)."""
+    print(f"\n{'run':44s} {'cells':>8s} {'wall [s]':>9s} {'Cd':>8s} {'Cl':>8s}")
+    print(f"{'uniform 768x384 (reference)':44s} {BASE[0] * BASE[1] * 4 ** LEVELS:8d} {w_f:9.1f}")
+    for k, (label, case, sets) in enumerate(TABLE):
+        tag = "uniform_mid" if case == CASE else ("amr" if not sets else f"table{k}")
+        run, wall = timed(args, tag, case, *sets)
+        cells = 384 * 192 if case == CASE else len(fenice.read_dump(run / "final.npz")["U"])
+        e_d, e_l = load_errors(run, fine)
+        print(f"{label:44s} {cells:8d} {wall:9.1f} {e_d:8.4f} {e_l:8.4f}")
+
+
 def main():
-    args = study.parser(__doc__.splitlines()[0]).parse_args()
+    ap = study.parser(__doc__.splitlines()[0])
+    ap.add_argument("--table", action="store_true", help="also the accuracy-per-cost table (section 20 of the design doc)")
+    args = ap.parse_args()
     plt = study.use_style()
     coarse, w_c = timed(args, "uniform_coarse", CASE, f"nx={BASE[0]}", f"ny={BASE[1]}")
     fine, w_f = timed(args, "uniform_fine", CASE, f"nx={BASE[0] * 2 ** LEVELS}", f"ny={BASE[1] * 2 ** LEVELS}")
@@ -66,12 +99,8 @@ def main():
             ("Uniform 768$\\times$384", fine, "#2980b9", cells_f, w_f),
             ("AMR, 192$\\times$96 + 2 levels", amr, "#e74c3c", cells_a, w_a)]
 
-    tf, cdf, clf = loads(fine)
     for label, run, _, cells, wall in runs:
-        t, cd, cl = loads(run)
-        m = t >= 1.0
-        e_d = np.sqrt(np.mean((np.interp(tf[tf >= 1.0], t, cd) - cdf[tf >= 1.0]) ** 2))
-        e_l = np.sqrt(np.mean((np.interp(tf[tf >= 1.0], t, cl) - clf[tf >= 1.0]) ** 2))
+        e_d, e_l = load_errors(run, fine)
         print(f"{label.replace('$', '').replace(chr(92) + 'times', 'x'):32s} {cells:7d} cells {wall:7.1f} s   "
               f"rms vs 768x384, t >= 1: Cd {e_d:.4f}  Cl {e_l:.4f}")
 
@@ -115,6 +144,8 @@ def main():
         a3.text(x, r[4] * 1.15, f"{r[4]:.0f} s", ha="center", fontsize=9)
     a3.set_ylim(top=max(r[4] for r in runs) * 3)
     study.save(fig, STUDY, "airfoil_amr.png", args.docs)
+    if args.table:
+        table(args, fine, w_f)
 
 
 if __name__ == "__main__":

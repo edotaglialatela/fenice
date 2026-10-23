@@ -1,9 +1,54 @@
 #include "fv/Schemes.hpp"
 
+#include "SchemesSimd.hpp"
+
 #include <cctype>
+#include <cstdlib>
 #include <stdexcept>
 
+#ifdef FV_SIMD_AVX2
+#if defined(_MSC_VER)
+#include <intrin.h>
+#else
+#include <cpuid.h>
+#endif
+#endif
+
 namespace fv {
+
+#ifdef FV_SIMD_AVX2
+namespace detail {
+
+// Here, not in SchemesAvx2.cpp: that file is compiled for AVX2, and the check must run on CPUs without it.
+bool avx2_available() {
+    static const bool ok = []() {
+        if (std::getenv("FENICE_NO_SIMD")) return false;
+#if defined(_MSC_VER)
+        int r[4];
+        __cpuid(r, 0);
+        if (r[0] < 7) return false;
+        __cpuid(r, 1);
+        if (!((r[2] >> 27) & 1) || !((r[2] >> 28) & 1)) return false;   // OSXSAVE and AVX
+        if ((_xgetbv(0) & 6) != 6) return false;                         // the OS saves the XMM and YMM state
+        __cpuidex(r, 7, 0);
+        return ((r[1] >> 5) & 1) != 0;
+#else
+        unsigned a, b, c, d;
+        if (!__get_cpuid(0, &a, &b, &c, &d) || a < 7) return false;
+        __get_cpuid(1, &a, &b, &c, &d);
+        if (!((c >> 27) & 1) || !((c >> 28) & 1)) return false;
+        unsigned lo, hi;
+        __asm__ volatile("xgetbv" : "=a"(lo), "=d"(hi) : "c"(0));
+        if ((lo & 6) != 6) return false;
+        __cpuid_count(7, 0, a, b, c, d);
+        return ((b >> 5) & 1) != 0;
+#endif
+    }();
+    return ok;
+}
+
+}   // namespace detail
+#endif
 
 namespace {
 
@@ -154,19 +199,58 @@ State RiemannSolver::face_flux(const State& UL, const State& UR, int axis, doubl
     return hllc(eos_.prim_to_cons(WL), eos_.prim_to_cons(WR), axis, smax);
 }
 
+void RiemannSolver::face_flux_batch(const State* UL, const State* UR, const int* axis, int n, State* F, double* smax) const {
+    int done = 0;
+#ifdef FV_SIMD_AVX2
+    if (detail::avx2_available()) {
+        done = n & ~3;
+        if (done > 0) detail::riemann_batch_avx2(eos_, type_, ma_cut_, UL, UR, axis, done, F, smax);
+    }
+#endif
+    for (int k = done; k < n; ++k) F[k] = face_flux(UL[k], UR[k], axis[k], smax[k]);
+}
+
+void RiemannSolver::muscl_face_flux_batch(Limiter lim, const State* W, const int* st, const int* axis, int n, State* F,
+                                          double* smax) const {
+    int done = 0;
+#ifdef FV_SIMD_AVX2
+    if (detail::avx2_available()) {
+        done = n & ~3;
+        if (done > 0) detail::muscl_riemann_batch_avx2(eos_, type_, ma_cut_, lim, W, st, axis, done, F, smax);
+    }
+#endif
+    for (int k = done; k < n; ++k) {
+        const State &w0 = W[st[4 * k]], &w1 = W[st[4 * k + 1]], &w2 = W[st[4 * k + 2]], &w3 = W[st[4 * k + 3]];
+        State wl, wr;
+        for (int q = 0; q < kNVar; ++q) {
+            const double c0 = w0[q], c1 = w1[q], c2 = w2[q], c3 = w3[q];
+            const double bq = c2 - c1;
+            wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, bq);
+            wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, bq);
+        }
+        F[k] = face_flux(eos_.prim_to_cons(wl), eos_.prim_to_cons(wr), axis[k], smax[k]);
+    }
+}
+
 double RiemannSolver::compute_flux(const Field& UL, const Field& UR, const Mesh& mesh, Field& F) const {
     const int nf = mesh.num_faces();
     const int nxf = mesh.num_xfaces(), nxyf = nxf + mesh.num_yfaces();
     F.resize(nf);
     double smax_all = 0.0;
+    constexpr int kChunk = 512;
+    const int nchunk = (nf + kChunk - 1) / kChunk;
 #pragma omp parallel if (nf >= kOmpMinWork)
     {
         double local = 0.0;
+        int ax[kChunk];
+        double sm[kChunk];
 #pragma omp for schedule(static) nowait
-        for (int f = 0; f < nf; ++f) {
-            double s;
-            F[f] = face_flux(UL[f], UR[f], f < nxf ? 0 : (f < nxyf ? 1 : 2), s);
-            if (s > local) local = s;
+        for (int c = 0; c < nchunk; ++c) {
+            const int f0 = c * kChunk, n = std::min(kChunk, nf - f0);
+            for (int k = 0; k < n; ++k) ax[k] = f0 + k < nxf ? 0 : (f0 + k < nxyf ? 1 : 2);
+            face_flux_batch(&UL[f0], &UR[f0], ax, n, &F[f0], sm);
+            for (int k = 0; k < n; ++k)
+                if (sm[k] > local) local = sm[k];
         }
 #pragma omp critical(fv_riemann_max)
         if (local > smax_all) smax_all = local;

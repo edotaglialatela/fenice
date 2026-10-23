@@ -606,6 +606,6 @@ body and the outlet, periodic viscous MMS, unsteady MMS) and of the 720x360 airf
   75 % of the velocity error energy of the default run sits in the finest-level region (2 % of the area): the error is made where the resolution is the same as the reference's, so it is not a matter of covering
   more area with the finest level at fixed cost. Cost scales with sum n_l 2^l (50 k leaves with 29 k at level 2 cost 3.7x the default's 38.5 k updates, 2.4x its time). The acceptance rule "wall time per accuracy
   not worse on any study" is therefore met only against the uniform meshes, and met with equality (not better) against the patch engine on the airfoil.
-* **Open.** (a) incremental topology update (estimated -0.6 s of a 1.6 s serial remesh; the wave-speed bound 0.64 s and the indicator 0.28 s remain); (b) distributed storage and a local remesh with ghost layers
+* **Open.** (a) incremental topology update (estimated -0.6 s of a 1.6 s serial remesh; the wave-speed bound 0.64 s and the indicator 0.28 s remain; done on branch `amr-optimisation`, see `docs/design/amr-optimisation.md`); (b) distributed storage and a local remesh with ghost layers
   (needed for a mesh that does not fit one node; the per-level partition must then be kept for the time stepping, so the topology of a rank would be its owned leaves plus the halo of each level and the remesh
-  would exchange flags between neighbouring ranks); (c) a SIMD flux kernel (shared with the uniform solver).
+  would exchange flags between neighbouring ranks); (c) a SIMD flux kernel (shared with the uniform solver; done on `amr-optimisation`).

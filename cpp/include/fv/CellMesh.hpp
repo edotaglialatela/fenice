@@ -108,6 +108,18 @@ public:
     void assign_leaves(const std::vector<int>& levels, const std::vector<int>& is, const std::vector<int>& js,
                        Field* state = nullptr);
 
+    // --- last change of the leaves (lets dependent tables be updated instead of rebuilt) ---
+    // Counter of the changes of the leaves (construction, adapt, assign_leaves).
+    long long version = 0;
+    // After an adapt that changed the leaves (empty after any other change, or with FENICE_FULL_REBUILD set): for every leaf
+    // its index before the call (-1: a new leaf, a child or a parent)...
+    std::vector<int> prev_leaf;
+    // ... whether its neighbourhood may have changed: a new leaf, or one of the four squares of its size across its sides holds
+    // a new leaf. The faces, neighbours and stencils of a clean leaf are its old ones with the indices renumbered...
+    std::vector<char> topo_dirty;
+    // ... and for every face its index before the call (-1: made anew; the faces a clean leaf makes are copied).
+    std::vector<int> prev_face;
+
     // --- mesh data ---
     double Lx, Ly;
     int nx, ny, max_level;
@@ -121,7 +133,11 @@ private:
     std::vector<std::vector<int>> grid_;
     std::vector<uint64_t> mkey_;
 
-    void rebuild();
+    std::vector<int> face_off_;   // faces made by leaf c: faces[face_off_[c] .. face_off_[c + 1])
+
+    // Lookup tables, faces and gather lists of the current leaves. `incremental`: prev_leaf is set (adapt), the faces of the clean
+    // leaves are copied from the old ones.
+    void rebuild(bool incremental = false);
     // Wrap (i, j) of level l into the domain on periodic axes; false if it falls outside a non-periodic edge.
     bool wrap(int l, int& i, int& j) const;
 };
