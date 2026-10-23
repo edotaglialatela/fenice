@@ -122,6 +122,7 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 | `ibm_chord` | `1.0` | Airfoil chord [m] (the file is normalised to unit chord first) |
 | `ibm_aoa` | `0.0` | Airfoil angle of attack [deg], positive nose up for a flow along +x; rotation about the quarter chord |
 | `ibm_cz` | `0.5` | Sphere centre z [m] (3-D only) |
+| `ibm_method` | `mask` | `mask`: solid cells are cells whose centre is inside the body, velocity zeroed there (a staircase wall). `ghost`: sharp wall, ghost states mirrored across the true surface (no-slip with `use_viscous`, slip without), loads integrated over the surface; 2-D cylinder or airfoil, serial / OpenMP, no AMR (for now) |
 
 ## Solution mapping (hot start)
 

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cctype>
+#include <cmath>
+#include <string>
 #include <stdexcept>
 
 namespace fv {
@@ -416,6 +418,11 @@ ImmersedBoundary::ImmersedBoundary(const Mesh& mesh, const std::string& shape, d
     if (s != "cylinder" && s != "sphere")
         throw std::invalid_argument("Unknown IBM shape: '" + shape + "' (use Cylinder or Sphere)");
     const bool sphere = mesh.is3d() && s == "sphere";
+    shape_ = sphere ? Shape::Ball : Shape::Circle;
+    cx_ = cx;
+    cy_ = cy;
+    cz_ = cz;
+    r_ = radius;
     for (int k = 0; k < nz_; ++k)
         for (int j = 0; j < ny_; ++j)
             for (int i = 0; i < nx_; ++i) {
@@ -429,6 +436,8 @@ ImmersedBoundary::ImmersedBoundary(const Mesh& mesh, const std::string& shape, d
 ImmersedBoundary::ImmersedBoundary(const Mesh& mesh, const Polygon2D& section, double rho_ref, double p_ref)
     : nx_(mesh.nx), ny_(mesh.ny), nz_(mesh.nz), rho_ref_(rho_ref), p_ref_(p_ref),
       mask_(static_cast<size_t>(mesh.num_cells()), 0) {
+    shape_ = Shape::Polygon;
+    poly_ = section;
     double x0 = 1e300, x1 = -1e300, y0 = 1e300, y1 = -1e300;   // bounding box: skip the far cells
     for (const auto& p : section.pts) {
         x0 = std::min(x0, p[0]);
@@ -451,6 +460,10 @@ int ImmersedBoundary::solid_count() const {
 }
 
 void ImmersedBoundary::apply_forcing(Field& U, const EOS& eos) const {
+    if (ghost_on_) {
+        fill_ghosts(U, eos);
+        return;
+    }
     const int n = static_cast<int>(U.size());
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int c = 0; c < n; ++c) {
@@ -465,6 +478,13 @@ void ImmersedBoundary::apply_forcing(Field& U, const EOS& eos) const {
 }
 
 void ImmersedBoundary::apply_solid_reset(Field& U, const EOS& eos, const SolidResetHalo* h) const {
+    if (ghost_on_) {   // ghost states from the fluid, the deeper solid cells at rest at the reference state
+        fill_ghosts(U, eos);
+        const State deep = eos.prim_to_cons({rho_ref_, 0.0, 0.0, p_ref_, 0.0});
+        for (size_t c = 0; c < mask_.size(); ++c)
+            if (mask_[c] && !ghost_mask_[c]) U[c] = deep;
+        return;
+    }
     const int nx = nx_, ny = ny_, nz = nz_, n = nx * ny * nz;
     auto pressure = [&](const State& c) {
         return (eos.gamma - 1.0) * (c[3] - 0.5 * (c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0]);
@@ -534,4 +554,210 @@ void ImmersedBoundary::apply_solid_reset(Field& U, const EOS& eos, const SolidRe
         U[c] = {new_rho[c], 0.0, 0.0, new_p[c] / (eos.gamma - 1.0), 0.0};
     }
 }
+
+// ---------------------------------------------------------------------------
+// Ghost-cell (sharp-interface) wall
+// ---------------------------------------------------------------------------
+
+void ImmersedBoundary::closest_wall_point(double x, double y, double& wx, double& wy, double& nx, double& ny) const {
+    if (shape_ == Shape::Circle) {
+        const double dx = x - cx_, dy = y - cy_, d = std::sqrt(dx * dx + dy * dy);
+        nx = d > 0.0 ? dx / d : 1.0;
+        ny = d > 0.0 ? dy / d : 0.0;
+        wx = cx_ + r_ * nx;
+        wy = cy_ + r_ * ny;
+        return;
+    }
+    if (shape_ != Shape::Polygon) throw std::logic_error("ImmersedBoundary: no 2-D geometry for the ghost-cell wall");
+    const auto& pts = poly_.pts;
+    const size_t n = pts.size();
+    double best = 1e300;
+    size_t seg = 0;
+    for (size_t k = 0; k < n; ++k) {
+        const auto &a = pts[k], &b = pts[(k + 1) % n];
+        const double ex = b[0] - a[0], ey = b[1] - a[1], l2 = ex * ex + ey * ey;
+        double t = l2 > 0.0 ? ((x - a[0]) * ex + (y - a[1]) * ey) / l2 : 0.0;
+        t = std::min(1.0, std::max(0.0, t));
+        const double px = a[0] + t * ex, py = a[1] + t * ey, d2 = (x - px) * (x - px) + (y - py) * (y - py);
+        if (d2 < best) {
+            best = d2;
+            wx = px;
+            wy = py;
+            seg = k;
+        }
+    }
+    const double d = std::sqrt(best);
+    const bool inside = poly_.contains(x, y);
+    if (d > 1e-12) {   // outward: from the point to the wall if it is inside, from the wall to the point if outside
+        nx = (inside ? wx - x : x - wx) / d;
+        ny = (inside ? wy - y : y - wy) / d;
+        return;
+    }
+    const auto &a = pts[seg], &b = pts[(seg + 1) % n];   // on the wall: the segment normal, pointing out
+    const double ex = b[0] - a[0], ey = b[1] - a[1], l = std::sqrt(ex * ex + ey * ey);
+    nx = ey / l;
+    ny = -ex / l;
+    if (poly_.contains(wx + 1e-6 * l * nx, wy + 1e-6 * l * ny)) {
+        nx = -nx;
+        ny = -ny;
+    }
+}
+
+State ImmersedBoundary::Probe::at(const Field& U, const EOS& eos) const {
+    State r{};
+    for (int k = 0; k < 4; ++k) {
+        if (w[k] == 0.0) continue;
+        const State W = eos.cons_to_prim(U[cell[k]]);
+        for (int q = 0; q < kNVar; ++q) r[q] += w[k] * W[q];
+    }
+    return r;
+}
+
+bool ImmersedBoundary::make_probe(const Mesh& m, double x, double y, Probe& pr) const {
+    // bilinear in the four cell centres around (x, y); solid cells are left out and the weights renormalised
+    double fx = (x - m.x0) / m.dx - 0.5, fy = (y - m.y0) / m.dy - 0.5;
+    int i0 = static_cast<int>(std::floor(fx)), j0 = static_cast<int>(std::floor(fy));
+    i0 = std::min(std::max(i0, 0), m.nx - 2);
+    j0 = std::min(std::max(j0, 0), m.ny - 2);
+    const double tx = std::min(1.0, std::max(0.0, fx - i0)), ty = std::min(1.0, std::max(0.0, fy - j0));
+    const int ci[4] = {i0, i0 + 1, i0, i0 + 1}, cj[4] = {j0, j0, j0 + 1, j0 + 1};
+    const double w[4] = {(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty};
+    double sum = 0.0;
+    for (int k = 0; k < 4; ++k) {
+        pr.cell[k] = m.cell(ci[k], cj[k]);
+        pr.w[k] = mask_[pr.cell[k]] ? 0.0 : w[k];
+        sum += pr.w[k];
+    }
+    if (sum < 1e-6) return false;
+    for (double& v : pr.w) v /= sum;
+    return true;
+}
+
+void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip) {
+    if (m.is3d() || shape_ == Shape::None || shape_ == Shape::Ball)
+        throw std::invalid_argument("ibm_method = ghost: 2-D cylinder or airfoil bodies only (for now)");
+    const int nx = m.nx, ny = m.ny;
+    const double h = std::max(m.dx, m.dy);
+    slip_ = slip;
+    ghost_.clear();
+    surface_.clear();
+    ghost_mask_.assign(mask_.size(), 0);
+    // the image (resp. probe) point lies at least 1.5 cells into the fluid, so its four interpolation cells are fluid cells
+    // on a flat or convex wall; further out where they are not (concave corners, thin trailing edges)
+    const auto probe_out = [&](double wx, double wy, double nxw, double nyw, double d0, double& d, Probe& pr) {
+        for (d = std::max(d0, 1.5 * h); d <= 4.0 * h + 1e-12; d += 0.5 * h)
+            if (make_probe(m, wx + d * nxw, wy + d * nyw, pr)) return true;
+        return false;
+    };
+    for (int j = 0; j < ny; ++j)
+        for (int i = 0; i < nx; ++i) {
+            const int c = m.cell(i, j);
+            if (!mask_[c]) continue;
+            bool near = false;   // a fluid cell within two cells (MUSCL stencils, viscous gradients) reads this one
+            for (int dj = -2; dj <= 2 && !near; ++dj)
+                for (int di = -2; di <= 2 && !near; ++di) {
+                    const int ii = i + di, jj = j + dj;
+                    if (ii >= 0 && ii < nx && jj >= 0 && jj < ny && !mask_[m.cell(ii, jj)]) near = true;
+                }
+            if (!near) continue;
+            Ghost g;
+            g.cell = c;
+            double wx, wy;
+            closest_wall_point(m.xc(i), m.yc(j), wx, wy, g.nx, g.ny);
+            const double dg = std::sqrt((m.xc(i) - wx) * (m.xc(i) - wx) + (m.yc(j) - wy) * (m.yc(j) - wy));
+            double di;
+            if (!probe_out(wx, wy, g.nx, g.ny, dg, di, g.image))
+                throw std::runtime_error("ibm_method = ghost: no fluid cells around the image point of cell (" + std::to_string(i) +
+                                         ", " + std::to_string(j) + "); refine the mesh near the body");
+            g.ratio = dg / di;
+            ghost_.push_back(g);
+            ghost_mask_[c] = 1;
+        }
+    // surface samples for the loads, at most half a cell apart
+    const auto add_point = [&](double wx, double wy, double nxw, double nyw, double ds) {
+        SurfacePoint sp;
+        sp.x = wx;
+        sp.y = wy;
+        sp.nx = nxw;
+        sp.ny = nyw;
+        sp.ds = ds;
+        if (probe_out(wx, wy, nxw, nyw, 0.0, sp.d, sp.probe)) surface_.push_back(sp);
+    };
+    if (shape_ == Shape::Circle) {
+        const double pi = std::acos(-1.0);
+        const int n = std::max(64, static_cast<int>(std::ceil(2.0 * pi * r_ / (0.5 * h))));
+        for (int k = 0; k < n; ++k) {
+            const double th = 2.0 * pi * (k + 0.5) / n;
+            add_point(cx_ + r_ * std::cos(th), cy_ + r_ * std::sin(th), std::cos(th), std::sin(th), 2.0 * pi * r_ / n);
+        }
+    } else {
+        const auto& pts = poly_.pts;
+        for (size_t k = 0; k < pts.size(); ++k) {
+            const auto &a = pts[k], &b = pts[(k + 1) % pts.size()];
+            const double ex = b[0] - a[0], ey = b[1] - a[1], l = std::sqrt(ex * ex + ey * ey);
+            if (l <= 0.0) continue;
+            double nxs = ey / l, nys = -ex / l;
+            const double mx = 0.5 * (a[0] + b[0]), my = 0.5 * (a[1] + b[1]);
+            if (poly_.contains(mx + 1e-6 * l * nxs, my + 1e-6 * l * nys)) {
+                nxs = -nxs;
+                nys = -nys;
+            }
+            const int ns = std::max(1, static_cast<int>(std::ceil(l / (0.5 * h))));
+            for (int q = 0; q < ns; ++q) {
+                const double t = (q + 0.5) / ns;
+                add_point(a[0] + t * ex, a[1] + t * ey, nxs, nys, l / ns);
+            }
+        }
+    }
+    ghost_on_ = true;
+}
+
+void ImmersedBoundary::fill_ghosts(Field& U, const EOS& eos) const {
+    // every ghost state is computed from fluid cells only, then written: the result does not depend on the order
+    const int ng = static_cast<int>(ghost_.size());
+    std::vector<State> val(static_cast<size_t>(ng));
+#pragma omp parallel for schedule(static) if (ng >= kOmpMinWork)
+    for (int k = 0; k < ng; ++k) {
+        const Ghost& g = ghost_[static_cast<size_t>(k)];
+        const State W = g.image.at(U, eos);
+        const double un = W[1] * g.nx + W[2] * g.ny;
+        double ux, uy;
+        if (slip_) {   // tangential velocity kept, normal velocity reflected through zero at the wall
+            ux = W[1] - un * g.nx - g.ratio * un * g.nx;
+            uy = W[2] - un * g.ny - g.ratio * un * g.ny;
+        } else {   // whole velocity through zero at the wall
+            ux = -g.ratio * W[1];
+            uy = -g.ratio * W[2];
+        }
+        val[static_cast<size_t>(k)] = eos.prim_to_cons({W[0], ux, uy, W[3], 0.0});
+    }
+    for (int k = 0; k < ng; ++k) U[ghost_[static_cast<size_t>(k)].cell] = val[static_cast<size_t>(k)];
+    const int n = static_cast<int>(U.size());
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+    for (int c = 0; c < n; ++c) {   // deeper solid cells: at rest
+        if (!mask_[c] || ghost_mask_[c]) continue;
+        State W = eos.cons_to_prim(U[c]);
+        W[1] = W[2] = W[4] = 0.0;
+        U[c] = eos.prim_to_cons(W);
+    }
+}
+
+std::array<double, 3> ImmersedBoundary::surface_loads(const Field& U, const EOS& eos, double mu, double cx, double cy) const {
+    double fx = 0.0, fy = 0.0, mz = 0.0;
+    for (const SurfacePoint& sp : surface_) {
+        const State W = sp.probe.at(U, eos);
+        double tx = -W[3] * sp.nx, ty = -W[3] * sp.ny;   // pressure (zero normal gradient at the wall)
+        if (mu > 0.0) {   // wall shear from the tangential velocity at the probe (no-slip: zero at the wall)
+            const double un = W[1] * sp.nx + W[2] * sp.ny;
+            tx += mu * (W[1] - un * sp.nx) / sp.d;
+            ty += mu * (W[2] - un * sp.ny) / sp.d;
+        }
+        const double ex = tx * sp.ds, ey = ty * sp.ds;
+        fx += ex;
+        fy += ey;
+        mz += (sp.x - cx) * ey - (sp.y - cy) * ex;
+    }
+    return {fx, fy, mz};
+}
+
 }   // namespace fv

@@ -311,6 +311,12 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         }
         if (ibm->solid_count() == 0)
             std::printf("[WARNING] The IBM body covers no cell: check its size and position\n");
+        if (p.ibm_method == "ghost") {
+            ibm->enable_ghost_cells(mesh, !p.use_viscous);
+            if (verbose)
+                std::printf("[IBM] Ghost-cell wall (%s): %d ghost cells, loads on the true surface\n",
+                            p.use_viscous ? "no-slip" : "slip", ibm->ghost_count());
+        }
         if (verbose && p.reynolds > 0.0) std::printf("[PHYSICS] Re = %g -> mu = %g\n", p.reynolds, p.mu);
     }
 
@@ -1077,8 +1083,12 @@ void Simulation::solve() {
     auto row = [&](int st) {   // averages, plus the IBM loads from a residual of the current state
         std::array<double, 3> loads{};
         if (p.use_ibm) {
-            residual(U, R_loads);
-            loads = ibm_loads(mesh, *ibm, U, R_loads);
+            if (ibm->ghost_cells()) {
+                loads = ibm->surface_loads(U, fluid, p.use_viscous ? p.mu : 0.0, p.ibm_cx, p.ibm_cy);
+            } else {
+                residual(U, R_loads);
+                loads = ibm_loads(mesh, *ibm, U, R_loads);
+            }
         }
         monitor_row(mon, st, volume_averages(U, n_all), p.use_ibm ? &loads : nullptr);
     };

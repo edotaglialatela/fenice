@@ -145,6 +145,7 @@ Params baseline_defaults() {
         {"ibm_file", ""},
         {"ibm_chord", "1.0"},
         {"ibm_aoa", "0.0"},
+        {"ibm_method", "mask"},
         {"reynolds", "0"},
         {"use_muscl", "false"},
         {"muscl_limiter", "Van Leer"},
@@ -246,6 +247,7 @@ SimParams SimParams::from(const Params& p) {
     s.ibm_file = p.str("ibm_file", "");
     s.ibm_chord = p.num("ibm_chord", 1.0);
     s.ibm_aoa = p.num("ibm_aoa", 0.0);
+    s.ibm_method = lower(p.str("ibm_method", "mask"));
     s.reynolds = p.num("reynolds", 0.0);
     s.use_muscl = p.flag("use_muscl");
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
@@ -328,6 +330,14 @@ SimParams SimParams::from(const Params& p) {
     if (s.use_ibm && shape == "airfoil" && s.ibm_file.empty())
         throw std::invalid_argument("ibm_shape = Airfoil needs ibm_file (a Selig or Lednicer coordinate file)");
     if (s.use_ibm && airfoil && !(s.ibm_chord > 0.0)) throw std::invalid_argument("ibm_chord must be positive");
+    if (s.ibm_method != "mask" && s.ibm_method != "ghost")
+        throw std::invalid_argument("Unknown ibm_method: '" + s.ibm_method + "' (use mask or ghost)");
+    if (s.use_ibm && s.ibm_method == "ghost") {
+        if (s.nz > 1) throw std::invalid_argument("ibm_method = ghost is 2-D only (for now)");
+        if (s.use_amr) throw std::invalid_argument("ibm_method = ghost does not support AMR yet");
+        if (s.use_mpi && s.n_cpus > 1) throw std::invalid_argument("ibm_method = ghost does not support MPI yet (set use_mpi = false)");
+        if (shape == "sphere") throw std::invalid_argument("ibm_method = ghost: use ibm_shape = Cylinder in 2-D");
+    }
     if (s.reynolds < 0.0) throw std::invalid_argument("reynolds must be >= 0 (0: use mu)");
     if (s.reynolds > 0.0) {
         // mu from the Reynolds number on the body: rho_in u_in L / mu, L = chord or diameter
