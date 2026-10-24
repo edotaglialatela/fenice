@@ -711,6 +711,26 @@ void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip) {
 }
 
 void ImmersedBoundary::fill_ghosts_part(const CellIndex& local, const CellState& in, Field& U, const EOS& eos, bool reset) const {
+    fill_ghost_cells(local, in, U, eos);
+    // deeper solid cells: at rest, or (reset) at the reference state
+    const State deep = eos.prim_to_cons({rho_ref_, 0.0, 0.0, p_ref_, 0.0});
+    const int n = static_cast<int>(mask_.size());
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+    for (int c = 0; c < n; ++c) {
+        if (!mask_[c] || ghost_mask_[c]) continue;
+        const int l = local(c);
+        if (l < 0) continue;
+        if (reset) {
+            U[static_cast<size_t>(l)] = deep;
+            continue;
+        }
+        State W = eos.cons_to_prim(U[static_cast<size_t>(l)]);
+        W[1] = W[2] = W[4] = 0.0;
+        U[static_cast<size_t>(l)] = eos.prim_to_cons(W);
+    }
+}
+
+void ImmersedBoundary::fill_ghost_cells(const CellIndex& local, const CellState& in, Field& U, const EOS& eos) const {
     // every ghost state is computed from fluid cells only, then written: the result does not depend on the order
     const int ng = static_cast<int>(ghost_.size());
     std::vector<State> val(static_cast<size_t>(ng));
@@ -734,22 +754,44 @@ void ImmersedBoundary::fill_ghosts_part(const CellIndex& local, const CellState&
     }
     for (int k = 0; k < ng; ++k)
         if (dst[static_cast<size_t>(k)] >= 0) U[static_cast<size_t>(dst[static_cast<size_t>(k)])] = val[static_cast<size_t>(k)];
-    // deeper solid cells: at rest, or (reset) at the reference state
-    const State deep = eos.prim_to_cons({rho_ref_, 0.0, 0.0, p_ref_, 0.0});
-    const int n = static_cast<int>(mask_.size());
-#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-    for (int c = 0; c < n; ++c) {
-        if (!mask_[c] || ghost_mask_[c]) continue;
-        const int l = local(c);
-        if (l < 0) continue;
-        if (reset) {
-            U[static_cast<size_t>(l)] = deep;
-            continue;
-        }
-        State W = eos.cons_to_prim(U[static_cast<size_t>(l)]);
-        W[1] = W[2] = W[4] = 0.0;
-        U[static_cast<size_t>(l)] = eos.prim_to_cons(W);
+}
+
+std::vector<std::pair<int, int>> ImmersedBoundary::ghost_reads() const {
+    std::vector<std::pair<int, int>> v;
+    for (const Ghost& g : ghost_)
+        for (int k = 0; k < 4; ++k)
+            if (g.image.w[k] != 0.0) v.push_back({g.cell, g.image.cell[k]});
+    return v;
+}
+
+std::vector<int> ImmersedBoundary::ghost_cell_list() const {
+    std::vector<int> v;
+    for (const Ghost& g : ghost_) v.push_back(g.cell);
+    return v;
+}
+
+std::vector<int> ImmersedBoundary::referenced_cells() const {
+    std::vector<int> v = ghost_cell_list();
+    for (const auto& pr : ghost_reads()) v.push_back(pr.second);
+    const std::vector<int> s = surface_inputs(0, 1);
+    v.insert(v.end(), s.begin(), s.end());
+    std::sort(v.begin(), v.end());
+    v.erase(std::unique(v.begin(), v.end()), v.end());
+    return v;
+}
+
+int ImmersedBoundary::ghost_reach() const {
+    const auto cheb = [&](int a, int b) { return std::max(std::abs(a % nx_ - b % nx_), std::abs(a / nx_ - b / nx_)); };
+    int r = 0;
+    for (const auto& pr : ghost_reads()) r = std::max(r, cheb(pr.first, pr.second));
+    // surface probes: from the nearest ghost cell (inside the body) to the probe cells
+    const std::vector<int> ghosts = ghost_cell_list();
+    for (const int c : surface_inputs(0, 1)) {
+        int best = 1 << 30;
+        for (const int g : ghosts) best = std::min(best, cheb(g, c));
+        r = std::max(r, best);
     }
+    return r + 1;
 }
 
 std::vector<int> ImmersedBoundary::ghost_inputs(const CellIndex& local) const {

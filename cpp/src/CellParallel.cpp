@@ -50,13 +50,21 @@ void CellParallel::partition() {
             if (r == me) part.face_active[f] = 1;
         }
     }
+    // the ghost-cell wall: a rank filling a ghost leaf (finest level) reads the fluid leaves of its image point
+    for (const auto& gr : engine_.ghost_reads())
+        for (int r = 0; r < R; ++r) {
+            std::vector<char>& nm = need_stage[static_cast<size_t>(r)][static_cast<size_t>(M)];
+            if (nm[static_cast<size_t>(gr.first)]) nm[static_cast<size_t>(gr.second)] = 1;
+        }
     // the mass-flow averages read their side leaves on every rank, at every stage
     std::vector<char> mf(static_cast<size_t>(N), 0);
     engine_.mass_flow_dependencies(mesh_, mf);
     for (int r = 0; r < R; ++r)
         for (int c = 0; c < N; ++c)
             if (mf[static_cast<size_t>(c)]) need_stage[static_cast<size_t>(r)][static_cast<size_t>(mesh_.level[c])][static_cast<size_t>(c)] = 1;
-    // the solid reset reads the neighbours of the solid leaves it updates
+    // the solid reset reads the neighbours of the solid leaves it updates (ghost-cell wall: the image leaves of the ghost leaves)
+    for (const auto& gr : engine_.ghost_reads())
+        need_final[static_cast<size_t>(owner_[static_cast<size_t>(gr.first)])][static_cast<size_t>(gr.second)] = 1;
     if (engine_.has_body())
         for (int c = 0; c < N; ++c)
             if (engine_.solid()[static_cast<size_t>(c)])

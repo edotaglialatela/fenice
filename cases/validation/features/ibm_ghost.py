@@ -1,12 +1,13 @@
 """Ghost-cell (sharp-interface) IBM wall: MPI against serial, bit for bit.
 
-    python cases/validation/features/ibm_ghost.py --check     # serial against 2 to 7 MPI ranks, four cases
+    python cases/validation/features/ibm_ghost.py --check     # serial against 2 to 7 MPI ranks, six cases
 
 Runs short ibm_method = ghost cases serially and on 2 to 7 MPI ranks and compares the final states bit for bit, and the loads
 the monitor writes (Cd, Cl) to roundoff (the strips' load sums are added in another order): a viscous cylinder (no-slip), a
 short channel whose strips are a few rows thick (the image points of a strip's ghost cells lie in other strips), the Mach 2
-cylinder (slip wall) and the NACA 0012 airfoil (a polygon body). Each rank fills its own ghost cells and fetches the cells of
-other strips their image points read, so the states must not depend on the rank count. CI runs it on every platform.
+cylinder (slip wall), the NACA 0012 airfoil (a polygon body), and on AMR meshes the airfoil and an adapting cylinder (the
+ghost table lives on the finest level and its image leaves are part of the MPI halo). Each rank fills its own ghost cells
+from the cells their image points read, so the states must not depend on the rank count. CI runs it on every platform.
 """
 import numpy as np
 
@@ -20,6 +21,10 @@ CHECK_CASES = {   # name: (case, overrides)
                                                "max_steps=30"]),
     "supersonic": ("IBM Supersonic Flow over Cylinder", ["nx=100", "ny=100", "max_steps=30"]),
     "airfoil": ("IBM Airfoil", ["nx=192", "ny=96", "max_steps=20"]),
+    # AMR: the ghost table on the finest level, the image leaves in the MPI halo
+    "amr_airfoil": ("IBM Airfoil AMR", ["max_steps=12"]),
+    "amr_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
+                                                "max_steps=16"]),
 }
 
 

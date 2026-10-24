@@ -334,7 +334,8 @@ SimParams SimParams::from(const Params& p) {
         throw std::invalid_argument("Unknown ibm_method: '" + s.ibm_method + "' (use mask or ghost)");
     if (s.use_ibm && s.ibm_method == "ghost") {
         if (s.nz > 1) throw std::invalid_argument("ibm_method = ghost is 2-D only (for now)");
-        if (s.use_amr) throw std::invalid_argument("ibm_method = ghost does not support AMR yet");
+        if (s.use_amr && !s.amr_refine_ibm)
+            throw std::invalid_argument("ibm_method = ghost with AMR needs amr_refine_ibm = true (the body at the finest level)");
         if (shape == "sphere") throw std::invalid_argument("ibm_method = ghost: use ibm_shape = Cylinder in 2-D");
     }
     if (s.reynolds < 0.0) throw std::invalid_argument("reynolds must be >= 0 (0: use mu)");

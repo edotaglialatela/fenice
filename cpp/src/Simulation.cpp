@@ -381,7 +381,11 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             cell_physics.source_unsteady = p.source_unsteady;
             cell_physics.source_mesh = &mesh;
         }
-        if (p.use_ibm) cell_physics.ibm_factory = ibm_factory;
+        if (p.use_ibm) {
+            cell_physics.ibm_factory = ibm_factory;
+            cell_physics.ibm_ghost = p.ibm_method == "ghost";
+            cell_physics.ibm_slip = !p.use_viscous;
+        }
         cell_engine = std::make_unique<CellFluxEngine>(fluid, riemann, muscl.get(), boundaries);
         cell_engine->set_physics(cell_physics);
         cell_indicator = CellIndicator{};
@@ -393,7 +397,18 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         cell_indicator.use_velocity = p.amr_indicator.find("velocity") != std::string::npos;
         cell_indicator.use_pressure = p.amr_indicator.find("pressure") != std::string::npos;
         cell_adaptor = std::make_unique<CellAdaptor>(*cells, *cell_engine, fluid, cell_indicator);
-        if (p.use_ibm && p.amr_refine_ibm) cell_adaptor->set_body(ibm_factory, 2);
+        if (p.use_ibm && p.amr_refine_ibm) {
+            int margin = 2;   // the fringe the solid reset treats
+            if (p.ibm_method == "ghost") {   // every ghost cell and the cells it reads (and the load probes) at the finest level
+                const int M = p.amr_max_level;
+                const Mesh fine = generate_cartesian_mesh(p.Lx, p.Ly, p.nx << M, p.ny << M, mesh.x0, mesh.y0);
+                ImmersedBoundary ib = ibm_factory(fine);
+                ib.enable_ghost_cells(fine, !p.use_viscous);
+                margin = std::max(margin, ib.ghost_reach());
+                if (verbose) std::printf("[AMR] Ghost-cell wall: finest-level band of %d cells around the body\n", margin);
+            }
+            cell_adaptor->set_body(ibm_factory, margin);
+        }
         if (verbose)
             std::printf("[AMR] Enabled - %d levels, indicator %s (variation %g, refine at %g, join below %g, %d smoothing "
                         "iterations), subcycling active\n",
@@ -473,6 +488,10 @@ void Simulation::initialize_field() {
             fill_cells(*cells);
         }
         cell_adaptor->init_adapt([this](CellMesh& m) { fill_cells(m); });
+        if (p.use_ibm && p.ibm_method == "ghost")
+            std::printf(cell_engine->ghost_ready() ? "[IBM] Ghost-cell wall active on the finest-level band\n"
+                                                   : "[WARNING] Ghost-cell wall inactive: the cells around the body are not all at the "
+                                                     "finest level; the mask forcing is used\n");
         if (p.use_ibm) cell_engine->solid_reset(*cells, cells->U);
     }
     if (cell_par) cell_par->partition();
@@ -1183,9 +1202,13 @@ void Simulation::solve_amr() {
         }
         std::array<double, 3> loads{};
         if (p.use_ibm) {
-            Field Rl;
-            eng.residual(cm, cm.U, Rl);
-            loads = cell_loads(cm, Rl);
+            if (eng.ghost_ready()) {
+                loads = eng.ghost_loads(cm.U, p.use_viscous ? p.mu : 0.0, p.ibm_cx, p.ibm_cy);
+            } else {
+                Field Rl;
+                eng.residual(cm, cm.U, Rl);
+                loads = cell_loads(cm, Rl);
+            }
         }
         monitor_row(mon, st, {s0 / area * mesh.cell_area(), s1 / area * mesh.cell_area(), s2 / area * mesh.cell_area()},
                     p.use_ibm ? &loads : nullptr);

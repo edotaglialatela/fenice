@@ -137,8 +137,17 @@ public:
     using CellIndex = std::function<int(int)>;
     using CellState = std::function<const State&(int)>;
     void fill_ghosts_part(const CellIndex& local, const CellState& in, Field& U_part, const EOS& eos, bool reset) const;
+    // Only the ghost cells of fill_ghosts_part (the deeper solid cells untouched).
+    void fill_ghost_cells(const CellIndex& local, const CellState& in, Field& U_part, const EOS& eos) const;
     // The global cells the ghost cells of the part read.
     std::vector<int> ghost_inputs(const CellIndex& local) const;
+    // (ghost cell, cell it reads) pairs, the ghost cells, and every cell the ghost fill and the surface loads read.
+    std::vector<std::pair<int, int>> ghost_reads() const;
+    std::vector<int> ghost_cell_list() const;
+    std::vector<int> referenced_cells() const;
+    // Largest distance, in cells (max norm), from the solid cells to a cell the ghost fill or the surface loads read, plus one:
+    // the width a band of uniform cells around the body needs (AMR: the finest-level band).
+    int ghost_reach() const;
     // Surface loads of the surface samples k with k % parts == part (sum the parts for the total), and the cells they read.
     std::array<double, 3> surface_loads_part(int part, int parts, const CellState& in, const EOS& eos, double mu, double cx,
                                              double cy) const;
