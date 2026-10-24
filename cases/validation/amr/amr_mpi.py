@@ -13,7 +13,7 @@ Every rank stores the whole mesh. Run it on an idle machine: the times are the p
 
 --check runs four cases that adapt during the run (dynamic Sod, the airfoil with the immersed body and the
 non-reflecting outlet, a periodic viscous manufactured solution, and one with a time-dependent source)
-serially and on 1 to 7 MPI ranks and compares the final states bit for bit; it is not part of the CI.
+serially and on 1 to 7 MPI ranks and compares the final states bit for bit; CI runs it on every platform.
 """
 import json
 import re
@@ -46,9 +46,11 @@ def measure(args, tag, mpi=0, threads=None):
 CHECK_CASES = {   # name: (case, overrides)
     "sod": ("Sod Shock Tube", ["nx=50", "ny=4", "Ly=0.08", "amr_max_level=2", "amr_refine_every=4"]),
     "airfoil": ("IBM Airfoil AMR", ["t_end=0.6"]),
-    "mms": ("Manufactured Solution", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "amr_criterion=0.01", "t_end=0.05"]),
+    # default indicator: all three levels stay in use and the leaves change during the run (with amr_criterion=0.01 the whole
+    # domain was refined at the start and the 2 steps of t_end=0.05 never remeshed)
+    "mms": ("Manufactured Solution", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "max_steps=16"]),
     "mms_unsteady": ("Manufactured Solution Unsteady Euler",
-                     ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "amr_criterion=0.01", "t_end=0.05"]),
+                     ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "max_steps=8"]),
 }
 
 
