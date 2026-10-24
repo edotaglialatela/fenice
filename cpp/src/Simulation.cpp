@@ -1,6 +1,7 @@
 #include "fv/Simulation.hpp"
 
 #include <chrono>
+#include <cstdlib>
 #include <cstdio>
 #include <limits>
 #include <map>
@@ -461,6 +462,7 @@ void Simulation::initialize_field() {
     if (test_case->requires_viscosity && !ns)
         std::printf("[WARNING] This test case requires Navier-Stokes - viscous physics is off!\n");
 
+    mem_setup_ = memory_usage();
     // An adaptive run needs a global field only for a hot start (interpolated onto the leaves)
     const bool global_field = !cells || p.use_hot_start;
     if (global_field) U = p.use_hot_start ? load_hot_start(p.hot_start_file) : initial_field();
@@ -495,6 +497,31 @@ void Simulation::initialize_field() {
         if (p.use_ibm) cell_engine->solid_reset(*cells, cells->U);
     }
     if (cell_par) cell_par->partition();
+    mem_init_ = memory_usage();
+    print_halo_reach("initial mesh");
+}
+
+void Simulation::print_halo_reach(const char* when) const {
+    const char* env = std::getenv("FENICE_HALO_REACH");
+    if (!env || std::string(env) != "1" || cell_comm.rank != 0) return;
+    const CellParallel::HaloReach hr = CellParallel::halo_reach(*cells, *cell_engine);
+    // per kind: the largest ring, and per level difference (level of the driver - level of the leaf read: ring)
+    std::printf("[AMR] halo reach (%s), rings of the driver's level [level difference driver - read: ring]:", when);
+    const char* names[] = {"interior", "coarse-fine", "boundary", "ghost images", "solid reset"};
+    for (int k = 0; k < CellParallel::HaloReach::NumKinds; ++k) {
+        std::printf("%s %s %d [", k ? ";" : "", names[k], hr.max(k));
+        bool first = true;
+        for (size_t d = 0; d < hr.ring[k].size(); ++d)
+            if (hr.ring[k][d] >= 0) {
+                std::printf("%s%+d: %d", first ? "" : ", ", static_cast<int>(d) - cells->max_level, hr.ring[k][d]);
+                first = false;
+            }
+        std::printf("]");
+    }
+    std::printf("; reads per ring:");
+    for (size_t k = 0; k < hr.reads.size(); ++k) std::printf(" %zu: %lld", k, hr.reads[k]);
+    std::printf("\n");
+    std::fflush(stdout);
 }
 
 void Simulation::fill_cells(CellMesh& m) const {
@@ -1266,10 +1293,21 @@ void Simulation::solve_amr() {
     if (root && interrupted) std::printf("\n[INTERRUPTED] Stopping the simulation...\n");
     if (interrupted || step % p.save_interval != 0) export_state(step);
     gather();
+    // resident memory of every rank (collective)
+    const MemoryUsage mem_end = memory_usage();
+    std::vector<double> mem = {mem_setup_.current, mem_init_.current, mem_end.current, mem_end.peak};
+    if (cell_par) {
+        std::vector<double> all(static_cast<size_t>(4 * nranks));
+        std::vector<int> counts(static_cast<size_t>(nranks), 4), displs(static_cast<size_t>(nranks));
+        for (int r = 0; r < nranks; ++r) displs[static_cast<size_t>(r)] = 4 * r;
+        cell_comm.allgatherv(mem.data(), 4, all.data(), counts.data(), displs.data());
+        mem.swap(all);
+    }
     if (!root) return;
     save_checkpoint(step);
     exporter.write_pvd(file_prefix);
     dump_final_state(step);
+    print_halo_reach("final mesh");
     std::vector<int> per_level(static_cast<size_t>(cm.max_level) + 1, 0);
     for (int c = 0; c < cm.num_leaves(); ++c) ++per_level[static_cast<size_t>(cm.level[static_cast<size_t>(c)])];
     std::printf("[AMR] %d leaves at the end (", cm.num_leaves());
@@ -1277,6 +1315,25 @@ void Simulation::solve_amr() {
     std::printf("); remesh %.2f s of the %.2f s time loop\n", remesh_wall, loop_wall);
     std::printf("[AMR] remesh parts: gather %.2f s, indicator %.2f s, adapt %.2f s, engine build %.2f s, wave-speed bound %.2f s, partition %.2f s\n",
                 t_gather, cell_adaptor->t_indicator, cell_adaptor->t_adapt, cell_adaptor->t_build, t_speed, t_partition);
+    double lo[4], hi[4];
+    for (int q = 0; q < 4; ++q) {
+        lo[q] = hi[q] = mem[static_cast<size_t>(q)];
+        for (int r = 1; r < nranks; ++r) {
+            lo[q] = std::min(lo[q], mem[static_cast<size_t>(4 * r + q)]);
+            hi[q] = std::max(hi[q], mem[static_cast<size_t>(4 * r + q)]);
+        }
+    }
+    const double MB = 1024.0 * 1024.0;
+    std::printf("[AMR] resident memory per rank [MB], min / max over %d rank%s: after setup %.1f / %.1f, after the initial "
+                "adaptation %.1f / %.1f, at the end %.1f / %.1f, peak %.1f / %.1f\n",
+                nranks, nranks > 1 ? "s" : "", lo[0] / MB, hi[0] / MB, lo[1] / MB, hi[1] / MB, lo[2] / MB, hi[2] / MB,
+                lo[3] / MB, hi[3] / MB);
+    double eng_leaf = 0.0, eng_uniform = 0.0;
+    eng.memory_bytes(eng_leaf, eng_uniform);
+    std::printf("[AMR] tables of rank 0 [MB]: mesh %.1f (leaves, state, faces, lookups), engine %.1f (stencils, work arrays), "
+                "engine uniform-mesh %.1f (IBM masks, ghost table), body band %.1f, indicator %.1f\n",
+                cm.memory_bytes() / MB, eng_leaf / MB, eng_uniform / MB, cell_adaptor->band_bytes() / MB,
+                cell_adaptor->xi_bytes() / MB);
     std::printf("=== DONE  - open '%s.pvd' in ParaView ===  (time loop %.3f s, %d steps)\n", file_prefix.c_str(), loop_wall,
                 step - start_step);
 }

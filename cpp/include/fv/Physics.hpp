@@ -147,6 +147,8 @@ public:
     std::vector<std::pair<int, int>> ghost_reads() const;
     std::vector<int> ghost_cell_list() const;
     std::vector<int> referenced_cells() const;
+    // Bytes of the mask and the ghost-cell tables.
+    double memory_bytes() const;
     // Largest distance, in cells (max norm), from the solid cells to a cell the ghost fill or the surface loads read, plus one:
     // the width a band of uniform cells around the body needs (AMR: the finest-level band).
     int ghost_reach() const;

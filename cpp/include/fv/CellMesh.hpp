@@ -120,6 +120,9 @@ public:
     // ... and for every face its index before the call (-1: made anew; the faces a clean leaf makes are copied).
     std::vector<int> prev_face;
 
+    // Bytes of the leaf arrays, the state, the faces, the gather lists, the lookup tables and the incremental bookkeeping.
+    double memory_bytes() const;
+
     // --- mesh data ---
     double Lx, Ly;
     int nx, ny, max_level;

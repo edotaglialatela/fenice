@@ -7,6 +7,7 @@
 #include <numeric>
 #include <stdexcept>
 
+#include "fv/MemoryBytes.hpp"
 #include "fv/ParallelScan.hpp"
 
 namespace fv {
@@ -363,6 +364,13 @@ void CellMesh::assign_leaves(const std::vector<int>& lv, const std::vector<int>&
     if (state) U = std::move(reordered);
     else U.clear();
     rebuild();
+}
+
+double CellMesh::memory_bytes() const {
+    return container_bytes(level_begin) + container_bytes(level) + container_bytes(ci) + container_bytes(cj) + container_bytes(U) +
+           container_bytes(faces) + container_bytes(face_level_begin) + container_bytes(side_ptr) + container_bytes(side_face) +
+           container_bytes(prev_leaf) + container_bytes(topo_dirty) + container_bytes(prev_face) + container_bytes(grid_) +
+           container_bytes(mkey_) + container_bytes(face_off_) + container_bytes(face_spare_);
 }
 
 bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>& coarsen_in) {

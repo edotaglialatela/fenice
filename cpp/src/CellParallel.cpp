@@ -216,4 +216,86 @@ int CellParallel::halo_count() const {
     return n;
 }
 
+int CellParallel::HaloReach::max(int kind) const {
+    int r = 0;
+    for (const int k : ring[kind]) r = std::max(r, k);
+    return r;
+}
+
+int CellParallel::HaloReach::max() const {
+    int r = 0;
+    for (int k = 0; k < NumKinds; ++k) r = std::max(r, max(k));
+    return r;
+}
+
+int CellParallel::ring(const CellMesh& m, int a, int b) {
+    if (a == b) return 0;
+    const int M = m.max_level, sa = 1 << (M - m.level[a]), sb = 1 << (M - m.level[b]);
+    // gap between the two squares along one axis, in finest-level cells (0: they touch or overlap), wrapped if periodic
+    const auto gap = [](long long a0, long long a1, long long b0, long long b1, long long period) {
+        long long g = std::max(0ll, std::max(b0 - a1, a0 - b1));
+        if (period > 0) {
+            g = std::min(g, std::max(0ll, std::max(b0 - period - a1, a0 - (b1 - period))));
+            g = std::min(g, std::max(0ll, std::max(b0 + period - a1, a0 - (b1 + period))));
+        }
+        return g;
+    };
+    const long long ax = static_cast<long long>(m.ci[a]) * sa, ay = static_cast<long long>(m.cj[a]) * sa;
+    const long long bx = static_cast<long long>(m.ci[b]) * sb, by = static_cast<long long>(m.cj[b]) * sb;
+    const long long g = std::max(gap(ax, ax + sa, bx, bx + sb, m.periodic_x ? m.nx_at(M) : 0),
+                                 gap(ay, ay + sa, by, by + sb, m.periodic_y ? m.ny_at(M) : 0));
+    return static_cast<int>(g / sa) + 1;
+}
+
+CellParallel::HaloReach CellParallel::halo_reach(const CellMesh& m, const CellFluxEngine& eng) {
+    HaloReach hr;
+    for (std::vector<int>& r : hr.ring) r.assign(static_cast<size_t>(2 * m.max_level) + 1, -1);
+    const auto note = [&](int kind, int driver, int read) {
+        const int k = ring(m, driver, read);
+        if (static_cast<int>(hr.reads.size()) <= k) hr.reads.resize(static_cast<size_t>(k) + 1, 0);
+        ++hr.reads[static_cast<size_t>(k)];
+        int& slot = hr.ring[kind][static_cast<size_t>(m.max_level + m.level[driver] - m.level[read])];
+        slot = std::max(slot, k);
+    };
+    // the image leaves of every ghost leaf
+    std::vector<std::vector<int>> images(static_cast<size_t>(m.num_leaves()));
+    for (const auto& gr : eng.ghost_reads()) images[static_cast<size_t>(gr.first)].push_back(gr.second);
+    std::vector<int> reads;
+    for (int f = 0; f < static_cast<int>(m.faces.size()); ++f) {
+        const CellFace& face = m.faces[static_cast<size_t>(f)];
+        int drivers[2] = {-1, -1};
+        int kind = HaloReach::Interior;
+        if (face.kind == CellFaceKind::Boundary) {
+            drivers[0] = face.left >= 0 ? face.left : face.right;
+            kind = HaloReach::Boundary;
+        } else if (face.kind == CellFaceKind::CoarseFine) {
+            drivers[0] = m.level[face.left] > m.level[face.right] ? face.left : face.right;
+            kind = HaloReach::CoarseFine;
+        } else {
+            drivers[0] = face.left;
+            drivers[1] = face.right;
+        }
+        reads.clear();
+        eng.face_dependencies(m, f, reads);
+        for (const int d : drivers) {
+            if (d < 0) continue;
+            for (const int c : reads) {
+                note(kind, d, c);
+                if (face.level == m.max_level)   // a rank holding a ghost leaf at the finest level fills it from its images
+                    for (const int g : images[static_cast<size_t>(c)]) note(HaloReach::GhostImage, d, g);
+            }
+        }
+    }
+    for (const auto& gr : eng.ghost_reads()) note(HaloReach::SolidReset, gr.first, gr.second);
+    if (eng.has_body())
+        for (int c = 0; c < m.num_leaves(); ++c)
+            if (eng.solid()[static_cast<size_t>(c)])
+                for (int s = 0; s < 4; ++s) {
+                    const CellNeighbour nb = m.neighbour(c, static_cast<Face>(s));
+                    for (const int n : {nb.a, nb.b})
+                        if (n >= 0) note(HaloReach::SolidReset, c, n);
+                }
+    return hr;
+}
+
 }   // namespace fv

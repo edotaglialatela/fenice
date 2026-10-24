@@ -130,6 +130,8 @@ private:
     std::array<double, 3> cell_loads(const CellMesh& m, const Field& R) const;
     std::unique_ptr<GridInterp2D> hot_interp_;   // hot-start field of an AMR run
     double cell_speed_ = 0.0;                    // wave-speed bound the next AMR time step is taken from
+    MemoryUsage mem_setup_, mem_init_;           // resident memory after setup and after the initial adaptation (AMR report)
+    void print_halo_reach(const char* when) const;   // FENICE_HALO_REACH=1: CellParallel::halo_reach of the AMR mesh
     // Monitor CSV (rank 0): header on open, one row per call.
     std::FILE* open_monitor() const;
     // `loads`: {Fx, Fy, Mz} of the IBM body (adds Fx, Fy, Cd, Cl, Cm), nullptr without IBM.

@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include "SchemesSimd.hpp"
+#include "fv/MemoryBytes.hpp"
 #include "fv/ParallelScan.hpp"
 
 namespace fv {
@@ -503,47 +504,73 @@ void CellFluxEngine::set_partition(const CellMesh& m, const Partition& p) { rebu
 
 void CellFluxEngine::clear_partition(const CellMesh& m) { rebuild_lists(m, nullptr); }
 
-void CellFluxEngine::mark_tree(int code, std::vector<char>& mask) const {
+template <class Mark>
+void CellFluxEngine::mark_tree(int code, const Mark& mark) const {
     if (code >= 0) {
-        mask[static_cast<size_t>(code)] = 1;
+        mark(code);
         return;
     }
-    for (const int ch : vnode_[static_cast<size_t>(-1 - code)]) mark_tree(ch, mask);
+    for (const int ch : vnode_[static_cast<size_t>(-1 - code)]) mark_tree(ch, mark);
 }
 
-void CellFluxEngine::mark_code(int code, std::vector<char>& mask) const {
+template <class Mark>
+void CellFluxEngine::mark_code(int code, const Mark& mark) const {
     if (code < 0) return;
     if (code < nleaf_) {
-        mask[static_cast<size_t>(code)] = 1;
+        mark(code);
         return;
     }
     const size_t v = static_cast<size_t>(code - nleaf_);
     if (v < vroot_.size()) {
-        mark_tree(vroot_[v], mask);
+        mark_tree(vroot_[v], mark);
         return;
     }
     const InterpVirtual& iv = interp_[v - vroot_.size()];
-    mask[static_cast<size_t>(iv.coarse)] = 1;
-    for (int s = 0; s < 4; ++s) mark_code(nbr_raw_[static_cast<size_t>(4) * iv.coarse + s], mask);
+    mark(iv.coarse);
+    for (int s = 0; s < 4; ++s) mark_code(nbr_raw_[static_cast<size_t>(4) * iv.coarse + s], mark);
 }
 
-void CellFluxEngine::face_dependencies(const CellMesh& m, int f, std::vector<char>& mask) const {
+template <class Mark>
+void CellFluxEngine::mark_face(const CellMesh& m, int f, const Mark& mark) const {
     const CellFace& face = m.faces[static_cast<size_t>(f)];
     const auto cell = [&](int c) {
-        mask[static_cast<size_t>(c)] = 1;
-        for (int s = 0; s < 4; ++s) mark_code(nbr_[static_cast<size_t>(4) * c + s], mask);   // gradients, tangential differences
+        mark(c);
+        for (int s = 0; s < 4; ++s) mark_code(nbr_[static_cast<size_t>(4) * c + s], mark);   // gradients, tangential differences
     };
     if (face.kind == CellFaceKind::Boundary) {
         cell(face.left >= 0 ? face.left : face.right);
         return;
     }
-    for (int k = 0; k < 4; ++k) mark_code(stencil_[static_cast<size_t>(f)][k], mask);
+    for (int k = 0; k < 4; ++k) mark_code(stencil_[static_cast<size_t>(f)][k], mark);
     cell(face.left);
     cell(face.right);
     if (face.kind == CellFaceKind::CoarseFine) {   // the coarse leaf's own neighbours (second-order coarse side)
         const int C = m.level[face.left] > m.level[face.right] ? face.right : face.left;
-        for (int s = 0; s < 4; ++s) mark_code(nbr_raw_[static_cast<size_t>(4) * C + s], mask);
+        for (int s = 0; s < 4; ++s) mark_code(nbr_raw_[static_cast<size_t>(4) * C + s], mark);
     }
+}
+
+void CellFluxEngine::memory_bytes(double& per_leaf, double& uniform) const {
+    per_leaf = container_bytes(stencil_) + container_bytes(nbr_) + container_bytes(vroot_) + container_bytes(vnode_) +
+               container_bytes(interp_) + container_bytes(Wint_) + container_bytes(nbr_raw_) + container_bytes(nbr_raw_spare_) +
+               container_bytes(nbr_spare_) + container_bytes(stencil_spare_) + container_bytes(vkey_) + container_bytes(ikey_) +
+               container_bytes(special_) + container_bytes(lface_) + container_bytes(lheld_) + container_bytes(lown_b_) +
+               container_bytes(lown_e_) + container_bytes(all_faces_) + container_bytes(owned_mask_) + container_bytes(forced_) +
+               container_bytes(Vc_) + container_bytes(W_) + container_bytes(F_) + container_bytes(Fv_) + container_bytes(reg_) +
+               container_bytes(regv_) + container_bytes(need_) + container_bytes(vcells_) + container_bytes(su_) +
+               container_bytes(sv_) + container_bytes(sT_) + container_bytes(dudx_) + container_bytes(dudy_) + container_bytes(dvdx_) +
+               container_bytes(dvdy_) + container_bytes(solid_) + container_bytes(fine_leaf_) + container_bytes(ghost_reads_leaf_) +
+               container_bytes(ghost_leaf_mask_) + container_bytes(held_mask_) + container_bytes(src_);
+    for (int s = 0; s < 4; ++s) per_leaf += container_bytes(mf_face_[s]) + container_bytes(mf_weight_[s]);
+    uniform = container_bytes(level_mask_) + (ghost_ib_ ? ghost_ib_->memory_bytes() : 0.0);
+}
+
+void CellFluxEngine::face_dependencies(const CellMesh& m, int f, std::vector<char>& mask) const {
+    mark_face(m, f, [&](int c) { mask[static_cast<size_t>(c)] = 1; });
+}
+
+void CellFluxEngine::face_dependencies(const CellMesh& m, int f, std::vector<int>& out) const {
+    mark_face(m, f, [&](int c) { out.push_back(c); });
 }
 
 void CellFluxEngine::mass_flow_dependencies(const CellMesh& m, std::vector<char>& mask) const {

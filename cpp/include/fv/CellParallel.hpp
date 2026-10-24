@@ -64,6 +64,26 @@ public:
     void gather_state();
     double reduce_max(double v) const { return comm_.size > 1 ? comm_.allreduce_max(v) : v; }
 
+    // How far the reads of a distributed run reach (docs/design/amr-distributed.md, phase 0), independent of the partition: every
+    // read is measured from the leaf whose owner makes it (the driver), in rings of the driver's level (see ring()).
+    struct HaloReach {
+        enum Kind { Interior, CoarseFine, Boundary, GhostImage, SolidReset, NumKinds };
+        // Interior: reads of a same-level face, from either of its leaves (both owners compute it); CoarseFine: of a
+        // coarse-fine face, from its fine leaf; Boundary: of a boundary face, from its leaf; GhostImage: the image leaves of a
+        // ghost leaf that a finest-level face reads, from that face's driver; SolidReset: the reads of the solid reset
+        // (neighbours, ghost images), from the solid leaf.
+        // Largest ring per kind and level difference: ring[kind][max_level + level(driver) - level(read)] (max_level: the same
+        // level, one more: the read leaf one level coarser, one less: one level finer); -1 where no such read was seen.
+        std::vector<int> ring[NumKinds];
+        std::vector<long long> reads;   // number of reads (with repetitions) per ring, all kinds together
+        int max(int kind) const;        // largest ring of a kind (0 if none)
+        int max() const;                // of all kinds
+    };
+    static HaloReach halo_reach(const CellMesh& mesh, const CellFluxEngine& engine);
+    // Ring of leaf b seen from leaf a: 0 if b == a, else the smallest k >= 1 such that b overlaps the square of a dilated by k
+    // cells of a's level (1: b touches a, even at a corner only); periodic axes wrap.
+    static int ring(const CellMesh& mesh, int a, int b);
+
     // Leaves of level l owned by rank r: [owned_begin, owned_end).
     int owned_begin(int r, int l) const { return ob_[static_cast<size_t>(r)][static_cast<size_t>(l)]; }
     int owned_end(int r, int l) const { return oe_[static_cast<size_t>(r)][static_cast<size_t>(l)]; }
