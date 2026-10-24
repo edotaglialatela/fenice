@@ -321,3 +321,11 @@ Reach of the remesh (from the code, for phase 3; checked by the guard test then)
   ranks) are green.
 * Still O(N) per rank while the mesh is replicated: `owner_` and `held_` (a cache over the replicated leaves), the two masks,
   `ob_` / `oe_` (used by `gather_state`). Phase 2 makes them local.
+* **Measured by the user after phase 1** (`amr_memory.py --force`, same machine as 8.1): `partition()` did **not** get
+  faster: 0.24 / 0.23 / 0.31 / 0.72 s on 2 / 4 / 8 / 16 ranks (720), 0.79 / 0.83 / 1.17 / 2.92 s (1440), against 0.24 / 0.24 /
+  0.37 / 0.56 and 0.79 / 0.87 / 1.29 / 2.32 s before (run-to-run noise is about 10-20 % at 16 ranks; wall 5.74 / 24.2 s on 16
+  ranks against 6.09 / 23.9). So the R x levels x N masks were not what made it grow: what remains is O(N) work repeated on every
+  rank (the owner of every leaf, the masks, the loop over every face, `CellFluxEngine::set_partition` over the whole mesh), and
+  like the indicator / adapt / build it slows down 2.5-4x from 2 to 16 ranks as the ranks share the memory bandwidth. Phase 1
+  removed the R factor and every global index between ranks (needed for phase 2), not the O(N) per rank; that goes with the
+  replicated mesh in phases 2 and 4. Memory unchanged, as expected.
