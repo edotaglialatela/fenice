@@ -3,6 +3,7 @@
     python cases/validation/amr/airfoil_amr.py             # results/validation/airfoil_amr/
     python cases/validation/amr/airfoil_amr.py --docs      # also docs/img/airfoil_amr.png
     python cases/validation/amr/airfoil_amr.py --table     # also the accuracy-per-cost table (design doc, section 20)
+    python cases/validation/amr/airfoil_amr.py --base 384x192 --threads 24   # another base mesh (results/validation/airfoil_amr_384x192/)
 
 Runs "IBM Airfoil" on the 192 x 96 base mesh and on 768 x 384 (the resolution AMR keeps at
 the body), and "IBM Airfoil AMR" (192 x 96, two levels, body at the finest level), all on
@@ -10,6 +11,7 @@ OpenMP threads to t = 6. Prints the cells, the wall time and the rms difference 
 Cl(t) from the 768 x 384 run (the loads the solver writes to the monitor). Figure:
 airfoil_amr.png (vorticity with the refinement levels, load histories, cost).
 """
+import json
 import time
 
 import numpy as np
@@ -19,6 +21,8 @@ from fenice import study
 
 STUDY, CASE, CASE_AMR = "airfoil_amr", "IBM Airfoil", "IBM Airfoil AMR"
 T_END, BASE, LEVELS = 6.0, (192, 96), 2
+AMR_SETS = ()       # the AMR case's own base mesh unless --base says otherwise
+THREADS = None      # OpenMP threads of every run (default: all logical processors)
 COMMON = (f"t_end={T_END}", "monitor_interval=10", "save_interval=1000000000", "use_mpi=false")
 
 
@@ -28,7 +32,7 @@ def timed(args, tag, case, *sets):
     wall = d / "wall.txt"
     if args.force or not (d / "final.npz").exists() or not wall.exists():
         t0 = time.perf_counter()
-        study.run_cached(STUDY, tag, case, *sets, *COMMON, force=True)
+        study.run_cached(STUDY, tag, case, *sets, *(AMR_SETS if case == CASE_AMR else ()), *COMMON, threads=THREADS, force=True)
         wall.write_text(f"{time.perf_counter() - t0:.2f}")
     return d, float(wall.read_text())
 
@@ -55,7 +59,7 @@ def fine_velocity(run):
 
 
 # Accuracy per cost (docs/design/amr-cell-based.md, section 20): uniform 384 x 192 and the cell engine at stricter indicator settings
-TABLE = [("uniform 384x192", CASE, ("nx=384", "ny=192")),
+TABLE = [("uniform 2x base", CASE, ()),
          ("cell engine, default (criterion 0.1)", CASE_AMR, ()),
          ("cell engine, criterion 0.01, diffusion 2", CASE_AMR, ("amr_criterion=0.01", "amr_diffusion=2")),
          ("cell engine, criterion 0.01, diffusion 4", CASE_AMR, ("amr_criterion=0.01", "amr_diffusion=4")),
@@ -74,20 +78,34 @@ def load_errors(run, fine):
 
 def table(args, fine, w_f):
     """Cells at the end, wall time and load errors of the TABLE runs (and the two uniform references)."""
+    rows = []
     print(f"\n{'run':44s} {'cells':>8s} {'wall [s]':>9s} {'Cd':>8s} {'Cl':>8s}")
-    print(f"{'uniform 768x384 (reference)':44s} {BASE[0] * BASE[1] * 4 ** LEVELS:8d} {w_f:9.1f}")
+    mid = (2 * BASE[0], 2 * BASE[1])
+    print(f"{f'uniform {BASE[0] * 4}x{BASE[1] * 4} (reference)':44s} {BASE[0] * BASE[1] * 4 ** LEVELS:8d} {w_f:9.1f}")
     for k, (label, case, sets) in enumerate(TABLE):
         tag = "uniform_mid" if case == CASE else ("amr" if not sets else f"table{k}")
+        if case == CASE:
+            label, sets = f"uniform {mid[0]}x{mid[1]}", (f"nx={mid[0]}", f"ny={mid[1]}")
         run, wall = timed(args, tag, case, *sets)
-        cells = 384 * 192 if case == CASE else len(fenice.read_dump(run / "final.npz")["U"])
+        cells = mid[0] * mid[1] if case == CASE else len(fenice.read_dump(run / "final.npz")["U"])
         e_d, e_l = load_errors(run, fine)
         print(f"{label:44s} {cells:8d} {wall:9.1f} {e_d:8.4f} {e_l:8.4f}")
+        rows.append({"run": label, "cells": cells, "wall": wall, "Cd": e_d, "Cl": e_l})
+    (study.study_dir(STUDY) / "table.json").write_text(json.dumps(rows, indent=1))
 
 
 def main():
+    global STUDY, BASE, AMR_SETS, THREADS
     ap = study.parser(__doc__.splitlines()[0])
     ap.add_argument("--table", action="store_true", help="also the accuracy-per-cost table (section 20 of the design doc)")
+    ap.add_argument("--base", default=f"{BASE[0]}x{BASE[1]}", help="base mesh NXxNY of the AMR run (default %(default)s)")
+    ap.add_argument("--threads", type=int, help="OpenMP threads of every run (default: all logical processors)")
     args = ap.parse_args()
+    THREADS = args.threads
+    nx, ny = (int(v) for v in args.base.split("x"))
+    if (nx, ny) != BASE:   # another base mesh: its own folder and figure, never in the docs
+        STUDY, BASE, AMR_SETS = f"airfoil_amr_{nx}x{ny}", (nx, ny), (f"nx={nx}", f"ny={ny}")
+        args.docs = False
     plt = study.use_style()
     coarse, w_c = timed(args, "uniform_coarse", CASE, f"nx={BASE[0]}", f"ny={BASE[1]}")
     fine, w_f = timed(args, "uniform_fine", CASE, f"nx={BASE[0] * 2 ** LEVELS}", f"ny={BASE[1] * 2 ** LEVELS}")
@@ -95,14 +113,16 @@ def main():
     cells_c, cells_f = BASE[0] * BASE[1], BASE[0] * BASE[1] * 4 ** LEVELS
     u, v, h, meta = fine_velocity(amr)
     cells_a = len(meta)
-    runs = [("Uniform 192$\\times$96", coarse, "#95a5a6", cells_c, w_c),
-            ("Uniform 768$\\times$384", fine, "#2980b9", cells_f, w_f),
-            ("AMR, 192$\\times$96 + 2 levels", amr, "#e74c3c", cells_a, w_a)]
+    runs = [(f"Uniform {BASE[0]}$\\times${BASE[1]}", coarse, "#95a5a6", cells_c, w_c),
+            (f"Uniform {BASE[0] * 4}$\\times${BASE[1] * 4}", fine, "#2980b9", cells_f, w_f),
+            (f"AMR, {BASE[0]}$\\times${BASE[1]} + 2 levels", amr, "#e74c3c", cells_a, w_a)]
 
+    errors = []
     for label, run, _, cells, wall in runs:
         e_d, e_l = load_errors(run, fine)
+        errors.append((e_d, e_l))
         print(f"{label.replace('$', '').replace(chr(92) + 'times', 'x'):32s} {cells:7d} cells {wall:7.1f} s   "
-              f"rms vs 768x384, t >= 1: Cd {e_d:.4f}  Cl {e_l:.4f}")
+              f"rms vs {BASE[0] * 4}x{BASE[1] * 4}, t >= 1: Cd {e_d:.4f}  Cl {e_l:.4f}")
 
     fig = plt.figure(figsize=(11, 8.6))
     a0 = fig.add_axes([0.06, 0.5, 0.9, 0.45])
@@ -143,7 +163,10 @@ def main():
     for x, r in zip(xs, runs):
         a3.text(x, r[4] * 1.15, f"{r[4]:.0f} s", ha="center", fontsize=9)
     a3.set_ylim(top=max(r[4] for r in runs) * 3)
-    study.save(fig, STUDY, "airfoil_amr.png", args.docs)
+    study.save(fig, STUDY, f"{STUDY}.png", args.docs)
+    (study.study_dir(STUDY) / "summary.json").write_text(json.dumps(
+        {"base": BASE, "threads": THREADS, "runs": [{"run": r[0].replace("$", "").replace("\\times", "x"), "cells": r[3], "wall": r[4],
+                                                    "Cd": e[0], "Cl": e[1]} for r, e in zip(runs, errors)]}, indent=1))
     if args.table:
         table(args, fine, w_f)
 
