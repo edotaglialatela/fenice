@@ -1103,12 +1103,8 @@ void Simulation::solve() {
     auto row = [&](int st) {   // averages, plus the IBM loads from a residual of the current state
         std::array<double, 3> loads{};
         if (p.use_ibm) {
-            if (ibm->ghost_cells()) {
-                loads = ibm->surface_loads(U, fluid, p.use_viscous ? p.mu : 0.0, p.ibm_cx, p.ibm_cy);
-            } else {
-                residual(U, R_loads);
-                loads = ibm_loads(mesh, *ibm, U, R_loads);
-            }
+            residual(U, R_loads);
+            loads = ibm_loads(mesh, *ibm, U, R_loads);
         }
         monitor_row(mon, st, volume_averages(U, n_all), p.use_ibm ? &loads : nullptr);
     };
@@ -1202,13 +1198,9 @@ void Simulation::solve_amr() {
         }
         std::array<double, 3> loads{};
         if (p.use_ibm) {
-            if (eng.ghost_ready()) {
-                loads = eng.ghost_loads(cm.U, p.use_viscous ? p.mu : 0.0, p.ibm_cx, p.ibm_cy);
-            } else {
-                Field Rl;
-                eng.residual(cm, cm.U, Rl);
-                loads = cell_loads(cm, Rl);
-            }
+            Field Rl;
+            eng.residual(cm, cm.U, Rl);
+            loads = cell_loads(cm, Rl);
         }
         monitor_row(mon, st, {s0 / area * mesh.cell_area(), s1 / area * mesh.cell_area(), s2 / area * mesh.cell_area()},
                     p.use_ibm ? &loads : nullptr);
@@ -1452,14 +1444,12 @@ void Simulation::run_mpi(MPI_Comm comm) {
     // the few cells of other strips their image points read (they may lie several strips away), so MPI gives the serial bits
     const bool ghost = p.use_ibm && ibm && ibm->ghost_cells();
     const auto local_of = [&decomp](int c) { return decomp.local_index(c); };
-    MPIDecomposition::CellFetch ghost_fetch, load_fetch;
-    std::vector<State> ghost_remote, load_remote;
-    std::unordered_map<int, int> ghost_pos, load_pos;
+    MPIDecomposition::CellFetch ghost_fetch;
+    std::vector<State> ghost_remote;
+    std::unordered_map<int, int> ghost_pos;
     if (ghost) {
         ghost_fetch = decomp.plan_fetch(ibm->ghost_inputs(local_of));
-        load_fetch = decomp.plan_fetch(ibm->surface_inputs(decomp.rank, decomp.n_ranks));
         for (size_t k = 0; k < ghost_fetch.want.size(); ++k) ghost_pos[ghost_fetch.want[k]] = static_cast<int>(k);
-        for (size_t k = 0; k < load_fetch.want.size(); ++k) load_pos[load_fetch.want[k]] = static_cast<int>(k);
     }
     const auto cells_of = [&decomp](const Field& Ul, const std::vector<State>& remote, const std::unordered_map<int, int>& pos) {
         return [&decomp, &Ul, &remote, &pos](int c) -> const State& {
@@ -1533,16 +1523,9 @@ void Simulation::run_mpi(MPI_Comm comm) {
     auto row = [&](int st) {   // collective: every rank calls it
         const auto v = volume_averages(U_local, n_all);
         std::array<double, 3> loads{};
-        if (p.use_ibm) {   // IBM loads: residual of the current state (ghost cells: surface samples), summed over the strips
-            std::array<double, 3> mine;
-            if (ghost) {
-                decomp.fetch(load_fetch, U_local, load_remote);
-                mine = ibm->surface_loads_part(decomp.rank, decomp.n_ranks, cells_of(U_local, load_remote, load_pos), fluid,
-                                               p.use_viscous ? p.mu : 0.0, p.ibm_cx, p.ibm_cy);
-            } else {
-                res(U_local, R_loads);
-                mine = ibm_loads(lm, *local_ibm, U_local, R_loads);
-            }
+        if (p.use_ibm) {   // IBM loads: residual of the current state (mask or ghost cells), summed over the strips
+            res(U_local, R_loads);
+            const std::array<double, 3> mine = ibm_loads(lm, *local_ibm, U_local, R_loads);
             MPI_Allreduce(mine.data(), loads.data(), 3, MPI_DOUBLE, MPI_SUM, comm);
         }
         monitor_row(mon, st, v, p.use_ibm ? &loads : nullptr);
