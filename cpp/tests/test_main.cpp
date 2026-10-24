@@ -4034,18 +4034,43 @@ TEST(halo_reach_bounds_the_halo_of_any_partition) {
         eng.mass_flow_dependencies(m, mf);
         int outside = 0, halo = 0;
         for (const int R : {1, 2, 3, 5, 7, 16}) {
+            // partition() exchanges its requests: one thread per rank, each with its own copy of the mesh and engine
+            FakeHub hub(R);
+            std::vector<std::vector<char>> held(static_cast<size_t>(R));
+            std::vector<std::vector<int>> owner(static_cast<size_t>(R));
+            std::vector<std::string> error(static_cast<size_t>(R));
+            std::vector<std::thread> threads;
+            for (int r = 0; r < R; ++r)
+                threads.emplace_back([&, r]() {
+                    try {
+                        CellMesh mr = m;
+                        CellFluxEngine er(env.eos, env.rs, &env.mu, env.bm);
+                        er.set_physics(env.ph);
+                        er.build(mr);
+                        CellParallel par(mr, er, hub.comm(r));
+                        par.partition();
+                        for (int c = 0; c < mr.num_leaves(); ++c) {
+                            held[static_cast<size_t>(r)].push_back(par.holds(c) ? 1 : 0);
+                            owner[static_cast<size_t>(r)].push_back(par.owner(c));
+                        }
+                    } catch (const std::exception& e) {
+                        error[static_cast<size_t>(r)] = e.what();
+                    }
+                });
+            for (std::thread& th : threads) th.join();
             for (int r = 0; r < R; ++r) {
-                CellComm comm;   // partition() only needs the rank and the size
-                comm.rank = r;
-                comm.size = R;
-                CellParallel par(m, eng, comm);
-                par.partition();
+                if (!error[static_cast<size_t>(r)].empty()) {
+                    std::printf("    rank %d: %s\n", r, error[static_cast<size_t>(r)].c_str());
+                    ++outside;
+                    continue;
+                }
+                const std::vector<int>& own = owner[static_cast<size_t>(r)];
                 for (int c = 0; c < m.num_leaves(); ++c) {
-                    if (!par.holds(c) || par.owner(c) == r || mf[static_cast<size_t>(c)]) continue;
+                    if (!held[static_cast<size_t>(r)][static_cast<size_t>(c)] || own[static_cast<size_t>(c)] == r || mf[static_cast<size_t>(c)]) continue;
                     ++halo;
                     bool in = false;
                     for (int o = 0; o < m.num_leaves() && !in; ++o) {
-                        if (par.owner(o) != r) continue;
+                        if (own[static_cast<size_t>(o)] != r) continue;
                         const int b = bound[static_cast<size_t>(m.max_level + m.level[o] - m.level[c])];
                         in = b >= 0 && CellParallel::ring(m, o, c) <= b;
                     }
@@ -4053,7 +4078,6 @@ TEST(halo_reach_bounds_the_halo_of_any_partition) {
                 }
             }
         }
-        eng.clear_partition(m);
         CHECK(halo > 0);
         CHECK(outside == 0);
         if (outside) std::printf("    %s: %d halo leaves outside the reach\n", sp.name, outside);

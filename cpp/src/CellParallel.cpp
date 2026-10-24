@@ -1,14 +1,33 @@
 #include "fv/CellParallel.hpp"
 
 #include <algorithm>
+#include <array>
 #include <limits>
+#include <stdexcept>
 
 namespace fv {
 
+namespace {
+
+constexpr uint64_t kNoKey = ~static_cast<uint64_t>(0);   // above every Morton key of the mesh
+
+uint64_t leaf_key(const CellMesh& m, int c) {
+    return morton_key(static_cast<uint32_t>(m.ci[static_cast<size_t>(c)]), static_cast<uint32_t>(m.cj[static_cast<size_t>(c)]));
+}
+
+}   // namespace
+
+int CellParallel::owner_of(int level, uint64_t key) const {
+    const std::vector<uint64_t>& sp = split_[static_cast<size_t>(level)];
+    // the last rank whose first key is <= key (ranks with an empty block share the first key of the next one)
+    return static_cast<int>(std::upper_bound(sp.begin(), sp.end() - 1, key) - sp.begin()) - 1;
+}
+
 void CellParallel::partition() {
     const int N = mesh_.num_leaves(), R = comm_.size, M = mesh_.max_level, me = comm_.rank;
-    // owners: each level cut into contiguous blocks of equal count along its Morton order
-    owner_.assign(static_cast<size_t>(N), 0);
+    // splitters: each level cut into contiguous blocks of equal count along its Morton order; rank r owns at level l the keys
+    // [split[l][r], split[l][r + 1])
+    split_.assign(static_cast<size_t>(M) + 1, std::vector<uint64_t>(static_cast<size_t>(R) + 1, kNoKey));
     ob_.assign(static_cast<size_t>(R), std::vector<int>(static_cast<size_t>(M) + 1, 0));
     oe_ = ob_;
     for (int l = 0; l <= M; ++l) {
@@ -17,118 +36,153 @@ void CellParallel::partition() {
             const int s0 = static_cast<int>(b + n * r / R), s1 = static_cast<int>(b + n * (r + 1) / R);
             ob_[static_cast<size_t>(r)][static_cast<size_t>(l)] = s0;
             oe_[static_cast<size_t>(r)][static_cast<size_t>(l)] = s1;
-            for (int c = s0; c < s1; ++c) owner_[static_cast<size_t>(c)] = r;
+            if (s0 < b + n) split_[static_cast<size_t>(l)][static_cast<size_t>(r)] = leaf_key(mesh_, s0);
         }
     }
+    owner_.resize(static_cast<size_t>(N));
+#pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
+    for (int c = 0; c < N; ++c) owner_[static_cast<size_t>(c)] = owner_of(mesh_.level[static_cast<size_t>(c)], leaf_key(mesh_, c));
 
-    // who computes which face, and the leaves each rank reads
-    std::vector<std::vector<std::vector<char>>> need_stage(
-        static_cast<size_t>(R), std::vector<std::vector<char>>(static_cast<size_t>(M) + 1, std::vector<char>(static_cast<size_t>(N), 0)));
-    std::vector<std::vector<char>> need_final(static_cast<size_t>(R), std::vector<char>(static_cast<size_t>(N), 0));
+    // what this rank computes and reads: `held` every leaf it reads, `stage` those read in a stage of their own level (by the
+    // faces of that level, the ghost fill, the mass-flow averages)
+    std::vector<char> stage(static_cast<size_t>(N), 0), held(static_cast<size_t>(N), 0);
     CellFluxEngine::Partition part;
     part.face_active.assign(mesh_.faces.size(), 0);
     part.leaf_owned.assign(static_cast<size_t>(N), 0);
-    for (int c = 0; c < N; ++c) {
-        part.leaf_owned[static_cast<size_t>(c)] = owner_[static_cast<size_t>(c)] == me;
-        need_final[static_cast<size_t>(owner_[static_cast<size_t>(c)])][static_cast<size_t>(c)] = 1;
-    }
+    for (int c = 0; c < N; ++c)
+        if (owner_[static_cast<size_t>(c)] == me) part.leaf_owned[static_cast<size_t>(c)] = held[static_cast<size_t>(c)] = 1;
+    std::vector<int> reads;
     for (size_t f = 0; f < mesh_.faces.size(); ++f) {
         const CellFace& face = mesh_.faces[f];
-        int ranks[2] = {-1, -1};
+        bool mine;
         if (face.kind == CellFaceKind::Boundary) {
-            ranks[0] = owner_[static_cast<size_t>(face.left >= 0 ? face.left : face.right)];
+            mine = owner_[static_cast<size_t>(face.left >= 0 ? face.left : face.right)] == me;
         } else if (face.kind == CellFaceKind::CoarseFine) {   // the owner of the finer leaf
-            ranks[0] = owner_[static_cast<size_t>(mesh_.level[face.left] > mesh_.level[face.right] ? face.left : face.right)];
-        } else {
-            ranks[0] = owner_[static_cast<size_t>(face.left)];
-            ranks[1] = owner_[static_cast<size_t>(face.right)];
-            if (ranks[1] == ranks[0]) ranks[1] = -1;
+            mine = owner_[static_cast<size_t>(mesh_.level[face.left] > mesh_.level[face.right] ? face.left : face.right)] == me;
+        } else {   // both owners
+            mine = owner_[static_cast<size_t>(face.left)] == me || owner_[static_cast<size_t>(face.right)] == me;
         }
-        for (const int r : ranks) {
-            if (r < 0) continue;
-            engine_.face_dependencies(mesh_, static_cast<int>(f), need_stage[static_cast<size_t>(r)][static_cast<size_t>(face.level)]);
-            if (r == me) part.face_active[f] = 1;
+        if (!mine) continue;
+        part.face_active[f] = 1;
+        reads.clear();
+        engine_.face_dependencies(mesh_, static_cast<int>(f), reads);
+        for (const int c : reads) {
+            held[static_cast<size_t>(c)] = 1;
+            if (mesh_.level[static_cast<size_t>(c)] == face.level) stage[static_cast<size_t>(c)] = 1;
         }
     }
     // the ghost-cell wall: a rank filling a ghost leaf (finest level) reads the fluid leaves of its image point
     for (const auto& gr : engine_.ghost_reads())
-        for (int r = 0; r < R; ++r) {
-            std::vector<char>& nm = need_stage[static_cast<size_t>(r)][static_cast<size_t>(M)];
-            if (nm[static_cast<size_t>(gr.first)]) nm[static_cast<size_t>(gr.second)] = 1;
-        }
+        if (stage[static_cast<size_t>(gr.first)]) stage[static_cast<size_t>(gr.second)] = held[static_cast<size_t>(gr.second)] = 1;
     // the mass-flow averages read their side leaves on every rank, at every stage
     std::vector<char> mf(static_cast<size_t>(N), 0);
     engine_.mass_flow_dependencies(mesh_, mf);
-    for (int r = 0; r < R; ++r)
-        for (int c = 0; c < N; ++c)
-            if (mf[static_cast<size_t>(c)]) need_stage[static_cast<size_t>(r)][static_cast<size_t>(mesh_.level[c])][static_cast<size_t>(c)] = 1;
+    for (int c = 0; c < N; ++c)
+        if (mf[static_cast<size_t>(c)]) stage[static_cast<size_t>(c)] = held[static_cast<size_t>(c)] = 1;
     // the solid reset reads the neighbours of the solid leaves it updates (ghost-cell wall: the image leaves of the ghost leaves)
     for (const auto& gr : engine_.ghost_reads())
-        need_final[static_cast<size_t>(owner_[static_cast<size_t>(gr.first)])][static_cast<size_t>(gr.second)] = 1;
+        if (owner_[static_cast<size_t>(gr.first)] == me) held[static_cast<size_t>(gr.second)] = 1;
     if (engine_.has_body())
         for (int c = 0; c < N; ++c)
-            if (engine_.solid()[static_cast<size_t>(c)])
+            if (owner_[static_cast<size_t>(c)] == me && engine_.solid()[static_cast<size_t>(c)])
                 for (int s = 0; s < 4; ++s) {
                     const CellNeighbour nb = mesh_.neighbour(c, static_cast<Face>(s));
                     for (const int n : {nb.a, nb.b})
-                        if (n >= 0) need_final[static_cast<size_t>(owner_[static_cast<size_t>(c)])][static_cast<size_t>(n)] = 1;
+                        if (n >= 0) held[static_cast<size_t>(n)] = 1;
                 }
-    for (int r = 0; r < R; ++r)
-        for (int l = 0; l <= M; ++l)
-            for (int c = 0; c < N; ++c)
-                if (need_stage[static_cast<size_t>(r)][static_cast<size_t>(l)][static_cast<size_t>(c)]) need_final[static_cast<size_t>(r)][static_cast<size_t>(c)] = 1;
-    part.leaf_held = need_final[static_cast<size_t>(me)];
-    held_ = part.leaf_held;
+    part.leaf_held = held;
+    held_.swap(held);
     engine_.set_partition(mesh_, part);
 
-    // send / receive lists
+    // receive lists (in the order of the leaves, which is the order of (level, key)) and the requests to the owners: (2 level +
+    // stage, i, j) per leaf
+    const std::vector<char> no_body;
+    const std::vector<char>& solid = engine_.has_body() ? engine_.solid() : no_body;
     stage_.assign(static_cast<size_t>(M) + 1, {});
     final_.assign(static_cast<size_t>(M) + 1, {});
     reg_.assign(static_cast<size_t>(M) + 1, {});
+    const auto size_lists = [R](Lists& li) {
+        li.send.assign(static_cast<size_t>(R), {});
+        li.recv.assign(static_cast<size_t>(R), {});
+    };
     for (int l = 0; l <= M; ++l) {
-        std::vector<std::vector<char>> ns(static_cast<size_t>(R));
-        for (int r = 0; r < R; ++r) ns[static_cast<size_t>(r)] = need_stage[static_cast<size_t>(r)][static_cast<size_t>(l)];
-        build_lists(stage_[static_cast<size_t>(l)], ns, mesh_.level_begin[l], mesh_.level_begin[l + 1], nullptr);
-        build_lists(final_[static_cast<size_t>(l)], need_final, mesh_.level_begin[l], mesh_.level_begin[l + 1], nullptr);
-        if (l == 0) continue;
-        Lists& rl = reg_[static_cast<size_t>(l)];
-        rl.send.assign(static_cast<size_t>(R), {});
-        rl.recv.assign(static_cast<size_t>(R), {});
-        for (int f = mesh_.face_level_begin[l]; f < mesh_.face_level_begin[l + 1]; ++f) {
-            const CellFace& face = mesh_.faces[static_cast<size_t>(f)];
-            if (face.kind != CellFaceKind::CoarseFine) continue;
-            const bool fine_left = mesh_.level[face.left] > mesh_.level[face.right];
-            const int of = owner_[static_cast<size_t>(fine_left ? face.left : face.right)];
-            const int oc = owner_[static_cast<size_t>(fine_left ? face.right : face.left)];
-            if (of == oc) continue;
-            if (of == me) rl.send[static_cast<size_t>(oc)].push_back(f);
-            if (oc == me) rl.recv[static_cast<size_t>(of)].push_back(f);
+        size_lists(stage_[static_cast<size_t>(l)]);
+        size_lists(final_[static_cast<size_t>(l)]);
+        size_lists(reg_[static_cast<size_t>(l)]);
+    }
+    size_lists(solid_);
+    std::vector<std::vector<double>> req(static_cast<size_t>(R));
+    for (int c = 0; c < N; ++c) {
+        const int o = owner_[static_cast<size_t>(c)];
+        if (!held_[static_cast<size_t>(c)] || o == me) continue;
+        const int l = mesh_.level[static_cast<size_t>(c)];
+        const bool st = stage[static_cast<size_t>(c)] != 0;
+        final_[static_cast<size_t>(l)].recv[static_cast<size_t>(o)].push_back(c);
+        if (st) stage_[static_cast<size_t>(l)].recv[static_cast<size_t>(o)].push_back(c);
+        if (!solid.empty() && solid[static_cast<size_t>(c)]) solid_.recv[static_cast<size_t>(o)].push_back(c);
+        std::vector<double>& q = req[static_cast<size_t>(o)];
+        q.push_back(2.0 * l + (st ? 1.0 : 0.0));
+        q.push_back(static_cast<double>(mesh_.ci[static_cast<size_t>(c)]));
+        q.push_back(static_cast<double>(mesh_.cj[static_cast<size_t>(c)]));
+    }
+    if (R > 1) {
+        // the number of requests each rank sends to each other rank, then the requests
+        std::vector<std::vector<double>> cnt_send(static_cast<size_t>(R)), cnt_recv(static_cast<size_t>(R));
+        for (int r = 0; r < R; ++r)
+            if (r != me) {
+                cnt_send[static_cast<size_t>(r)].assign(1, static_cast<double>(req[static_cast<size_t>(r)].size()));
+                cnt_recv[static_cast<size_t>(r)].assign(1, 0.0);
+            }
+        comm_.exchange(cnt_send, cnt_recv);
+        std::vector<std::vector<double>> got(static_cast<size_t>(R));
+        for (int r = 0; r < R; ++r)
+            if (r != me) got[static_cast<size_t>(r)].resize(static_cast<size_t>(cnt_recv[static_cast<size_t>(r)][0]));
+        comm_.exchange(req, got);
+        for (int r = 0; r < R; ++r) {
+            const std::vector<double>& q = got[static_cast<size_t>(r)];
+            for (size_t k = 0; k + 2 < q.size(); k += 3) {
+                const int code = static_cast<int>(q[k]), l = code / 2;
+                const int c = mesh_.find(l, static_cast<int>(q[k + 1]), static_cast<int>(q[k + 2]));
+                if (c < 0 || owner_[static_cast<size_t>(c)] != me) throw std::logic_error("CellParallel: a request for a leaf this rank does not own");
+                final_[static_cast<size_t>(l)].send[static_cast<size_t>(r)].push_back(c);
+                if (code & 1) stage_[static_cast<size_t>(l)].send[static_cast<size_t>(r)].push_back(c);
+                if (!solid.empty() && solid[static_cast<size_t>(c)]) solid_.send[static_cast<size_t>(r)].push_back(c);
+            }
         }
     }
-    std::vector<char> solid_only(static_cast<size_t>(N), 0);
-    if (engine_.has_body()) solid_only = engine_.solid();
-    build_lists(solid_, need_final, 0, N, &solid_only);
+
+    // registers of the coarse-fine faces whose two leaves have different owners, listed by (fine leaf, its side) on both ranks
+    for (int l = 1; l <= M; ++l) {
+        Lists& rl = reg_[static_cast<size_t>(l)];
+        for (int c = ob_[static_cast<size_t>(me)][static_cast<size_t>(l)]; c < oe_[static_cast<size_t>(me)][static_cast<size_t>(l)]; ++c)
+            for (int s = 0; s < 4; ++s) {   // owned fine leaves: send to the owner of a coarser neighbour
+                const CellNeighbour nb = mesh_.neighbour(c, static_cast<Face>(s));
+                if (nb.kind != CellNeighbour::Kind::Coarser) continue;
+                const int oc = owner_[static_cast<size_t>(nb.a)];
+                if (oc != me) rl.send[static_cast<size_t>(oc)].push_back(mesh_.side_face[static_cast<size_t>(mesh_.side_ptr[static_cast<size_t>(4) * c + s])]);
+            }
+        std::vector<std::vector<std::array<int, 3>>> in(static_cast<size_t>(R));   // (fine leaf, side, face) per fine owner
+        for (int C = ob_[static_cast<size_t>(me)][static_cast<size_t>(l) - 1]; C < oe_[static_cast<size_t>(me)][static_cast<size_t>(l) - 1]; ++C)
+            for (int s = 0; s < 4; ++s) {   // owned coarse leaves: receive from the owners of the finer neighbours
+                const CellNeighbour nb = mesh_.neighbour(C, static_cast<Face>(s));
+                if (nb.kind != CellNeighbour::Kind::Finer) continue;
+                const int fs = static_cast<int>(opposite(static_cast<Face>(s)));
+                for (const int fl : {nb.a, nb.b}) {
+                    const int of = owner_[static_cast<size_t>(fl)];
+                    if (of != me)
+                        in[static_cast<size_t>(of)].push_back({fl, fs, mesh_.side_face[static_cast<size_t>(mesh_.side_ptr[static_cast<size_t>(4) * fl + fs])]});
+                }
+            }
+        for (int r = 0; r < R; ++r) {
+            std::vector<std::array<int, 3>>& v = in[static_cast<size_t>(r)];
+            std::sort(v.begin(), v.end());
+            for (const std::array<int, 3>& e : v) rl.recv[static_cast<size_t>(r)].push_back(e[2]);
+        }
+    }
 
     if (poison)
         for (int c = 0; c < N; ++c)
             if (!held_[static_cast<size_t>(c)]) mesh_.U[static_cast<size_t>(c)].fill(std::numeric_limits<double>::quiet_NaN());
-}
-
-void CellParallel::build_lists(Lists& out, const std::vector<std::vector<char>>& need, int b, int e,
-                               const std::vector<char>* only) const {
-    const int R = comm_.size, me = comm_.rank;
-    out.send.assign(static_cast<size_t>(R), {});
-    out.recv.assign(static_cast<size_t>(R), {});
-    for (int c = b; c < e; ++c) {
-        if (only && !(*only)[static_cast<size_t>(c)]) continue;
-        const int o = owner_[static_cast<size_t>(c)];
-        if (o == me) {
-            for (int r = 0; r < R; ++r)
-                if (r != me && need[static_cast<size_t>(r)][static_cast<size_t>(c)]) out.send[static_cast<size_t>(r)].push_back(c);
-        } else if (need[static_cast<size_t>(me)][static_cast<size_t>(c)]) {
-            out.recv[static_cast<size_t>(o)].push_back(c);
-        }
-    }
 }
 
 void CellParallel::push_leaves(const Lists& lists) {

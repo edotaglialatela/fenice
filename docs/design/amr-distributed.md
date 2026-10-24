@@ -1,6 +1,6 @@
 # AMR with distributed storage and a local remesh (plan)
 
-Status: **approved (D1-D5 answered, section 7); phase 0 done (section 8), phase 1 next.** Branch `amr-distributed`, from `main`
+Status: **approved (D1-D5 answered, section 7); phases 0 (section 8) and 1 (section 9) done, phase 2 next.** Branch `amr-distributed`, from `main`
 at 883c45d (both PRs #4 / #5 merged). This is option 2 of `docs/design/amr-optimisation.md`, as a step towards 3-D octree AMR.
 Every number below that was not measured is marked *(estimate)*.
 
@@ -303,3 +303,21 @@ Reach of the remesh (from the code, for phase 3; checked by the guard test then)
 * Ripple: the eight corner neighbours (ring 1 of the refined leaf's level), up to `max_level` rounds.
 * Merge test: the parent's eight corner neighbour blocks at the parent level: ring 3 of the anchor's level from the anchor (2
   from the sibling block), and the final refine flags there.
+
+## 9. Phase 1 (done): keyed lists, partition without the R x levels x N masks
+
+* Ownership is described by per-level splitters (`CellParallel::owner_of(level, key)`: the first Morton key of each rank's block,
+  R + 1 per level; computed locally while the mesh is replicated, allgathered once the blocks move in phase 4).
+* `partition()` works out only this rank's reads: the faces it computes (`face_dependencies`), the ghost images, the mass-flow
+  side leaves, the solid reset of its own solid leaves; two O(N) byte masks (held, read in a stage of its own level) instead of
+  R x (levels + 1) x N. The receive lists follow from them; the leaves owned elsewhere go to their owners as (2 level + stage
+  flag, i, j) requests (one exchange of the counts, one of the requests), and the owners build the send lists from the requests
+  they get (stage, final, solid). Order of every list: the leaf order, i.e. (level, key), on both sides.
+* Registers: both ranks list a coarse-fine face by (fine leaf, its side) from their own leaves: the fine owner from its fine
+  leaves' coarser sides, the coarse owner from its coarse leaves' finer sides, sorted by (fine leaf, side). No face index crosses.
+* Checked: during development the old algorithm ran alongside in every unit test (1-16 emulated ranks, all physics, ghost IBM)
+  and every list, the held set and the owners were identical; the bitwise `FakeHub` tests, the halo guard (now on threaded ranks,
+  since `partition()` communicates), regression, golden dumps and CI (`amr_mpi.py --check`, `ibm_ghost.py --check`, 1-7 real
+  ranks) are green.
+* Still O(N) per rank while the mesh is replicated: `owner_` and `held_` (a cache over the replicated leaves), the two masks,
+  `ob_` / `oe_` (used by `gather_state`). Phase 2 makes them local.
