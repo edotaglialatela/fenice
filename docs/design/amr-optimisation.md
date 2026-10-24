@@ -182,3 +182,20 @@ Container (4-core Intel, gcc), airfoil AMR, min of 3 runs, time loop / remesh:
 On 4 threads the remesh parts of the 720x360 run went from indicator 0.28, adaptation 0.47, engine build 0.34 s to 0.23, 0.23, 0.21 s
 (the wave-speed bound, 0.20 s, was already parallel). Memory: the spare face list and engine tables stay alive between remeshes,
 peak RSS 444 -> 458 MB (+3 %) on the 720x360 run, 41 -> 44 MB on the default one.
+
+Threadripper PRO 5965WX (24 cores, gcc, WSL), same run (720x360, 50 steps, 10 remeshes), min of 3, interleaved, every state bitwise
+equal to `main` on 1 thread (`amr_mpi.py --check` and `ibm_ghost.py --check` also passed there), time loop / remesh:
+
+| threads | `main` | `amr-remesh-omp` |
+|---:|---:|---:|
+| 1 | 5.08 / 0.75 s | 5.05 / 0.73 s |
+| 8 | 1.64 / 0.40 s | 1.44 / 0.21 s |
+| 12 | 1.49 / 0.41 s | 1.25 / 0.19 s |
+| 16 | 1.48 / 0.42 s | 1.20 / 0.18 s |
+| 24 | 1.57 / 0.47 s | 1.30 / 0.19 s |
+| 32 | 1.76 / 0.53 s | 1.36 / 0.20 s |
+
+The remesh now goes 0.73 -> 0.18 s (4x) instead of 0.75 -> 0.40 s, and no longer grows beyond 16 threads (it did with `main`: 0.53 s on
+32); on 16 threads it is 15 % of the loop instead of 28 %, and the loop is 19 % faster. Parts on 16 threads (`main` -> branch): indicator
+0.13 -> 0.08, adaptation 0.22 -> 0.08, engine build 0.16 -> 0.07, wave-speed bound 0.05 -> 0.04 s. What is left serial is mainly the
+allocation and zero-fill of the per-leaf work arrays of the indicator and of `adapt` (state, flags); not pursued.
