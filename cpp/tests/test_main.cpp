@@ -3987,6 +3987,138 @@ TEST(cellparallel_equals_serial_bitwise_for_any_rank_count) {
     }
 }
 
+TEST(halo_reach_bounds_the_halo_of_any_partition) {
+    // Phase 0 of docs/design/amr-distributed.md: CellParallel::halo_reach measures every read of a distributed run from the leaf
+    // whose owner makes it, independently of the partition. The real halo of partition() on 1-16 emulated ranks must lie in
+    // the geometric halo it defines (every halo leaf within the reach, for its level difference, of an owned leaf), the mass-flow
+    // side leaves apart (read on every rank). Guards the reach a halo by region (phase 4) will use: if a new read is added to
+    // partition() but not to face_dependencies / halo_reach, this fails. The reach itself is pinned to the measured values.
+    const BCType per = BCType::Periodic;
+    const DistSpec specs[] = {
+        {"euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 21u, false},
+        {"viscous periodic", true, true, {per, per, per, per}, true, true, true, false, false, 22u, false},
+        {"walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 23u, false},
+        {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 24u, false},
+        {"immersed body (mask)", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 25u, false},
+        {"immersed body (ghost cells)", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 26u, false},
+    };
+    int worst[CellParallel::HaloReach::NumKinds] = {};
+    for (const DistSpec& sp : specs) {
+        const bool ghost = std::strstr(sp.name, "ghost") != nullptr;
+        DistEnv env(sp);
+        env.ph.ibm_ghost = ghost;
+        CellMesh m = random_adapted_mesh(sp.px, sp.py, sp.seed, 6);
+        m.U.assign(static_cast<size_t>(m.num_leaves()), State{});
+        for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state(env.eos, m.xc(c), m.yc(c));
+        CellFluxEngine eng(env.eos, env.rs, &env.mu, env.bm);
+        eng.set_physics(env.ph);
+        eng.build(m);
+        if (ghost) {   // the body band at the finest level, wide enough for the ghost cells and their images
+            const Mesh fine = generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(m.max_level), m.ny_at(m.max_level));
+            ImmersedBoundary ib = env.ph.ibm_factory(fine);
+            ib.enable_ghost_cells(fine, false);
+            CellAdaptor ad(m, eng, env.eos, CellIndicator{});
+            ad.set_body(env.ph.ibm_factory, std::max(2, ib.ghost_reach()));
+            ad.init_adapt([&](CellMesh& mm) {
+                mm.U.assign(static_cast<size_t>(mm.num_leaves()), State{});
+                for (int c = 0; c < mm.num_leaves(); ++c) mm.U[c] = test_state(env.eos, mm.xc(c), mm.yc(c));
+            });
+            CHECK(eng.ghost_ready());
+        }
+        const CellParallel::HaloReach hr = CellParallel::halo_reach(m, eng);
+        for (int k = 0; k < CellParallel::HaloReach::NumKinds; ++k) worst[k] = std::max(worst[k], hr.max(k));
+        std::vector<int> bound(static_cast<size_t>(2 * m.max_level) + 1, -1);   // per level difference, over all kinds
+        for (int k = 0; k < CellParallel::HaloReach::NumKinds; ++k)
+            for (size_t d = 0; d < bound.size(); ++d) bound[d] = std::max(bound[d], hr.ring[k][d]);
+        std::vector<char> mf(static_cast<size_t>(m.num_leaves()), 0);
+        eng.mass_flow_dependencies(m, mf);
+        int outside = 0, halo = 0;
+        for (const int R : {1, 2, 3, 5, 7, 16}) {
+            // partition() exchanges its requests: one thread per rank, each with its own copy of the mesh and engine
+            FakeHub hub(R);
+            std::vector<std::vector<char>> held(static_cast<size_t>(R));
+            std::vector<std::vector<int>> owner(static_cast<size_t>(R));
+            std::vector<std::string> error(static_cast<size_t>(R));
+            std::vector<std::thread> threads;
+            for (int r = 0; r < R; ++r)
+                threads.emplace_back([&, r]() {
+                    try {
+                        CellMesh mr = m;
+                        CellFluxEngine er(env.eos, env.rs, &env.mu, env.bm);
+                        er.set_physics(env.ph);
+                        er.build(mr);
+                        CellParallel par(mr, er, hub.comm(r));
+                        par.partition();
+                        for (int c = 0; c < mr.num_leaves(); ++c) {
+                            held[static_cast<size_t>(r)].push_back(par.holds(c) ? 1 : 0);
+                            owner[static_cast<size_t>(r)].push_back(par.owner(c));
+                        }
+                    } catch (const std::exception& e) {
+                        error[static_cast<size_t>(r)] = e.what();
+                    }
+                });
+            for (std::thread& th : threads) th.join();
+            for (int r = 0; r < R; ++r) {
+                if (!error[static_cast<size_t>(r)].empty()) {
+                    std::printf("    rank %d: %s\n", r, error[static_cast<size_t>(r)].c_str());
+                    ++outside;
+                    continue;
+                }
+                const std::vector<int>& own = owner[static_cast<size_t>(r)];
+                for (int c = 0; c < m.num_leaves(); ++c) {
+                    if (!held[static_cast<size_t>(r)][static_cast<size_t>(c)] || own[static_cast<size_t>(c)] == r || mf[static_cast<size_t>(c)]) continue;
+                    ++halo;
+                    bool in = false;
+                    for (int o = 0; o < m.num_leaves() && !in; ++o) {
+                        if (own[static_cast<size_t>(o)] != r) continue;
+                        const int b = bound[static_cast<size_t>(m.max_level + m.level[o] - m.level[c])];
+                        in = b >= 0 && CellParallel::ring(m, o, c) <= b;
+                    }
+                    if (!in) ++outside;
+                }
+            }
+        }
+        CHECK(halo > 0);
+        CHECK(outside == 0);
+        if (outside) std::printf("    %s: %d halo leaves outside the reach\n", sp.name, outside);
+        if (ghost) CHECK(hr.max(CellParallel::HaloReach::GhostImage) > hr.max(CellParallel::HaloReach::Interior));
+    }
+    // the reach measured on these meshes (four levels; rings of the driver's level, docs/design/amr-distributed.md section 3.2):
+    // a stencil that reaches further must be accounted for in the halo
+    CHECK(worst[CellParallel::HaloReach::Interior] <= 5);
+    CHECK(worst[CellParallel::HaloReach::CoarseFine] <= 10);
+    CHECK(worst[CellParallel::HaloReach::Boundary] <= 4);
+    CHECK(worst[CellParallel::HaloReach::GhostImage] <= 7);
+    CHECK(worst[CellParallel::HaloReach::SolidReset] <= 5);
+    std::printf("    reach: interior %d, coarse-fine %d, boundary %d, ghost images %d, solid reset %d\n", worst[0], worst[1],
+                worst[2], worst[3], worst[4]);
+}
+
+TEST(cellparallel_ring_counts_cells_of_the_first_leaf) {
+    CellMesh m(4.0, 4.0, 4, 4, 2, true, false);
+    std::vector<char> r(static_cast<size_t>(m.num_leaves()), 0);
+    r[static_cast<size_t>(m.find(0, 0, 0))] = 1;
+    m.adapt(r);
+    r.assign(static_cast<size_t>(m.num_leaves()), 0);
+    r[static_cast<size_t>(m.find(1, 0, 0))] = 1;
+    m.adapt(r);
+    // finest-level units (4 per base cell): f = [0,1) x [0,1), s = [14,16) x [0,2) (refined by the ripple across the seam),
+    // a = [8,12) x [0,4), b = [4,8) x [0,4), g = [2,4) x [2,4), h = [8,12) x [8,12)
+    const int f = m.find(2, 0, 0), s = m.find(1, 7, 0), a = m.find(0, 2, 0), b = m.find(0, 1, 0), g = m.find(1, 1, 1),
+              h = m.find(0, 2, 2);
+    CHECK(f >= 0 && s >= 0 && a >= 0 && b >= 0 && g >= 0 && h >= 0);
+    CHECK(CellParallel::ring(m, a, a) == 0);
+    CHECK(CellParallel::ring(m, a, b) == 1);   // neighbours
+    CHECK(CellParallel::ring(m, f, s) == 1);   // touching across the periodic seam
+    CHECK(CellParallel::ring(m, s, f) == 1);
+    CHECK(CellParallel::ring(m, f, a) == 5);   // 4 finest cells between them across the seam (7 the other way)
+    CHECK(CellParallel::ring(m, a, f) == 2);   // ... one cell of a's level
+    CHECK(CellParallel::ring(m, g, a) == 3);
+    CHECK(CellParallel::ring(m, a, g) == 2);
+    CHECK(CellParallel::ring(m, f, h) == 8);   // y is not periodic: 7 finest cells
+    CHECK(CellParallel::ring(m, h, f) == 2);
+}
+
 TEST(cell_engine_result_does_not_depend_on_the_thread_count) {
     // Adapted mesh above kOmpMinWork (every parallel loop of the engine runs in parallel), physics on: the result of three
     // steps with 1 thread and with several threads is bit-identical (all reductions are maxima, no sums across threads).

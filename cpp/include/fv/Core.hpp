@@ -197,4 +197,11 @@ void cons_to_prim(const EOS& eos, const Field& U, Field& W);
 // Field-wide primitive -> conservative conversion (OpenMP-parallel).
 void prim_to_cons(const EOS& eos, const Field& W, Field& U);
 
+// Resident memory of this process in bytes: now, and the largest so far (the high-water mark since the start); 0 where the
+// platform does not tell (Windows: working set; Linux: VmRSS / VmHWM; elsewhere getrusage, the peak only).
+struct MemoryUsage {
+    double current = 0.0, peak = 0.0;
+};
+MemoryUsage memory_usage();
+
 }   // namespace fv

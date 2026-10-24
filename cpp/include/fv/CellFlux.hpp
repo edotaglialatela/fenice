@@ -136,6 +136,8 @@ public:
     // Mark in `mask` (one entry per leaf) every leaf whose state is read when the flux of `face`, with the viscous cell
     // quantities of its two cells, is computed.
     void face_dependencies(const CellMesh& mesh, int face, std::vector<char>& mask) const;
+    // The same leaves appended to `out` (with repetitions): the reads of one face.
+    void face_dependencies(const CellMesh& mesh, int face, std::vector<int>& out) const;
     // The leaves along the sides with a mass-flow inlet (their average is summed in position order on every rank).
     void mass_flow_dependencies(const CellMesh& mesh, std::vector<char>& mask) const;
     // Owned range [begin, end) of level l (the whole level without a partition).
@@ -153,6 +155,10 @@ public:
 
     // Time the unsteady sources are evaluated at (CellAdvance sets it from the scheme's stage time).
     double stage_time = 0.0;
+
+    // Bytes of the engine's tables and work arrays: `uniform` = what is sized by the uniform mesh of a level (the IBM masks of
+    // the levels and the ghost-cell table of the finest level), `per_leaf` = the rest.
+    void memory_bytes(double& per_leaf, double& uniform) const;
 
     // Number of virtual cells (coarse averages over finer neighbours, and the interpolated coarse values) of the stencils.
     int num_virtual() const { return static_cast<int>(vroot_.size() + interp_.size()); }
@@ -229,8 +235,10 @@ private:
     void force_all(const CellMesh& m, const Field& U);   // every leaf (the full residual, whatever the partition)
     void rebuild_lists(const CellMesh& m, const Partition* part);
     void rebuild_lists_whole(const CellMesh& m);   // rebuild_lists without a partition (parallel)
-    void mark_code(int code, std::vector<char>& mask) const;
-    void mark_tree(int code, std::vector<char>& mask) const;
+    // the leaves read through a code / a tree of a mean-type virtual cell / the flux of a face: mark(leaf) for each
+    template <class Mark> void mark_code(int code, const Mark& mark) const;
+    template <class Mark> void mark_tree(int code, const Mark& mark) const;
+    template <class Mark> void mark_face(const CellMesh& m, int f, const Mark& mark) const;
     // per level: the faces this rank computes, the leaves whose forced state it keeps, the owned range; all faces
     std::vector<std::vector<int>> lface_, lheld_;
     std::vector<int> lown_b_, lown_e_, all_faces_;

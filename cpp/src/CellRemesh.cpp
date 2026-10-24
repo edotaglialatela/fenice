@@ -7,6 +7,7 @@
 #include <cmath>
 #include <memory>
 
+#include "fv/MemoryBytes.hpp"
 #include "fv/ParallelScan.hpp"
 
 namespace fv {
@@ -248,6 +249,10 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
 std::vector<double> CellIndicator::xi(const CellMesh& m, const Field& U, const EOS& eos) const {
     return evaluate(m, U, eos).xi;
 }
+
+double CellAdaptor::band_bytes() const { return container_bytes(band_); }
+
+double CellAdaptor::xi_bytes() const { return container_bytes(last_xi); }
 
 void CellAdaptor::set_body(std::function<ImmersedBoundary(const Mesh&)> factory, int margin) {
     body_ = std::move(factory);

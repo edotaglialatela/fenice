@@ -152,6 +152,10 @@ but it is a serial fraction across ranks (on the 8-core workstation, before the 
 thread, 32 % on 8 threads, 34 to 65 % on 2 to 16 ranks; less since, see below),
 so the MPI speed-up flattens at a few ranks, and the memory per rank does not fall with the number of ranks. On one node
 OpenMP is the better choice; MPI gives the same result for any rank count and a moderate speed-up, not a way to store a larger mesh.
+At the end of a run the solver prints the resident memory of the ranks (after setup, after the initial adaptation, at the end,
+the peak: minimum / maximum over the ranks) and the size of the tables of a rank: about 1.5 kB per leaf on the airfoil
+(`cases/validation/amr/amr_memory.py` measures it on 1 to 16 ranks; `docs/design/amr-distributed.md` is the plan to distribute
+the storage).
 
 | run (720×360, 2 levels, 50 steps, 268 362 leaves) | wall time | of which remesh |
 |---|---:|---:|

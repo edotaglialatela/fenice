@@ -6,6 +6,8 @@
 #include <string>
 #include <stdexcept>
 
+#include "fv/MemoryBytes.hpp"
+
 namespace fv {
 
 // ---------------------------------------------------------------------------
@@ -754,6 +756,10 @@ void ImmersedBoundary::fill_ghost_cells(const CellIndex& local, const CellState&
     }
     for (int k = 0; k < ng; ++k)
         if (dst[static_cast<size_t>(k)] >= 0) U[static_cast<size_t>(dst[static_cast<size_t>(k)])] = val[static_cast<size_t>(k)];
+}
+
+double ImmersedBoundary::memory_bytes() const {
+    return container_bytes(mask_) + container_bytes(ghost_) + container_bytes(surface_) + container_bytes(ghost_mask_);
 }
 
 std::vector<std::pair<int, int>> ImmersedBoundary::ghost_reads() const {

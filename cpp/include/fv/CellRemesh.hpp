@@ -75,6 +75,9 @@ public:
     bool in_body_band(int leaf);
 
     std::vector<double> last_xi;
+    // Bytes of the body band (finest uniform mesh) and of last_xi.
+    double band_bytes() const;
+    double xi_bytes() const;
     // Accumulated wall time [s] of the three parts of remesh(): indicator + flags, CellMesh::adapt, CellFluxEngine::build.
     double t_indicator = 0.0, t_adapt = 0.0, t_build = 0.0;
     // Leaves flagged for refinement and the leaves removed by joins, accumulated over the remeshes (churn of the mesh).

@@ -2,18 +2,21 @@
 //
 // Every rank holds the whole mesh (leaf arrays, faces, stencils: the metadata), so every rank takes the same remesh
 // decisions; the state of a leaf is valid only on the rank that owns it and on the ranks that read it (the halo).
-//  * Ownership: each level is cut into contiguous blocks of equal leaf count along its Morton order.
+//  * Ownership: each level is cut into contiguous blocks of equal leaf count along its Morton order, described by per-level
+//    splitters (the first key of each rank's block), so the owner of a leaf follows from its (level, key).
 //  * Work: a rank advances its owned leaves and computes every face it needs for them: a same-level face is computed by the
 //    owners of both its leaves (redundantly, with identical inputs, hence identical bits), a coarse-fine face and a boundary
 //    face by the owner of the finer leaf. The coarse owner receives the time-averaged registers of its coarse-fine faces
 //    from the fine owners once per coarse step.
 //  * Halo = exactly the leaves the engine reads for those faces (CellFluxEngine::face_dependencies). Per stage of a level the
 //    owners push the stage state of the leaves other ranks read at that level; after a level has advanced they push its final
-//    state to every rank that reads it.
+//    state to every rank that reads it. Each rank works out only its own reads and sends them to the owners as (level, i, j)
+//    requests; nothing that crosses ranks is a leaf index, and no rank works out what the others read.
 //  * Results are bit-identical to the serial run for any number of ranks: the arithmetic of a face and of a cell does not
 //    depend on the rank, the maxima are order independent, and nothing is summed across ranks.
 #pragma once
 
+#include <cstdint>
 #include <functional>
 #include <vector>
 
@@ -39,7 +42,8 @@ public:
     CellParallel(CellMesh& mesh, CellFluxEngine& engine, CellComm comm) : mesh_(mesh), engine_(engine), comm_(std::move(comm)) {}
 
     // Owners, the engine's partition, and the send / receive lists: call after every CellFluxEngine::build (that is, after
-    // every adapt) and once at the start; the state of every leaf must be valid on every rank at that point.
+    // every adapt) and once at the start; the state of every leaf must be valid on every rank at that point. Collective (two
+    // exchanges: the request counts, then the requests).
     void partition();
 
     // Test switch: after partition() the state of the leaves this rank does not hold is set to NaN, so that a missing halo
@@ -50,6 +54,8 @@ public:
     int size() const { return comm_.size; }
     // Rank that owns a leaf.
     int owner(int leaf) const { return owner_[static_cast<size_t>(leaf)]; }
+    // Rank that owns the leaf (level, Morton key) of the current partition (a binary search of the level's splitters).
+    int owner_of(int level, uint64_t key) const;
     bool holds(int leaf) const { return held_[static_cast<size_t>(leaf)] != 0; }
 
     // Push the stage state of the owned leaves of `level` that other ranks read in the faces of that level.
@@ -64,6 +70,26 @@ public:
     void gather_state();
     double reduce_max(double v) const { return comm_.size > 1 ? comm_.allreduce_max(v) : v; }
 
+    // How far the reads of a distributed run reach (docs/design/amr-distributed.md, phase 0), independent of the partition: every
+    // read is measured from the leaf whose owner makes it (the driver), in rings of the driver's level (see ring()).
+    struct HaloReach {
+        enum Kind { Interior, CoarseFine, Boundary, GhostImage, SolidReset, NumKinds };
+        // Interior: reads of a same-level face, from either of its leaves (both owners compute it); CoarseFine: of a
+        // coarse-fine face, from its fine leaf; Boundary: of a boundary face, from its leaf; GhostImage: the image leaves of a
+        // ghost leaf that a finest-level face reads, from that face's driver; SolidReset: the reads of the solid reset
+        // (neighbours, ghost images), from the solid leaf.
+        // Largest ring per kind and level difference: ring[kind][max_level + level(driver) - level(read)] (max_level: the same
+        // level, one more: the read leaf one level coarser, one less: one level finer); -1 where no such read was seen.
+        std::vector<int> ring[NumKinds];
+        std::vector<long long> reads;   // number of reads (with repetitions) per ring, all kinds together
+        int max(int kind) const;        // largest ring of a kind (0 if none)
+        int max() const;                // of all kinds
+    };
+    static HaloReach halo_reach(const CellMesh& mesh, const CellFluxEngine& engine);
+    // Ring of leaf b seen from leaf a: 0 if b == a, else the smallest k >= 1 such that b overlaps the square of a dilated by k
+    // cells of a's level (1: b touches a, even at a corner only); periodic axes wrap.
+    static int ring(const CellMesh& mesh, int a, int b);
+
     // Leaves of level l owned by rank r: [owned_begin, owned_end).
     int owned_begin(int r, int l) const { return ob_[static_cast<size_t>(r)][static_cast<size_t>(l)]; }
     int owned_end(int r, int l) const { return oe_[static_cast<size_t>(r)][static_cast<size_t>(l)]; }
@@ -74,15 +100,16 @@ public:
 
 private:
     struct Lists {
-        std::vector<std::vector<int>> send, recv;   // per rank: leaf (or face) indices, in increasing order
+        // per rank: leaf indices in increasing order, i.e. by (level, key); face indices of the registers ordered by their
+        // (fine leaf, side)
+        std::vector<std::vector<int>> send, recv;
     };
     void push_leaves(const Lists& lists);
-    void build_lists(Lists& out, const std::vector<std::vector<char>>& need, int level_begin, int level_end,
-                     const std::vector<char>* only) const;
 
     CellMesh& mesh_;
     CellFluxEngine& engine_;
     CellComm comm_;
+    std::vector<std::vector<uint64_t>> split_;   // [level][rank]: first Morton key of each rank's block (R + 1 entries)
     std::vector<int> owner_;
     std::vector<char> held_;
     std::vector<std::vector<int>> ob_, oe_;   // [rank][level]
