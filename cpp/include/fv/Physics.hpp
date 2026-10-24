@@ -4,6 +4,7 @@
 #pragma once
 
 #include <array>
+#include <functional>
 
 #include "fv/Core.hpp"
 #include "fv/Geometry.hpp"
@@ -129,6 +130,19 @@ public:
     // two probes at d and 2 d (d >= 1.5 cells) along the normal: wall pressure extrapolated linearly (2 p1 - p2) and, with
     // mu > 0, the wall shear mu du_t/dn = mu (4 u_t1 - u_t2) / (2 d) of the quadratic through zero at the wall (no-slip).
     std::array<double, 3> surface_loads(const Field& U, const EOS& eos, double mu, double cx, double cy) const;
+    // Ghost-cell wall on a part of the mesh (MPI strips), on an object built for the whole mesh. local(c): index of global
+    // cell c in the part's field, -1 outside it; in(c): input state of global cell c (any cell an owned ghost reads, see
+    // ghost_inputs). Fills the ghost cells of the part and stops (reset = false) or resets (reset = true) its deeper solid
+    // cells, as apply_forcing / apply_solid_reset do on the whole mesh, with the same bits.
+    using CellIndex = std::function<int(int)>;
+    using CellState = std::function<const State&(int)>;
+    void fill_ghosts_part(const CellIndex& local, const CellState& in, Field& U_part, const EOS& eos, bool reset) const;
+    // The global cells the ghost cells of the part read.
+    std::vector<int> ghost_inputs(const CellIndex& local) const;
+    // Surface loads of the surface samples k with k % parts == part (sum the parts for the total), and the cells they read.
+    std::array<double, 3> surface_loads_part(int part, int parts, const CellState& in, const EOS& eos, double mu, double cx,
+                                             double cy) const;
+    std::vector<int> surface_inputs(int part, int parts) const;
     // Closest point of the body surface to (x, y) and the outward unit normal there (2-D; geometry constructors only).
     void closest_wall_point(double x, double y, double& wx, double& wy, double& nx, double& ny) const;
 
@@ -144,7 +158,7 @@ private:
     struct Probe {
         int cell[4] = {0, 0, 0, 0};
         double w[4] = {0.0, 0.0, 0.0, 0.0};
-        State at(const Field& U, const EOS& eos) const;
+        State at(const CellState& in, const EOS& eos) const;
     };
     struct Ghost {
         int cell = 0;
@@ -161,7 +175,6 @@ private:
     std::vector<SurfacePoint> surface_;
     std::vector<char> ghost_mask_;
     bool make_probe(const Mesh& m, double x, double y, Probe& pr) const;   // false: no fluid cell around (x, y)
-    void fill_ghosts(Field& U, const EOS& eos) const;
 };
 
 }   // namespace fv

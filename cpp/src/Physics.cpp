@@ -461,7 +461,7 @@ int ImmersedBoundary::solid_count() const {
 
 void ImmersedBoundary::apply_forcing(Field& U, const EOS& eos) const {
     if (ghost_on_) {
-        fill_ghosts(U, eos);
+        fill_ghosts_part([](int c) { return c; }, [&U](int c) -> const State& { return U[c]; }, U, eos, false);
         return;
     }
     const int n = static_cast<int>(U.size());
@@ -479,10 +479,7 @@ void ImmersedBoundary::apply_forcing(Field& U, const EOS& eos) const {
 
 void ImmersedBoundary::apply_solid_reset(Field& U, const EOS& eos, const SolidResetHalo* h) const {
     if (ghost_on_) {   // ghost states from the fluid, the deeper solid cells at rest at the reference state
-        fill_ghosts(U, eos);
-        const State deep = eos.prim_to_cons({rho_ref_, 0.0, 0.0, p_ref_, 0.0});
-        for (size_t c = 0; c < mask_.size(); ++c)
-            if (mask_[c] && !ghost_mask_[c]) U[c] = deep;
+        fill_ghosts_part([](int c) { return c; }, [&U](int c) -> const State& { return U[c]; }, U, eos, true);
         return;
     }
     const int nx = nx_, ny = ny_, nz = nz_, n = nx * ny * nz;
@@ -603,11 +600,11 @@ void ImmersedBoundary::closest_wall_point(double x, double y, double& wx, double
     }
 }
 
-State ImmersedBoundary::Probe::at(const Field& U, const EOS& eos) const {
+State ImmersedBoundary::Probe::at(const CellState& in, const EOS& eos) const {
     State r{};
     for (int k = 0; k < 4; ++k) {
         if (w[k] == 0.0) continue;
-        const State W = eos.cons_to_prim(U[cell[k]]);
+        const State W = eos.cons_to_prim(in(cell[k]));
         for (int q = 0; q < kNVar; ++q) r[q] += w[k] * W[q];
     }
     return r;
@@ -713,14 +710,17 @@ void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip) {
     ghost_on_ = true;
 }
 
-void ImmersedBoundary::fill_ghosts(Field& U, const EOS& eos) const {
+void ImmersedBoundary::fill_ghosts_part(const CellIndex& local, const CellState& in, Field& U, const EOS& eos, bool reset) const {
     // every ghost state is computed from fluid cells only, then written: the result does not depend on the order
     const int ng = static_cast<int>(ghost_.size());
     std::vector<State> val(static_cast<size_t>(ng));
+    std::vector<int> dst(static_cast<size_t>(ng));
 #pragma omp parallel for schedule(static) if (ng >= kOmpMinWork)
     for (int k = 0; k < ng; ++k) {
         const Ghost& g = ghost_[static_cast<size_t>(k)];
-        const State W = g.image.at(U, eos);
+        dst[static_cast<size_t>(k)] = local(g.cell);
+        if (dst[static_cast<size_t>(k)] < 0) continue;
+        const State W = g.image.at(in, eos);
         const double un = W[1] * g.nx + W[2] * g.ny;
         double ux, uy;
         if (slip_) {   // tangential velocity kept, normal velocity reflected through zero at the wall
@@ -732,21 +732,54 @@ void ImmersedBoundary::fill_ghosts(Field& U, const EOS& eos) const {
         }
         val[static_cast<size_t>(k)] = eos.prim_to_cons({W[0], ux, uy, W[3], 0.0});
     }
-    for (int k = 0; k < ng; ++k) U[ghost_[static_cast<size_t>(k)].cell] = val[static_cast<size_t>(k)];
-    const int n = static_cast<int>(U.size());
+    for (int k = 0; k < ng; ++k)
+        if (dst[static_cast<size_t>(k)] >= 0) U[static_cast<size_t>(dst[static_cast<size_t>(k)])] = val[static_cast<size_t>(k)];
+    // deeper solid cells: at rest, or (reset) at the reference state
+    const State deep = eos.prim_to_cons({rho_ref_, 0.0, 0.0, p_ref_, 0.0});
+    const int n = static_cast<int>(mask_.size());
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-    for (int c = 0; c < n; ++c) {   // deeper solid cells: at rest
+    for (int c = 0; c < n; ++c) {
         if (!mask_[c] || ghost_mask_[c]) continue;
-        State W = eos.cons_to_prim(U[c]);
+        const int l = local(c);
+        if (l < 0) continue;
+        if (reset) {
+            U[static_cast<size_t>(l)] = deep;
+            continue;
+        }
+        State W = eos.cons_to_prim(U[static_cast<size_t>(l)]);
         W[1] = W[2] = W[4] = 0.0;
-        U[c] = eos.prim_to_cons(W);
+        U[static_cast<size_t>(l)] = eos.prim_to_cons(W);
     }
 }
 
+std::vector<int> ImmersedBoundary::ghost_inputs(const CellIndex& local) const {
+    std::vector<int> v;
+    for (const Ghost& g : ghost_)
+        if (local(g.cell) >= 0)
+            for (int k = 0; k < 4; ++k)
+                if (g.image.w[k] != 0.0) v.push_back(g.image.cell[k]);
+    return v;
+}
+
+std::vector<int> ImmersedBoundary::surface_inputs(int part, int parts) const {
+    std::vector<int> v;
+    for (size_t k = static_cast<size_t>(part); k < surface_.size(); k += static_cast<size_t>(parts))
+        for (const Probe* pr : {&surface_[k].probe, &surface_[k].probe2})
+            for (int q = 0; q < 4; ++q)
+                if (pr->w[q] != 0.0) v.push_back(pr->cell[q]);
+    return v;
+}
+
 std::array<double, 3> ImmersedBoundary::surface_loads(const Field& U, const EOS& eos, double mu, double cx, double cy) const {
+    return surface_loads_part(0, 1, [&U](int c) -> const State& { return U[c]; }, eos, mu, cx, cy);
+}
+
+std::array<double, 3> ImmersedBoundary::surface_loads_part(int part, int parts, const CellState& in, const EOS& eos, double mu,
+                                                           double cx, double cy) const {
     double fx = 0.0, fy = 0.0, mz = 0.0;
-    for (const SurfacePoint& sp : surface_) {
-        const State W1 = sp.probe.at(U, eos), W2 = sp.probe2.at(U, eos);
+    for (size_t k = static_cast<size_t>(part); k < surface_.size(); k += static_cast<size_t>(parts)) {
+        const SurfacePoint& sp = surface_[k];
+        const State W1 = sp.probe.at(in, eos), W2 = sp.probe2.at(in, eos);
         const double pw = 2.0 * W1[3] - W2[3];   // wall pressure, linear extrapolation from d and 2 d
         double tx = -pw * sp.nx, ty = -pw * sp.ny;
         if (mu > 0.0) {   // wall shear: slope at the wall of the quadratic through 0 (no-slip), u_t(d), u_t(2 d)

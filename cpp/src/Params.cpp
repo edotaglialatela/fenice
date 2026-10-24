@@ -335,7 +335,6 @@ SimParams SimParams::from(const Params& p) {
     if (s.use_ibm && s.ibm_method == "ghost") {
         if (s.nz > 1) throw std::invalid_argument("ibm_method = ghost is 2-D only (for now)");
         if (s.use_amr) throw std::invalid_argument("ibm_method = ghost does not support AMR yet");
-        if (s.use_mpi && s.n_cpus > 1) throw std::invalid_argument("ibm_method = ghost does not support MPI yet (set use_mpi = false)");
         if (shape == "sphere") throw std::invalid_argument("ibm_method = ghost: use ibm_shape = Cylinder in 2-D");
     }
     if (s.reynolds < 0.0) throw std::invalid_argument("reynolds must be >= 0 (0: use mu)");
