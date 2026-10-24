@@ -23,6 +23,7 @@
 #include "fv/CellMesh.hpp"
 #include "fv/CellParallel.hpp"
 #include "fv/CellRemesh.hpp"
+#include "fv/ParallelScan.hpp"
 #include "fv/Simulation.hpp"
 #include "fv/SolutionMapping.hpp"
 #include "../src/SchemesSimd.hpp"   // detail::avx2_available: which path the bit-for-bit tests exercised
@@ -4032,6 +4033,64 @@ TEST(cell_engine_result_does_not_depend_on_the_thread_count) {
     CHECK(one.second > 4096 && one.second == many.second);
     CHECK(bits_equal(one.first, many.first));
 #endif
+}
+
+TEST(parallel_scan_helpers_equal_the_serial_loops) {
+    // The blocked paths of the remesh helpers (taken from 4 * kOmpMinWork entries on, whatever the thread count) against the
+    // serial loops: sizes around the switch and the block count, empty, short and lopsided inputs, sparse and dense marks.
+    std::mt19937 gen(7u);
+    const int t = 4 * kOmpMinWork;
+    int bad = 0;
+    for (const int n : {0, 1, 63, t - 1, t, t + 1, 64 * 300 - 1, 64 * 300, 64 * 300 + 1, 99991}) {
+        std::vector<int> a(static_cast<size_t>(n)), ref;
+        for (int& x : a) x = static_cast<int>(gen() % 5u);
+        ref = a;
+        for (int k = 1; k < n; ++k) ref[k] += ref[k - 1];
+        inclusive_scan_inplace(a.data(), n);
+        bad += a == ref ? 0 : 1;
+        for (const unsigned density : {0u, 1u, 50u, 100u}) {   // percent of the entries set
+            std::vector<char> on(static_cast<size_t>(n));
+            for (char& x : on) x = gen() % 100u < density;
+            std::vector<int> want, got = {-7};   // appended after what out holds
+            for (int k = 0; k < n; ++k)
+                if (on[k]) want.push_back(k);
+            collect_indices(0, n, [&](int k) { return on[k] != 0; }, got);
+            bad += got.size() == want.size() + 1 && got[0] == -7 && std::equal(want.begin(), want.end(), got.begin() + 1) ? 0 : 1;
+            MarkArray mark(static_cast<size_t>(n) + 1);
+            for (int k = 0; k < n; ++k)
+                if (on[k]) mark[static_cast<size_t>(k)].store(1);
+            std::vector<int> taken;
+            take_marked(mark, 0, n, taken);
+            bad += taken == want ? 0 : 1;
+            for (int k = 0; k < n; ++k) bad += mark[static_cast<size_t>(k)].load() ? 1 : 0;
+        }
+    }
+    // merges: distinct keys split between the two runs at random, or one run entirely below the other
+    for (const int n : {2, 100, t - 1, t, t + 1, 64 * 400 + 37, 100003}) {
+        for (int mode = 0; mode < 6; ++mode) {
+            std::vector<long long> keys(static_cast<size_t>(n));
+            for (int k = 0; k < n; ++k) keys[k] = 3ll * k + static_cast<long long>(gen() % 3u);
+            std::vector<long long> a, b;
+            for (int k = 0; k < n; ++k) {
+                bool to_a;
+                switch (mode) {
+                case 0: to_a = gen() % 2u == 0u; break;     // even split
+                case 1: to_a = k != n / 2; break;           // b holds one entry
+                case 2: to_a = k % 997 != 3; break;         // b sparse
+                case 3: to_a = k % 997 == 3; break;         // a sparse
+                case 4: to_a = k < n / 3; break;            // a entirely below b
+                default: to_a = k >= n / 3; break;          // a entirely above b
+                }
+                (to_a ? a : b).push_back(keys[k]);
+            }
+            std::vector<long long> want(static_cast<size_t>(n)), got(static_cast<size_t>(n), -1);
+            const auto less = [](long long x, long long y) { return x < y; };
+            std::merge(a.begin(), a.end(), b.begin(), b.end(), want.begin(), less);
+            parallel_merge(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), got.data(), less);
+            bad += got == want ? 0 : 1;
+        }
+    }
+    CHECK(bad == 0);
 }
 
 TEST(remesh_tables_do_not_depend_on_the_thread_count) {
