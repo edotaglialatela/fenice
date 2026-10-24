@@ -250,7 +250,29 @@ thread, 50 steps, cloud container (Linux, gcc; times only comparable with each o
 * MPI (the user's machines): `python cases/validation/amr/amr_memory.py` runs both meshes on 1, 2, 4, 8, 16 ranks; every rank is
   expected at the serial figures (replicated) plus the `partition()` masks (R x levels x N bytes: 13 MB at 720 on 16 ranks).
   The 1440 mesh needs about 1.6 GB per rank at the peak, 26 GB on 16 ranks: use `--ranks 1 2 4 8` or `--only airfoil_720` on
-  a machine with less memory. *(Results to be added here.)*
+  a machine with less memory.
+
+Measured by the user (`amr_memory.py`, MSVC build on Windows, 50 steps; RSS min-max over the ranks, which agree within 1 MB):
+
+| airfoil | ranks | wall | remesh | gather / indicator / adapt / build / partition | RSS after init | end | peak |
+|---|---|---|---|---|---|---|---|
+| 720 x 360 | 1 | 5.25 s | 0.79 s | 0 / 0.29 / 0.23 / 0.14 / 0 | 222 MB | 296 MB | 387 MB |
+| | 2 | 4.10 s | 1.13 s | 0.05 / 0.35 / 0.29 / 0.18 / 0.24 | 228 MB | 287 MB | 380 MB |
+| | 4 | 2.99 s | 1.14 s | 0.05 / 0.35 / 0.32 / 0.21 / 0.24 | 225 MB | 277 MB | 381 MB |
+| | 8 | 3.65 s | 1.79 s | 0.12 / 0.58 / 0.63 / 0.36 / 0.37 | 224 MB | 273 MB | 381 MB |
+| | 16 | 6.09 s | 3.41 s | 0.35 / 1.26 / 1.45 / 0.59 / 0.56 | 224 MB | 273 MB | 381 MB |
+| 1440 x 720 | 1 | 20.5 s | 3.13 s | 0 / 1.08 / 0.89 / 0.55 / 0 | 853 MB | 1142 MB | 1509 MB |
+| | 2 | 14.1 s | 3.77 s | 0.20 / 1.17 / 1.00 / 0.60 / 0.79 | 877 MB | 1107 MB | 1487 MB |
+| | 4 | 11.9 s | 4.43 s | 0.28 / 1.55 / 1.39 / 0.78 / 0.87 | 865 MB | 1066 MB | 1487 MB |
+| | 8 | 14.5 s | 7.04 s | 0.50 / 2.53 / 2.38 / 1.44 / 1.29 | 860 MB | 1047 MB | 1487 MB |
+| | 16 | 23.9 s | 13.9 s | 1.08 / 4.84 / 5.76 / 2.21 / 2.32 | 860 MB | 1040 MB | 1487 MB |
+
+* The memory per rank does not fall with the ranks at all: the peak is the same on 1 and 16 ranks (the stepping arrays shrink
+  a little, the replicated mesh and engine do not). Tables of a rank with MSVC: mesh 87 / 346 MB, engine 242 / 967 MB.
+* The replicated remesh does not just stay constant: indicator, adapt and build get slower with the ranks (2.5-5x from 1 to 16
+  ranks: every rank does the same memory-bound work at the same time, sharing the memory bandwidth), and `partition()` (the
+  R x levels x N masks) grows from 0.24 to 0.56 s (720) and 0.79 to 2.32 s (1440). Remesh is 56-58 % of the 16-rank runs.
+  The best rank count is 4 for both meshes.
 
 ### 8.2 Halo reach (measured, independent of the partition)
 
