@@ -4034,6 +4034,108 @@ TEST(cell_engine_result_does_not_depend_on_the_thread_count) {
 #endif
 }
 
+TEST(remesh_tables_do_not_depend_on_the_thread_count) {
+    // A remesh above kOmpMinWork (every parallel pass of the indicator, the adaptation, the face and side lists and the engine
+    // build runs in parallel): x periodic, y walled, an immersed body with its finest-level band, steady sources. After each of
+    // 12 remeshes (a moving front: refinements and joins) the leaves, the state, the faces, the gather lists, the incremental
+    // bookkeeping, the indicator and every engine table must be the same bits with 1, 3 and 7 threads.
+#ifdef _OPENMP
+    const EOS eos = EOS::ideal(1.4);
+    const int nx = 128, ny = 64, maxl = 2;
+    const double Lx = 2.0, Ly = 1.0;
+    const Mesh base = generate_cartesian_mesh(Lx, Ly, nx, ny);
+    BoundaryManager bm(base, eos);
+    bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Wall, BCType::Wall);
+    RiemannSolver rs(eos, RiemannType::HLLC);
+    MusclReconstruction mu(eos, Limiter::VanLeer);
+    Params src;
+    src.set("source_rho", "0.1*sin(x)*cos(y)");
+    CellPhysics ph;
+    ph.source = &src;
+    ph.source_mesh = &base;
+    const auto body = [](const Mesh& m) { return ImmersedBoundary(m, "Cylinder", 0.12, 1.2, 1.0, 1.0, 1.0); };
+    ph.ibm_factory = body;
+    CellIndicator ind;
+    ind.use_velocity = true;
+    struct Snap {
+        std::vector<int> level, ci, cj, side_ptr, side_face, prev_leaf, prev_face, face_level_begin;
+        std::vector<char> topo_dirty;
+        std::vector<CellFace> faces;
+        Field U;
+        std::vector<double> xi, xi_parent;
+        std::unique_ptr<CellFluxEngine> eng;
+    };
+    long long joins = 0;
+    const auto run = [&](int threads) {
+        omp_set_num_threads(threads);
+        std::vector<Snap> out;
+        CellMesh m(Lx, Ly, nx, ny, maxl, true, false);
+        auto eng = std::make_unique<CellFluxEngine>(eos, rs, &mu, bm);
+        eng->set_physics(ph);
+        eng->build(m);
+        CellAdaptor ad(m, *eng, eos, ind);
+        ad.set_body(body, 2);
+        for (int it = 0; it < 12; ++it) {
+            // a density front and a vortex that move across the domain
+            const double fx = 0.2 + 0.13 * it, vx = 1.6 - 0.11 * it, vy = 0.5 + 0.2 * std::sin(0.9 * it);
+            m.U.resize(static_cast<size_t>(m.num_leaves()));
+            for (int c = 0; c < m.num_leaves(); ++c) {
+                const double x = m.xc(c), y = m.yc(c), r2 = (x - vx) * (x - vx) + (y - vy) * (y - vy);
+                const double rho = 1.0 + 0.5 * std::tanh((x - fx) / 0.03), g = 2.0 * std::exp(-r2 / 0.01);
+                m.U[c] = eos.prim_to_cons(State{rho, -g * (y - vy), g * (x - vx), 1.0, 0.0});
+            }
+            Snap s;
+            const CellIndicator::Result ev = ind.evaluate(m, m.U, eos);
+            s.xi = ev.xi;
+            s.xi_parent = ev.xi_parent;
+            ad.remesh();
+            s.level = m.level;
+            s.ci = m.ci;
+            s.cj = m.cj;
+            s.U = m.U;
+            s.faces = m.faces;
+            s.side_ptr = m.side_ptr;
+            s.side_face = m.side_face;
+            s.prev_leaf = m.prev_leaf;
+            s.prev_face = m.prev_face;
+            s.topo_dirty = m.topo_dirty;
+            s.face_level_begin = m.face_level_begin;
+            s.eng = std::make_unique<CellFluxEngine>(*eng);
+            out.push_back(std::move(s));
+        }
+        joins = ad.n_joined;
+        return out;
+    };
+    const std::vector<Snap> one = run(1);
+    int bad = 0, big = 0;
+    for (const int threads : {3, 7}) {
+        const std::vector<Snap> many = run(threads);
+        for (size_t k = 0; k < one.size(); ++k) {
+            const Snap &a = one[k], &b = many[k];
+            bool same = a.level == b.level && a.ci == b.ci && a.cj == b.cj && bits_equal(a.U, b.U) && a.side_ptr == b.side_ptr &&
+                        a.side_face == b.side_face && a.prev_leaf == b.prev_leaf && a.prev_face == b.prev_face &&
+                        a.topo_dirty == b.topo_dirty && a.face_level_begin == b.face_level_begin &&
+                        a.faces.size() == b.faces.size() && a.xi.size() == b.xi.size() &&
+                        std::memcmp(a.xi.data(), b.xi.data(), a.xi.size() * sizeof(double)) == 0 &&
+                        std::memcmp(a.xi_parent.data(), b.xi_parent.data(), a.xi.size() * sizeof(double)) == 0;
+            for (size_t f = 0; same && f < a.faces.size(); ++f) {
+                const CellFace &p = a.faces[f], &q = b.faces[f];
+                same = p.left == q.left && p.right == q.right && p.level == q.level && p.tpos == q.tpos && p.axis == q.axis &&
+                       p.kind == q.kind && p.side == q.side && std::memcmp(&p.length, &q.length, sizeof(double)) == 0;
+            }
+            same = same && a.eng->same_tables(*b.eng);
+            bad += same ? 0 : 1;
+            if (!same) std::printf("    %d threads: remesh %d differs\n", threads, static_cast<int>(k));
+        }
+    }
+    for (const Snap& k : one) big += k.level.size() > 4096 ? 1 : 0;
+    omp_set_num_threads(omp_get_num_procs());
+    CHECK(big == static_cast<int>(one.size()));
+    CHECK(joins > 0);
+    CHECK(bad == 0);
+#endif
+}
+
 int main() {
     int failed_tests = 0;
     for (const auto& t : registry()) {
