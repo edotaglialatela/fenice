@@ -1,6 +1,6 @@
 # IBM wall treatment: problem statement and proposals
 
-Status: proposal, not implemented.
+Status: proposal C (ghost cells) implemented as an option, `ibm_method = ghost` (branch `ibm-ghost-cell`); see "Results" at the end.
 
 ## Current method
 
@@ -115,3 +115,34 @@ pressure, heat flux) need to be quantitative.
   incompressible flows with complex boundaries. *J. Comput. Phys.* 227, 4825-4852.
 * Mittal, R. & Iaccarino, G. (2005). Immersed boundary methods. *Annu. Rev. Fluid
   Mech.* 37, 239-261.
+
+## Results (proposal C, `ibm_method = ghost`)
+
+Chosen over B because B stays first order at the wall and makes it porous. Implemented in 2-D for the uniform solver (serial,
+OpenMP, MPI strips) and the AMR engine (finest-level band), opt-in; the default `mask` path is unchanged bit for bit.
+
+* **Method.** Ghost cells = solid cells within two cells of a fluid cell. Image point at least 1.5 cells into the fluid along the
+  normal from the closest wall point (further out, in half-cell steps up to 4 cells, where the four bilinear cells are not all
+  fluid: concave corners, thin trailing edges; solid cells are dropped from the bilinear weights). Ghost state: density and
+  pressure of the image point (zero normal gradient), velocity -(d_ghost / d_image) times the image velocity (no-slip) or only its
+  normal component (slip, `use_viscous = false`). Deeper solid cells at rest, reset to the reference state with the EOS (fixes
+  problem 5). Loads from the true surface: probes at d and 2 d along the normal, wall pressure extrapolated linearly, wall shear
+  from the quadratic through zero at the wall.
+* **MPI.** The ghost table is built on the whole mesh on every rank; each rank fills its own ghost cells and fetches the cells of
+  other strips their image points read (an all-to-all of a few cells, any strip width). AMR: the band of `amr_refine_ibm` is widened
+  to the stencil reach (6 finest cells for the cylinder and the airfoil), the image leaves are part of the halo.
+  `cases/validation/features/ibm_ghost.py --check` (in CI): serial against 2-7 ranks bit for bit, uniform and AMR.
+* **Cylinder, Re = 40** (steady; Mach 0.27 to shorten the runs; channel 4 x 2, 10 % blockage), Cd from the same control-volume
+  momentum balance on both flows (three box sizes agree within 0.2 %):
+
+  | cells per diameter | mask | ghost |
+  |---|---:|---:|
+  | 20 | 1.838 | 1.897 |
+  | 40 | 1.864 | 1.894 |
+
+  The ghost wall is grid-converged to 0.15 % at 20 cells per diameter; the mask converges at about first order towards the same
+  value, needing roughly four times the resolution per direction. The ghost run's own surface loads are 1-2.5 % below its
+  control-volume value (probe-based wall shear and pressure); a better surface integration is open.
+* **Mach 2 cylinder** (50 cells per diameter): the staircase waves at 45-75 degrees and the kinks of the surface pressure are gone
+  with the ghost wall (slip); the bow-shock stand-off is 0.332 (ghost) and 0.319 (mask) against 0.310 from the Billig correlation,
+  a difference of about one shock thickness at this resolution.
