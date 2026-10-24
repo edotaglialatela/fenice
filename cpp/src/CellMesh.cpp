@@ -6,6 +6,8 @@
 #include <numeric>
 #include <stdexcept>
 
+#include "fv/ParallelScan.hpp"
+
 namespace fv {
 
 namespace {
@@ -125,14 +127,22 @@ void CellMesh::rebuild(bool incremental) {
     for (int c = N - 1; c >= 0; --c) level_begin[level[c]] = c;
     for (int l = max_level; l >= 0; --l) level_begin[l] = std::min(level_begin[l], level_begin[l + 1]);
     mkey_.resize(static_cast<size_t>(N));
+#pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
     for (int c = 0; c < N; ++c) mkey_[c] = morton_key(static_cast<uint32_t>(ci[c]), static_cast<uint32_t>(cj[c]));
-    grid_.assign(static_cast<size_t>(max_level) + 1, {});
+    grid_.resize(static_cast<size_t>(max_level) + 1);
     for (int l = 0; l <= max_level; ++l) {
         const long long cells = static_cast<long long>(nx_at(l)) * ny_at(l);
-        if (cells > 4ll * N + 65536) continue;
         std::vector<int>& g = grid_[static_cast<size_t>(l)];
-        g.assign(static_cast<size_t>(cells), -1);
-        for (int c = level_begin[l]; c < level_begin[l + 1]; ++c) g[static_cast<size_t>(cj[c]) * nx_at(l) + ci[c]] = c;
+        if (cells > 4ll * N + 65536) {
+            std::vector<int>().swap(g);
+            continue;
+        }
+        g.resize(static_cast<size_t>(cells));   // the table of the last rebuild, overwritten
+        const int nc = static_cast<int>(cells), cb = level_begin[l], ce = level_begin[l + 1], NX = nx_at(l);
+#pragma omp parallel for schedule(static) if (nc >= kOmpMinWork)
+        for (int k = 0; k < nc; ++k) g[static_cast<size_t>(k)] = -1;
+#pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
+        for (int c = cb; c < ce; ++c) g[static_cast<size_t>(cj[c]) * NX + ci[c]] = c;
     }
 
     // faces: each leaf creates the faces it is responsible for
@@ -181,7 +191,8 @@ void CellMesh::rebuild(bool incremental) {
     if (inc) {
         const int old_n = static_cast<int>(face_off_.size()) - 1;
         prev2new.assign(static_cast<size_t>(old_n), -1);
-        for (int c = 0; c < N; ++c)
+#pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
+        for (int c = 0; c < N; ++c)   // prev_leaf is one-to-one: distinct entries
             if (prev_leaf[c] >= 0) prev2new[static_cast<size_t>(prev_leaf[c])] = c;
         // Marked from the new leaves outward: the leaves c whose square of their size across a side holds a new leaf n are the
         // leaves of level l(n) - 2 .. l(n) next to the block of their level that holds n, and the finer leaves on the sides of n
@@ -223,9 +234,12 @@ void CellMesh::rebuild(bool incremental) {
         }
         off[static_cast<size_t>(c) + 1] = k;
     }
-    for (int c = 0; c < N; ++c) off[static_cast<size_t>(c) + 1] += off[static_cast<size_t>(c)];
-    std::vector<CellFace> nf(static_cast<size_t>(off[static_cast<size_t>(N)]));
-    if (inc) prev_face.assign(nf.size(), -1);
+    inclusive_scan_inplace(off.data(), N + 1);
+    // the face list of the call before last as the buffer: every entry is written below
+    std::vector<CellFace> nf;
+    nf.swap(face_spare_);
+    nf.resize(static_cast<size_t>(off[static_cast<size_t>(N)]));
+    if (inc) prev_face.resize(nf.size());
     bool broken = false;
 #pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
     for (int c = 0; c < N; ++c) {
@@ -244,38 +258,74 @@ void CellMesh::rebuild(bool incremental) {
         }
         CellFace f;
         for (int s = 0; s < 4; ++s)
-            if (make_face(c, s, f)) nf[static_cast<size_t>(k++)] = f;
+            if (make_face(c, s, f)) {
+                if (inc) prev_face[static_cast<size_t>(k)] = -1;
+                nf[static_cast<size_t>(k++)] = f;
+            }
     }
     if (broken) throw std::logic_error("CellMesh: a clean leaf's face lost a leaf (incremental rebuild)");
     faces.swap(nf);
+    face_spare_.swap(nf);
     face_off_.swap(off);
-    face_level_begin.assign(static_cast<size_t>(max_level) + 2, static_cast<int>(faces.size()));
-    for (int f = static_cast<int>(faces.size()) - 1; f >= 0; --f) face_level_begin[faces[f].level] = f;
-    for (int l = max_level; l >= 0; --l) face_level_begin[l] = std::min(face_level_begin[l], face_level_begin[l + 1]);
+    // the faces are non-decreasing in level (a face has the level of the leaf that made it, the finer one)
+    face_level_begin.resize(static_cast<size_t>(max_level) + 2);
+    for (int l = 0; l <= max_level + 1; ++l)
+        face_level_begin[static_cast<size_t>(l)] = static_cast<int>(
+            std::partition_point(faces.begin(), faces.end(), [l](const CellFace& f) { return f.level < l; }) - faces.begin());
 
     // cell -> face lists by side
-    side_ptr.assign(static_cast<size_t>(4) * N + 1, 0);
+    const int NF = static_cast<int>(faces.size()), NS = 4 * N;
+    side_ptr.resize(static_cast<size_t>(NS) + 1);
+#pragma omp parallel for schedule(static) if (NS >= kOmpMinWork)
+    for (int k = 0; k <= NS; ++k) side_ptr[static_cast<size_t>(k)] = 0;
     const auto side_of_left = [](const CellFace& f) { return f.axis == 0 ? 1 : 3; };    // Right / Top of `left`
     const auto side_of_right = [](const CellFace& f) { return f.axis == 0 ? 0 : 2; };   // Left / Bottom of `right`
-    for (const CellFace& f : faces) {
-        if (f.left >= 0) ++side_ptr[4 * f.left + side_of_left(f) + 1];
-        if (f.right >= 0) ++side_ptr[4 * f.right + side_of_right(f) + 1];
+#pragma omp parallel for schedule(static) if (NF >= kOmpMinWork)
+    for (int fi = 0; fi < NF; ++fi) {
+        const CellFace& f = faces[static_cast<size_t>(fi)];
+        if (f.left >= 0) {
+            int& n = side_ptr[static_cast<size_t>(4) * f.left + side_of_left(f) + 1];
+#pragma omp atomic
+            ++n;
+        }
+        if (f.right >= 0) {
+            int& n = side_ptr[static_cast<size_t>(4) * f.right + side_of_right(f) + 1];
+#pragma omp atomic
+            ++n;
+        }
     }
-    for (size_t k = 0; k + 1 < side_ptr.size(); ++k) {
-        const int n = side_ptr[k + 1];
-        if (n < 1 || n > 2) throw std::logic_error("CellMesh: a cell side must carry one or two faces (2:1 violated?)");
-        side_ptr[k + 1] += side_ptr[k];
+    bool bad_count = false;
+#pragma omp parallel for schedule(static) if (NS >= kOmpMinWork)
+    for (int k = 1; k <= NS; ++k)
+        if (side_ptr[static_cast<size_t>(k)] < 1 || side_ptr[static_cast<size_t>(k)] > 2) bad_count = true;
+    if (bad_count) throw std::logic_error("CellMesh: a cell side must carry one or two faces (2:1 violated?)");
+    inclusive_scan_inplace(side_ptr.data(), NS + 1);
+    // A side with two faces faces two finer leaves, the children 2t and 2t + 1 of its transverse position t: the face of the
+    // even one goes first (increasing transverse position), so every face has its own slot and the order is the serial one.
+    side_face.resize(static_cast<size_t>(side_ptr.back()));
+    const int NSF = static_cast<int>(side_face.size());
+#pragma omp parallel for schedule(static) if (NSF >= kOmpMinWork)
+    for (int k = 0; k < NSF; ++k) side_face[static_cast<size_t>(k)] = -1;
+    const auto slot = [&](int k, const CellFace& f) {
+        const int b = side_ptr[static_cast<size_t>(k)];
+        return side_ptr[static_cast<size_t>(k) + 1] - b == 2 ? b + (f.tpos & 1) : b;
+    };
+#pragma omp parallel for schedule(static) if (NF >= kOmpMinWork)
+    for (int fi = 0; fi < NF; ++fi) {
+        const CellFace& f = faces[static_cast<size_t>(fi)];
+        if (f.left >= 0) side_face[static_cast<size_t>(slot(4 * f.left + side_of_left(f), f))] = fi;
+        if (f.right >= 0) side_face[static_cast<size_t>(slot(4 * f.right + side_of_right(f), f))] = fi;
     }
-    side_face.assign(static_cast<size_t>(side_ptr.back()), -1);
-    std::vector<int> fill(side_ptr.begin(), side_ptr.end() - 1);
-    for (int fi = 0; fi < static_cast<int>(faces.size()); ++fi) {
-        const CellFace& f = faces[fi];
-        if (f.left >= 0) side_face[fill[4 * f.left + side_of_left(f)]++] = fi;
-        if (f.right >= 0) side_face[fill[4 * f.right + side_of_right(f)]++] = fi;
+    bool bad_slot = false;
+#pragma omp parallel for schedule(static) if (NS >= kOmpMinWork)
+    for (int k = 0; k < NS; ++k) {
+        const int b = side_ptr[static_cast<size_t>(k)], e = side_ptr[static_cast<size_t>(k) + 1];
+        if (side_face[static_cast<size_t>(b)] < 0 || side_face[static_cast<size_t>(e) - 1] < 0 ||
+            (e - b == 2 && faces[static_cast<size_t>(side_face[static_cast<size_t>(b)])].tpos + 1 !=
+                               faces[static_cast<size_t>(side_face[static_cast<size_t>(b) + 1])].tpos))
+            bad_slot = true;
     }
-    for (int k = 0; k < 4 * N; ++k)
-        if (side_ptr[k + 1] - side_ptr[k] == 2 && faces[side_face[side_ptr[k]]].tpos > faces[side_face[side_ptr[k] + 1]].tpos)
-            std::swap(side_face[side_ptr[k]], side_face[side_ptr[k] + 1]);
+    if (bad_slot) throw std::logic_error("CellMesh: the two faces of a side are not two sibling finer leaves");
 }
 
 void CellMesh::assign_leaves(const std::vector<int>& lv, const std::vector<int>& ii, const std::vector<int>& jj, Field* state) {

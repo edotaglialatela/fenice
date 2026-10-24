@@ -134,6 +134,7 @@ private:
     std::vector<uint64_t> mkey_;
 
     std::vector<int> face_off_;   // faces made by leaf c: faces[face_off_[c] .. face_off_[c + 1])
+    std::vector<CellFace> face_spare_;   // the face list before last, reused as the buffer of the next rebuild
 
     // Lookup tables, faces and gather lists of the current leaves. `incremental`: prev_leaf is set (adapt), the faces of the clean
     // leaves are copied from the old ones.
