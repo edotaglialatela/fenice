@@ -226,6 +226,7 @@ private:
     void eval_interp();
     void force_all(const CellMesh& m, const Field& U);   // every leaf (the full residual, whatever the partition)
     void rebuild_lists(const CellMesh& m, const Partition* part);
+    void rebuild_lists_whole(const CellMesh& m);   // rebuild_lists without a partition (parallel)
     void mark_code(int code, std::vector<char>& mask) const;
     void mark_tree(int code, std::vector<char>& mask) const;
     // per level: the faces this rank computes, the leaves whose forced state it keeps, the owned range; all faces

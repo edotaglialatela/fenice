@@ -7,6 +7,7 @@
 #include <stdexcept>
 
 #include "SchemesSimd.hpp"
+#include "fv/ParallelScan.hpp"
 
 namespace fv {
 
@@ -356,6 +357,10 @@ void sort_unique(std::vector<int>& v, std::vector<char>& seen) {
 }   // namespace
 
 void CellFluxEngine::rebuild_lists(const CellMesh& m, const Partition* part) {
+    if (!part) {
+        rebuild_lists_whole(m);
+        return;
+    }
     std::vector<char> seen(static_cast<size_t>(nleaf_) + vroot_.size() + interp_.size() + 1, 0);
     const size_t L = static_cast<size_t>(m.max_level) + 1;
     lface_.assign(L, {});
@@ -410,6 +415,71 @@ void CellFluxEngine::rebuild_lists(const CellMesh& m, const Partition* part) {
             }
         }
         sort_unique(v, seen);
+    }
+}
+
+void CellFluxEngine::rebuild_lists_whole(const CellMesh& m) {
+    // rebuild_lists without a partition, in parallel: every leaf is owned and held, every face active, so the leaf and face
+    // lists of a level are its ranges; need_ and vcells_ are sets (sorted, distinct), marked from the faces and compacted.
+    const int ncode = nleaf_ + static_cast<int>(vroot_.size() + interp_.size());
+    const size_t L = static_cast<size_t>(m.max_level) + 1;
+    lface_.assign(L, {});
+    lheld_.assign(L, {});
+    need_.assign(L, {});
+    vcells_.assign(L, {});
+    lown_b_.assign(L, 0);
+    lown_e_.assign(L, 0);
+    owned_mask_.clear();
+    held_mask_.clear();
+    const int NF = static_cast<int>(m.faces.size());
+    all_faces_.resize(m.faces.size());
+#pragma omp parallel for schedule(static) if (NF >= kOmpMinWork)
+    for (int f = 0; f < NF; ++f) all_faces_[static_cast<size_t>(f)] = f;
+    const auto range = [](std::vector<int>& v, int b, int e) {
+        v.resize(static_cast<size_t>(e - b));
+#pragma omp parallel for schedule(static) if (e - b >= kOmpMinWork)
+        for (int k = b; k < e; ++k) v[static_cast<size_t>(k - b)] = k;
+    };
+    MarkArray seen(static_cast<size_t>(ncode) + 1);
+    const auto mark = [&](int x) { seen[static_cast<size_t>(x)].store(1, std::memory_order_relaxed); };
+    for (int l = 0; l <= m.max_level; ++l) {
+        const size_t sl = static_cast<size_t>(l);
+        const int cb = m.level_begin[l], ce = m.level_begin[l + 1], fb = m.face_level_begin[l], fe = m.face_level_begin[l + 1];
+        lown_b_[sl] = cb;
+        lown_e_[sl] = ce;
+        range(lheld_[sl], cb, ce);
+        range(lface_[sl], fb, fe);
+        // W entries read by the stencils of the faces of this level
+        if (muscl_) {
+#pragma omp parallel for schedule(static) if (fe - fb >= kOmpMinWork)
+            for (int f = fb; f < fe; ++f) {
+                const CellFace& face = m.faces[static_cast<size_t>(f)];
+                if (face.kind == CellFaceKind::Boundary) continue;
+                const std::array<int, 4>& st = stencil_[static_cast<size_t>(f)];
+                for (int k = 0; k < 4; ++k) mark(st[k]);
+                if (coarse_side_second_order && face.kind == CellFaceKind::CoarseFine) {
+                    const int C = m.level[face.left] > m.level[face.right] ? st[3] : st[0];
+                    for (int s = 0; s < 4; ++s)
+                        if (nbr_raw_[static_cast<size_t>(4) * C + s] >= 0) mark(nbr_raw_[static_cast<size_t>(4) * C + s]);
+                }
+            }
+            take_marked(seen, 0, ncode, need_[sl]);
+        }
+        // cells whose viscous quantities the faces of this level read: the coarse leaves of its coarse-fine faces (of lower
+        // levels, so before the level's own leaves), then the level's leaves
+        std::vector<int>& v = vcells_[sl];
+        if (l > 0) {
+#pragma omp parallel for schedule(static) if (fe - fb >= kOmpMinWork)
+            for (int f = fb; f < fe; ++f) {
+                const CellFace& face = m.faces[static_cast<size_t>(f)];
+                if (face.kind == CellFaceKind::CoarseFine) mark(m.level[face.left] < l ? face.left : face.right);
+            }
+            take_marked(seen, 0, cb, v);
+        }
+        const size_t nc = v.size();
+        v.resize(nc + static_cast<size_t>(ce - cb));
+#pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
+        for (int c = cb; c < ce; ++c) v[nc + static_cast<size_t>(c - cb)] = c;
     }
 }
 
