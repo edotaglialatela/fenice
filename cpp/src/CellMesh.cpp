@@ -199,8 +199,9 @@ void CellMesh::rebuild(bool incremental) {
         // leaves of level l(n) - 2 .. l(n) next to the block of their level that holds n, and the finer leaves on the sides of n
         // (2:1 balance: a square next to c holds leaves of level l(c) + 2 at most, a face neighbour of n is one level finer at most).
         topo_dirty.assign(static_cast<size_t>(N), 0);
-        for (int n = 0; n < N; ++n) {
-            if (prev_leaf[n] >= 0) continue;
+        std::vector<int> fresh;   // the new leaves (a few per thousand)
+        collect_indices(0, N, [&](int c) { return prev_leaf[c] < 0; }, fresh);
+        for (const int n : fresh) {
             topo_dirty[n] = 1;
             const int ln = level[n];
             for (int s = 0; s < 4; ++s) {
@@ -400,6 +401,8 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
     // Merges: sibling groups anchored at their (even, even) member
     std::vector<char> merge_anchor(static_cast<size_t>(N), 0), absorbed(static_cast<size_t>(N), 0);
     if (!coarsen_in.empty()) {
+        // each group is tested by its anchor and writes its own four entries
+#pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
         for (int a = 0; a < N; ++a) {
             const int l = level[a];
             if (l == 0 || (ci[a] & 1) || (cj[a] & 1)) continue;

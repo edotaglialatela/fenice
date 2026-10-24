@@ -68,18 +68,13 @@ void parallel_merge(const T* a, int na, const T* b, int nb, T* out, Less less) {
     }
 }
 
-// Marks that several threads may set at once (relaxed byte stores).
-using MarkArray = std::vector<std::atomic<unsigned char>>;
-
-// The indices k in [lo, hi) with mark[k] set, in increasing order, appended to out; the marks are cleared.
-inline void take_marked(MarkArray& mark, int lo, int hi, std::vector<int>& out) {
+// The indices k in [lo, hi) with pred(k), in increasing order, appended to out (counted per block, then written per block).
+template <class Pred>
+void collect_indices(int lo, int hi, Pred pred, std::vector<int>& out) {
     const int n = hi - lo, base = static_cast<int>(out.size());
     if (n < 4 * kOmpMinWork) {
         for (int k = lo; k < hi; ++k)
-            if (mark[static_cast<size_t>(k)].load(std::memory_order_relaxed)) {
-                out.push_back(k);
-                mark[static_cast<size_t>(k)].store(0, std::memory_order_relaxed);
-            }
+            if (pred(k)) out.push_back(k);
         return;
     }
     const int chunk = (n + kScanBlocks - 1) / kScanBlocks;
@@ -89,7 +84,7 @@ inline void take_marked(MarkArray& mark, int lo, int hi, std::vector<int>& out) 
     for (int b = 0; b < kScanBlocks; ++b) {
         const int k0 = lo + std::min(n, b * chunk), k1 = lo + std::min(n, (b + 1) * chunk);
         int cnt = 0;
-        for (int k = k0; k < k1; ++k) cnt += mark[static_cast<size_t>(k)].load(std::memory_order_relaxed) ? 1 : 0;
+        for (int k = k0; k < k1; ++k) cnt += pred(k) ? 1 : 0;
         pos[b + 1] = cnt;
     }
     for (int b = 0; b < kScanBlocks; ++b) pos[b + 1] += pos[b];
@@ -99,11 +94,20 @@ inline void take_marked(MarkArray& mark, int lo, int hi, std::vector<int>& out) 
         const int k0 = lo + std::min(n, b * chunk), k1 = lo + std::min(n, (b + 1) * chunk);
         int w = base + pos[b];
         for (int k = k0; k < k1; ++k)
-            if (mark[static_cast<size_t>(k)].load(std::memory_order_relaxed)) {
-                out[static_cast<size_t>(w++)] = k;
-                mark[static_cast<size_t>(k)].store(0, std::memory_order_relaxed);
-            }
+            if (pred(k)) out[static_cast<size_t>(w++)] = k;
     }
+}
+
+// Marks that several threads may set at once (relaxed byte stores).
+using MarkArray = std::vector<std::atomic<unsigned char>>;
+
+// The indices k in [lo, hi) with mark[k] set, in increasing order, appended to out; the marks are cleared.
+inline void take_marked(MarkArray& mark, int lo, int hi, std::vector<int>& out) {
+    const int base = static_cast<int>(out.size());
+    collect_indices(lo, hi, [&](int k) { return mark[static_cast<size_t>(k)].load(std::memory_order_relaxed) != 0; }, out);
+    const int n = static_cast<int>(out.size());
+#pragma omp parallel for schedule(static) if (n - base >= kOmpMinWork)
+    for (int k = base; k < n; ++k) mark[static_cast<size_t>(out[static_cast<size_t>(k)])].store(0, std::memory_order_relaxed);
 }
 
 }   // namespace fv

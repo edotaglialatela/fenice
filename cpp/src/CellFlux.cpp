@@ -88,8 +88,9 @@ void CellFluxEngine::build(const CellMesh& m) {
     }
     vkey_.clear();
     ikey_.clear();
-    for (int c = 0; c < nleaf_; ++c) {
-        if (!special_[c]) continue;
+    std::vector<int> special_leaves;
+    collect_indices(0, nleaf_, [&](int c) { return special_[c] != 0; }, special_leaves);
+    for (const int c : special_leaves) {
         for (int s = 0; s < 4; ++s) {
             const CellNeighbour nb = m.neighbour(c, static_cast<Face>(s));
             if (nb.kind == CellNeighbour::Kind::Finer)
