@@ -1,8 +1,8 @@
 # AMR with distributed storage and a local remesh (plan)
 
-Status: **plan, awaiting the user's approval; no code yet.** Branch `amr-distributed`, from `main` at 883c45d (both PRs #4 / #5
-merged). This is option 2 of `docs/design/amr-optimisation.md`, as a step towards 3-D octree AMR. Every number below that was not
-measured is marked *(estimate)*.
+Status: **approved (D1-D5 answered, section 7); phase 0 done (section 8), phase 1 next.** Branch `amr-distributed`, from `main`
+at 883c45d (both PRs #4 / #5 merged). This is option 2 of `docs/design/amr-optimisation.md`, as a step towards 3-D octree AMR.
+Every number below that was not measured is marked *(estimate)*.
 
 ## 0. Start here (for a fresh session)
 
@@ -26,6 +26,8 @@ measured is marked *(estimate)*.
 | references | `FENICE_EXE=build/release/fenice python cpp/tests/regression.py` | 38 states (6 AMR) |
 | golden dumps | `python cases/validation/amr/golden.py dump OLD --exe <main binary>`, `... dump NEW`, `... compare OLD NEW` | ten adaptive runs, 1-7 threads, monitor on; also `--env FENICE_FULL_REBUILD=1`, `--env FENICE_NO_SIMD=1` |
 | real MPI (CI) | `python cases/validation/amr/amr_mpi.py --check`, `python cases/validation/features/ibm_ghost.py --check` | 1-7 ranks bitwise equal to serial |
+| halo guard | `build/release/fenice_tests` (`halo_reach_bounds_the_halo_of_any_partition`) | the real halo of 1-16 emulated ranks lies in the reach `CellParallel::halo_reach` measures; the reach is pinned |
+| memory / time baseline (user) | `python cases/validation/amr/amr_memory.py` (`--ranks`, `--only`, `--steps`, `--reach`) | RSS per rank, table bytes, remesh parts on 1-16 ranks (section 8) |
 | timings (user) | a script like the one used for PR #4 (clone, build `main` and the branch, interleaved runs, min of 3) | |
 
 **Files.** `cpp/include/fv/CellMesh.hpp` (leaves, faces, side lists, adapt, incremental bookkeeping), `CellFlux.hpp` (engine:
@@ -49,7 +51,7 @@ gets slower (8.86 s on 48). PR #4 made the remesh OpenMP-parallel (0.18 s on 16 
 each). And no rank can hold less than the whole mesh.
 
 **What is global on every rank today** (to be removed; sizes for the 720x360 airfoil, 268 k leaves, finest level 2880 x 1440; from
-reading the code, to be confirmed by the measurements of phase 0):
+reading the code; measured in section 8.1):
 
 | item | where | size |
 |---|---|---|
@@ -96,12 +98,19 @@ reading the code, to be confirmed by the measurements of phase 0):
   and its neighbours). `H` is measured, not guessed (phase 0): MUSCL (2), gradients for viscous cross terms (1 more), interpolated
   jump cells (coarse neighbours), non-reflecting tangential neighbours, the ghost-cell images (up to 6 finest cells for the
   cylinder and the airfoil, `ghost_reach`), mass-flow side leaves (a 1-D set on the inlet side, kept on every rank as now: small).
-  *(Estimate: H = 3 at the leaf's level plus the ghost reach near a body.)*
+  **Measured in phase 0** (section 8.2): the reach depends on the level difference between the driver and the leaf read, so the
+  geometric halo is defined per level difference d = level(owned) - level(read): a leaf of level t is in the halo if it lies
+  within `H[d]` rings of an owned leaf (rings of the owned leaf's level, `CellParallel::ring`). On the airfoil `H` is 5 for the
+  same level, 3 for a finer leaf, 6 / 7 for a leaf one / two levels coarser (the virtual and interpolated cells of the jumps
+  cascade: the coarse leaf's neighbours, the coarser leaf beyond it and its neighbours), 7 for the ghost images; the random
+  four-level test meshes reach 10 (three jumps in a row). `CellParallel::halo_reach` computes the table for any mesh, so the halo
+  by region can take `H[d]` from it (or from the pinned bounds of the guard test) instead of a constant.
 * Halo by region: a rank computes the key ranges its dilated region covers per level, sends the requests to the owners (from the
   splitters), the owners reply with the leaves (level, key, state). Exchanges per stage / level reuse the existing pattern (send
   lists built once per partition from the requests, `CellComm::exchange`).
-* Guard test (kept forever): on a replicated mesh, for every emulated rank, every dependency of every face it evaluates, of the
-  ghost fill, the solid reset, the indicator, the ripple and the merge test lies in its geometric halo.
+* Guard test (kept forever; the time-stepping part is in, `halo_reach_bounds_the_halo_of_any_partition`): on a replicated mesh,
+  for every emulated rank, every dependency of every face it evaluates, of the ghost fill, the solid reset, the indicator, the
+  ripple and the merge test lies in its geometric halo. The indicator, ripple and merge parts are added with phase 3.
 
 ### 3.3 Indicator (distributed)
 
@@ -197,12 +206,78 @@ retired (decision D5).
 * Memory of the transition (phase 2 keeps the replicated remesh, so the peak at a remesh is still O(N) per rank until phase 4).
 * Effort: phases 2-4 are a rewrite of the indexing of three classes *(estimate: the largest piece of work since P6)*.
 
-## 7. Decisions for the user
+## 7. Decisions (answered by the user, 2026-10-24)
 
-* **D1 I/O**: may checkpoint / `dump_state` / `export_state` keep a gather to rank 0 (simple; rank 0 then needs O(N) memory at
-  output time), or per-rank files (a restart reads them by key, any rank count)? Restart on another rank count: required?
-* **D2 monitor sums**: volume averages and loads equal to roundoff across rank counts (states stay bitwise): acceptable?
-* **D3 large churn**: allgather of new keys (simple, O(new leaves) per rank) or a distributed sample sort from the start?
-* **D4 target case** for the memory demonstration (e.g. the airfoil at 1440 x 720 with 3 levels, or a case the user cares about).
-* **D5** the replicated path: keep it as a fallback (`FENICE_REPLICATED_REMESH`) or remove it after phase 6?
+* **D1 I/O**: "do what is best; resume on the same number of ranks is enough". Chosen: the checkpoint becomes per-rank files
+  (each rank writes its owned leaves by key with their state, plus the shared header: t, step, wave-speed bound, rank count);
+  a resume reads them on the same rank count and refuses another one with a clear message (today's resume on another rank count
+  is dropped). `dump_state` (the test / validation dump) keeps a gather to rank 0, streamed rank by rank: it is opt-in, and the
+  regression and golden oracles compare it. VTK stays one `.vtu` per rank.
+* **D2 monitor sums**: "gather over all the volume". Read as: keep the monitor bitwise independent of the rank count. Root
+  receives the per-leaf terms of the volume sums (u0 a, the kinetic term, u3 a, a: four doubles per leaf, in the global leaf
+  order) and the solid leaves' load terms, and sums them in leaf order as today: O(N) doubles on root at a monitor row, much
+  less than the state and only when the monitor is on. *(To be confirmed by the user; the alternative was per-rank sums plus an
+  allreduce, equal to roundoff only.)*
+* **D3 large churn**: "what is best for computational time". Chosen: allgather of the new keys (12 bytes each; 0.13 % of the
+  leaves per remesh in steady runs, 3 MB for a full 268 k remesh): one collective, no extra rounds. A sample sort only if a
+  measurement shows the allgather to matter (it would at init on meshes much larger than 1 M leaves).
+* **D4 target case**: the airfoil: 720 x 360 and 1440 x 720 (two levels), `amr_memory.py`.
+* **D5** the replicated path: kept as `FENICE_REPLICATED_REMESH=1` during phases 2-5 for A/B and bisecting, removed after the
+  last phase once everything works.
 * Scope check: per-level partition kept (the subtree alternative measured ~1.5x slower stepping on 8 ranks, section 20).
+
+## 8. Phase 0 results
+
+### 8.1 Memory and time (serial, measured in the container)
+
+The solver now prints at the end of an AMR run the resident memory of every rank (min / max over the ranks: after setup, after
+the initial adaptation, at the end, the peak) and the bytes of the tables of rank 0 (container capacities). Serial runs, one
+thread, 50 steps, cloud container (Linux, gcc; times only comparable with each other):
+
+| airfoil | leaves | RSS setup | after init | end | peak | mesh | engine | uniform-mesh arrays | body band | wall | remesh (indicator / adapt / build) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| 720 x 360 | 268 k | 41 MB | 276 MB | 396 MB | 458 MB | 107 MB | 321 MB | 5 MB | 4 MB | 11.0 s | 1.59 s (0.51 / 0.49 / 0.36) |
+| 1440 x 720 | 1.06 M | 145 MB | 977 MB | 1352 MB | 1609 MB | 427 MB | 1280 MB | 21 MB | 16 MB | 44.1 s | 7.73 s (2.32 / 3.57 / 1.44) |
+
+* About **1.5 kB per leaf** at the end, every rank today; the peak (+15-20 %) is the initial adaptation (`fill_cells` evaluates
+  the initial condition on the whole uniform mesh of every level: 4.1 M / 16.6 M states at the finest level) and the remesh
+  temporaries. The engine is three quarters of it: per face `F_`, `Fv_`, `reg_`, `regv_` (40 bytes each, 1.04 M faces at 720:
+  160 MB; `reg_` / `regv_` are needed for coarse-fine faces only, `Fv_` only when viscous), `W_`, `forced_`, `src_` (allocated
+  without sources), the stencils and their spare copies of PR #4. Phase 2 makes all of it local; the per-face registers sized for
+  every face are a cheap saving to take there (bits unchanged).
+* The O(finest uniform) arrays are small at two levels (5 + 4 MB at 720: masks are bytes) but grow by 4 per level; the
+  `fill_cells` transient (40 bytes per finest cell) is the largest of them.
+* MPI (the user's machines): `python cases/validation/amr/amr_memory.py` runs both meshes on 1, 2, 4, 8, 16 ranks; every rank is
+  expected at the serial figures (replicated) plus the `partition()` masks (R x levels x N bytes: 13 MB at 720 on 16 ranks).
+  The 1440 mesh needs about 1.6 GB per rank at the peak, 26 GB on 16 ranks: use `--ranks 1 2 4 8` or `--only airfoil_720` on
+  a machine with less memory. *(Results to be added here.)*
+
+### 8.2 Halo reach (measured, independent of the partition)
+
+`CellParallel::halo_reach(mesh, engine)` measures every read of the time stepping from the leaf whose owner makes it (both leaves
+of a same-level face, the fine leaf of a coarse-fine face, the leaf of a boundary face, the solid leaf of the solid reset; for
+the ghost images the driver of the finest-level face that reads the ghost leaf), in rings of the driver's level (ring 1 = touching,
+even at a corner; periodic axes wrap), per level difference. `FENICE_HALO_REACH=1` prints it for the initial and the final mesh.
+
+| reads (720 x 360 airfoil, 2 levels) | finer by 2 | finer by 1 | same level | coarser by 1 | coarser by 2 |
+|---|---|---|---|---|---|
+| same-level faces | 2 | 3 | 5 | 4 | 4 |
+| coarse-fine faces (from the fine leaf) | - | 3 | 4 | 6 | 7 |
+| boundary faces | - | - | 1 | - | - |
+| ghost images (`ibm_method = ghost`) | - | - | 7 | - | - |
+| solid reset (ghost: images from the ghost leaf) | - | - | 1 (5) | - | - |
+
+The same on 1440 x 720. 99.9 % of the reads are within ring 2 (reads per ring at 720: 3.2 M / 9.7 M / 2.2 M / 16 k / 2.5 k / 120 /
+12 / 30 for rings 0-7); the far ones are the cascades of virtual and interpolated cells at the level jumps. The random four-level
+meshes of the unit test reach 10 for coarse-fine faces (three jumps in a row) and 4 for boundary faces (a boundary leaf's
+neighbours through an interpolated cell); the test pins interior 5, coarse-fine 10, boundary 4, ghost images 7, solid reset 5, and
+checks on six physics configurations and 1, 2, 3, 5, 7, 16 emulated ranks that the real halo of `partition()` lies within the
+measured reach (the mass-flow side leaves apart, read on every rank).
+
+Reach of the remesh (from the code, for phase 3; checked by the guard test then):
+
+* Indicator: one ring of level cells per pass (the face test, then each of the `amr_diffusion` smoothing iterations), plus the
+  coarser leaf across a side; with an exchange of `xi` per iteration the halo of level cells is one ring wide.
+* Ripple: the eight corner neighbours (ring 1 of the refined leaf's level), up to `max_level` rounds.
+* Merge test: the parent's eight corner neighbour blocks at the parent level: ring 3 of the anchor's level from the anchor (2
+  from the sibling block), and the final refine flags there.

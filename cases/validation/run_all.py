@@ -52,6 +52,7 @@ GROUPS = {
         "sod_amr_animation": (["amr/sod_amr_animation.py"], False),
         "airfoil_amr": (["amr/airfoil_amr.py"], True),
         "amr_mpi": (["amr/amr_mpi.py"], True),   # timings: needs an idle machine
+        "amr_memory": (["amr/amr_memory.py"], True),   # memory per MPI rank, remesh parts (the distributed-storage baseline)
     },
     "features": {
         "cylinder_mesh_transition": (["features/cylinder_mesh_transition.py"], True),
