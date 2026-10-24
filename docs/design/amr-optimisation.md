@@ -162,8 +162,9 @@ of the engine tables. Now parallel, with integers and distinct keys only, so eve
 * `CellIndicator`: the cells of each level by the co-rank merge, filled in parallel; `CellAdaptor::remesh` flags in parallel.
 
 Bitwise after every commit: golden dumps of ten adaptive runs (the four `amr_mpi.py --check` cases, MMS 40 steps, cavity 200 steps,
-Sod remeshed every 2 steps, the two AMR ghost-cell cases, the 720x360 airfoil) on 1 / 2 / 3 / 4 / 7 threads against the binary of
-`main`, also with `FENICE_FULL_REBUILD=1`, `FENICE_NO_SIMD=1`, an `FV_NO_SIMD` build and clang without OpenMP; the 38 references;
+Sod remeshed every 2 steps, the two AMR ghost-cell cases, the 720x360 airfoil) on 1 / 3 / 7 threads against the binary of `main`, the
+38 references and the unit tests; on the final commit also on 1 / 2 / 3 / 4 / 7 threads, with `FENICE_FULL_REBUILD=1`,
+`FENICE_NO_SIMD=1`, an `FV_NO_SIMD` build and clang without OpenMP;
 no `vfm` in the objects; new unit tests `remesh_tables_do_not_depend_on_the_thread_count` (indicator, leaves, state, faces, gather
 lists, incremental bookkeeping and every engine table with 1, 3 and 7 threads over 12 remeshes) and
 `parallel_scan_helpers_equal_the_serial_loops` (the blocked paths against the serial loops). `rebuild_lists` was cross-checked
