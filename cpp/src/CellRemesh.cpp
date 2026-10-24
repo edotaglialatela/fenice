@@ -5,6 +5,9 @@
 #include <chrono>
 #include <cstdint>
 #include <cmath>
+#include <memory>
+
+#include "fv/ParallelScan.hpp"
 
 namespace fv {
 
@@ -16,7 +19,7 @@ namespace {
 struct LevelCells {
     std::vector<uint64_t> key;   // morton_key(i, j), ascending
     std::vector<int> ci, cj;
-    std::vector<State> val;      // conservative state
+    std::unique_ptr<State[]> val;   // conservative state
     std::vector<int> leaf;       // leaf index, -1 for a split cell
     std::vector<int> grid;       // dense table j * NX + i -> cell (-1: none), when the level is small enough; else empty
     int NX = 0;
@@ -102,41 +105,50 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
                 pval[q] = s;
             }
         }
-        // merge with the leaves of level l (already in Morton order in the leaf arrays)
-        int a = m.level_begin[l], ea = m.level_begin[l + 1];
-        size_t b = 0;
-        const size_t total = static_cast<size_t>(ea - a) + pkey.size();
-        L.key.reserve(total);
-        L.ci.reserve(total);
-        L.cj.reserve(total);
-        L.val.reserve(total);
-        L.leaf.reserve(total);
-        while (a < ea || b < pkey.size()) {
-            const uint64_t ka = a < ea ? morton_key(static_cast<uint32_t>(m.ci[a]), static_cast<uint32_t>(m.cj[a])) : ~0ull;
-            const uint64_t kb = b < pkey.size() ? pkey[b] : ~0ull;
-            if (ka < kb) {
-                L.key.push_back(ka);
-                L.ci.push_back(m.ci[a]);
-                L.cj.push_back(m.cj[a]);
-                L.val.push_back(U[a]);
-                L.leaf.push_back(a);
-                ++a;
+        // merge with the leaves of level l (already in Morton order in the leaf arrays): the sources of the cells in order,
+        // leaf a >= 0 or parent -1 - b (distinct keys)
+        const int la = m.level_begin[l], na = m.level_begin[l + 1] - la, nb = static_cast<int>(pkey.size()), n = na + nb;
+        std::vector<uint64_t> lkey(static_cast<size_t>(na));
+        std::vector<int> sa(static_cast<size_t>(na)), sb(static_cast<size_t>(nb)), src(static_cast<size_t>(n));
+#pragma omp parallel for schedule(static) if (na >= kOmpMinWork)
+        for (int a = 0; a < na; ++a) {
+            lkey[a] = morton_key(static_cast<uint32_t>(m.ci[la + a]), static_cast<uint32_t>(m.cj[la + a]));
+            sa[a] = a;
+        }
+        for (int b = 0; b < nb; ++b) sb[b] = -1 - b;
+        const auto key_of = [&](int x) { return x >= 0 ? lkey[x] : pkey[-1 - x]; };
+        parallel_merge(sa.data(), na, sb.data(), nb, src.data(), [&](int x, int y) { return key_of(x) < key_of(y); });
+        L.key.resize(static_cast<size_t>(n));
+        L.ci.resize(static_cast<size_t>(n));
+        L.cj.resize(static_cast<size_t>(n));
+        L.val.reset(new State[static_cast<size_t>(n) + 1]);
+        L.leaf.resize(static_cast<size_t>(n));
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+        for (int k = 0; k < n; ++k) {
+            const int x = src[k];
+            L.key[k] = key_of(x);
+            if (x >= 0) {
+                L.ci[k] = m.ci[la + x];
+                L.cj[k] = m.cj[la + x];
+                L.val[k] = U[la + x];
+                L.leaf[k] = la + x;
             } else {
-                L.key.push_back(kb);
-                L.ci.push_back(pi[b]);
-                L.cj.push_back(pj[b]);
-                L.val.push_back(pval[b]);
-                L.leaf.push_back(-1);
-                ++b;
+                L.ci[k] = pi[-1 - x];
+                L.cj[k] = pj[-1 - x];
+                L.val[k] = pval[-1 - x];
+                L.leaf[k] = -1;
             }
         }
         L.NX = m.nx_at(l);
         const long long cells = static_cast<long long>(L.NX) * m.ny_at(l);
         if (cells <= 4ll * L.size() + 65536) {
-            L.grid.assign(static_cast<size_t>(cells), -1);
-            for (int c = 0; c < L.size(); ++c) L.grid[static_cast<size_t>(L.cj[c]) * L.NX + L.ci[c]] = c;
+            const int ncell = static_cast<int>(cells);
+            L.grid.resize(static_cast<size_t>(ncell));
+#pragma omp parallel for schedule(static) if (ncell >= kOmpMinWork)
+            for (int k = 0; k < ncell; ++k) L.grid[k] = -1;
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+            for (int c = 0; c < n; ++c) L.grid[static_cast<size_t>(L.cj[c]) * L.NX + L.ci[c]] = c;
         }
-        const int n = L.size();
         L.rho.resize(static_cast<size_t>(n));
         L.p.resize(static_cast<size_t>(n));
         L.speed.resize(static_cast<size_t>(n));
@@ -277,9 +289,12 @@ bool CellAdaptor::remesh() {
     const auto sec = [](Clock::time_point a, Clock::time_point b) { return std::chrono::duration<double>(b - a).count(); };
     const auto t0 = Clock::now();
     const int N = mesh_.num_leaves();
-    const CellIndicator::Result ev = ind_.evaluate(mesh_, mesh_.U, eos_);
-    last_xi = ev.xi;
+    CellIndicator::Result ev = ind_.evaluate(mesh_, mesh_.U, eos_);
+    last_xi.swap(ev.xi);
     std::vector<char> refine(static_cast<size_t>(N), 0), coarsen(static_cast<size_t>(N), 0);
+    if (body_ && band_.empty()) build_band();   // in_body_band only reads it in the loop
+    long long nr = 0;
+#pragma omp parallel for schedule(static) reduction(+ : nr) if (N >= kOmpMinWork)
     for (int c = 0; c < N; ++c) {
         refine[c] = mesh_.level[c] < mesh_.max_level && last_xi[c] >= ind_.split;
         // a group is joined on the xi of its parent cell at the parent level (the children's own xi with parent_join off)
@@ -288,11 +303,10 @@ bool CellAdaptor::remesh() {
             refine[c] = mesh_.level[c] < mesh_.max_level;
             coarsen[c] = 0;
         }
+        nr += refine[c];
     }
     const auto t1 = Clock::now();
     const int before = mesh_.num_leaves();
-    long long nr = 0;
-    for (int c = 0; c < N; ++c) nr += refine[c];
     const bool changed = mesh_.adapt(refine, coarsen);
     n_refined += nr;
     n_joined += std::max(0, before + 3 * static_cast<int>(nr) - mesh_.num_leaves()) / 3;   // each refined leaf adds 3; each join removes 3
