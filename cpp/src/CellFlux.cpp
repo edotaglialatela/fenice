@@ -58,10 +58,13 @@ void CellFluxEngine::build(const CellMesh& m) {
     std::vector<std::array<int, 4>> old_st, old_ikey;
     std::vector<std::array<int, 3>> old_vkey;
     std::vector<char> old_special;
-    if (inc) {
+    if (inc) {   // the tables of the build before last become the buffers of the new ones
         old_raw.swap(nbr_raw_);
         old_nbr.swap(nbr_);
         old_st.swap(stencil_);
+        nbr_raw_.swap(nbr_raw_spare_);
+        nbr_.swap(nbr_spare_);
+        stencil_.swap(stencil_spare_);
         old_vkey.swap(vkey_);
         old_ikey.swap(ikey_);
         old_special.swap(special_);
@@ -102,12 +105,14 @@ void CellFluxEngine::build(const CellMesh& m) {
     // 2) injecting neighbour codes of every leaf (slopes of the coarse leaves), stencils, neighbour codes with the interpolated
     // virtual cells where enabled (gradients, non-reflecting tangential differences). A clean leaf, and a face between two clean
     // leaves made by one of them, keep their old codes, renumbered: leaves by the adapt, virtual cells by key.
-    nbr_raw_.assign(static_cast<size_t>(4) * nleaf_, -1);
-    nbr_.assign(static_cast<size_t>(4) * nleaf_, -1);
-    stencil_.assign(m.faces.size(), {-1, -1, -1, -1});
+    // (every entry is written below: leaf_codes and face_stencil write -1 on the boundary)
+    nbr_raw_.resize(static_cast<size_t>(4) * nleaf_);
+    nbr_.resize(static_cast<size_t>(4) * nleaf_);
+    stencil_.resize(m.faces.size());
     if (inc) {
         std::vector<int> leaf_map(static_cast<size_t>(old_n), -1);
-        for (int c = 0; c < nleaf_; ++c)
+#pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
+        for (int c = 0; c < nleaf_; ++c)   // prev_leaf is one-to-one: distinct entries
             if (m.prev_leaf[c] >= 0) leaf_map[static_cast<size_t>(m.prev_leaf[c])] = c;
         const int nmean = static_cast<int>(vkey_.size());
         std::vector<int> virt_map(old_vkey.size() + old_ikey.size(), -1);   // old virtual cell -> new code (-1: gone)
@@ -142,15 +147,17 @@ void CellFluxEngine::build(const CellMesh& m) {
 #pragma omp parallel for schedule(static) if (m.faces.size() >= static_cast<size_t>(kOmpMinWork))
         for (int f = 0; f < static_cast<int>(m.faces.size()); ++f) {
             const CellFace& face = m.faces[static_cast<size_t>(f)];
-            if (face.kind == CellFaceKind::Boundary) continue;
             const int pf = m.prev_face[static_cast<size_t>(f)];
-            if (pf < 0 || !clean(face.left) || !clean(face.right)) {
+            if (face.kind == CellFaceKind::Boundary || pf < 0 || !clean(face.left) || !clean(face.right)) {
                 face_stencil(m, f);
                 continue;
             }
             for (int k = 0; k < 4; ++k) stencil_[static_cast<size_t>(f)][k] = remap(old_st[static_cast<size_t>(pf)][k]);
         }
         if (lost) throw std::logic_error("CellFluxEngine: a clean leaf refers to a cell that is gone (incremental build)");
+        nbr_raw_spare_.swap(old_raw);
+        nbr_spare_.swap(old_nbr);
+        stencil_spare_.swap(old_st);
     } else {
 #pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
         for (int c = 0; c < nleaf_; ++c) leaf_codes(m, c);
@@ -214,7 +221,9 @@ void CellFluxEngine::build(const CellMesh& m) {
                                sv.data());
         for (size_t k = 0; k < fresh.size(); ++k) src_[static_cast<size_t>(fresh[k])] = sv[k];
     } else {
-        src_.assign(static_cast<size_t>(nleaf_), State{});
+        src_.resize(static_cast<size_t>(nleaf_));
+#pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
+        for (int c = 0; c < nleaf_; ++c) src_[c] = State{};
         if (phys_.source && !phys_.source_unsteady) update_source(m, 0, nleaf_);
     }
 
@@ -300,7 +309,10 @@ int CellFluxEngine::beyond(const CellMesh& m, int c, Face side, bool interpolate
 void CellFluxEngine::leaf_codes(const CellMesh& m, int c) {
     const bool ip = muscl_ && interpolate_jumps;
     for (int s = 0; s < 4; ++s) {
-        if (m.neighbour(c, static_cast<Face>(s)).kind == CellNeighbour::Kind::Boundary) continue;
+        if (m.neighbour(c, static_cast<Face>(s)).kind == CellNeighbour::Kind::Boundary) {
+            nbr_raw_[static_cast<size_t>(4) * c + s] = nbr_[static_cast<size_t>(4) * c + s] = -1;
+            continue;
+        }
         nbr_raw_[static_cast<size_t>(4) * c + s] = beyond(m, c, static_cast<Face>(s), false);
         nbr_[static_cast<size_t>(4) * c + s] = beyond(m, c, static_cast<Face>(s), ip);
     }
@@ -308,7 +320,10 @@ void CellFluxEngine::leaf_codes(const CellMesh& m, int c) {
 
 void CellFluxEngine::face_stencil(const CellMesh& m, int f) {
     const CellFace& face = m.faces[static_cast<size_t>(f)];
-    if (face.kind == CellFaceKind::Boundary) return;
+    if (face.kind == CellFaceKind::Boundary) {
+        stencil_[static_cast<size_t>(f)] = {-1, -1, -1, -1};
+        return;
+    }
     const bool ip = muscl_ && interpolate_jumps;
     const Face back = face.axis == 0 ? Face::Left : Face::Bottom, fwd = face.axis == 0 ? Face::Right : Face::Top;
     const int l = face.left, r = face.right;

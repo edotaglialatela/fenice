@@ -208,6 +208,8 @@ private:
     std::vector<InterpVirtual> interp_;   // interpolated virtual cells, numbered after the mean-type ones
     Field Wint_;                          // their primitive state
     std::vector<int> nbr_raw_;            // like nbr_ but injecting coarser neighbours (the slopes of the coarse leaves)
+    std::vector<int> nbr_raw_spare_, nbr_spare_;    // the tables of the build before last: buffers of the next incremental build
+    std::vector<std::array<int, 4>> stencil_spare_;
     // Keys of the virtual cells in their order: the block (level, i, j) of a mean-type one, the fine leaf (level, i, j) and its
     // side of an interpolated one (numbered after the mean-type ones)
     std::vector<std::array<int, 3>> vkey_;
