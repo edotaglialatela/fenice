@@ -2,6 +2,7 @@
 
 #include "fv/MPIDecomposition.hpp"
 
+#include <algorithm>
 #include <stdexcept>
 #include <string>
 
@@ -168,6 +169,65 @@ void MPIDecomposition::exchange_halos(const Field& U, bool periodic, Field& lo, 
 
     has_lo = !is_lo_rank || periodic;
     has_hi = !is_hi_rank || periodic;
+}
+
+int MPIDecomposition::owner(int c) const {
+    const int i = c % nx, j = (c / nx) % ny;
+    const int x = dir == 'y' ? j : i;
+    int r = static_cast<int>(std::upper_bound(offsets.begin(), offsets.end(), x) - offsets.begin()) - 1;
+    return r;
+}
+
+int MPIDecomposition::local_index(int c) const {
+    const int i = c % nx, j = (c / nx) % ny, k = c / (nx * ny);
+    if (dir == 'y') {
+        if (j < j_start || j >= j_start + ny_local) return -1;
+        return (k * ny_local + (j - j_start)) * nx + i;
+    }
+    if (i < i_start || i >= i_start + nx_local) return -1;
+    return (k * ny + j) * nx_local + (i - i_start);
+}
+
+MPIDecomposition::CellFetch MPIDecomposition::plan_fetch(std::vector<int> want) const {
+    CellFetch p;
+    std::sort(want.begin(), want.end());
+    want.erase(std::unique(want.begin(), want.end()), want.end());
+    // the remote cells, grouped by owner (the receive displacements follow the ranks)
+    std::vector<std::vector<int>> by_owner(static_cast<size_t>(n_ranks));
+    for (const int c : want)
+        if (owner(c) != rank) by_owner[static_cast<size_t>(owner(c))].push_back(c);
+    for (const auto& v : by_owner) p.want.insert(p.want.end(), v.begin(), v.end());
+    p.rcount.assign(static_cast<size_t>(n_ranks), 0);
+    for (int r = 0; r < n_ranks; ++r) p.rcount[static_cast<size_t>(r)] = static_cast<int>(by_owner[static_cast<size_t>(r)].size());
+    p.scount.assign(static_cast<size_t>(n_ranks), 0);
+    MPI_Alltoall(p.rcount.data(), 1, MPI_INT, p.scount.data(), 1, MPI_INT, comm);
+    p.rdispl.assign(static_cast<size_t>(n_ranks), 0);
+    p.sdispl.assign(static_cast<size_t>(n_ranks), 0);
+    for (int r = 1; r < n_ranks; ++r) {
+        p.rdispl[static_cast<size_t>(r)] = p.rdispl[static_cast<size_t>(r) - 1] + p.rcount[static_cast<size_t>(r) - 1];
+        p.sdispl[static_cast<size_t>(r)] = p.sdispl[static_cast<size_t>(r) - 1] + p.scount[static_cast<size_t>(r) - 1];
+    }
+    std::vector<int> requested(static_cast<size_t>(p.sdispl.back() + p.scount.back()));
+    MPI_Alltoallv(p.want.data(), p.rcount.data(), p.rdispl.data(), MPI_INT, requested.data(), p.scount.data(), p.sdispl.data(),
+                  MPI_INT, comm);
+    p.send_local.resize(requested.size());
+    for (size_t k = 0; k < requested.size(); ++k) p.send_local[k] = local_index(requested[k]);
+    return p;
+}
+
+void MPIDecomposition::fetch(const CellFetch& p, const Field& U, std::vector<State>& out) const {
+    std::vector<State> send(p.send_local.size());
+    for (size_t k = 0; k < send.size(); ++k) send[k] = U[static_cast<size_t>(p.send_local[k])];
+    out.resize(p.want.size());
+    std::vector<int> sc(p.scount.size()), sd(sc.size()), rc(sc.size()), rd(sc.size());
+    for (size_t r = 0; r < sc.size(); ++r) {   // counted in doubles
+        sc[r] = p.scount[r] * kDoublesPerCell;
+        sd[r] = p.sdispl[r] * kDoublesPerCell;
+        rc[r] = p.rcount[r] * kDoublesPerCell;
+        rd[r] = p.rdispl[r] * kDoublesPerCell;
+    }
+    MPI_Alltoallv(send.empty() ? nullptr : send.data()->data(), sc.data(), sd.data(), MPI_DOUBLE,
+                  out.empty() ? nullptr : out.data()->data(), rc.data(), rd.data(), MPI_DOUBLE, comm);
 }
 
 double MPIDecomposition::allreduce_max(double v) const {

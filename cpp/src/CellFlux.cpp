@@ -189,6 +189,7 @@ void CellFluxEngine::build(const CellMesh& m) {
         forced_.resize(static_cast<size_t>(nleaf_));
     }
     rebuild_lists(m, nullptr);
+    map_ghost_cells(m);
 
     // steady sources at the leaf centres (a leaf kept by the adapt keeps its value)
     if (inc && phys_.source && !phys_.source_unsteady && src_.size() == static_cast<size_t>(old_n)) {
@@ -364,6 +365,7 @@ void CellFluxEngine::rebuild_lists(const CellMesh& m, const Partition* part) {
     lown_b_.assign(L, 0);
     lown_e_.assign(L, 0);
     owned_mask_ = part ? part->leaf_owned : std::vector<char>();
+    held_mask_ = part ? part->leaf_held : std::vector<char>();
     all_faces_.resize(m.faces.size());
     for (size_t f = 0; f < m.faces.size(); ++f) all_faces_[f] = static_cast<int>(f);
     for (int l = 0; l <= m.max_level; ++l) {
@@ -491,7 +493,7 @@ void CellFluxEngine::force_all(const CellMesh& m, const Field& U) {
             W[4] = 0.0;
         }
         forced_[c] = eos_.prim_to_cons(W);
-    }
+    }    if (ghost_ready_) fill_ghost_leaves(U, forced_, nullptr);
 }
 
 void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
@@ -509,6 +511,45 @@ void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
         }
         forced_[c] = eos_.prim_to_cons(W);
     }
+    if (ghost_ready_ && l == m.max_level) fill_ghost_leaves(U, forced_, held_mask_.empty() ? nullptr : &held_mask_);
+}
+
+void CellFluxEngine::map_ghost_cells(const CellMesh& m) {
+    ghost_ready_ = false;
+    fine_leaf_.clear();
+    ghost_reads_leaf_.clear();
+    ghost_leaf_mask_.assign(static_cast<size_t>(nleaf_), 0);
+    if (!has_body() || !phys_.ibm_ghost) return;
+    const int M = m.max_level, NX = m.nx_at(M);
+    if (!ghost_ib_) {
+        const Mesh fine = generate_cartesian_mesh(m.Lx, m.Ly, NX, m.ny_at(M), m.x0, m.y0);
+        ghost_ib_ = std::make_shared<ImmersedBoundary>(phys_.ibm_factory(fine));
+        ghost_ib_->enable_ghost_cells(fine, phys_.ibm_slip);
+    }
+    for (const int fc : ghost_ib_->referenced_cells()) {
+        const int leaf = m.find(M, fc % NX, fc / NX);
+        if (leaf < 0) return;   // not (yet) a finest-level leaf: the mask forcing stays
+        fine_leaf_[fc] = leaf;
+    }
+    for (const int g : ghost_ib_->ghost_cell_list()) ghost_leaf_mask_[static_cast<size_t>(fine_leaf_.at(g))] = 1;
+    for (const auto& pr : ghost_ib_->ghost_reads()) ghost_reads_leaf_.push_back({fine_leaf_.at(pr.first), fine_leaf_.at(pr.second)});
+    ghost_ready_ = true;
+}
+
+void CellFluxEngine::fill_ghost_leaves(const Field& U, Field& out, const std::vector<char>* only) const {
+    // the ghost leaves (of `only`, if given) from the fluid leaves their image points read; same bits as the uniform solver
+    ghost_ib_->fill_ghost_cells(
+        [&](int fc) {
+            const int leaf = fine_leaf_.at(fc);
+            return only && !(*only)[static_cast<size_t>(leaf)] ? -1 : leaf;
+        },
+        [&](int fc) -> const State& { return U[static_cast<size_t>(fine_leaf_.at(fc))]; }, out, eos_);
+}
+
+std::array<double, 3> CellFluxEngine::ghost_loads(const Field& U, double mu, double cx, double cy) const {
+    if (!ghost_ready_) return {0.0, 0.0, 0.0};
+    return ghost_ib_->surface_loads_part(0, 1, [&](int fc) -> const State& { return U[static_cast<size_t>(fine_leaf_.at(fc))]; },
+                                         eos_, mu, cx, cy);
 }
 
 void CellFluxEngine::prepare(const CellMesh& m, const Field& U, int level) {
@@ -1122,6 +1163,13 @@ void CellFluxEngine::accumulate_registers(const CellMesh& m, int l, double w) {
 void CellFluxEngine::solid_reset(const CellMesh& m, Field& U) const {
     if (!has_body()) return;
     const int N = m.num_leaves();
+    if (ghost_ready_) {   // ghost leaves from the fluid, the deeper solid leaves at rest at the reference state (owned leaves)
+        fill_ghost_leaves(U, U, owned_mask_.empty() ? nullptr : &owned_mask_);
+        const State deep = eos_.prim_to_cons({ibm_rho_ref_, 0.0, 0.0, ibm_p_ref_, 0.0});
+        for (int c = 0; c < N; ++c)
+            if (solid_[c] && !ghost_leaf_mask_[static_cast<size_t>(c)] && (owned_mask_.empty() || owned_mask_[c])) U[c] = deep;
+        return;
+    }
     auto pressure = [&](const State& c) {
         return (eos_.gamma - 1.0) * (c[3] - 0.5 * (c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0]);
     };

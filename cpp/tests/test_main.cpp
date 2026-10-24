@@ -565,6 +565,81 @@ TEST(ibm_mask_and_reset) {
     CHECK(threw);   // unknown shape
 }
 
+TEST(ibm_ghost_cells_reproduce_a_linear_wall_profile) {
+    // A rectangle tilted by 30 degrees (not aligned with the grid): with a velocity that grows linearly with the distance d from
+    // its lower wall (u = k d t along the wall, zero at the wall) and a uniform pressure, the no-slip ghost state is the exact
+    // linear extension (bilinear interpolation is exact on linear fields): u_ghost = -k d_ghost t. Slip: a normal velocity
+    // c d n is reflected (exact as well) and a uniform tangential one kept. Closest points and normals are checked on the way.
+    const EOS eos = EOS::ideal(1.4);
+    const double pi = std::acos(-1.0), a = pi / 6.0, tx = std::cos(a), ty = std::sin(a), nxw = -ty, nyw = tx;
+    // wall through (0.2, 0.3) along t; the body lies below it (outward normal n = (-sin a, cos a))
+    const double ox = 0.2, oy = 0.3;
+    Polygon2D poly;
+    for (const auto& q : std::vector<std::array<double, 2>>{{-1.0, 0.0}, {2.0, 0.0}, {2.0, -1.0}, {-1.0, -1.0}})
+        poly.pts.push_back({ox + q[0] * tx + q[1] * nxw, oy + q[0] * ty + q[1] * nyw});
+    const Mesh m = generate_cartesian_mesh(1.0, 1.0, 64, 64);
+    const auto dist = [&](double x, double y) { return (x - ox) * nxw + (y - oy) * nyw; };   // signed, > 0 in the fluid
+    for (const bool slip : {false, true}) {
+        ImmersedBoundary ib(m, poly, 1.0, 1.0);
+        ib.enable_ghost_cells(m, slip);
+        CHECK(ib.ghost_cells());
+        CHECK(ib.ghost_count() > 0);
+        const double k = 0.7, cn = 0.3, ut = 0.4;
+        Field U(static_cast<size_t>(m.num_cells()));
+        for (int j = 0; j < m.ny; ++j)
+            for (int i = 0; i < m.nx; ++i) {
+                const double d = dist(m.xc(i), m.yc(j));
+                const double u = slip ? ut * tx + cn * d * nxw : k * d * tx, v = slip ? ut * ty + cn * d * nyw : k * d * ty;
+                U[m.cell(i, j)] = eos.prim_to_cons({1.2, u, v, 2.0, 0.0});
+            }
+        ib.apply_forcing(U, eos);
+        double worst = 0.0, worst_wall = 0.0;
+        int ghosts = 0;
+        for (int j = 0; j < m.ny; ++j)
+            for (int i = 0; i < m.nx; ++i) {
+                const int c = m.cell(i, j);
+                if (!ib.mask()[c]) continue;
+                const double d = dist(m.xc(i), m.yc(j));   // <= 0 inside
+                if (d < -2.9 / 64.0) continue;             // deep solid cells: at rest, not ghosts
+                double wx, wy, gnx, gny;
+                ib.closest_wall_point(m.xc(i), m.yc(j), wx, wy, gnx, gny);
+                worst_wall = std::max({worst_wall, std::abs(dist(wx, wy)), std::abs(gnx - nxw), std::abs(gny - nyw)});
+                const State W = eos.cons_to_prim(U[c]);
+                // a ghost? (solid with a fluid cell within two cells) -- here all cells with d > -2 h * sqrt(2)
+                bool near = false;
+                for (int dj = -2; dj <= 2; ++dj)
+                    for (int di = -2; di <= 2; ++di) {
+                        const int ii = i + di, jj = j + dj;
+                        if (ii >= 0 && ii < m.nx && jj >= 0 && jj < m.ny && !ib.mask()[m.cell(ii, jj)]) near = true;
+                    }
+                if (!near) continue;
+                // only cells whose image stencil stays inside the mesh (away from the domain edges)
+                if (m.xc(i) < 0.1 || m.xc(i) > 0.9 || m.yc(j) < 0.1 || m.yc(j) > 0.9) continue;
+                ++ghosts;
+                const double eu = slip ? ut * tx + cn * d * nxw : k * d * tx, ev = slip ? ut * ty + cn * d * nyw : k * d * ty;
+                worst = std::max({worst, std::abs(W[1] - eu), std::abs(W[2] - ev), std::abs(W[0] - 1.2), std::abs(W[3] - 2.0)});
+            }
+        CHECK(ghosts > 20);
+        CHECK(worst < 1e-10);        // roundoff: normals from short ghost-to-wall vectors
+        CHECK(worst_wall < 1e-10);
+        if (worst >= 1e-10 || worst_wall >= 1e-10) std::printf("    slip %d: ghost error %.3e over %d ghosts, wall %.3e\n", slip, worst, ghosts, worst_wall);
+    }
+    // loads: a uniform pressure gives no net force on a closed body; a body at rest in uniform flow at rest feels none either
+    const Mesh mc = generate_cartesian_mesh(2.0, 2.0, 80, 80);
+    ImmersedBoundary cyl(mc, "Cylinder", 0.3, 1.0, 1.0, 1.0, 1.0);
+    cyl.enable_ghost_cells(mc, false);
+    const Field Uc = uniform_field(eos, mc.num_cells(), 1.0, 0.0, 0.0, 1.0);
+    const std::array<double, 3> F = cyl.surface_loads(Uc, eos, 0.01, 1.0, 1.0);
+    CHECK(std::abs(F[0]) < 1e-12 && std::abs(F[1]) < 1e-12 && std::abs(F[2]) < 1e-12);
+    // only geometry bodies in 2-D
+    bool threw = false;
+    try {
+        ImmersedBoundary mk(mc.nx, mc.ny, std::vector<char>(static_cast<size_t>(mc.num_cells()), 0), 1.0, 1.0);
+        mk.enable_ghost_cells(mc, false);
+    } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}
+
 // ---------------------------------------------------------------------------
 // Mapping / IO
 // ---------------------------------------------------------------------------

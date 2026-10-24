@@ -9,6 +9,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <unordered_map>
 
 #ifdef _OPENMP
 #include <omp.h>
@@ -311,6 +312,12 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         }
         if (ibm->solid_count() == 0)
             std::printf("[WARNING] The IBM body covers no cell: check its size and position\n");
+        if (p.ibm_method == "ghost") {
+            ibm->enable_ghost_cells(mesh, !p.use_viscous);
+            if (verbose)
+                std::printf("[IBM] Ghost-cell wall (%s): %d ghost cells, loads on the true surface\n",
+                            p.use_viscous ? "no-slip" : "slip", ibm->ghost_count());
+        }
         if (verbose && p.reynolds > 0.0) std::printf("[PHYSICS] Re = %g -> mu = %g\n", p.reynolds, p.mu);
     }
 
@@ -374,7 +381,11 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             cell_physics.source_unsteady = p.source_unsteady;
             cell_physics.source_mesh = &mesh;
         }
-        if (p.use_ibm) cell_physics.ibm_factory = ibm_factory;
+        if (p.use_ibm) {
+            cell_physics.ibm_factory = ibm_factory;
+            cell_physics.ibm_ghost = p.ibm_method == "ghost";
+            cell_physics.ibm_slip = !p.use_viscous;
+        }
         cell_engine = std::make_unique<CellFluxEngine>(fluid, riemann, muscl.get(), boundaries);
         cell_engine->set_physics(cell_physics);
         cell_indicator = CellIndicator{};
@@ -386,7 +397,18 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         cell_indicator.use_velocity = p.amr_indicator.find("velocity") != std::string::npos;
         cell_indicator.use_pressure = p.amr_indicator.find("pressure") != std::string::npos;
         cell_adaptor = std::make_unique<CellAdaptor>(*cells, *cell_engine, fluid, cell_indicator);
-        if (p.use_ibm && p.amr_refine_ibm) cell_adaptor->set_body(ibm_factory, 2);
+        if (p.use_ibm && p.amr_refine_ibm) {
+            int margin = 2;   // the fringe the solid reset treats
+            if (p.ibm_method == "ghost") {   // every ghost cell and the cells it reads (and the load probes) at the finest level
+                const int M = p.amr_max_level;
+                const Mesh fine = generate_cartesian_mesh(p.Lx, p.Ly, p.nx << M, p.ny << M, mesh.x0, mesh.y0);
+                ImmersedBoundary ib = ibm_factory(fine);
+                ib.enable_ghost_cells(fine, !p.use_viscous);
+                margin = std::max(margin, ib.ghost_reach());
+                if (verbose) std::printf("[AMR] Ghost-cell wall: finest-level band of %d cells around the body\n", margin);
+            }
+            cell_adaptor->set_body(ibm_factory, margin);
+        }
         if (verbose)
             std::printf("[AMR] Enabled - %d levels, indicator %s (variation %g, refine at %g, join below %g, %d smoothing "
                         "iterations), subcycling active\n",
@@ -466,6 +488,10 @@ void Simulation::initialize_field() {
             fill_cells(*cells);
         }
         cell_adaptor->init_adapt([this](CellMesh& m) { fill_cells(m); });
+        if (p.use_ibm && p.ibm_method == "ghost")
+            std::printf(cell_engine->ghost_ready() ? "[IBM] Ghost-cell wall active on the finest-level band\n"
+                                                   : "[WARNING] Ghost-cell wall inactive: the cells around the body are not all at the "
+                                                     "finest level; the mask forcing is used\n");
         if (p.use_ibm) cell_engine->solid_reset(*cells, cells->U);
     }
     if (cell_par) cell_par->partition();
@@ -1077,8 +1103,12 @@ void Simulation::solve() {
     auto row = [&](int st) {   // averages, plus the IBM loads from a residual of the current state
         std::array<double, 3> loads{};
         if (p.use_ibm) {
-            residual(U, R_loads);
-            loads = ibm_loads(mesh, *ibm, U, R_loads);
+            if (ibm->ghost_cells()) {
+                loads = ibm->surface_loads(U, fluid, p.use_viscous ? p.mu : 0.0, p.ibm_cx, p.ibm_cy);
+            } else {
+                residual(U, R_loads);
+                loads = ibm_loads(mesh, *ibm, U, R_loads);
+            }
         }
         monitor_row(mon, st, volume_averages(U, n_all), p.use_ibm ? &loads : nullptr);
     };
@@ -1172,9 +1202,13 @@ void Simulation::solve_amr() {
         }
         std::array<double, 3> loads{};
         if (p.use_ibm) {
-            Field Rl;
-            eng.residual(cm, cm.U, Rl);
-            loads = cell_loads(cm, Rl);
+            if (eng.ghost_ready()) {
+                loads = eng.ghost_loads(cm.U, p.use_viscous ? p.mu : 0.0, p.ibm_cx, p.ibm_cy);
+            } else {
+                Field Rl;
+                eng.residual(cm, cm.U, Rl);
+                loads = cell_loads(cm, Rl);
+            }
         }
         monitor_row(mon, st, {s0 / area * mesh.cell_area(), s1 / area * mesh.cell_area(), s2 / area * mesh.cell_area()},
                     p.use_ibm ? &loads : nullptr);
@@ -1414,7 +1448,36 @@ void Simulation::run_mpi(MPI_Comm comm) {
     MPI_Bcast(&start, 1, MPI_INT, 0, comm);
 
     Field U_local = decomp.scatter(U_global);
-    if (p.use_ibm && start == 0) local_ibm->apply_forcing(U_local, fluid);
+    // Ghost-cell wall: the ghost table of the whole mesh (same on every rank); each rank fills its own ghost cells and fetches
+    // the few cells of other strips their image points read (they may lie several strips away), so MPI gives the serial bits
+    const bool ghost = p.use_ibm && ibm && ibm->ghost_cells();
+    const auto local_of = [&decomp](int c) { return decomp.local_index(c); };
+    MPIDecomposition::CellFetch ghost_fetch, load_fetch;
+    std::vector<State> ghost_remote, load_remote;
+    std::unordered_map<int, int> ghost_pos, load_pos;
+    if (ghost) {
+        ghost_fetch = decomp.plan_fetch(ibm->ghost_inputs(local_of));
+        load_fetch = decomp.plan_fetch(ibm->surface_inputs(decomp.rank, decomp.n_ranks));
+        for (size_t k = 0; k < ghost_fetch.want.size(); ++k) ghost_pos[ghost_fetch.want[k]] = static_cast<int>(k);
+        for (size_t k = 0; k < load_fetch.want.size(); ++k) load_pos[load_fetch.want[k]] = static_cast<int>(k);
+    }
+    const auto cells_of = [&decomp](const Field& Ul, const std::vector<State>& remote, const std::unordered_map<int, int>& pos) {
+        return [&decomp, &Ul, &remote, &pos](int c) -> const State& {
+            const int l = decomp.local_index(c);
+            return l >= 0 ? Ul[static_cast<size_t>(l)] : remote[static_cast<size_t>(pos.at(c))];
+        };
+    };
+    // ghost cells of this strip from Uin, written to Uout (also Uout = Uin: only solid cells are written)
+    const auto fill_ghosts = [&](const Field& Uin, Field& Uout, bool reset) {
+        decomp.fetch(ghost_fetch, Uin, ghost_remote);
+        ibm->fill_ghosts_part(local_of, cells_of(Uin, ghost_remote, ghost_pos), Uout, fluid, reset);
+    };
+    if (p.use_ibm && start == 0) {
+        if (ghost)
+            fill_ghosts(Field(U_local), U_local, false);
+        else
+            local_ibm->apply_forcing(U_local, fluid);
+    }
     if (root)
         std::printf("[MPI] Initial field scattered to all ranks  (total cells: %d, per-rank avg: %d)\n\n",
                     mesh.num_cells(), mesh.num_cells() / decomp.n_ranks);
@@ -1424,7 +1487,10 @@ void Simulation::run_mpi(MPI_Comm comm) {
         const Field* Uc = &Uin;
         if (local_ibm) {
             forced = Uin;
-            local_ibm->apply_forcing(forced, fluid);
+            if (ghost)
+                fill_ghosts(Uin, forced, false);
+            else
+                local_ibm->apply_forcing(forced, fluid);
             Uc = &forced;
         }
         bool has_lo, has_hi;
@@ -1435,6 +1501,10 @@ void Simulation::run_mpi(MPI_Comm comm) {
     };
     // Solid reset with the neighbours across each interface (fringe detection)
     const auto solid_reset = [&](Field& Uloc) {
+        if (ghost) {
+            fill_ghosts(Field(Uloc), Uloc, true);
+            return;
+        }
         bool has_lo, has_hi;
         decomp.exchange_halos(Uloc, periodic, halo_lo, halo_hi, has_lo, has_hi);
         const Field slo = has_lo ? adjacent_slab(halo_lo, dir, true, lm) : Field{};
@@ -1463,9 +1533,16 @@ void Simulation::run_mpi(MPI_Comm comm) {
     auto row = [&](int st) {   // collective: every rank calls it
         const auto v = volume_averages(U_local, n_all);
         std::array<double, 3> loads{};
-        if (p.use_ibm) {   // IBM loads: residual of the current state, summed over the strips
-            res(U_local, R_loads);
-            const std::array<double, 3> mine = ibm_loads(lm, *local_ibm, U_local, R_loads);
+        if (p.use_ibm) {   // IBM loads: residual of the current state (ghost cells: surface samples), summed over the strips
+            std::array<double, 3> mine;
+            if (ghost) {
+                decomp.fetch(load_fetch, U_local, load_remote);
+                mine = ibm->surface_loads_part(decomp.rank, decomp.n_ranks, cells_of(U_local, load_remote, load_pos), fluid,
+                                               p.use_viscous ? p.mu : 0.0, p.ibm_cx, p.ibm_cy);
+            } else {
+                res(U_local, R_loads);
+                mine = ibm_loads(lm, *local_ibm, U_local, R_loads);
+            }
             MPI_Allreduce(mine.data(), loads.data(), 3, MPI_DOUBLE, MPI_SUM, comm);
         }
         monitor_row(mon, st, v, p.use_ibm ? &loads : nullptr);

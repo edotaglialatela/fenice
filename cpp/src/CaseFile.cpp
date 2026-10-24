@@ -46,7 +46,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& section_tab
           "vtk_format"}},
         {"parallel", {"use_mpi", "n_cpus"}},
         {"ibm",
-         {"use_ibm", "ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz", "ibm_file", "ibm_chord", "ibm_aoa"}},
+         {"use_ibm", "ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz", "ibm_file", "ibm_chord", "ibm_aoa", "ibm_method"}},
         {"hot_start", {"use_hot_start", "hot_start_file", "hot_start_src_nx", "hot_start_src_ny"}},
         {"amr",
          {"use_amr", "amr_max_level", "amr_indicator", "amr_criterion", "amr_refine_threshold", "amr_derefine_threshold",

@@ -118,6 +118,30 @@ Under MPI the fringe test sees the neighbours across rank interfaces
 (`SolidResetHalo`), and the mask is cut from the global mask, so the obstacle is
 identical for any number of ranks. The 3-D fringe test also looks at the z-neighbours.
 
+### Ghost-cell wall (`ibm_method = ghost`)
+
+An alternative to the forcing and the reset above (2-D cylinder and airfoil bodies, uniform or AMR, serial, OpenMP or MPI). The
+solid cells that the fluid stencils read (a fluid cell within two cells) become **ghost cells**. For each one the closest point
+of the true surface and the outward normal are found, and the ghost cell is mirrored across the wall to an **image point** at
+least 1.5 cells into the fluid, where the state is interpolated bilinearly from the surrounding fluid cells. The ghost state makes
+the wall condition hold on the real surface:
+
+* density and pressure equal those of the image point (zero normal gradient);
+* no-slip (`use_viscous`): the velocity goes linearly through zero at the wall, $\mathbf u_{
+m ghost} =
+  -(d_{
+m ghost}/d_{
+m image})\,\mathbf u_{
+m image}$; slip (inviscid): only the normal component is reflected.
+
+The deeper solid cells stay at rest and are reset to the reference state each step (energy from the EOS). The wall position is
+exact, so the staircase waves disappear and the solution converges much faster with the grid: on a cylinder at Re = 40 the drag
+is within 0.15 % of its converged value at 20 cells per diameter, where the mask needs about four times the resolution per
+direction (`docs/proposals/ibm-wall-treatment.md` has the study). The loads are integrated over the true surface from probes at
+$d$ and $2d$ along the normal (wall pressure extrapolated linearly, wall shear from the quadratic through zero at the wall).
+Under MPI each rank fills its own ghost cells and fetches the few cells of other strips their image points read, so the result is
+identical for any number of ranks; with AMR the finest-level band around the body is widened to the ghost stencils.
+
 ### Loads on the body
 
 The force of the fluid on the body is the net momentum flux into the solid cells: summing

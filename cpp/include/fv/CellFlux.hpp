@@ -15,6 +15,8 @@
 
 #include <array>
 #include <functional>
+#include <memory>
+#include <unordered_map>
 #include <vector>
 
 #include "fv/Boundaries.hpp"
@@ -34,6 +36,9 @@ struct CellPhysics {
     const Mesh* source_mesh = nullptr;         // base mesh the expression variables (Lx, nx, ...) come from
     // Immersed body: the mask of a uniform mesh; masks per level are cut from it (empty: no body)
     std::function<ImmersedBoundary(const Mesh&)> ibm_factory;
+    // Ghost-cell (sharp) wall on the finest level (ImmersedBoundary::enable_ghost_cells), slip or no-slip; needs the cells around
+    // the body at the finest level (a body band at least ImmersedBoundary::ghost_reach wide), else the mask forcing is used
+    bool ibm_ghost = false, ibm_slip = false;
 };
 
 // Viscous cell kernels of the engine.  The range functions run four cells at a time with AVX2 where the CPU has it
@@ -111,6 +116,12 @@ public:
     bool has_body() const { return static_cast<bool>(phys_.ibm_factory); }
     // Solid flag of every leaf (valid after build; empty without a body).
     const std::vector<char>& solid() const { return solid_; }
+    // Ghost-cell wall active on this mesh (every ghost cell and the cells it reads are finest-level leaves).
+    bool ghost_ready() const { return ghost_ready_; }
+    // (ghost leaf, leaf it reads) pairs: the reads of the ghost fill, for the MPI halo.
+    const std::vector<std::pair<int, int>>& ghost_reads() const { return ghost_reads_leaf_; }
+    // Ghost-cell wall: loads on the body's true surface from the state U of every leaf (ImmersedBoundary::surface_loads).
+    std::array<double, 3> ghost_loads(const Field& U, double mu, double cx, double cy) const;
 
     // --- distributed runs (see CellParallel) ---
     // What this rank does: without a partition the engine computes every face and advances every leaf.
@@ -234,6 +245,14 @@ private:
     double s_visc_ = 0.0;
     std::vector<char> solid_;
     double ibm_rho_ref_ = 1.0, ibm_p_ref_ = 1.0;   // deep-solid reset state
+    // ghost-cell wall: the table on the finest level, its cells -> leaves, ready when all of them are finest-level leaves
+    std::shared_ptr<ImmersedBoundary> ghost_ib_;
+    std::unordered_map<int, int> fine_leaf_;
+    std::vector<std::pair<int, int>> ghost_reads_leaf_;
+    std::vector<char> ghost_leaf_mask_, held_mask_;
+    bool ghost_ready_ = false;
+    void map_ghost_cells(const CellMesh& m);
+    void fill_ghost_leaves(const Field& U, Field& out, const std::vector<char>* only) const;
     std::vector<std::vector<char>> level_mask_;   // cache: mask of the uniform mesh of each level
     Field src_;                                    // source terms per leaf
     // Mass-flow inlet: boundary faces of each side in increasing transverse position, and their weights

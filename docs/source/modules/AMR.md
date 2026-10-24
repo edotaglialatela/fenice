@@ -100,7 +100,8 @@ wake, where the density barely varies, and add `pressure` for shocks in a flow w
   interpolated at the leaf centres.
 * **Immersed bodies.** With `use_ibm` and `amr_refine_ibm` (default) every leaf whose footprint touches the
   body, or the cells around it that the solid reset treats (the fringe), is kept at the finest level from
-  $t = 0$ and never joined. The test is on the finest-level mask, so a thin trailing edge cannot slip
+  $t = 0$ and never joined. With `ibm_method = ghost` the band is widened to the ghost cells' interpolation stencils (about 6
+  finest cells), so the sharp wall works on the finest level. The test is on the finest-level mask, so a thin trailing edge cannot slip
   between cell centres.
 * **Remeshing** happens every `amr_refine_every` coarse steps. A remesh that changes no leaf costs only the
   indicator. After one that does, the face list, neighbour codes, stencils and virtual cells are updated, not rebuilt: a leaf
