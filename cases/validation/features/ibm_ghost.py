@@ -13,7 +13,9 @@ from the cells their image points read, so the states must not depend on the ran
 --loads: the steady cylinder at Re = 40 (Mach 0.27 to shorten the runs; channel 4 x 2, 10 % blockage) with the ghost-cell wall at
 20 cells per diameter (to t = 40) and 40 (hot-started from it, 15 more time units). The monitor's loads (the momentum flux into the
 solid cells, from a residual of the state) are compared with an independent control-volume momentum balance of the final field on
-three boxes (face values and central-difference stresses from the cell averages), after checking that Cd has settled.
+three boxes (face values and central-difference stresses from the cell averages), after checking that Cd has settled. Then the
+unsteady case: the NACA 0012 airfoil at Re = 1000 (360 x 180) at step 1250 (t = 3.2, vortex shedding), against the same balance
+with the momentum change of the fluid cells in the box (central difference of the states at steps 1249 and 1251).
 """
 from pathlib import Path
 
@@ -83,10 +85,18 @@ def re40_case():
 
 
 def control_volume(U, nx, ny, half):
-    """(Cd, Cl) from the steady momentum balance on the box of half-width `half` diameters around the body:
-    F = - sum over the box faces of (rho u u.n + p n - tau.n) dS, face values = mean of the two cells."""
+    """(Cd, Cl) of the cylinder from the steady momentum balance on the box of half-width `half` diameters around it."""
     c = RE40
-    dx, dy, mu, D = c["Lx"] / nx, c["Ly"] / ny, c["mu"], c["D"]
+    D = c["D"]
+    box = (c["cx"] - half * D, c["cx"] + half * D, c["cy"] - half * D, c["cy"] + half * D)
+    fx, fy = box_force(U, nx, ny, c["Lx"], c["Ly"], c["mu"], box)
+    return fx / (0.5 * D), fy / (0.5 * D)
+
+
+def box_force(U, nx, ny, Lx, Ly, mu, box, dmdt=None):
+    """Force on what the box (x0, x1, y0, y1) holds: F = - sum over its faces of (rho u u.n + p n - tau.n) dS (face values = mean of
+    the two cells, stresses by central differences) - d/dt of the momentum inside (dmdt: per cell, (n, 2), optional)."""
+    dx, dy = Lx / nx, Ly / ny
     rho, u, v, p = (a.reshape(ny, nx) for a in fenice.primitive(U))
     ux, uy = np.gradient(u, dx, dy, axis=(1, 0))
     vx, vy = np.gradient(v, dx, dy, axis=(1, 0))
@@ -94,13 +104,34 @@ def control_volume(U, nx, ny, half):
     Pxx = rho * u * u + p - mu * (2 * ux - 2 / 3 * div)
     Pyy = rho * v * v + p - mu * (2 * vy - 2 / 3 * div)
     Pxy = rho * u * v - mu * (uy + vx)
-    i0, i1 = round((c["cx"] - half * D) / dx), round((c["cx"] + half * D) / dx)
-    j0, j1 = round((c["cy"] - half * D) / dy), round((c["cy"] + half * D) / dy)
+    i0, i1, j0, j1 = round(box[0] / dx), round(box[1] / dx), round(box[2] / dy), round(box[3] / dy)
     xs = lambda P, i: (0.5 * (P[j0:j1, i - 1] + P[j0:j1, i])).sum() * dy   # x-face between cells i-1 and i
     ys = lambda P, j: (0.5 * (P[j - 1, i0:i1] + P[j, i0:i1])).sum() * dx
     fx = -(xs(Pxx, i1) - xs(Pxx, i0) + ys(Pxy, j1) - ys(Pxy, j0))
     fy = -(xs(Pxy, i1) - xs(Pxy, i0) + ys(Pyy, j1) - ys(Pyy, j0))
-    return fx / (0.5 * D), fy / (0.5 * D)
+    if dmdt is not None:
+        fx -= dmdt[:, 0].reshape(ny, nx)[j0:j1, i0:i1].sum() * dx * dy
+        fy -= dmdt[:, 1].reshape(ny, nx)[j0:j1, i0:i1].sum() * dx * dy
+    return fx, fy
+
+
+def airfoil_unsteady(args):
+    """The airfoil (Re = 1000, chord 1, quarter chord at (3, 3)) at step 1250: monitor loads against the unsteady box balance."""
+    nx, ny, step = 360, 180, 1250
+    sets = ["ibm_method=ghost", f"nx={nx}", f"ny={ny}", "save_interval=1000000000"]
+    runs = {k: study.run_cached(STUDY, f"airfoil_{k}", "IBM Airfoil", *sets, f"max_steps={k}", f"monitor_interval={step}",
+                                mpi=args.mpi, force=args.force) for k in (step - 1, step, step + 1)}
+    # the solid cells (zero velocity after the mask method's initial forcing): their states are imposed, not part of the balance
+    mask_run = study.run_cached(STUDY, "airfoil_mask", "IBM Airfoil", f"nx={nx}", f"ny={ny}", "max_steps=1",
+                                "save_interval=1000000000", force=args.force)
+    fluid = fenice.read_dump(Path(mask_run) / "final.npz")["U"][:, 1] != 0.0
+    a, b, c = (fenice.read_dump(Path(runs[k]) / "final.npz") for k in (step - 1, step, step + 1))
+    dmdt = (c["U"][:, 1:3] - a["U"][:, 1:3]) / (float(c["t"]) - float(a["t"])) * fluid[:, None]
+    d = fenice.read_monitor(study.case_output(runs[step]))
+    cv = [box_force(b["U"], nx, ny, 12.0, 6.0, 1e-3, box, dmdt) for box in
+          ((2.3, 4.3, 2.4, 3.6), (2.0, 4.8, 2.2, 3.8), (1.7, 5.3, 2.0, 4.0))]
+    print(f"airfoil Re = 1000, t = {float(b['t']):.2f}: monitor Cd {d['Cd'][-1]:.4f} Cl {d['Cl'][-1]:.4f}; control volume "
+          + " / ".join(f"Cd {fx / 0.5:.4f} Cl {fy / 0.5:.4f}" for fx, fy in cv) + " (three boxes)")
 
 
 def loads_study(args):
@@ -120,6 +151,7 @@ def loads_study(args):
         print(f"{cpd} cells per diameter, t = {d['t'][-1]:.1f}: monitor Cd {d['Cd'][-1]:.4f} Cl {d['Cl'][-1]:+.1e} "
               f"(Cd varies by {drift:.1e} over the last 5 time units); control volume Cd "
               + " / ".join(f"{a:.4f}" for a, _ in cv) + " (boxes of 3, 5, 7 diameters)")
+    airfoil_unsteady(args)
     return 0
 
 

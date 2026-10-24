@@ -126,8 +126,9 @@ OpenMP, MPI strips) and the AMR engine (finest-level band), opt-in; the default 
   fluid: concave corners, thin trailing edges; solid cells are dropped from the bilinear weights). Ghost state: density and
   pressure of the image point (zero normal gradient), velocity -(d_ghost / d_image) times the image velocity (no-slip) or only its
   normal component (slip, `use_viscous = false`). Deeper solid cells at rest, reset to the reference state with the EOS (fixes
-  problem 5). Loads from the true surface: probes at d and 2 d along the normal, wall pressure extrapolated linearly, wall shear
-  from the quadratic through zero at the wall.
+  problem 5). Loads: the momentum flux into the solid cells, as with the mask (see "Loads" below); the surface integral from probes
+  at d and 2 d along the normal (wall pressure extrapolated linearly, wall shear from the quadratic through zero at the wall) is
+  kept for surface distributions.
 * **MPI.** The ghost table is built on the whole mesh on every rank; each rank fills its own ghost cells and fetches the cells of
   other strips their image points read (an all-to-all of a few cells, any strip width). AMR: the band of `amr_refine_ibm` is widened
   to the stencil reach (6 finest cells for the cylinder and the airfoil), the image leaves are part of the halo.
@@ -141,8 +142,26 @@ OpenMP, MPI strips) and the AMR engine (finest-level band), opt-in; the default 
   | 40 | 1.864 | 1.894 |
 
   The ghost wall is grid-converged to 0.15 % at 20 cells per diameter; the mask converges at about first order towards the same
-  value, needing roughly four times the resolution per direction. The ghost run's own surface loads are 1-2.5 % below its
-  control-volume value (probe-based wall shear and pressure); a better surface integration is open.
+  value, needing roughly four times the resolution per direction. (Re-run for the loads below, the flow still drifts slowly at
+  t = 40: Cd 1.903 / 1.900 / 1.896 at t = 20 / 30 / 40 at 20 cells per diameter, so the 0.15 % is a comparison at similar times, not
+  of fully settled flows.)
+* **Loads** (`ibm_ghost.py --loads`). The probe integral of the true surface was 1-3 % below the control-volume balance (2.7 % on
+  the cylinder at 20 cells per diameter, 4 % in Cd and 3 % in Cl on the airfoil). The monitor now uses the momentum flux into the
+  solid cells, the residual of the current state summed over them, as the mask does: the fluxes through faces between two solid
+  cells cancel, those through the faces between fluid and ghost cells remain, and they close the momentum budget of the fluid
+  cells exactly. Against an independent balance of the field on boxes around the body (face values and central-difference stresses):
+
+  | flow | monitor (flux into the solid) | box balance (3 boxes) | probe integral |
+  |---|---:|---:|---:|
+  | cylinder Re = 40, 20 cells / D, t = 40 | Cd 1.8957 | 1.8945 / 1.8923 / 1.8890 | 1.8437 |
+  | cylinder Re = 40, 40 cells / D (hot start, + 15) | Cd 1.8836 | 1.8831 / 1.8822 / 1.8807 | |
+  | airfoil Re = 1000, 360 x 180, t = 3.2 (shedding) | Cd 0.1855, Cl 0.5048 | Cd 0.1851-0.1856, Cl 0.5051-0.5064 | Cd 0.1778, Cl 0.4880 |
+
+  On the cylinder the box balance has no momentum-change term, so the larger boxes pick up the slow drift (it decreases with the
+  box); on the airfoil it includes the change of the fluid cells' momentum (central difference over two steps) and the three boxes
+  agree with the monitor to 0.3 % in Cd and 0.3 % in Cl. Cost: one residual per monitor row (with `monitor_interval = 20` and
+  SSP-RK2 about 2.5 % of the run; nothing without a monitor); the probe integral was nearly free. The states are unchanged bit
+  for bit; under MPI the strips' sums are added in another order (loads equal to roundoff, `ibm_ghost.py --check`).
 * **Mach 2 cylinder**: the staircase waves at 45-75 degrees and the kinks of the surface pressure are gone with the ghost wall
   (slip). The bow-shock stand-off is grid-converged for both and differs between them: 0.332 / 0.330 (ghost, 50 / 100 cells per
   diameter) against 0.319 / 0.316 (mask), with 0.310 from the Billig correlation (an empirical fit). The difference comes from the
