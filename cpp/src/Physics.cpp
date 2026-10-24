@@ -681,7 +681,8 @@ void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip) {
         sp.nx = nxw;
         sp.ny = nyw;
         sp.ds = ds;
-        if (probe_out(wx, wy, nxw, nyw, 0.0, sp.d, sp.probe)) surface_.push_back(sp);
+        if (!probe_out(wx, wy, nxw, nyw, 0.0, sp.d, sp.probe)) return;
+        if (make_probe(m, wx + 2.0 * sp.d * nxw, wy + 2.0 * sp.d * nyw, sp.probe2)) surface_.push_back(sp);
     };
     if (shape_ == Shape::Circle) {
         const double pi = std::acos(-1.0);
@@ -745,12 +746,13 @@ void ImmersedBoundary::fill_ghosts(Field& U, const EOS& eos) const {
 std::array<double, 3> ImmersedBoundary::surface_loads(const Field& U, const EOS& eos, double mu, double cx, double cy) const {
     double fx = 0.0, fy = 0.0, mz = 0.0;
     for (const SurfacePoint& sp : surface_) {
-        const State W = sp.probe.at(U, eos);
-        double tx = -W[3] * sp.nx, ty = -W[3] * sp.ny;   // pressure (zero normal gradient at the wall)
-        if (mu > 0.0) {   // wall shear from the tangential velocity at the probe (no-slip: zero at the wall)
-            const double un = W[1] * sp.nx + W[2] * sp.ny;
-            tx += mu * (W[1] - un * sp.nx) / sp.d;
-            ty += mu * (W[2] - un * sp.ny) / sp.d;
+        const State W1 = sp.probe.at(U, eos), W2 = sp.probe2.at(U, eos);
+        const double pw = 2.0 * W1[3] - W2[3];   // wall pressure, linear extrapolation from d and 2 d
+        double tx = -pw * sp.nx, ty = -pw * sp.ny;
+        if (mu > 0.0) {   // wall shear: slope at the wall of the quadratic through 0 (no-slip), u_t(d), u_t(2 d)
+            const double un1 = W1[1] * sp.nx + W1[2] * sp.ny, un2 = W2[1] * sp.nx + W2[2] * sp.ny;
+            tx += mu * (4.0 * (W1[1] - un1 * sp.nx) - (W2[1] - un2 * sp.nx)) / (2.0 * sp.d);
+            ty += mu * (4.0 * (W1[2] - un1 * sp.ny) - (W2[2] - un2 * sp.ny)) / (2.0 * sp.d);
         }
         const double ex = tx * sp.ds, ey = ty * sp.ds;
         fx += ex;

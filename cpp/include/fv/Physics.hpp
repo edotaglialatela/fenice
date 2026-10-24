@@ -125,8 +125,9 @@ public:
     bool ghost_cells() const { return ghost_on_; }
     // Number of ghost cells.
     int ghost_count() const { return static_cast<int>(ghost_.size()); }
-    // Ghost-cell wall: force (x, y) and moment about (cx, cy), per unit span, on the body, integrated over its true surface:
-    // pressure and (mu > 0) the wall shear mu u_t / d from probes at distance d (1.5 cells) along the normal.
+    // Ghost-cell wall: force (x, y) and moment about (cx, cy), per unit span, on the body, integrated over its true surface from
+    // two probes at d and 2 d (d >= 1.5 cells) along the normal: wall pressure extrapolated linearly (2 p1 - p2) and, with
+    // mu > 0, the wall shear mu du_t/dn = mu (4 u_t1 - u_t2) / (2 d) of the quadratic through zero at the wall (no-slip).
     std::array<double, 3> surface_loads(const Field& U, const EOS& eos, double mu, double cx, double cy) const;
     // Closest point of the body surface to (x, y) and the outward unit normal there (2-D; geometry constructors only).
     void closest_wall_point(double x, double y, double& wx, double& wy, double& nx, double& ny) const;
@@ -152,8 +153,8 @@ private:
         Probe image;
     };
     struct SurfacePoint {
-        double x = 0.0, y = 0.0, nx = 0.0, ny = 0.0, ds = 0.0, d = 0.0;
-        Probe probe;
+        double x = 0.0, y = 0.0, nx = 0.0, ny = 0.0, ds = 0.0, d = 0.0;   // probes at d and 2 d along the normal
+        Probe probe, probe2;
     };
     bool ghost_on_ = false, slip_ = false;
     std::vector<Ghost> ghost_;
