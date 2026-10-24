@@ -136,3 +136,66 @@ of `amr-cell-based.md` to every printed digit (bitwise results); the wall times 
 7.8 s, criterion 0.005 / diffusion 4 24.7 -> 18.1 s, 0.002 / 4 72.7 -> 53.6 s). Against the patch engine as measured in section 20
 (24.4 s for 0.0074 / 0.0387 with 16x16 patches, 20.3 s for 0.0085 / 0.0457 with 8x8; it is gone and was not re-measured, and it did
 not have the vector Riemann solver), the cell engine now reaches 0.0078 / 0.0411 in 18.1 s.
+
+## OpenMP scaling of the remesh (branch `amr-remesh-omp`)
+
+After option 1 the remesh stopped scaling at 8 threads (Threadripper, gcc: 0.40 s from 8 threads on, 28 % of the loop at 16
+threads). What was left was serial: the new leaf list of `CellMesh::adapt` (three streams per level, `push_back` and `std::merge`),
+the side lists of `CellMesh::rebuild` (count / scatter over the faces), `CellFluxEngine::rebuild_lists` (per-level lists, sorted
+by marks), the merge of the level cells and the flag loop of the indicator, and the serial allocation and fill of the face list and
+of the engine tables. Now parallel, with integers and distinct keys only, so every table is the serial one for any thread count:
+
+* `fv/ParallelScan.hpp`: a blocked prefix sum, a co-rank merge of two sorted runs (each output block placed by a binary search;
+  `std::merge`'s output since the keys are distinct), the collection of the indices that satisfy a predicate and the compaction of
+  marks set from many threads (relaxed atomic bytes). A fixed number of blocks (64), so the split does not depend on the thread
+  count; inputs below 4 `kOmpMinWork` run the serial loop.
+* `CellMesh::rebuild`: Morton keys and lookup tables in parallel; face offsets by the prefix sum; the face list before last is
+  reused as the buffer; `face_level_begin` by `partition_point`; side lists by atomic counts, prefix sum and one slot per face (a
+  side with two faces holds the children 2t and 2t + 1 of the transverse position t, even first: the order of the old serial swap;
+  checked after the fill). The dirty marking visits only the new leaves.
+* `CellMesh::adapt`: the three streams of every level counted per block, filled per block at their offsets and merged in parallel
+  straight into the new list; the merge test runs in parallel (each group is tested by its anchor and writes its own entries).
+* `CellFluxEngine`: `rebuild_lists` without a partition (the lists of a level are its ranges; `need_` and `vcells_` are sets marked
+  from the faces), the partitioned path (MPI, one thread per rank) unchanged; `leaf_codes` / `face_stencil` write the boundary -1
+  themselves, so an incremental build reuses the tables of the build before last instead of allocating and filling them; the special
+  leaves of the virtual-cell keys collected in parallel.
+* `CellIndicator`: the cells of each level by the co-rank merge, filled in parallel; `CellAdaptor::remesh` flags in parallel.
+
+Bitwise after every commit: golden dumps of ten adaptive runs (the four `amr_mpi.py --check` cases, MMS 40 steps, cavity 200 steps,
+Sod remeshed every 2 steps, the two AMR ghost-cell cases, the 720x360 airfoil) on 1 / 3 / 7 threads against the binary of `main`, the
+38 references and the unit tests; on the final commit also on 1 / 2 / 3 / 4 / 7 threads, with `FENICE_FULL_REBUILD=1`,
+`FENICE_NO_SIMD=1`, an `FV_NO_SIMD` build and clang without OpenMP;
+no `vfm` in the objects; new unit tests `remesh_tables_do_not_depend_on_the_thread_count` (indicator, leaves, state, faces, gather
+lists, incremental bookkeeping and every engine table with 1, 3 and 7 threads over 12 remeshes) and
+`parallel_scan_helpers_equal_the_serial_loops` (the blocked paths against the serial loops). `rebuild_lists` was cross-checked
+against the old serial code on every build of the tests and golden runs (temporary check, not committed).
+
+Container (4-core Intel, gcc), airfoil AMR, min of 3 runs, time loop / remesh:
+
+| run | `main` | `amr-remesh-omp` |
+|---|---:|---:|
+| 720x360, 50 steps, 1 thread | 10.55 / 1.60 s | 10.61 / 1.52 s |
+| 720x360, 50 steps, 4 threads | 4.17 / 0.97 s | 4.12 / 0.60 s |
+| default 192x96, t = 1.5, 1 thread | 5.75 / 0.77 s | 5.47 / 0.73 s |
+| default 192x96, t = 1.5, 4 threads | 3.00 / 0.52 s | 2.82 / 0.37 s |
+
+On 4 threads the remesh parts of the 720x360 run went from indicator 0.28, adaptation 0.47, engine build 0.34 s to 0.23, 0.23, 0.21 s
+(the wave-speed bound, 0.20 s, was already parallel). Memory: the spare face list and engine tables stay alive between remeshes,
+peak RSS 444 -> 458 MB (+3 %) on the 720x360 run, 41 -> 44 MB on the default one.
+
+Threadripper PRO 5965WX (24 cores, gcc, WSL), same run (720x360, 50 steps, 10 remeshes), min of 3, interleaved, every state bitwise
+equal to `main` on 1 thread (`amr_mpi.py --check` and `ibm_ghost.py --check` also passed there), time loop / remesh:
+
+| threads | `main` | `amr-remesh-omp` |
+|---:|---:|---:|
+| 1 | 5.08 / 0.75 s | 5.05 / 0.73 s |
+| 8 | 1.64 / 0.40 s | 1.44 / 0.21 s |
+| 12 | 1.49 / 0.41 s | 1.25 / 0.19 s |
+| 16 | 1.48 / 0.42 s | 1.20 / 0.18 s |
+| 24 | 1.57 / 0.47 s | 1.30 / 0.19 s |
+| 32 | 1.76 / 0.53 s | 1.36 / 0.20 s |
+
+The remesh now goes 0.73 -> 0.18 s (4x) instead of 0.75 -> 0.40 s, and no longer grows beyond 16 threads (it did with `main`: 0.53 s on
+32); on 16 threads it is 15 % of the loop instead of 28 %, and the loop is 19 % faster. Parts on 16 threads (`main` -> branch): indicator
+0.13 -> 0.08, adaptation 0.22 -> 0.08, engine build 0.16 -> 0.07, wave-speed bound 0.05 -> 0.04 s. What is left serial is mainly the
+allocation and zero-fill of the per-leaf work arrays of the indicator and of `adapt` (state, flags); not pursued.

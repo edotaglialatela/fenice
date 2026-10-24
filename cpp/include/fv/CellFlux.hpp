@@ -208,6 +208,8 @@ private:
     std::vector<InterpVirtual> interp_;   // interpolated virtual cells, numbered after the mean-type ones
     Field Wint_;                          // their primitive state
     std::vector<int> nbr_raw_;            // like nbr_ but injecting coarser neighbours (the slopes of the coarse leaves)
+    std::vector<int> nbr_raw_spare_, nbr_spare_;    // the tables of the build before last: buffers of the next incremental build
+    std::vector<std::array<int, 4>> stencil_spare_;
     // Keys of the virtual cells in their order: the block (level, i, j) of a mean-type one, the fine leaf (level, i, j) and its
     // side of an interpolated one (numbered after the mean-type ones)
     std::vector<std::array<int, 3>> vkey_;
@@ -226,6 +228,7 @@ private:
     void eval_interp();
     void force_all(const CellMesh& m, const Field& U);   // every leaf (the full residual, whatever the partition)
     void rebuild_lists(const CellMesh& m, const Partition* part);
+    void rebuild_lists_whole(const CellMesh& m);   // rebuild_lists without a partition (parallel)
     void mark_code(int code, std::vector<char>& mask) const;
     void mark_tree(int code, std::vector<char>& mask) const;
     // per level: the faces this rank computes, the leaves whose forced state it keeps, the owned range; all faces
