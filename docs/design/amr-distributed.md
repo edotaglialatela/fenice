@@ -213,11 +213,11 @@ retired (decision D5).
   a resume reads them on the same rank count and refuses another one with a clear message (today's resume on another rank count
   is dropped). `dump_state` (the test / validation dump) keeps a gather to rank 0, streamed rank by rank: it is opt-in, and the
   regression and golden oracles compare it. VTK stays one `.vtu` per rank.
-* **D2 monitor sums**: "gather over all the volume". Read as: keep the monitor bitwise independent of the rank count. Root
-  receives the per-leaf terms of the volume sums (u0 a, the kinetic term, u3 a, a: four doubles per leaf, in the global leaf
-  order) and the solid leaves' load terms, and sums them in leaf order as today: O(N) doubles on root at a monitor row, much
-  less than the state and only when the monitor is on. *(To be confirmed by the user; the alternative was per-rank sums plus an
-  allreduce, equal to roundoff only.)*
+* **D2 monitor sums**: per-rank sums plus an allreduce (the user, after phase 0). Each rank sums the volume terms and the loads
+  of its owned leaves in leaf order, one allreduce (sum) per monitor row: no O(N) on root. The monitor values then equal the
+  serial ones to roundoff, not bit for bit, across rank counts (as on the uniform MPI path); the states stay the bitwise oracle,
+  and the checks that compare monitor columns or loads across rank counts use a relative tolerance (`ibm_ghost.py --check`
+  uses rtol 1e-10). Needs a sum-allreduce in `CellComm`.
 * **D3 large churn**: "what is best for computational time". Chosen: allgather of the new keys (12 bytes each; 0.13 % of the
   leaves per remesh in steady runs, 3 MB for a full 268 k remesh): one collective, no extra rounds. A sample sort only if a
   measurement shows the allgather to matter (it would at init on meshes much larger than 1 M leaves).
