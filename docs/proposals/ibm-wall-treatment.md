@@ -143,6 +143,8 @@ OpenMP, MPI strips) and the AMR engine (finest-level band), opt-in; the default 
   The ghost wall is grid-converged to 0.15 % at 20 cells per diameter; the mask converges at about first order towards the same
   value, needing roughly four times the resolution per direction. The ghost run's own surface loads are 1-2.5 % below its
   control-volume value (probe-based wall shear and pressure); a better surface integration is open.
-* **Mach 2 cylinder** (50 cells per diameter): the staircase waves at 45-75 degrees and the kinks of the surface pressure are gone
-  with the ghost wall (slip); the bow-shock stand-off is 0.332 (ghost) and 0.319 (mask) against 0.310 from the Billig correlation,
-  a difference of about one shock thickness at this resolution.
+* **Mach 2 cylinder**: the staircase waves at 45-75 degrees and the kinks of the surface pressure are gone with the ghost wall
+  (slip). The bow-shock stand-off is grid-converged for both and differs between them: 0.332 / 0.330 (ghost, 50 / 100 cells per
+  diameter) against 0.319 / 0.316 (mask), with 0.310 from the Billig correlation (an empirical fit). The difference comes from the
+  wall condition (a slip wall against the mask's stagnant staircase); without an exact inviscid reference this case does not say
+  which stand-off is closer.

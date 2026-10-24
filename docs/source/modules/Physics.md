@@ -127,8 +127,12 @@ least 1.5 cells into the fluid, where the state is interpolated bilinearly from 
 the wall condition hold on the real surface:
 
 * density and pressure equal those of the image point (zero normal gradient);
-* no-slip (`use_viscous`): the velocity goes linearly through zero at the wall, $\mathbf u_{m ghost} =
-  -(d_{m ghost}/d_{m image})\,\mathbf u_{m image}$; slip (inviscid): only the normal component is reflected.
+* no-slip (`use_viscous`): the velocity goes linearly through zero at the wall, $\mathbf u_{
+m ghost} =
+  -(d_{
+m ghost}/d_{
+m image})\,\mathbf u_{
+m image}$; slip (inviscid): only the normal component is reflected.
 
 The deeper solid cells stay at rest and are reset to the reference state each step (energy from the EOS). The wall position is
 exact, so the staircase waves disappear and the solution converges much faster with the grid: on a cylinder at Re = 40 the drag
