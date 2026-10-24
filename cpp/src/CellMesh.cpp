@@ -2,7 +2,8 @@
 
 #include <algorithm>
 #include <cstdlib>
-#include <iterator>
+#include <array>
+#include <memory>
 #include <numeric>
 #include <stdexcept>
 
@@ -369,7 +370,10 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
         (!coarsen_in.empty() && static_cast<int>(coarsen_in.size()) != N))
         throw std::invalid_argument("CellMesh::adapt: the flags need one entry per leaf");
     std::vector<char> R(static_cast<size_t>(N), 0);
-    for (int c = 0; c < N; ++c) R[c] = !refine_in.empty() && refine_in[c] && level[c] < max_level;
+    if (!refine_in.empty()) {
+#pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
+        for (int c = 0; c < N; ++c) R[c] = refine_in[c] && level[c] < max_level;
+    }
 
     // Ripple: a leaf that becomes level l+1 needs every corner neighbour at level >= l.  The mesh is balanced
     // before the call, so a lower neighbour is exactly one level lower and must be refined as well.
@@ -434,45 +438,95 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
     // New leaf list.  Per target level three streams are each already in Morton order: the leaves that stay, the children
     // of the refined leaves of the level above, the parents of the merged groups of the level below.  A stream entry
     // carries where its state comes from (src >= 0: that leaf; src < 0: the group anchored at leaf -1 - src, a parent
-    // mean or a child's injection), so the state is written once, into its final place.
+    // mean or a child's injection), so the state is written once, into its final place.  The streams are filled in
+    // parallel (blocks of the leaves of each level, counted first) and merged in parallel (their keys are distinct).
     struct NewLeaf {
         uint64_t key;
         int i, j, src;
         bool kept;
     };
     const bool has_u = static_cast<int>(U.size()) == N;
-    const size_t nlev = static_cast<size_t>(max_level) + 1;
-    std::vector<std::vector<NewLeaf>> keep(nlev), kids(nlev), parents(nlev);
-    for (int c = 0; c < N; ++c) {
-        if (absorbed[c]) continue;
-        const int l = level[c], i = ci[c], j = cj[c];
-        if (R[c]) {
-            for (int oj = 0; oj < 2; ++oj)
-                for (int oi = 0; oi < 2; ++oi)
-                    kids[static_cast<size_t>(l) + 1].push_back(
-                        {morton_key(static_cast<uint32_t>(2 * i + oi), static_cast<uint32_t>(2 * j + oj)), 2 * i + oi, 2 * j + oj, c, false});
-        } else if (merge_anchor[c]) {
-            parents[static_cast<size_t>(l) - 1].push_back(
-                {morton_key(static_cast<uint32_t>(i >> 1), static_cast<uint32_t>(j >> 1)), i >> 1, j >> 1, -1 - c, false});
-        } else {
-            keep[static_cast<size_t>(l)].push_back({mkey_[c], i, j, c, true});
+    const int nlev = max_level + 1;
+    // per target level t: [keep | kids | parents] of t, then the merged level, at nb[t] in the new list
+    std::vector<int> nk(static_cast<size_t>(nlev), 0), nc(static_cast<size_t>(nlev), 0), np(static_cast<size_t>(nlev), 0);
+    // per source level l and block b: the keep / kids / parent entries before the block, within the level
+    std::vector<std::array<int, 3>> before(static_cast<size_t>(nlev) * (kScanBlocks + 1));
+    const auto block = [&](int l, int b, int& lo, int& hi) {
+        const int cb = level_begin[l], n = level_begin[l + 1] - cb, chunk = (n + kScanBlocks - 1) / kScanBlocks;
+        lo = cb + std::min(n, b * chunk);
+        hi = cb + std::min(n, (b + 1) * chunk);
+    };
+    for (int l = 0; l < nlev; ++l) {
+        std::array<int, 3>* bl = &before[static_cast<size_t>(l) * (kScanBlocks + 1)];
+#pragma omp parallel for schedule(static) if (level_begin[l + 1] - level_begin[l] >= 4 * kOmpMinWork)
+        for (int b = 0; b < kScanBlocks; ++b) {
+            int lo, hi;
+            block(l, b, lo, hi);
+            std::array<int, 3> n = {0, 0, 0};
+            for (int c = lo; c < hi; ++c) {
+                if (absorbed[c]) continue;
+                n[R[c] ? 1 : (merge_anchor[c] ? 2 : 0)] += R[c] ? 4 : 1;
+            }
+            bl[b + 1] = n;
+        }
+        bl[0] = {0, 0, 0};
+        for (int b = 0; b < kScanBlocks; ++b)
+            for (int q = 0; q < 3; ++q) bl[b + 1][q] += bl[b][q];
+        nk[static_cast<size_t>(l)] = bl[kScanBlocks][0];
+        if (l + 1 < nlev) nc[static_cast<size_t>(l) + 1] = bl[kScanBlocks][1];
+        if (l > 0) np[static_cast<size_t>(l) - 1] = bl[kScanBlocks][2];
+    }
+    std::vector<int> nb(static_cast<size_t>(nlev) + 1, 0), sb(static_cast<size_t>(nlev) + 1, 0);
+    for (int t = 0; t < nlev; ++t) {
+        const int n = nk[static_cast<size_t>(t)] + nc[static_cast<size_t>(t)] + np[static_cast<size_t>(t)];
+        nb[static_cast<size_t>(t) + 1] = nb[static_cast<size_t>(t)] + n;
+    }
+    const size_t nn = static_cast<size_t>(nb[static_cast<size_t>(nlev)]);
+    // stream entries of level t at streams[nb[t] ..]: keep, then kids, then parents
+    std::unique_ptr<NewLeaf[]> streams(new NewLeaf[nn + 1]), order_buf(new NewLeaf[nn + 1]), tmp(new NewLeaf[nn + 1]);
+    for (int l = 0; l < nlev; ++l) {
+        const std::array<int, 3>* bl = &before[static_cast<size_t>(l) * (kScanBlocks + 1)];
+        NewLeaf* keep = streams.get() + nb[static_cast<size_t>(l)];
+        NewLeaf* kids = l + 1 < nlev ? streams.get() + nb[static_cast<size_t>(l) + 1] + nk[static_cast<size_t>(l) + 1] : nullptr;
+        NewLeaf* parents = l > 0 ? streams.get() + nb[static_cast<size_t>(l) - 1] + nk[static_cast<size_t>(l) - 1] +
+                                       nc[static_cast<size_t>(l) - 1]
+                                 : nullptr;
+#pragma omp parallel for schedule(static) if (level_begin[l + 1] - level_begin[l] >= 4 * kOmpMinWork)
+        for (int b = 0; b < kScanBlocks; ++b) {
+            int lo, hi;
+            block(l, b, lo, hi);
+            int k0 = bl[b][0], k1 = bl[b][1], k2 = bl[b][2];
+            for (int c = lo; c < hi; ++c) {
+                if (absorbed[c]) continue;
+                const int i = ci[c], j = cj[c];
+                if (R[c]) {
+                    for (int oj = 0; oj < 2; ++oj)
+                        for (int oi = 0; oi < 2; ++oi)
+                            kids[k1++] = {morton_key(static_cast<uint32_t>(2 * i + oi), static_cast<uint32_t>(2 * j + oj)), 2 * i + oi,
+                                          2 * j + oj, c, false};
+                } else if (merge_anchor[c]) {
+                    parents[k2++] = {morton_key(static_cast<uint32_t>(i >> 1), static_cast<uint32_t>(j >> 1)), i >> 1, j >> 1, -1 - c,
+                                     false};
+                } else {
+                    keep[k0++] = {mkey_[c], i, j, c, true};
+                }
+            }
         }
     }
     const auto by_key = [](const NewLeaf& x, const NewLeaf& y) { return x.key < y.key; };
-    std::vector<int> nlevel, ni, nj;
-    std::vector<NewLeaf> tmp, all;
-    std::vector<NewLeaf> order;   // all new leaves in order
-    for (size_t t = 0; t < nlev; ++t) {
-        tmp.clear();
-        all.clear();
-        std::merge(keep[t].begin(), keep[t].end(), kids[t].begin(), kids[t].end(), std::back_inserter(tmp), by_key);
-        std::merge(tmp.begin(), tmp.end(), parents[t].begin(), parents[t].end(), std::back_inserter(all), by_key);
-        order.insert(order.end(), all.begin(), all.end());
-        nlevel.resize(order.size(), static_cast<int>(t));
+    for (int t = 0; t < nlev; ++t) {
+        const size_t b = static_cast<size_t>(nb[static_cast<size_t>(t)]);
+        const int a = nk[static_cast<size_t>(t)], k = nc[static_cast<size_t>(t)], p = np[static_cast<size_t>(t)];
+        parallel_merge(streams.get() + b, a, streams.get() + b + a, k, tmp.get() + b, by_key);
+        parallel_merge(tmp.get() + b, a + k, streams.get() + b + a + k, p, order_buf.get() + b, by_key);
     }
-    const size_t nn = order.size();
-    ni.resize(nn);
-    nj.resize(nn);
+    const NewLeaf* order = order_buf.get();   // all new leaves in order
+    std::vector<int> nlevel(nn), ni(nn), nj(nn);
+    for (int t = 0; t < nlev; ++t) {
+        const int b = nb[static_cast<size_t>(t)], e = nb[static_cast<size_t>(t) + 1];
+#pragma omp parallel for schedule(static) if (e - b >= kOmpMinWork)
+        for (int k = b; k < e; ++k) nlevel[static_cast<size_t>(k)] = t;
+    }
     prev_leaf.resize(nn);
     Field nU;
     if (has_u) nU.resize(nn);
