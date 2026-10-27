@@ -121,6 +121,8 @@ public:
     std::unique_ptr<CellAdaptor> cell_adaptor;
     CellComm cell_comm;                       // rank and size (1 without MPI)
     std::unique_ptr<CellParallel> cell_par;   // non-null on several ranks
+    // Localized run: the topology of the whole mesh (leaves and faces, no state), kept by every rank for CellParallel::remesh
+    std::unique_ptr<CellMesh> cell_topo;
     VTKExporter exporter;                                       // VTK + .pvd output
     const TestCase* test_case = nullptr;
     std::string file_prefix;   // test case name, lower case with underscores

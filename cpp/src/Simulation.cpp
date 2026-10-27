@@ -504,7 +504,11 @@ void Simulation::initialize_field() {
     if (cell_par) {
         cell_par->partition();
         print_halo_reach("initial mesh");
-        if (!replicated_storage()) cell_par->localize();   // each rank keeps only its leaves and their halo
+        if (!replicated_storage()) {
+            cell_topo = std::make_unique<CellMesh>(*cells);   // the topology stays whole on every rank, the state does not
+            cell_topo->U = Field();
+            cell_par->localize();   // each rank keeps only its leaves and their halo
+        }
     }
     mem_init_ = memory_usage();
 }
@@ -1313,19 +1317,20 @@ void Simulation::solve_amr() {
 
         if (step % p.amr_refine_every == 0) {
             const auto r0 = Clock::now();
-            // the indicator looks at every leaf: the whole mesh and its state on every rank (the replicated remesh)
-            if (local_run)
-                cell_par->globalize();
-            else if (cell_par)
-                cell_par->gather_state();
-            t_gather += seconds_since(r0);
-            const bool changed = cell_adaptor->remesh();
-            if (changed || local_run) {
-                const auto r2 = Clock::now();
-                if (!changed) eng.build(cm);   // the tables of the localized engine are gone
-                if (cell_par) cell_par->partition();
-                if (local_run) cell_par->localize();
-                t_partition += seconds_since(r2);
+            bool changed;
+            if (local_run) {
+                // indicator on the owned leaves and their region, flags gathered, state of the new leaves migrated: no whole mesh
+                changed = cell_par->remesh(*cell_topo, *cell_adaptor);
+            } else {
+                // the indicator looks at every leaf: the whole mesh and its state on every rank (the replicated remesh)
+                if (cell_par) cell_par->gather_state();
+                t_gather += seconds_since(r0);
+                changed = cell_adaptor->remesh();
+                if (changed && cell_par) {
+                    const auto r2 = Clock::now();
+                    cell_par->partition();
+                    t_partition += seconds_since(r2);
+                }
             }
             if (changed) {
                 const auto r1 = Clock::now();
@@ -1383,8 +1388,15 @@ void Simulation::solve_amr() {
     std::printf("[AMR] %d leaves at the end (", static_cast<int>(lf.level->size()));
     for (int l = 0; l <= cm.max_level; ++l) std::printf("%slevel %d: %d", l ? ", " : "", l, per_level[static_cast<size_t>(l)]);
     std::printf("); remesh %.2f s of the %.2f s time loop\n", remesh_wall, loop_wall);
-    std::printf("[AMR] remesh parts: gather %.2f s, indicator %.2f s, adapt %.2f s, engine build %.2f s, wave-speed bound %.2f s, partition %.2f s\n",
-                t_gather, cell_adaptor->t_indicator, cell_adaptor->t_adapt, cell_adaptor->t_build, t_speed, t_partition);
+    // (a localized run has no gather: the "gather" is the region of the mesh the indicator reads and its state, the "indicator" the
+    // flags of the owned leaves and their exchange, the "adapt" the adapt of the topology and the state of the new leaves, the
+    // "partition" the partition, localize and halo fill after the engine build)
+    if (local_run)
+        std::printf("[AMR] remesh parts: gather %.2f s, indicator %.2f s, adapt %.2f s, engine build %.2f s, wave-speed bound %.2f s, partition %.2f s\n",
+                    cell_par->t_region, cell_par->t_flags, cell_par->t_migrate, cell_par->t_rebuild, t_speed, cell_par->t_repartition);
+    else
+        std::printf("[AMR] remesh parts: gather %.2f s, indicator %.2f s, adapt %.2f s, engine build %.2f s, wave-speed bound %.2f s, partition %.2f s\n",
+                    t_gather, cell_adaptor->t_indicator, cell_adaptor->t_adapt, cell_adaptor->t_build, t_speed, t_partition);
     double lo[4], hi[4];
     for (int q = 0; q < 4; ++q) {
         lo[q] = hi[q] = mem[static_cast<size_t>(q)];

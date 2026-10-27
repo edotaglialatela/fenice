@@ -619,6 +619,7 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
         for (int k = b; k < e; ++k) nlevel[static_cast<size_t>(k)] = t;
     }
     prev_leaf.resize(nn);
+    if (record_sources) source.resize(nn);
     Field nU;
     if (has_u) nU.resize(nn);
 #pragma omp parallel for schedule(static) if (nn >= static_cast<size_t>(kOmpMinWork))
@@ -627,6 +628,14 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
         ni[static_cast<size_t>(k)] = n.i;
         nj[static_cast<size_t>(k)] = n.j;
         prev_leaf[static_cast<size_t>(k)] = n.kept ? n.src : -1;
+        if (record_sources) {
+            if (n.src >= 0) {
+                source[static_cast<size_t>(k)] = {n.src, -1, -1, -1};
+            } else {
+                const int c = -1 - n.src, l = level[c];
+                source[static_cast<size_t>(k)] = {c, find(l, ci[c] + 1, cj[c]), find(l, ci[c], cj[c] + 1), find(l, ci[c] + 1, cj[c] + 1)};
+            }
+        }
         if (!has_u) continue;
         if (n.src >= 0) {
             nU[static_cast<size_t>(k)] = U[n.src];   // stays, or the injection into a child

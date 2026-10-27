@@ -6,6 +6,7 @@
 // Corner (vertex) 2:1 balance: two leaves that touch, even at a single corner, differ by at most one level.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <vector>
 
@@ -134,6 +135,12 @@ public:
     std::vector<char> topo_dirty;
     // ... and for every face its index before the call (-1: made anew; the faces a clean leaf makes are copied).
     std::vector<int> prev_face;
+    // With record_sources set (a distributed run, which moves the state by itself), an adapt that changed the leaves also sets, for
+    // every leaf, where its state comes from: {c, -1, -1, -1}: the state of the old leaf c (a leaf that stayed, or the injection
+    // into a child of a refined leaf); {a, b, c, d}: the mean of the four old leaves of a merged group, in the order (i, j),
+    // (i + 1, j), (i, j + 1), (i + 1, j + 1).
+    bool record_sources = false;
+    std::vector<std::array<int, 4>> source;
 
     // Bytes of the leaf arrays, the state, the faces, the gather lists, the lookup tables and the incremental bookkeeping.
     double memory_bytes() const;

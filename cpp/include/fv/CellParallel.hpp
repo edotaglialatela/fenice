@@ -16,14 +16,18 @@
 //    depend on the rank, the maxima are order independent, and nothing is summed across ranks.
 #pragma once
 
+#include <array>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <vector>
 
 #include "fv/CellFlux.hpp"
 #include "fv/CellMesh.hpp"
 
 namespace fv {
+
+class CellAdaptor;
 
 // Communication hooks (the same shape as for MPI; tests provide an in-process version).
 struct CellComm {
@@ -57,6 +61,17 @@ public:
     // the engine must be built again, then partition() and localize()) with the state of every leaf.
     void globalize();
     bool localized() const { return localized_; }
+    // The remesh of a localized run (collective), without gathering the mesh or its state: `topo` is the whole mesh's topology
+    // (leaves and faces, no state) that every rank keeps. Each rank takes the indicator of its owned leaves from the leaves
+    // CellIndicator::region lists for them (those it does not hold are fetched from their owners), the flags of all ranks are
+    // gathered (one byte per leaf), every rank applies them to `topo` (CellMesh::adapt: ripple and merges, identical everywhere),
+    // and the state of the new owned leaves is built from the old leaves it comes from (fetched where not held). If the leaves
+    // changed, the mesh and the engine are rebuilt, then partition() and localize(), and the halo is filled; returns whether
+    // they did (if not, nothing was touched). The decisions and the state are those of ad.remesh() on the whole mesh, bit for bit.
+    bool remesh(CellMesh& topo, CellAdaptor& ad);
+    // Accumulated wall time [s] of remesh(): region + fetch + indicator, flags + adapt of topo, state migration, engine build,
+    // partition + localize + halo.
+    double t_region = 0.0, t_flags = 0.0, t_migrate = 0.0, t_rebuild = 0.0, t_repartition = 0.0;
     // True if the whole mesh (not only this rank's share) has leaves at `level`. Every rank must run the collective calls of a level
     // that exists anywhere, also when it holds no leaf of it (a localized mesh may have an empty level that others do not).
     bool level_present(int level) const { return level_present_[static_cast<size_t>(level)] != 0; }
@@ -125,9 +140,13 @@ private:
         std::vector<std::vector<int>> send, recv;
     };
     void push_leaves(const Lists& lists);
+    // The states of the leaves `want` ((level, i, j), each owned by some rank under the current partition): from this rank's leaves
+    // if it holds them, else from their owners (collective).
+    void fetch_states(const std::vector<std::array<int, 3>>& want, std::vector<State>& out) const;
     // The owned leaves of all ranks as records (level, ci, cj, state), 3 + kNVar doubles each, in rank order.
     void gather_owned(std::vector<double>& all) const;
 
+    std::unique_ptr<CellMesh> sub_;   // the partial mesh of remesh(), kept to avoid rebuilding the base mesh each time
     bool localized_ = false;
     std::vector<char> level_present_;   // per level: the whole mesh has leaves there (set by partition())
     std::vector<char> face_active_;   // the faces this rank computes (of the last partition(); dropped by localize())

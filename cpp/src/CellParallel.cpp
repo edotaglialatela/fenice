@@ -2,8 +2,11 @@
 
 #include <algorithm>
 #include <array>
+#include <chrono>
 #include <limits>
 #include <stdexcept>
+
+#include "fv/CellRemesh.hpp"
 
 namespace fv {
 
@@ -289,6 +292,210 @@ void CellParallel::localize() {
     }
     std::vector<char>().swap(face_active_);
     localized_ = true;
+}
+
+void CellParallel::fetch_states(const std::vector<std::array<int, 3>>& want, std::vector<State>& out) const {
+    const int R = comm_.size, me = comm_.rank;
+    out.assign(want.size(), State{});
+    std::vector<std::vector<size_t>> slot(static_cast<size_t>(R));   // per owner: the entries of `want` it answers
+    std::vector<std::vector<double>> req(static_cast<size_t>(R));
+    for (size_t k = 0; k < want.size(); ++k) {
+        const int c = mesh_.find(want[k][0], want[k][1], want[k][2]);
+        if (c >= 0) {
+            out[k] = mesh_.U[static_cast<size_t>(c)];
+            continue;
+        }
+        const int o = owner_of(want[k][0], morton_key(static_cast<uint32_t>(want[k][1]), static_cast<uint32_t>(want[k][2])));
+        if (o == me || R == 1) throw std::logic_error("CellParallel::fetch_states: a leaf of this rank is missing");
+        slot[static_cast<size_t>(o)].push_back(k);
+        for (const int v : want[k]) req[static_cast<size_t>(o)].push_back(static_cast<double>(v));
+    }
+    if (R == 1) return;
+    std::vector<std::vector<double>> cnt_send(static_cast<size_t>(R)), cnt_recv(static_cast<size_t>(R));
+    for (int r = 0; r < R; ++r)
+        if (r != me) {
+            cnt_send[static_cast<size_t>(r)].assign(1, static_cast<double>(req[static_cast<size_t>(r)].size()));
+            cnt_recv[static_cast<size_t>(r)].assign(1, 0.0);
+        }
+    comm_.exchange(cnt_send, cnt_recv);
+    std::vector<std::vector<double>> asked(static_cast<size_t>(R)), reply(static_cast<size_t>(R)), back(static_cast<size_t>(R));
+    for (int r = 0; r < R; ++r)
+        if (r != me) {
+            asked[static_cast<size_t>(r)].resize(static_cast<size_t>(cnt_recv[static_cast<size_t>(r)][0]));
+            back[static_cast<size_t>(r)].resize(slot[static_cast<size_t>(r)].size() * kNVar);
+        }
+    comm_.exchange(req, asked);
+    for (int r = 0; r < R; ++r) {
+        const std::vector<double>& q = asked[static_cast<size_t>(r)];
+        for (size_t k = 0; k + 2 < q.size(); k += 3) {
+            const int c = mesh_.find(static_cast<int>(q[k]), static_cast<int>(q[k + 1]), static_cast<int>(q[k + 2]));
+            if (c < 0) throw std::logic_error("CellParallel::fetch_states: a request for a leaf this rank does not hold");
+            reply[static_cast<size_t>(r)].insert(reply[static_cast<size_t>(r)].end(), mesh_.U[static_cast<size_t>(c)].begin(),
+                                                 mesh_.U[static_cast<size_t>(c)].end());
+        }
+    }
+    comm_.exchange(reply, back);
+    for (int r = 0; r < R; ++r)
+        for (size_t k = 0; k < slot[static_cast<size_t>(r)].size(); ++k)
+            for (int q = 0; q < kNVar; ++q)
+                out[slot[static_cast<size_t>(r)][k]][static_cast<size_t>(q)] = back[static_cast<size_t>(r)][k * kNVar + static_cast<size_t>(q)];
+}
+
+bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
+    if (!localized_) throw std::logic_error("CellParallel::remesh: the mesh is not localized");
+    using Clock = std::chrono::steady_clock;
+    const auto sec = [](Clock::time_point a, Clock::time_point b) { return std::chrono::duration<double>(b - a).count(); };
+    const int R = comm_.size, me = comm_.rank, M = topo.max_level;
+    const auto owned_run = [&](const CellMesh& t, int l, int r, int& b, int& e) {   // the equal-count block of partition()
+        const long long lb = t.level_begin[static_cast<size_t>(l)], n = t.level_begin[static_cast<size_t>(l) + 1] - lb;
+        b = static_cast<int>(lb + n * r / R);
+        e = static_cast<int>(lb + n * (r + 1) / R);
+    };
+    const auto t0 = Clock::now();
+    // 1) this rank's owned leaves (topo indices), the leaves its indicator reads, and their state (held here, or from the owners)
+    int N = topo.num_leaves();
+    std::vector<int> owned;
+    for (int l = 0; l <= M; ++l) {
+        int b, e;
+        owned_run(topo, l, me, b, e);
+        for (int c = b; c < e; ++c) owned.push_back(c);
+    }
+    std::vector<char> need(static_cast<size_t>(N), 0);
+    ad.indicator().region(topo, owned, need);
+    for (const int c : owned) need[static_cast<size_t>(c)] = 1;
+    if (!sub_)
+        sub_ = std::make_unique<CellMesh>(topo.Lx, topo.Ly, topo.nx, topo.ny, topo.max_level, topo.periodic_x, topo.periodic_y,
+                                          topo.x0, topo.y0);
+    CellMesh& sub = *sub_;
+    sub.level.clear();
+    sub.ci.clear();
+    sub.cj.clear();
+    sub.level_begin.assign(static_cast<size_t>(M) + 2, 0);
+    std::vector<std::array<int, 3>> want;
+    for (int c = 0; c < N; ++c)
+        if (need[static_cast<size_t>(c)]) {
+            const int l = topo.level[static_cast<size_t>(c)];
+            sub.level.push_back(l);
+            sub.ci.push_back(topo.ci[static_cast<size_t>(c)]);
+            sub.cj.push_back(topo.cj[static_cast<size_t>(c)]);
+            ++sub.level_begin[static_cast<size_t>(l) + 1];
+            want.push_back({l, topo.ci[static_cast<size_t>(c)], topo.cj[static_cast<size_t>(c)]});
+        }
+    for (int l = 0; l <= M; ++l) sub.level_begin[static_cast<size_t>(l) + 1] += sub.level_begin[static_cast<size_t>(l)];
+    fetch_states(want, sub.U);
+    const auto t1 = Clock::now();
+    // 2) the decisions for the owned leaves, then everybody's (one number per leaf)
+    std::vector<int> owned_sub;
+    {
+        int k = 0;
+        size_t o = 0;
+        for (int c = 0; c < N && o < owned.size(); ++c) {
+            if (!need[static_cast<size_t>(c)]) continue;
+            if (c == owned[o]) {
+                owned_sub.push_back(k);
+                ++o;
+            }
+            ++k;
+        }
+    }
+    std::vector<char> rf, cf;
+    ad.flags(sub, sub.U, owned_sub, rf, cf);
+    std::vector<double> mine(owned.size());
+    for (size_t k = 0; k < owned.size(); ++k) mine[k] = static_cast<double>(rf[k] + 2 * cf[k]);
+    std::vector<int> counts(static_cast<size_t>(R), 0), displs(static_cast<size_t>(R), 0);
+    for (int r = 0; r < R; ++r) {
+        for (int l = 0; l <= M; ++l) {
+            int b, e;
+            owned_run(topo, l, r, b, e);
+            counts[static_cast<size_t>(r)] += e - b;
+        }
+        if (r > 0) displs[static_cast<size_t>(r)] = displs[static_cast<size_t>(r) - 1] + counts[static_cast<size_t>(r) - 1];
+    }
+    std::vector<double> all(static_cast<size_t>(N));
+    if (R > 1) comm_.allgatherv(mine.data(), static_cast<int>(mine.size()), all.data(), counts.data(), displs.data());
+    else all = mine;
+    std::vector<char> refine(static_cast<size_t>(N), 0), coarsen(static_cast<size_t>(N), 0);
+    long long nr = 0;
+    for (int r = 0, k = 0; r < R; ++r)
+        for (int l = 0; l <= M; ++l) {
+            int b, e;
+            owned_run(topo, l, r, b, e);
+            for (int c = b; c < e; ++c, ++k) {
+                const int code = static_cast<int>(all[static_cast<size_t>(k)]);
+                refine[static_cast<size_t>(c)] = static_cast<char>(code & 1);
+                coarsen[static_cast<size_t>(c)] = static_cast<char>(code >> 1);
+                nr += code & 1;
+            }
+        }
+    const auto t2 = Clock::now();
+    // 3) the same adapt on every rank (ripple, merges), which also says where the state of every new leaf comes from
+    const std::vector<int> old_level = topo.level, old_ci = topo.ci, old_cj = topo.cj;
+    topo.record_sources = true;
+    const int before = N;
+    const bool changed = topo.adapt(refine, coarsen);
+    topo.record_sources = false;
+    t_region += sec(t0, t1);
+    t_flags += sec(t1, t2);
+    ad.t_indicator += sec(t0, t2);
+    if (!changed) return false;
+    N = topo.num_leaves();
+    ad.n_refined += nr;
+    ad.n_joined += std::max(0, before + 3 * static_cast<int>(nr) - N) / 3;
+    // 4) the state of the new owned leaves: the old leaves they come from (held here, or fetched), then injection / mean
+    std::vector<int> mine_new;
+    for (int l = 0; l <= M; ++l) {
+        int b, e;
+        owned_run(topo, l, me, b, e);
+        for (int c = b; c < e; ++c) mine_new.push_back(c);
+    }
+    std::vector<int> from;   // the old leaves read
+    for (const int c : mine_new)
+        for (const int s : topo.source[static_cast<size_t>(c)])
+            if (s >= 0) from.push_back(s);
+    std::sort(from.begin(), from.end());
+    from.erase(std::unique(from.begin(), from.end()), from.end());
+    std::vector<std::array<int, 3>> ask(from.size());
+    for (size_t k = 0; k < from.size(); ++k)
+        ask[k] = {old_level[static_cast<size_t>(from[k])], old_ci[static_cast<size_t>(from[k])], old_cj[static_cast<size_t>(from[k])]};
+    std::vector<State> got;
+    fetch_states(ask, got);
+    const auto state_of = [&](int old_leaf) -> const State& {
+        return got[static_cast<size_t>(std::lower_bound(from.begin(), from.end(), old_leaf) - from.begin())];
+    };
+    Field nU(static_cast<size_t>(N));
+    for (State& u : nU) u.fill(std::numeric_limits<double>::quiet_NaN());
+    for (const int c : mine_new) {
+        const std::array<int, 4>& s = topo.source[static_cast<size_t>(c)];
+        if (s[1] < 0) {
+            nU[static_cast<size_t>(c)] = state_of(s[0]);   // stays, or the injection into a child
+        } else {
+            const State &a = state_of(s[0]), &b = state_of(s[1]), &cc = state_of(s[2]), &d = state_of(s[3]);
+            State m;
+            for (size_t q = 0; q < static_cast<size_t>(kNVar); ++q) m[q] = ((a[q] + b[q]) + (cc[q] + d[q])) * 0.25;
+            nU[static_cast<size_t>(c)] = m;
+        }
+    }
+    std::vector<std::array<int, 4>>().swap(topo.source);
+    const auto t3 = Clock::now();
+    // 5) this rank's mesh and engine for the new leaves, the new partition, and the halo
+    mesh_ = topo;
+    mesh_.U.swap(nU);
+    mesh_.prev_leaf.clear();   // the engine's tables are of the localized mesh: a full build
+    mesh_.topo_dirty.clear();
+    mesh_.prev_face.clear();
+    engine_.build(mesh_);
+    const auto t4 = Clock::now();
+    localized_ = false;
+    partition();
+    localize();
+    for (int l = 0; l <= M; ++l) exchange_final(l);
+    const auto t5 = Clock::now();
+    t_migrate += sec(t2, t3);
+    t_rebuild += sec(t3, t4);
+    t_repartition += sec(t4, t5);
+    ad.t_adapt += sec(t2, t3);
+    ad.t_build += sec(t3, t4);
+    return true;
 }
 
 void CellParallel::gather_owned(std::vector<double>& all) const {

@@ -77,6 +77,8 @@ public:
     // indicator + adapt until nothing changes (at most max_level + 1 passes), then fill once more. Returns the passes made.
     int init_adapt(const std::function<void(CellMesh&)>& initial);
 
+    const CellIndicator& indicator() const { return ind_; }
+
     // True if the leaf lies in the finest-level band of the body.
     bool in_body_band(int leaf);
 
