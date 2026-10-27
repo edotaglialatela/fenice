@@ -12,6 +12,7 @@
 #include <omp.h>
 #endif
 #include <mutex>
+#include <numeric>
 #include <random>
 #include <string>
 #include <thread>
@@ -3908,7 +3909,7 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
     FakeHub hub(Nranks);
     std::vector<Field> result(static_cast<size_t>(Nranks));
     std::vector<std::string> error(static_cast<size_t>(Nranks));
-    std::vector<int> held(static_cast<size_t>(Nranks), 0), halo(static_cast<size_t>(Nranks), 0);
+    std::vector<int> held(static_cast<size_t>(Nranks), 0), halo(static_cast<size_t>(Nranks), 0), empty(static_cast<size_t>(Nranks), 0);
     const auto body = [&](int rank) {
         try {
             DistEnv env(sp);
@@ -3958,6 +3959,8 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
                 if (local) {
                     CHECK(m.partial);
                     CHECK(m.num_leaves() == par->held_count());
+                    for (int l = 0; l <= m.max_level; ++l)   // a level of the whole mesh this rank keeps no leaf of
+                        if (par->level_present(l) && m.level_begin[l + 1] == m.level_begin[l]) ++empty[static_cast<size_t>(rank)];
                     par->globalize();
                 } else {
                     par->gather_state();
@@ -3974,7 +3977,7 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
     for (int r = 0; r < Nranks; ++r)
         if (!error[static_cast<size_t>(r)].empty()) std::printf("    rank %d: %s\n", r, error[static_cast<size_t>(r)].c_str());
     for (int r = 1; r < Nranks; ++r) CHECK(bits_equal(result[0], result[static_cast<size_t>(r)]));   // all ranks agree
-    if (counts) *counts = {held[static_cast<size_t>(Nranks - 1)], halo[static_cast<size_t>(Nranks - 1)]};
+    if (counts) *counts = {held[static_cast<size_t>(Nranks - 1)], halo[static_cast<size_t>(Nranks - 1)], std::accumulate(empty.begin(), empty.end(), 0)};
     return result[0];
 }
 
@@ -4018,17 +4021,23 @@ TEST(cellparallel_localized_run_equals_serial_bitwise_and_keeps_only_its_halo) {
         {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, false},
         {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true},
     };
+    int empty_levels = 0;
     for (const DistSpec& sp : specs) {
         const Field serial = run_distributed(sp, 0, 6);
-        for (const int ranks : {1, 2, 3, 5, 7}) {
+        for (const int ranks : {1, 2, 3, 5, 7, 16}) {
             std::vector<int> counts;
             const Field dist = run_distributed(sp, ranks, 6, &counts, true);
+            empty_levels += counts[2];
             const bool same = bits_equal(serial, dist);
             CHECK(same);
             if (!same) std::printf("    %s on %d ranks (localized) differs from the serial run\n", sp.name, ranks);
             if (ranks >= 5) CHECK(counts[0] < static_cast<int>(serial.size()));
         }
     }
+    // The case that hung the hot-start regression on 4 ranks: a rank that keeps no leaf of a level other ranks have must still
+    // make that level's collective calls (CellParallel::level_present). The test must reach it, or it proves nothing.
+    std::printf("    ranks with an empty local level (rank x level, summed over the runs): %d\n", empty_levels);
+    CHECK(empty_levels > 0);
 }
 
 TEST(a_partial_mesh_throws_when_a_face_reads_a_leaf_it_does_not_keep) {

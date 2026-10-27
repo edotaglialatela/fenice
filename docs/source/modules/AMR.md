@@ -138,30 +138,35 @@ A hot start from a uniform or an adaptive checkpoint interpolates the source at 
 
 ## Parallel runs
 
-OpenMP threads share the face loops of a level. With `use_mpi` every rank holds the whole mesh
-topology (leaves, faces, stencils) and each level is cut into contiguous blocks of equal leaf count along its Morton order;
-a rank advances its owned leaves. The state of a leaf is valid on its owner and on the ranks that read it (the halo is whatever the
-face list reads: stencil points, virtual cells, gradients). The owners exchange the halo after each stage, the final state of a level
+OpenMP threads share the face loops of a level. With `use_mpi` each level is cut into contiguous blocks of equal leaf count along
+its Morton order and a rank advances its owned leaves. A rank keeps only its owned leaves and the halo, the leaves its faces read
+(stencil points, virtual cells, gradients): its share of the mesh, faces, stencils and state, with the same numbers a whole-mesh
+build gives for them (a face that read a leaf outside the share would be an error, checked when the share is made). The remesh
+needs every leaf: the ranks gather the whole mesh and state, adapt it, and each keeps its new share
+(`FENICE_REPLICATED_REMESH=1` keeps the whole mesh on every rank instead). The owners exchange the halo after each stage, the final state of a level
 after it advanced, and the registers of the coarse-fine faces. A same-level face is computed by both owners with the same inputs, a coarse-fine face
 by the owner of the fine leaf. The result is identical to the serial run for any number of ranks (1 to 7 are checked in
 `amr_mpi.py --check`, on cases with remeshing, an immersed body, viscosity, a non-reflecting outlet and a time-dependent source).
 
 **Known limits.** The remesh (indicator, flags, adaptation, update of the face list and stencils) is replicated on every
-rank after the state is gathered, and every rank stores the whole mesh and state array. It runs OpenMP-parallel inside a rank,
-but it is a serial fraction across ranks (on the 8-core workstation, before the incremental update: 21 % of the time loop of the airfoil below on one
-thread, 32 % on 8 threads, 34 to 65 % on 2 to 16 ranks; less since, see below),
-so the MPI speed-up flattens at a few ranks, and the memory per rank does not fall with the number of ranks. On one node
-OpenMP is the better choice; MPI gives the same result for any rank count and a moderate speed-up, not a way to store a larger mesh.
+rank: the whole mesh and state are gathered on every rank, and the engine is built for all of it, in full (the incremental update
+needs the tables of the previous build, which a rank no longer holds). It runs OpenMP-parallel inside a rank, but it is a serial
+fraction across ranks (on the airfoil below 2.2 of the 3.7 s on 4 ranks, 5.6 of 7.5 s on 16), so the MPI speed-up flattens at a few
+ranks, and the peak memory per rank, reached during the remesh, does not fall with the number of ranks. What does fall is the
+memory between remeshes (the airfoil below: 257 MB serial, 133 / 91 / 70 / 60 MB per rank on 2 / 4 / 8 / 16 ranks). On one node
+OpenMP is the better choice; MPI gives the same result for any rank count and a moderate speed-up. Checkpoint and `dump_state` gather the
+leaves on every rank (a transient copy of the whole state); a restart reads the whole checkpoint on every rank.
 At the end of a run the solver prints the resident memory of the ranks (after setup, after the initial adaptation, at the end,
 the peak: minimum / maximum over the ranks) and the size of the tables of a rank: about 1.5 kB per leaf on the airfoil
 (`cases/validation/amr/amr_memory.py` measures it on 1 to 16 ranks; `docs/design/amr-distributed.md` is the plan to distribute
-the storage).
+the remesh as well).
 
 | run (720×360, 2 levels, 50 steps, 268 362 leaves) | wall time | of which remesh |
 |---|---:|---:|
 | serial, 1 thread | 5.9 s | 1.0 s |
 | OpenMP, 2 / 4 / 8 / 16 threads | 3.5 / 2.3 / 2.1 / 2.0 s | 0.75 / 0.65 / 0.65 / 0.74 s |
-| MPI, 2 / 4 / 8 / 16 ranks | 3.9 / 3.1 / 3.8 / 7.5 s | 1.1 / 1.3 / 2.0 / 4.4 s |
+| MPI, 2 / 4 / 8 / 16 ranks, each rank its share of the mesh (default) | 5.0 / 3.7 / 4.3 / 7.5 s | 2.3 / 2.2 / 3.1 / 5.6 s |
+| MPI, 2 / 4 / 8 / 16 ranks, `FENICE_REPLICATED_REMESH=1` (every rank the whole mesh) | 3.9 / 3.1 / 3.8 / 7.5 s | 1.1 / 1.3 / 2.0 / 4.4 s |
 
 Ryzen 7 7800X3D (8 cores, 16 logical processors), MSVC build, one run after the incremental remesh update (scalar viscous loops); the 16-rank row is
 oversubscribed. Before it: serial 6.1 s (remesh 1.3 s), OpenMP 3.6 / 2.5 / 2.4 / 2.3 s, MPI 4.3 / 3.5 / 4.5 / 7.7 s. With the

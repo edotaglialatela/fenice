@@ -1,4 +1,4 @@
-"""Memory and time of the replicated AMR on MPI ranks: the baseline of docs/design/amr-distributed.md (phase 0).
+"""Memory and time of the AMR on MPI ranks (docs/design/amr-distributed.md: the phase-0 baseline, FENICE_REPLICATED_REMESH=1, and phase 2).
 
     python cases/validation/amr/amr_memory.py                    # results/validation/amr_memory/
     python cases/validation/amr/amr_memory.py --ranks 1 2 4 8    # a subset of the rank counts (1 = serial, one thread)
@@ -10,8 +10,8 @@ Runs "IBM Airfoil AMR" on 720 x 360 and on 1440 x 720 (two levels, the airfoil k
 serially on one thread and on 2 to 16 MPI ranks (one thread per rank), and reads what the solver prints at the end of an AMR
 run: the resident memory of every rank (after setup, after the initial adaptation, at the end, and the peak: min / max over
 the ranks), the bytes of its tables (mesh, engine, the arrays sized by the uniform mesh of a level), the wall time of the time
-loop and its remesh parts. Today every rank stores the whole mesh, so the memory per rank does not shrink with the ranks;
-that is what the distributed storage has to change. Run it on an idle machine; the runs are cached (--force re-runs them).
+loop and its remesh parts. A rank keeps its owned leaves and the halo between remeshes (the whole mesh during one, and always with
+FENICE_REPLICATED_REMESH=1: set it in the environment for that baseline). Run it on an idle machine; the runs are cached (--force re-runs them).
 Prints a table and writes summary.json (and the figure amr_memory.png).
 """
 import json
@@ -126,7 +126,7 @@ def main():
         a.legend()
     ax[0].set(ylabel="resident memory per rank [MB] (max over ranks)", title="Memory")
     ax[1].set(ylabel=f"wall time of {args.steps} steps [s]", title="Time")
-    fig.suptitle("Replicated AMR (every rank stores the whole mesh): the baseline of the distributed storage", y=1.02)
+    fig.suptitle("AMR on MPI ranks: memory and time per rank", y=1.02)
     study.save(fig, STUDY, "amr_memory.png", args.docs)
 
 

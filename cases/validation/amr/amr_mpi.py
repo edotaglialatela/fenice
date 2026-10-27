@@ -9,7 +9,7 @@ refined, so the leaves change during the run) for 50 steps: serial on one thread
 threads and MPI on 2 to 16 ranks (one thread per rank). Checks that every final state is bit for bit
 the serial one, and prints the wall time of the time loop and the part of it that is remesh (the
 gather of the state, the indicator, the adaptation and the rebuild, which every rank repeats).
-Every rank stores the whole mesh. Run it on an idle machine: the times are the point. Figure: amr_mpi.png.
+Each rank stores its owned leaves and their halo (FENICE_REPLICATED_REMESH=1: the whole mesh). Run it on an idle machine: the times are the point. Figure: amr_mpi.png.
 
 --check runs four cases that adapt during the run (dynamic Sod, the airfoil with the immersed body and the
 non-reflecting outlet, a periodic viscous manufactured solution, and one with a time-dependent source)

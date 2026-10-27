@@ -181,7 +181,7 @@ level) against the 29 bits per axis `kKeyBits` allows in 2-D.
 |---|---|---|---|
 | 0 | Measurements: peak RSS per rank and remesh / stepping times on 1-16 ranks for the airfoil and a larger case; the halo reach test on replicated meshes (sets H) | a study script, a unit test | small |
 | 1 | Keyed lists: halo and send lists, registers and solid exchanges by (level, key); `partition()` O(local) instead of the R x levels x N masks | `CellParallel` | medium |
-| 2 | Local storage for time stepping: after the (still replicated) remesh each rank keeps only its owned leaves + halo, rebuilds a partial local mesh and engine; the global mesh is dropped until the next remesh (which gathers as now) | `CellMesh` partial mode, `CellFluxEngine`, `CellParallel`, `Simulation` | large |
+| 2 | Local storage for time stepping: after the (still replicated) remesh each rank keeps only its owned leaves + halo (**done by extraction**: the whole-mesh tables are re-indexed to the held leaves, section 10; the direct build of a partial mesh and engine, with the by-key shadow comparison of section 5, moves to phase 4, which needs it); the global mesh is dropped until the next remesh (which gathers as now) | `CellMesh` partial mode, `CellFluxEngine`, `CellParallel`, `Simulation` | large |
 | 3 | Distributed indicator and flags (ripple rounds, merge test), checked against the replicated flags in the tests | `CellRemesh`, `CellParallel` | large |
 | 4 | Distributed adapt, re-partition, migration, halo by region: the global mesh is gone | `CellMesh`, `CellParallel`, `Simulation` | large |
 | 5 | Local IBM mask, body band, ghost table, `fill_cells`, hot start; I/O per decision D1 | `CellFlux`, `CellRemesh`, `Physics`, `Simulation`, `IO` | medium |
@@ -380,3 +380,18 @@ Commits: 2a registers / `Fv_` saving, 2b the monitor without a gather (D2), 2c l
   now rebuilds the whole mesh and does a full engine build on every rank (the incremental rebuild of PR #4 needs the tables that
   `localize` frees), so the "gather" and "build" columns grow. This is the expected price of phase 2 and goes with phases 3-4 (the
   remesh on owned data) and 6 (the incremental local rebuild); `FENICE_REPLICATED_REMESH=1` is the fast path until then.
+
+**Not done in phase 2, and why.** The plan said each rank *builds* a partial mesh and engine; phase 2 *extracts* them from the whole-mesh
+build instead (`keep_partial`, `localize`): nothing is recomputed, so the bits hold by construction and the plumbing (`Simulation`,
+`CellAdvance`, `CellParallel`) could be debugged against an independent oracle. The direct build (lookups with three outcomes: leaf /
+subdivided / not held, an engine build that tolerates `Outside`) is what phase 4 needs once the whole mesh is gone; the by-key shadow
+comparison of section 5 (its tables against these extracted ones) belongs there, and is cheap to add then because the extraction is the
+reference. What phase 2 checks instead: bitwise states on 1-16 emulated ranks and 1-7 real ranks (every physics, remesh included),
+the validation in `CellFluxEngine::localize` (throws, with a negative test), and a resume on 4 ranks equal to a straight run
+(30 steps = 15 + checkpoint + 15, `dump_state` bit for bit).
+
+**Open for the user.** (1) `localize` is the default; `FENICE_REPLICATED_REMESH=1` is the fast path (every remesh is 2-3x cheaper on
+4-16 ranks) until phases 3-4 and 6; making it opt-in until then is a one-line change in `Simulation::setup`. (2) After a remesh the
+wave-speed bound is taken from the freshly forced state on every path (`force_state` + `wave_speed`); the serial code before used the forced
+state of the old indexing, which the maximum did not depend on in any oracle (golden, regression, MPI). Bit-identical on all of them, but it
+is a change of the serial path.
