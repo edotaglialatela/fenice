@@ -121,7 +121,12 @@ public:
     // (neighbour() says Outside). The state U goes with the leaves. Frees the incremental bookkeeping.
     void keep_partial(const std::vector<char>& keep_leaf, const std::vector<char>& keep_face, std::vector<int>& leaf_map,
                       std::vector<int>& face_map);
-    // True after keep_partial (until the leaves are assigned again).
+    // The same kind of partial mesh built directly from the whole mesh `whole` (same geometry) and the leaves to keep, without
+    // a face list of the whole mesh: the kept leaves in their order, the faces they make (a leaf that is not kept is kOutside
+    // at the other end of a face), a side whose faces are not all there empty. The state of a leaf comes from whole_state (one
+    // entry per leaf of `whole`) if given.
+    void build_from(const CellMesh& whole, const std::vector<char>& keep_leaf, const Field* whole_state = nullptr);
+    // True after keep_partial / build_from (until the leaves are assigned again).
     bool partial = false;
 
     // --- last change of the leaves (lets dependent tables be updated instead of rebuilt) ---

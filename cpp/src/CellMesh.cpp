@@ -379,6 +379,113 @@ void CellMesh::assign_leaves(const std::vector<int>& lv, const std::vector<int>&
     rebuild();
 }
 
+void CellMesh::build_from(const CellMesh& whole, const std::vector<char>& keep_leaf, const Field* whole_state) {
+    const int NW = whole.num_leaves();
+    if (static_cast<int>(keep_leaf.size()) != NW)
+        throw std::invalid_argument("CellMesh::build_from: one flag per leaf of the whole mesh");
+    if (whole_state && static_cast<int>(whole_state->size()) != NW)
+        throw std::invalid_argument("CellMesh::build_from: one state per leaf of the whole mesh");
+    std::vector<int> to_local(static_cast<size_t>(NW), -1), from_whole;
+    for (int c = 0; c < NW; ++c)
+        if (keep_leaf[static_cast<size_t>(c)]) {
+            to_local[static_cast<size_t>(c)] = static_cast<int>(from_whole.size());
+            from_whole.push_back(c);
+        }
+    const int N = static_cast<int>(from_whole.size());
+    level.resize(static_cast<size_t>(N));
+    ci.resize(static_cast<size_t>(N));
+    cj.resize(static_cast<size_t>(N));
+    if (whole_state) U.resize(static_cast<size_t>(N));
+    else U.clear();
+    for (int k = 0; k < N; ++k) {
+        const size_t c = static_cast<size_t>(from_whole[static_cast<size_t>(k)]);
+        level[static_cast<size_t>(k)] = whole.level[c];
+        ci[static_cast<size_t>(k)] = whole.ci[c];
+        cj[static_cast<size_t>(k)] = whole.cj[c];
+        if (whole_state) U[static_cast<size_t>(k)] = (*whole_state)[c];
+    }
+    for (std::vector<int>* a : {&prev_leaf, &prev_face, &face_off_}) std::vector<int>().swap(*a);
+    std::vector<char>().swap(topo_dirty);
+    std::vector<CellFace>().swap(face_spare_);
+    ++version;
+    partial = true;
+    build_lookups();
+    // The faces the kept leaves make (make_face of rebuild(), the neighbours looked up in the whole mesh), in the order of the
+    // leaves; the other end is kOutside if that leaf is not kept. expected[4 k + s]: the faces side s has in the whole mesh (two
+    // towards two finer leaves, which make them), so a side is listed only if all of them are there.
+    std::vector<CellFace> fs;
+    std::vector<char> expected(static_cast<size_t>(4) * N, 1);
+    const auto local = [&](int whole_leaf) {
+        return to_local[static_cast<size_t>(whole_leaf)] >= 0 ? to_local[static_cast<size_t>(whole_leaf)] : kOutside;
+    };
+    for (int k = 0; k < N; ++k) {
+        const int l = level[static_cast<size_t>(k)];
+        for (int s = 0; s < 4; ++s) {
+            const int axis = s / 2, dir = (s & 1) ? 1 : -1;
+            int ni = ci[static_cast<size_t>(k)] + (axis == 0 ? dir : 0), nj = cj[static_cast<size_t>(k)] + (axis == 1 ? dir : 0);
+            CellFace f;
+            f.level = l;
+            f.axis = static_cast<uint8_t>(axis);
+            f.tpos = axis == 0 ? cj[static_cast<size_t>(k)] : ci[static_cast<size_t>(k)];
+            f.length = axis == 0 ? dy(l) : dx(l);
+            if (!wrap(l, ni, nj)) {
+                f.kind = CellFaceKind::Boundary;
+                f.side = static_cast<Face>(s);
+                f.left = dir > 0 ? k : -1;
+                f.right = dir > 0 ? -1 : k;
+                fs.push_back(f);
+                continue;
+            }
+            const int same = whole.find(l, ni, nj);
+            if (same >= 0) {
+                if (dir > 0) {
+                    f.left = k;
+                    f.right = local(same);
+                    fs.push_back(f);
+                }
+                continue;   // (towards the lower leaf: it makes the face)
+            }
+            const int coarse = l > 0 ? whole.find(l - 1, ni >> 1, nj >> 1) : -1;
+            if (coarse < 0) {
+                expected[static_cast<size_t>(4) * k + s] = 2;
+                continue;
+            }
+            f.kind = CellFaceKind::CoarseFine;
+            f.left = dir > 0 ? k : local(coarse);
+            f.right = dir > 0 ? local(coarse) : k;
+            fs.push_back(f);
+        }
+    }
+    faces.swap(fs);
+    face_level_begin.resize(static_cast<size_t>(max_level) + 2);
+    for (int l = 0; l <= max_level + 1; ++l)
+        face_level_begin[static_cast<size_t>(l)] = static_cast<int>(
+            std::partition_point(faces.begin(), faces.end(), [l](const CellFace& f) { return f.level < l; }) - faces.begin());
+    // gather lists: the faces on each side of a kept leaf; a side without all its faces stays empty (Outside)
+    const int NF = static_cast<int>(faces.size());
+    std::vector<int> count(static_cast<size_t>(4) * N, 0);
+    const auto side_of_left = [](const CellFace& f) { return f.axis == 0 ? 1 : 3; };    // Right / Top of `left`
+    const auto side_of_right = [](const CellFace& f) { return f.axis == 0 ? 0 : 2; };   // Left / Bottom of `right`
+    for (const CellFace& f : faces) {
+        if (f.left >= 0) ++count[static_cast<size_t>(4) * f.left + side_of_left(f)];
+        if (f.right >= 0) ++count[static_cast<size_t>(4) * f.right + side_of_right(f)];
+    }
+    side_ptr.assign(static_cast<size_t>(4) * N + 1, 0);
+    for (int q = 0; q < 4 * N; ++q)
+        side_ptr[static_cast<size_t>(q) + 1] = side_ptr[static_cast<size_t>(q)] + (count[static_cast<size_t>(q)] == expected[static_cast<size_t>(q)] ? count[static_cast<size_t>(q)] : 0);
+    side_face.assign(static_cast<size_t>(side_ptr.back()), -1);
+    const auto place = [&](int q, int fi, const CellFace& f) {
+        if (count[static_cast<size_t>(q)] != expected[static_cast<size_t>(q)]) return;
+        const int b = side_ptr[static_cast<size_t>(q)];
+        side_face[static_cast<size_t>(count[static_cast<size_t>(q)] == 2 ? b + (f.tpos & 1) : b)] = fi;
+    };
+    for (int fi = 0; fi < NF; ++fi) {
+        const CellFace& f = faces[static_cast<size_t>(fi)];
+        if (f.left >= 0) place(4 * f.left + side_of_left(f), fi, f);
+        if (f.right >= 0) place(4 * f.right + side_of_right(f), fi, f);
+    }
+}
+
 void CellMesh::keep_partial(const std::vector<char>& keep_leaf, const std::vector<char>& keep_face, std::vector<int>& leaf_map,
                             std::vector<int>& face_map) {
     const int N = num_leaves(), NF = static_cast<int>(faces.size());

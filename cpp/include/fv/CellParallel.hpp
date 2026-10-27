@@ -49,7 +49,9 @@ public:
     // Owners, the engine's partition, and the send / receive lists: call after every CellFluxEngine::build (that is, after
     // every adapt) and once at the start; the state of every leaf must be valid on every rank at that point. Collective (two
     // exchanges: the request counts, then the requests).
-    void partition();
+    // With `whole` (the remesh of a localized run) the mesh is a partial one made by CellMesh::build_from and `whole` supplies the
+    // whole mesh's splitters and levels.
+    void partition(const CellMesh* whole = nullptr);
 
     // Keep only what this rank holds (call right after partition()): the mesh becomes a partial mesh of the held leaves (owned and
     // halo) and the faces it needs, the engine's tables and the lists of this object are re-indexed to it, and everything else is
@@ -140,6 +142,11 @@ private:
         std::vector<std::vector<int>> send, recv;
     };
     void push_leaves(const Lists& lists);
+    // partition() in two halves: the first communicates nothing and, with `whole`, returns false if the partial mesh does not
+    // cover what this rank's faces read (the caller then makes a larger one on every rank before going on); the second is the
+    // exchange of the requests and the lists that need the other ranks.
+    bool partition_local(const CellMesh* whole);
+    void partition_exchange();
     // The states of the leaves `want` ((level, i, j), each owned by some rank under the current partition): from this rank's leaves
     // if it holds them, else from their owners (collective).
     void fetch_states(const std::vector<std::array<int, 3>>& want, std::vector<State>& out) const;
@@ -157,6 +164,8 @@ private:
     std::vector<int> owner_;
     std::vector<char> held_;
     std::vector<std::vector<int>> ob_, oe_;   // [rank][level]
+    std::vector<std::vector<double>> req_;    // between the two halves of partition(): the requests to each owner
+    std::vector<char> stage_mask_;            // ... the leaves read in a stage of their own level
     std::vector<Lists> stage_, final_, reg_;  // per level
     Lists solid_;
 };

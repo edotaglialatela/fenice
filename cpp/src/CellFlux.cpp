@@ -15,13 +15,23 @@ namespace fv {
 
 namespace {
 
-// Code of the block (l, i, j): a leaf, or a node whose children are the four sub-blocks (appended to vnode)
+// A virtual cell whose block is not all there (a partial mesh): not a code of a leaf or a node, and not kOutside (-2 is the node 1)
+constexpr int kIncomplete = std::numeric_limits<int>::min();
+
+// Code of the block (l, i, j): a leaf, or a node whose children are the four sub-blocks (appended to vnode); kIncomplete if a part
+// of the block is not in the mesh (a partial mesh)
 int block_code(const CellMesh& m, std::vector<std::array<int, 4>>& vnode, int l, int i, int j) {
+    if (l > m.max_level) return kIncomplete;
     const int leaf = m.find(l, i, j);
     if (leaf >= 0) return leaf;
     std::array<int, 4> ch{};
+    bool whole = true;
     for (int oj = 0; oj < 2; ++oj)
-        for (int oi = 0; oi < 2; ++oi) ch[2 * oj + oi] = block_code(m, vnode, l + 1, 2 * i + oi, 2 * j + oj);
+        for (int oi = 0; oi < 2; ++oi) {
+            ch[2 * oj + oi] = block_code(m, vnode, l + 1, 2 * i + oi, 2 * j + oj);
+            whole = whole && ch[2 * oj + oi] != kIncomplete;
+        }
+    if (!whole) return kIncomplete;
     vnode.push_back(ch);
     return -static_cast<int>(vnode.size());   // node k <-> code -1 - k
 }
@@ -63,7 +73,7 @@ void CellFluxEngine::size_work_arrays(const CellMesh& m) {
     for (std::vector<double>* a : {&su_, &sv_, &sT_, &dudx_, &dudy_, &dvdx_, &dvdy_}) a->resize(static_cast<size_t>(nleaf_));
 }
 
-void CellFluxEngine::build(const CellMesh& m) {
+void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
     const auto per = [&](Face lo, Face hi) {
         const bool a = bc_.type(lo) == BCType::Periodic, b = bc_.type(hi) == BCType::Periodic;
         if (a != b) throw std::invalid_argument("CellFluxEngine: both sides of a periodic axis must be periodic");
@@ -215,8 +225,12 @@ void CellFluxEngine::build(const CellMesh& m) {
         }
         forced_.resize(static_cast<size_t>(nleaf_));
     }
-    rebuild_lists(m, nullptr);
-    map_ghost_cells(m);
+    if (whole) {   // a partial mesh: the lists come with the partition
+        for (auto* v : {&lface_, &lheld_, &need_, &vcells_}) v->clear();
+    } else {
+        rebuild_lists(m, nullptr);
+    }
+    map_ghost_cells(m, whole);
 
     // steady sources at the leaf centres (a leaf kept by the adapt keeps its value)
     if (inc && phys_.source && !phys_.source_unsteady && src_.size() == static_cast<size_t>(old_n)) {
@@ -307,6 +321,7 @@ void CellFluxEngine::make_virtual_cells(const CellMesh& m) {
 int CellFluxEngine::beyond(const CellMesh& m, int c, Face side, bool interpolate) const {
     const CellNeighbour nb = m.neighbour(c, side);
     switch (nb.kind) {
+    case CellNeighbour::Kind::Outside: return kOutside;   // a partial mesh: not known here
     case CellNeighbour::Kind::Boundary: return c;   // edge replication
     case CellNeighbour::Kind::Same: return nb.a;
     case CellNeighbour::Kind::Coarser: {
@@ -341,6 +356,10 @@ void CellFluxEngine::face_stencil(const CellMesh& m, int f) {
     const CellFace& face = m.faces[static_cast<size_t>(f)];
     if (face.kind == CellFaceKind::Boundary) {
         stencil_[static_cast<size_t>(f)] = {-1, -1, -1, -1};
+        return;
+    }
+    if (face.left == kOutside || face.right == kOutside) {   // a partial mesh: a face at the edge of what the rank keeps
+        stencil_[static_cast<size_t>(f)] = {kOutside, kOutside, kOutside, kOutside};
         return;
     }
     const bool ip = muscl_ && interpolate_jumps;
@@ -527,6 +546,7 @@ void CellFluxEngine::mass_flow_faces(std::vector<char>& mask) const {
 namespace {
 // Is every leaf under `code` (a leaf, or a node of vnode) kept?
 bool tree_kept(const std::vector<std::array<int, 4>>& vnode, const std::vector<int>& leaf_map, int code) {
+    if (code == kIncomplete) return false;
     if (code >= 0) return leaf_map[static_cast<size_t>(code)] >= 0;
     for (const int ch : vnode[static_cast<size_t>(-1 - code)])
         if (!tree_kept(vnode, leaf_map, ch)) return false;
@@ -563,6 +583,7 @@ void CellFluxEngine::localize(const CellMesh& m, const std::vector<int>& leaf_ma
         }
     const int new_nmean = static_cast<int>(new_vroot.size());
     const auto kept_code = [&](int code) {   // an old code of a leaf or a mean-type virtual cell
+        if (code == kOutside) return false;
         if (code < 0) return true;
         return code < old_n ? leaf_map[static_cast<size_t>(code)] >= 0 : vcode[static_cast<size_t>(code - old_n)] != kOutside;
     };
@@ -654,6 +675,7 @@ void CellFluxEngine::localize(const CellMesh& m, const std::vector<int>& leaf_ma
     if (has_src) src_.swap(nsrc);
     else Field().swap(src_);
     ghost_leaf_mask_.swap(nghost);
+    std::vector<char>().swap(ghost_incomplete_);
     vroot_.swap(new_vroot);
     vnode_.swap(new_vnode);
     vkey_.swap(new_vkey);
@@ -700,6 +722,7 @@ void CellFluxEngine::clear_partition(const CellMesh& m) { rebuild_lists(m, nullp
 
 template <class Mark>
 void CellFluxEngine::mark_tree(int code, const Mark& mark) const {
+    if (code == kIncomplete) throw std::logic_error("CellFluxEngine: a face reads a virtual cell that is not whole in this rank's partial mesh");
     if (code >= 0) {
         mark(code);
         return;
@@ -822,10 +845,11 @@ void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
     if (ghost_ready_ && l == m.max_level) fill_ghost_leaves(U, forced_, held_mask_.empty() ? nullptr : &held_mask_);
 }
 
-void CellFluxEngine::map_ghost_cells(const CellMesh& m) {
+void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
     ghost_ready_ = false;
     fine_leaf_.clear();
     ghost_reads_leaf_.clear();
+    ghost_incomplete_.clear();
     ghost_leaf_mask_.assign(static_cast<size_t>(nleaf_), 0);
     if (!has_body() || !phys_.ibm_ghost) return;
     const int M = m.max_level, NX = m.nx_at(M);
@@ -834,13 +858,26 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m) {
         ghost_ib_ = std::make_shared<ImmersedBoundary>(phys_.ibm_factory(fine));
         ghost_ib_->enable_ghost_cells(fine, phys_.ibm_slip);
     }
+    // whether the wall is active is a fact of the whole mesh; a rank keeps the cells whose leaf it has
+    const CellMesh& all = whole ? *whole : m;
     for (const int fc : ghost_ib_->referenced_cells()) {
-        const int leaf = m.find(M, fc % NX, fc / NX);
-        if (leaf < 0) return;   // not (yet) a finest-level leaf: the mask forcing stays
-        fine_leaf_[fc] = leaf;
+        if (all.find(M, fc % NX, fc / NX) < 0) return;   // not (yet) a finest-level leaf: the mask forcing stays
+        const int leaf = whole ? m.find(M, fc % NX, fc / NX) : all.find(M, fc % NX, fc / NX);
+        if (leaf >= 0) fine_leaf_[fc] = leaf;
     }
-    for (const int g : ghost_ib_->ghost_cell_list()) ghost_leaf_mask_[static_cast<size_t>(fine_leaf_.at(g))] = 1;
-    for (const auto& pr : ghost_ib_->ghost_reads()) ghost_reads_leaf_.push_back({fine_leaf_.at(pr.first), fine_leaf_.at(pr.second)});
+    for (const int g : ghost_ib_->ghost_cell_list()) {
+        const auto it = fine_leaf_.find(g);
+        if (it != fine_leaf_.end()) ghost_leaf_mask_[static_cast<size_t>(it->second)] = 1;
+    }
+    for (const auto& pr : ghost_ib_->ghost_reads()) {
+        const auto a = fine_leaf_.find(pr.first), b = fine_leaf_.find(pr.second);
+        if (a != fine_leaf_.end() && b != fine_leaf_.end()) {
+            ghost_reads_leaf_.push_back({a->second, b->second});
+        } else if (a != fine_leaf_.end()) {
+            ghost_incomplete_.resize(static_cast<size_t>(nleaf_), 0);
+            ghost_incomplete_[static_cast<size_t>(a->second)] = 1;
+        }
+    }
     ghost_ready_ = true;
 }
 

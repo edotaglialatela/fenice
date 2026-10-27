@@ -78,7 +78,13 @@ public:
     // Throws if the periodic flags of the mesh and the boundary types disagree. Right after an adapt of the mesh this engine was
     // last built for, only the tables of the leaves and faces the adapt touched (CellMesh::topo_dirty) are computed, the rest is
     // copied with the indices renumbered; the tables are the same as those of a full build (FENICE_FULL_REBUILD=1 forces one).
-    void build(const CellMesh& mesh);
+    //
+    // A rank's partial mesh (CellMesh::build_from, `whole` = the whole mesh): the tables are computed for the leaves and faces it
+    // has; a code that leads to a leaf it does not have is kOutside, a virtual cell with a leaf missing is dropped, and the facts about
+    // the whole mesh (the ghost-cell wall) are taken from `whole`. The lists of a partition are not made (set_partition does).
+    void build(const CellMesh& mesh, const CellMesh* whole = nullptr);
+    // True if the side s (Face) has a mass-flow inlet.
+    bool mass_flow_side(int s) const { return bc_.type(static_cast<Face>(s)) == BCType::MassflowInlet; }
     // True if every table of the build (virtual cells, neighbour codes, stencils, per-level lists, solid mask, steady sources,
     // mass-flow faces) equals that of `other`, bit for bit (tests: an incremental build against a full one).
     bool same_tables(const CellFluxEngine& other) const;
@@ -118,6 +124,8 @@ public:
     const std::vector<char>& solid() const { return solid_; }
     // Ghost-cell wall active on this mesh (every ghost cell and the cells it reads are finest-level leaves).
     bool ghost_ready() const { return ghost_ready_; }
+    // Partial mesh: the ghost leaf has an image leaf that is not in the mesh (its fill would read a missing cell).
+    bool ghost_incomplete(int leaf) const { return !ghost_incomplete_.empty() && ghost_incomplete_[static_cast<size_t>(leaf)] != 0; }
     // (ghost leaf, leaf it reads) pairs: the reads of the ghost fill, for the MPI halo.
     const std::vector<std::pair<int, int>>& ghost_reads() const { return ghost_reads_leaf_; }
     // Ghost-cell wall: loads on the body's true surface from the state U of every leaf (ImmersedBoundary::surface_loads).
@@ -271,9 +279,9 @@ private:
     std::shared_ptr<ImmersedBoundary> ghost_ib_;
     std::unordered_map<int, int> fine_leaf_;
     std::vector<std::pair<int, int>> ghost_reads_leaf_;
-    std::vector<char> ghost_leaf_mask_, held_mask_;
+    std::vector<char> ghost_leaf_mask_, held_mask_, ghost_incomplete_;
     bool ghost_ready_ = false;
-    void map_ghost_cells(const CellMesh& m);
+    void map_ghost_cells(const CellMesh& m, const CellMesh* whole);
     void fill_ghost_leaves(const Field& U, Field& out, const std::vector<char>* only) const;
     std::vector<std::vector<char>> level_mask_;   // cache: mask of the uniform mesh of each level
     Field src_;                                    // source terms per leaf
