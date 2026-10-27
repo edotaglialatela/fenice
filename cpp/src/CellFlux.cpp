@@ -169,9 +169,21 @@ void CellFluxEngine::build(const CellMesh& m) {
 
     // Work arrays, sized only: every entry is written before it is read in a step (fluxes and cell quantities by the pass of
     // their level, registers by clear_registers before the subcycles), as for F_; zero-filling them took ~2 % of the loop.
-    reg_.resize(m.faces.size());
-    regv_.resize(m.faces.size());
-    Fv_.resize(m.faces.size());
+    // Registers only for the coarse-fine faces (slot per face, consecutive in face order, so each level's are one run); the
+    // viscous face fluxes only with viscous terms.
+    reg_slot_.assign(m.faces.size(), -1);
+    reg_level_begin_.assign(static_cast<size_t>(m.max_level) + 2, 0);
+    int nreg = 0;
+    for (int l = 0; l <= m.max_level; ++l) {
+        reg_level_begin_[static_cast<size_t>(l)] = nreg;
+        for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f)
+            if (m.faces[static_cast<size_t>(f)].kind == CellFaceKind::CoarseFine) reg_slot_[static_cast<size_t>(f)] = nreg++;
+    }
+    reg_level_begin_[static_cast<size_t>(m.max_level) + 1] = nreg;
+    reg_.resize(static_cast<size_t>(nreg));
+    regv_.resize(static_cast<size_t>(nreg));
+    if (phys_.ns) Fv_.resize(m.faces.size());
+    else Fv_ = Field();
     for (std::vector<double>* a : {&su_, &sv_, &sT_, &dudx_, &dudy_, &dvdx_, &dvdy_}) a->resize(static_cast<size_t>(nleaf_));
 
     // immersed body: mask of every leaf from the uniform mask of its level (a leaf kept by the adapt keeps its value)
@@ -1172,13 +1184,13 @@ void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Fie
                 const CellFace& f = m.faces[fi];
                 // a finer face on the side of this leaf: its coarse side uses the registered time average
                 const bool reg = replace && f.level > m.level[c];
-                const State& Fk = reg ? reg_[fi] : F_[fi];
+                const State& Fk = reg ? reg_[static_cast<size_t>(reg_slot_[static_cast<size_t>(fi)])] : F_[fi];
                 if (k == b)
                     for (int q = 0; q < kNVar; ++q) G[s][q] = Fk[q] * f.length;
                 else
                     for (int q = 0; q < kNVar; ++q) G[s][q] += Fk[q] * f.length;
                 if (visc) {
-                    const State& Vk = reg ? regv_[fi] : Fv_[fi];
+                    const State& Vk = reg ? regv_[static_cast<size_t>(reg_slot_[static_cast<size_t>(fi)])] : Fv_[fi];
                     if (k == b)
                         H[s] = Vk;
                     else
@@ -1252,9 +1264,9 @@ void CellFluxEngine::gather_level(const CellMesh& m, int l, bool replace, Field&
 }
 
 void CellFluxEngine::clear_registers(const CellMesh& m, int l) {
-    for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f) {
-        reg_[f] = State{};
-        regv_[f] = State{};
+    for (int s = reg_level_begin_[static_cast<size_t>(l)]; s < reg_level_begin_[static_cast<size_t>(l) + 1]; ++s) {
+        reg_[static_cast<size_t>(s)] = State{};
+        regv_[static_cast<size_t>(s)] = State{};
     }
 }
 
@@ -1265,11 +1277,13 @@ void CellFluxEngine::accumulate_registers(const CellMesh& m, int l, double w) {
 #pragma omp parallel for schedule(static) if (nlist >= kOmpMinWork)
     for (int fi = 0; fi < nlist; ++fi) {
         const int f = faces[static_cast<size_t>(fi)];
-        if (m.faces[f].kind == CellFaceKind::CoarseFine)
+        if (m.faces[f].kind == CellFaceKind::CoarseFine) {
+            const size_t s = static_cast<size_t>(reg_slot_[static_cast<size_t>(f)]);
             for (int q = 0; q < kNVar; ++q) {
-                reg_[f][q] += w * F_[f][q];
-                if (visc) regv_[f][q] += w * Fv_[f][q];
+                reg_[s][q] += w * F_[f][q];
+                if (visc) regv_[s][q] += w * Fv_[f][q];
             }
+        }
     }
 }
 

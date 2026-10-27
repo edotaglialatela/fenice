@@ -145,12 +145,12 @@ public:
     int owned_end(int l) const { return lown_e_[static_cast<size_t>(l)]; }
     // The time-averaged registers (convective per unit length, viscous times length) of a coarse-fine face.
     void get_register(int face, State& conv, State& visc) const {
-        conv = reg_[static_cast<size_t>(face)];
-        visc = regv_[static_cast<size_t>(face)];
+        conv = reg_[static_cast<size_t>(reg_slot_[static_cast<size_t>(face)])];
+        visc = regv_[static_cast<size_t>(reg_slot_[static_cast<size_t>(face)])];
     }
     void set_register(int face, const State& conv, const State& visc) {
-        reg_[static_cast<size_t>(face)] = conv;
-        regv_[static_cast<size_t>(face)] = visc;
+        reg_[static_cast<size_t>(reg_slot_[static_cast<size_t>(face)])] = conv;
+        regv_[static_cast<size_t>(reg_slot_[static_cast<size_t>(face)])] = visc;
     }
 
     // Time the unsteady sources are evaluated at (CellAdvance sets it from the scheme's stage time).
@@ -248,7 +248,9 @@ private:
     Field Vc_;                    // conservative state of the virtual cells
     // primitive state of leaves + virtual cells; face fluxes (convective per unit length, viscous times length);
     // coarse-fine time-averaged fluxes (convective, viscous)
-    Field W_, F_, Fv_, reg_, regv_;
+    Field W_, F_, Fv_, reg_, regv_;   // Fv_ only with viscous terms; reg_ / regv_ one entry per coarse-fine face (reg_slot_)
+    std::vector<int> reg_slot_;          // per face: its register entry (-1 unless coarse-fine)
+    std::vector<int> reg_level_begin_;   // register entries of the coarse-fine faces of level l: [l], [l + 1]
     std::vector<std::vector<int>> need_;     // per level: the entries of W_ read by the stencils of its interior faces
     std::vector<std::vector<int>> vcells_;   // per level: its leaves and the coarse cells of its coarse-fine faces
     // viscous cell quantities: u, v, T, du/dx, du/dy, dv/dx, dv/dy
