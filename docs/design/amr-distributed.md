@@ -1,6 +1,6 @@
 # AMR with distributed storage and a local remesh (plan)
 
-Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9), 2 (section 10) and 3 (section 11, with the topology of the whole mesh kept on every rank) done, phase 4 next.** Branch `amr-distributed`, from `main`
+Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9), 2 (section 10) 3 (section 11) and 4 (section 12; the topology of the whole mesh is kept on every rank, without faces) done.** Branch `amr-distributed`, from `main`
 at 883c45d (both PRs #4 / #5 merged). This is option 2 of `docs/design/amr-optimisation.md`, as a step towards 3-D octree AMR.
 Every number below that was not measured is marked *(estimate)*.
 
@@ -441,3 +441,22 @@ is a change of the serial path.
   `CellFluxEngine::build` tolerate `Outside` on the part of the mesh nobody reads, and take the exact halo from `partition()` on that
   mesh. Then `topo` can shrink to the keys (or go), the ripple and merge test use the halo flags (section 3.4), and the memory and the
   remesh time fall with the rank count.
+
+## 12. Phase 4: the share built directly (done)
+
+* `CellParallel::region_mask`: from the owned leaves of the new topology, the leaves within a ring count per level difference (4 rings for a
+  coarser owner, 6 same level, 8 / 9 / 11 for finer ones, more with a body, and the leaves along a mass-flow inlet) plus `extra` rings.
+  `CellMesh::build_from` makes the partial mesh (leaves, faces made by the kept leaves with `kOutside` at the far end, a side without all
+  its faces empty) from the whole topology; `CellFluxEngine::build(mesh, &whole)` tolerates `Outside` (incomplete virtual cells are
+  dropped, `ghost_ready_` is a fact of the whole mesh); `partition_local(&whole)` returns false, before anything is communicated, if a face
+  an owned leaf computes reads what the rank does not keep. All ranks then retry with `extra += 2` (an allreduce), up to 15.
+* The topology `topo` is faceless (`CellMesh::set_faceless`): `adapt` does no face work and `topo` holds only leaves and lookups.
+* Test: with `CellParallel::shadow` every remesh of `cellparallel_distributed_remesh_equals_serial_bitwise` also builds the share the old
+  way (whole mesh and engine, then `localize`) and throws unless mesh, engine tables (`same_tables`, now including the ghost maps and the
+  masks; `special_` of leaves with an unknown side is not compared) and lists are the same. Specs added: ghost-cell body, mass-flow inlet,
+  unsteady source.
+* Airfoil 720x360, 50 steps (wall / remesh [s], RSS at end [MB]): 2 ranks 4.09 / 1.80 / 184, 4 ranks 2.57 / 1.20 / 139, 8 ranks
+  2.33 / 1.19 / 116, 16 ranks 2.86 / 1.57 / 105 (phase 3: 3.99, 2.93, 3.38, 5.32 s for 2, 4, 8, 16 ranks). The peak (342 MB) is unchanged:
+  the state is still gathered once at a checkpoint and the setup builds the whole mesh.
+* Left: the topology adapt (0.65 s at 16 ranks) and the engine build on the share are still O(share) plus O(N) lookups on every rank; the
+  topology could shrink to keys, and the state of the initial mesh is still distributed from a whole mesh.
