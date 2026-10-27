@@ -1,9 +1,9 @@
-#include <cstdio>
 #include "fv/CellParallel.hpp"
 
 #include <algorithm>
 #include <array>
 #include <chrono>
+#include <cstdio>
 #include <limits>
 #include <stdexcept>
 
@@ -412,7 +412,7 @@ void CellParallel::region_mask(const CellMesh& topo, const std::vector<int>& own
         if (seeds[static_cast<size_t>(o)].empty()) continue;
         for (int t = 0; t <= M; ++t) {
             if (topo.level_begin[t + 1] == topo.level_begin[t]) continue;
-            int r = rings(o - t) + extra;
+            int r = std::max(0, rings(o - t) + extra);
             if (body && t == o && o == M) r = std::max(r, 8 + extra);   // the images of the ghost cells (7 rings)
             const CellBox b = dilate_cells(seeds[static_cast<size_t>(o)], topo.nx_at(o), topo.ny_at(o), r, topo.periodic_x, topo.periodic_y);
             for (int j = 0; j < b.h; ++j)
@@ -623,7 +623,7 @@ bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     if (direct_build) {
         // the leaves within the reach of the owned ones: a partial mesh, its engine tables, the partition; a rank whose share does
         // not cover what its faces read (before anything is sent) makes every rank try again with a wider reach
-        for (int extra = 1;; extra += 2) {
+        for (int extra = first_extra;; extra += 2) {
             bool ok = true;
             std::vector<char> keep;
             region_mask(topo, mine_new, extra, keep);
@@ -635,6 +635,7 @@ bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
                 ok = false;
             }
             if (reduce_max(ok ? 0.0 : 1.0) == 0.0) break;
+            ++region_retries;
             if (extra > 15) throw std::logic_error("CellParallel::remesh: no reach of the leaves covers what the faces read");
         }
         t4 = Clock::now();
@@ -644,11 +645,9 @@ bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
             // the same share made the old way must be this one
             for (int l = 0; l <= M; ++l) shadow_par->exchange_final(l);
             const bool sm = mesh_.same_arrays(*shadow_mesh), se = engine_.same_tables(*shadow_engine, &mesh_), sl = same_lists(*shadow_par);
-            if (!sm || !se || !sl) {
-                std::fprintf(stderr, "shadow rank %d: mesh %d engine %d lists %d\n", comm_.rank, sm, se, sl);
-                std::fflush(stderr);
-            }
-            if (!sm || !se || !sl)
+            if (!sm || !se || !sl) std::fprintf(stderr, "shadow rank %d: mesh %d engine %d lists %d\n", comm_.rank, sm, se, sl);
+            // every rank throws together (a rank that threw alone would leave the others waiting in a collective)
+            if (reduce_max(sm && se && sl ? 0.0 : 1.0) != 0.0)
                 throw std::logic_error("CellParallel::remesh: the directly built share differs from the extracted one");
         }
     } else {

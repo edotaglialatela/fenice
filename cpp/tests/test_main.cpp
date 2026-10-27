@@ -3938,6 +3938,7 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
             if (ranks > 0) {
                 par = std::make_unique<CellParallel>(m, eng, hub.comm(rank));
                 par->poison = true;
+                par->first_extra = dist_remesh ? -5 : 1;   // the first reach is too small: the retry runs at every remesh
                 par->shadow = dist_remesh;   // the directly built share against the extracted one, at every remesh
             }
             CellAdvance adv(m, eng, *ts);
@@ -3991,6 +3992,7 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
                     par->gather_state();
                 }
             }
+            if (par && dist_remesh && Nranks > 1) CHECK(par->region_retries > 0);
             result[static_cast<size_t>(rank)] = m.U;
         } catch (const std::exception& e) {
             error[static_cast<size_t>(rank)] = e.what();

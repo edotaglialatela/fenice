@@ -73,7 +73,9 @@ public:
     bool remesh(CellMesh& topo, CellAdaptor& ad);
     // Test switches of remesh(): `direct_build` false makes the mesh and the engine for the whole mesh and extracts the share
     // (the way of phase 2); `shadow` also does that and throws if the direct build gave anything else (mesh, tables, lists).
+    // `first_extra`: rings added to the first reach tried (a negative one makes the retry run); `region_retries` counts the retries.
     bool direct_build = true, shadow = false;
+    int first_extra = 1, region_retries = 0;
     // True if the lists and the ownership of the two objects are the same (the shadow check).
     bool same_lists(const CellParallel& other) const;
     // Accumulated wall time [s] of remesh(): region + fetch + indicator, flags + adapt of topo, state migration, engine build,

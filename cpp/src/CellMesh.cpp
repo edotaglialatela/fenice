@@ -102,6 +102,7 @@ bool CellMesh::wrap(int l, int& i, int& j) const {
 }
 
 CellNeighbour CellMesh::neighbour(int leaf, Face side) const {
+    if (faceless_) throw std::logic_error("CellMesh::neighbour: a faceless mesh has no face lists");
     const int s = static_cast<int>(side);
     const int b = side_ptr[4 * leaf + s], e = side_ptr[4 * leaf + s + 1];
     CellNeighbour n;

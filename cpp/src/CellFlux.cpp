@@ -2,6 +2,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
+#include <cstdlib>
 #include <cstring>
 #include <limits>
 #include <map>
@@ -289,6 +291,7 @@ bool CellFluxEngine::same_special(const CellFluxEngine& o, const CellMesh* edge_
     for (size_t c = 0; c < special_.size(); ++c) {
         if (special_[c] == o.special_[c]) continue;
         if (!edge_mesh) return false;
+        // a leaf with a side the partial mesh does not know has no flag worth comparing: no active face reads it (nbr_ and stencil_ are compared)
         bool edge = false;
         for (int s = 0; s < 4; ++s)
             edge = edge || edge_mesh->neighbour(static_cast<int>(c), static_cast<Face>(s)).kind == CellNeighbour::Kind::Outside;
