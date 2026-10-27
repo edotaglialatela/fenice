@@ -3810,6 +3810,14 @@ public:
             barrier();
             return g;
         };
+        c.allreduce_sum = [this, rank](double v) {
+            dslot_[static_cast<size_t>(rank)] = v;
+            barrier();
+            double g = dslot_[0];
+            for (int r = 1; r < n_; ++r) g += dslot_[static_cast<size_t>(r)];
+            barrier();
+            return g;
+        };
         c.exchange = [this, rank](const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) {
             for (int r = 0; r < n_; ++r) mail_[static_cast<size_t>(rank)][static_cast<size_t>(r)] = send[static_cast<size_t>(r)];
             barrier();

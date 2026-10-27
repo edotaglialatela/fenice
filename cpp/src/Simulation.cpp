@@ -430,6 +430,11 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                 MPI_Allreduce(&v, &g, 1, MPI_DOUBLE, MPI_MAX, MPI_COMM_WORLD);
                 return g;
             };
+            cell_comm.allreduce_sum = [](double v) {
+                double g = v;
+                MPI_Allreduce(&v, &g, 1, MPI_DOUBLE, MPI_SUM, MPI_COMM_WORLD);
+                return g;
+            };
             cell_comm.exchange = [](const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) {
                 std::vector<MPI_Request> req;
                 req.reserve(send.size() + recv.size());
@@ -542,18 +547,19 @@ void Simulation::fill_cells(CellMesh& m) const {
 std::array<double, 3> Simulation::cell_loads(const CellMesh& m, const Field& R) const {
     const std::vector<char>& solid = cell_engine->solid();
     double fx = 0.0, fy = 0.0, mz = 0.0;
-    for (int c = 0; c < m.num_leaves(); ++c) {
-        if (!solid[static_cast<size_t>(c)]) continue;
-        double rx = R[static_cast<size_t>(c)][1], ry = R[static_cast<size_t>(c)][2];
-        if (body_force) {
-            rx -= m.U[static_cast<size_t>(c)][0] * body_force->gx;
-            ry -= m.U[static_cast<size_t>(c)][0] * body_force->gy;
-        }   // not a load
-        const double ex = rx * m.area(c), ey = ry * m.area(c);
-        fx += ex;
-        fy += ey;
-        mz += (m.xc(c) - p.ibm_cx) * ey - (m.yc(c) - p.ibm_cy) * ex;
-    }
+    for (int l = 0; l <= m.max_level; ++l)   // the leaves this rank owns, in leaf order (all of them without a partition)
+        for (int c = cell_engine->owned_begin(l); c < cell_engine->owned_end(l); ++c) {
+            if (!solid[static_cast<size_t>(c)]) continue;
+            double rx = R[static_cast<size_t>(c)][1], ry = R[static_cast<size_t>(c)][2];
+            if (body_force) {
+                rx -= m.U[static_cast<size_t>(c)][0] * body_force->gx;
+                ry -= m.U[static_cast<size_t>(c)][0] * body_force->gy;
+            }   // not a load
+            const double ex = rx * m.area(c), ey = ry * m.area(c);
+            fx += ex;
+            fy += ey;
+            mz += (m.xc(c) - p.ibm_cx) * ey - (m.yc(c) - p.ibm_cy) * ex;
+        }
     return {fx, fy, mz};
 }
 
@@ -1208,28 +1214,53 @@ void Simulation::solve_amr() {
         });
     };
 
-    // Monitor: area-weighted means over the leaves and the IBM loads, summed in leaf order on the gathered state, so the
-    // numbers do not depend on the number of ranks
+    // Monitor: area-weighted means over the leaves and the IBM loads. Every rank sums its owned leaves in leaf order and the
+    // partial sums are added over the ranks (collective): one rank gives the serial bits, several agree with it to roundoff.
     std::FILE* mon = root ? open_monitor() : nullptr;
     const bool monitoring = p.monitor_interval > 0;
     const auto row = [&](int st) {
-        gather();
-        double s0 = 0.0, s1 = 0.0, s2 = 0.0, area = 0.0;
-        for (int c = 0; c < cm.num_leaves(); ++c) {
-            const State& u = cm.U[static_cast<size_t>(c)];
-            const double a = cm.area(c);
-            s0 += u[0] * a;
-            s1 += 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4]) / u[0] * a;
-            s2 += u[3] * a;
-            area += a;
-        }
+        double sums[4] = {0.0, 0.0, 0.0, 0.0};   // mass, kinetic energy, total energy, area
+        for (int l = 0; l <= cm.max_level; ++l)
+            for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c) {
+                const State& u = cm.U[static_cast<size_t>(c)];
+                const double a = cm.area(c);
+                sums[0] += u[0] * a;
+                sums[1] += 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4]) / u[0] * a;
+                sums[2] += u[3] * a;
+                sums[3] += a;
+            }
         std::array<double, 3> loads{};
         if (p.use_ibm) {
             Field Rl;
-            eng.residual(cm, cm.U, Rl);
+            if (!cell_par) {
+                eng.residual(cm, cm.U, Rl);
+            } else {
+                // the partitioned engine: the fluxes of each level, the coarse-fine ones handed to the coarse owners through the
+                // registers (set to the flux itself, as a weight 1 gives), then R of the owned leaves
+                Field Rown(static_cast<size_t>(cm.num_leaves()));
+                eng.force_state(cm, cm.U);   // as the first pass of a step does
+                for (int l = 0; l <= cm.max_level; ++l) {
+                    if (cm.level_begin[l + 1] == cm.level_begin[l]) continue;
+                    eng.compute_level_fluxes(cm, cm.U, l);
+                    if (l == 0) continue;
+                    eng.clear_registers(cm, l);
+                    eng.accumulate_registers(cm, l, 1.0);
+                    cell_par->exchange_registers(l);
+                }
+                for (int l = 0; l <= cm.max_level; ++l) {
+                    if (cm.level_begin[l + 1] == cm.level_begin[l]) continue;
+                    eng.gather_level(cm, l, true, Rl);
+                    std::copy(Rl.begin(), Rl.end(), Rown.begin() + eng.owned_begin(l));
+                }
+                Rl.swap(Rown);
+            }
             loads = cell_loads(cm, Rl);
+            if (cell_par)
+                for (double& v : loads) v = cell_par->reduce_sum(v);
         }
-        monitor_row(mon, st, {s0 / area * mesh.cell_area(), s1 / area * mesh.cell_area(), s2 / area * mesh.cell_area()},
+        if (cell_par)
+            for (double& v : sums) v = cell_par->reduce_sum(v);
+        monitor_row(mon, st, {sums[0] / sums[3] * mesh.cell_area(), sums[1] / sums[3] * mesh.cell_area(), sums[2] / sums[3] * mesh.cell_area()},
                     p.use_ibm ? &loads : nullptr);
     };
 

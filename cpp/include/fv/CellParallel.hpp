@@ -31,6 +31,7 @@ struct CellComm {
     // Gather the `n` doubles of every rank into `recv` (rank r's block has counts[r], at displs[r]).
     std::function<void(const double* send, int n, double* recv, const int* counts, const int* displs)> allgatherv;
     std::function<double(double)> allreduce_max;   // max over the ranks
+    std::function<double(double)> allreduce_sum;   // sum over the ranks (in rank order: every rank gets the same value)
     // Sparse all-to-all: send[r] goes to rank r, recv[r] (pre-sized by the caller) is filled from rank r; an empty buffer means
     // no message. Every rank must call it at the same points.
     std::function<void(const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv)> exchange;
@@ -69,6 +70,8 @@ public:
     // Every rank gets the state of every leaf (before the indicator, and to write results).
     void gather_state();
     double reduce_max(double v) const { return comm_.size > 1 ? comm_.allreduce_max(v) : v; }
+    // Sum of the ranks' values (collective). Across rank counts it agrees to roundoff only (the partial sums are added in another order).
+    double reduce_sum(double v) const { return comm_.size > 1 ? comm_.allreduce_sum(v) : v; }
 
     // How far the reads of a distributed run reach (docs/design/amr-distributed.md, phase 0), independent of the partition: every
     // read is measured from the leaf whose owner makes it (the driver), in rings of the driver's level (see ring()).
