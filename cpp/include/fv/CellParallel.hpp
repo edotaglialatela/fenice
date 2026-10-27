@@ -71,6 +71,11 @@ public:
     // changed, the mesh and the engine are rebuilt, then partition() and localize(), and the halo is filled; returns whether
     // they did (if not, nothing was touched). The decisions and the state are those of ad.remesh() on the whole mesh, bit for bit.
     bool remesh(CellMesh& topo, CellAdaptor& ad);
+    // Test switches of remesh(): `direct_build` false makes the mesh and the engine for the whole mesh and extracts the share
+    // (the way of phase 2); `shadow` also does that and throws if the direct build gave anything else (mesh, tables, lists).
+    bool direct_build = true, shadow = false;
+    // True if the lists and the ownership of the two objects are the same (the shadow check).
+    bool same_lists(const CellParallel& other) const;
     // Accumulated wall time [s] of remesh(): region + fetch + indicator, flags + adapt of topo, state migration, engine build,
     // partition + localize + halo.
     double t_region = 0.0, t_flags = 0.0, t_migrate = 0.0, t_rebuild = 0.0, t_repartition = 0.0;
@@ -147,6 +152,9 @@ private:
     // exchange of the requests and the lists that need the other ranks.
     bool partition_local(const CellMesh* whole);
     void partition_exchange();
+    // The leaves a rank keeps to build its share directly: those within the reach of its owned leaves of `topo` (the whole mesh
+    // after the adapt), `extra` rings more than the measured reach, and the leaves along the mass-flow inlets.
+    void region_mask(const CellMesh& topo, const std::vector<int>& owned, int extra, std::vector<char>& keep) const;
     // The states of the leaves `want` ((level, i, j), each owned by some rank under the current partition): from this rank's leaves
     // if it holds them, else from their owners (collective).
     void fetch_states(const std::vector<std::array<int, 3>>& want, std::vector<State>& out) const;

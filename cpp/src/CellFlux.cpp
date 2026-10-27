@@ -283,20 +283,44 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
     built_ip_ = ip;
 }
 
-bool CellFluxEngine::same_tables(const CellFluxEngine& o) const {
+// special_ of a leaf with a side that is not known (a partial mesh's edge) is not defined; nothing active reads it
+bool CellFluxEngine::same_special(const CellFluxEngine& o, const CellMesh* edge_mesh) const {
+    if (special_.size() != o.special_.size()) return false;
+    for (size_t c = 0; c < special_.size(); ++c) {
+        if (special_[c] == o.special_[c]) continue;
+        if (!edge_mesh) return false;
+        bool edge = false;
+        for (int s = 0; s < 4; ++s)
+            edge = edge || edge_mesh->neighbour(static_cast<int>(c), static_cast<Face>(s)).kind == CellNeighbour::Kind::Outside;
+        if (!edge) return false;
+    }
+    return true;
+}
+
+bool CellFluxEngine::same_tables(const CellFluxEngine& o, const CellMesh* edge_mesh) const {
     const auto same_field = [](const Field& a, const Field& b) {
         return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(State)) == 0);
     };
-    bool ok = nleaf_ == o.nleaf_ && vkey_ == o.vkey_ && ikey_ == o.ikey_ && vroot_ == o.vroot_ && vnode_ == o.vnode_ &&
-              nbr_raw_ == o.nbr_raw_ && nbr_ == o.nbr_ && stencil_ == o.stencil_ && special_ == o.special_ && lface_ == o.lface_ &&
-              lheld_ == o.lheld_ && need_ == o.need_ && vcells_ == o.vcells_ && lown_b_ == o.lown_b_ && lown_e_ == o.lown_e_ &&
-              solid_ == o.solid_ && same_field(src_, o.src_) && interp_.size() == o.interp_.size();
+    const std::pair<const char*, bool> checks[] = {
+        {"nleaf", nleaf_ == o.nleaf_}, {"vkey", vkey_ == o.vkey_}, {"ikey", ikey_ == o.ikey_}, {"vroot", vroot_ == o.vroot_},
+        {"vnode", vnode_ == o.vnode_}, {"nbr_raw", nbr_raw_ == o.nbr_raw_}, {"nbr", nbr_ == o.nbr_}, {"stencil", stencil_ == o.stencil_},
+        {"special", same_special(o, edge_mesh)}, {"lface", lface_ == o.lface_}, {"lheld", lheld_ == o.lheld_}, {"need", need_ == o.need_},
+        {"vcells", vcells_ == o.vcells_}, {"lown", lown_b_ == o.lown_b_ && lown_e_ == o.lown_e_}, {"solid", solid_ == o.solid_},
+        {"src", same_field(src_, o.src_)}, {"interp", interp_.size() == o.interp_.size()}};
+    bool ok = true;
+    for (const auto& c : checks)
+        if (!c.second) {
+            if (std::getenv("FENICE_DEBUG_TABLES")) std::fprintf(stderr, "same_tables: %s differs\n", c.first);
+            ok = false;
+        }
     for (size_t k = 0; ok && k < interp_.size(); ++k) {
         const InterpVirtual &a = interp_[k], &b = o.interp_[k];
         ok = a.fine == b.fine && a.coarse == b.coarse && a.side == b.side && a.axis == b.axis &&
              std::memcmp(&a.dn, &b.dn, sizeof(double)) == 0 && std::memcmp(&a.dt, &b.dt, sizeof(double)) == 0;
     }
     for (int s = 0; ok && s < 4; ++s) ok = mf_face_[s] == o.mf_face_[s] && mf_weight_[s] == o.mf_weight_[s];
+    ok = ok && owned_mask_ == o.owned_mask_ && held_mask_ == o.held_mask_ && all_faces_ == o.all_faces_ && ghost_ready_ == o.ghost_ready_ &&
+         fine_leaf_ == o.fine_leaf_ && ghost_reads_leaf_ == o.ghost_reads_leaf_ && ghost_leaf_mask_ == o.ghost_leaf_mask_;
     return ok;
 }
 

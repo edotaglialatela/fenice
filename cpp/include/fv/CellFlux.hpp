@@ -87,7 +87,9 @@ public:
     bool mass_flow_side(int s) const { return bc_.type(static_cast<Face>(s)) == BCType::MassflowInlet; }
     // True if every table of the build (virtual cells, neighbour codes, stencils, per-level lists, solid mask, steady sources,
     // mass-flow faces) equals that of `other`, bit for bit (tests: an incremental build against a full one).
-    bool same_tables(const CellFluxEngine& other) const;
+    // With `edge_mesh` (this engine's partial mesh) the special_ flag of a leaf with an unknown side may differ.
+    bool same_tables(const CellFluxEngine& other, const CellMesh* edge_mesh = nullptr) const;
+    bool same_special(const CellFluxEngine& other, const CellMesh* edge_mesh) const;
 
     // R = dU/dt for the state U (one entry per leaf); returns the largest wave speed (convective, or the viscous
     // bound of the explicit time step when larger).

@@ -486,6 +486,19 @@ void CellMesh::build_from(const CellMesh& whole, const std::vector<char>& keep_l
     }
 }
 
+bool CellMesh::same_arrays(const CellMesh& o) const {
+    if (level != o.level || ci != o.ci || cj != o.cj || level_begin != o.level_begin || side_ptr != o.side_ptr ||
+        side_face != o.side_face || face_level_begin != o.face_level_begin || faces.size() != o.faces.size() || partial != o.partial)
+        return false;
+    for (size_t f = 0; f < faces.size(); ++f) {
+        const CellFace &a = faces[f], &b = o.faces[f];
+        if (a.left != b.left || a.right != b.right || a.level != b.level || a.tpos != b.tpos || a.axis != b.axis || a.kind != b.kind ||
+            a.side != b.side || a.length != b.length)
+            return false;
+    }
+    return true;
+}
+
 void CellMesh::keep_partial(const std::vector<char>& keep_leaf, const std::vector<char>& keep_face, std::vector<int>& leaf_map,
                             std::vector<int>& face_map) {
     const int N = num_leaves(), NF = static_cast<int>(faces.size());

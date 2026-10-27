@@ -1,3 +1,4 @@
+#include <cstdio>
 #include "fv/CellParallel.hpp"
 
 #include <algorithm>
@@ -7,6 +8,7 @@
 #include <stdexcept>
 
 #include "fv/CellRemesh.hpp"
+#include "fv/CellFlux.hpp"
 
 namespace fv {
 
@@ -394,6 +396,68 @@ void CellParallel::fetch_states(const std::vector<std::array<int, 3>>& want, std
                 out[slot[static_cast<size_t>(r)][k]][static_cast<size_t>(q)] = back[static_cast<size_t>(r)][k * kNVar + static_cast<size_t>(q)];
 }
 
+void CellParallel::region_mask(const CellMesh& topo, const std::vector<int>& owned, int extra, std::vector<char>& keep) const {
+    const int N = topo.num_leaves(), M = topo.max_level;
+    keep.assign(static_cast<size_t>(N), 0);
+    std::vector<std::vector<std::array<int, 2>>> seeds(static_cast<size_t>(M) + 1);
+    for (const int c : owned) {
+        keep[static_cast<size_t>(c)] = 1;
+        seeds[static_cast<size_t>(topo.level[static_cast<size_t>(c)])].push_back({topo.ci[static_cast<size_t>(c)], topo.cj[static_cast<size_t>(c)]});
+    }
+    // rings of the owned leaf's level within which a leaf of another level is read (docs/design/amr-distributed.md section 8.2, a
+    // ring more than the airfoil needs; `extra` more rings on a retry), by level difference d = owner level - level read
+    const auto rings = [](int d) { return d < 0 ? 4 : (d == 0 ? 6 : (d == 1 ? 8 : (d == 2 ? 9 : 11))); };
+    const bool body = engine_.has_body();
+    for (int o = 0; o <= M; ++o) {
+        if (seeds[static_cast<size_t>(o)].empty()) continue;
+        for (int t = 0; t <= M; ++t) {
+            if (topo.level_begin[t + 1] == topo.level_begin[t]) continue;
+            int r = rings(o - t) + extra;
+            if (body && t == o && o == M) r = std::max(r, 8 + extra);   // the images of the ghost cells (7 rings)
+            const CellBox b = dilate_cells(seeds[static_cast<size_t>(o)], topo.nx_at(o), topo.ny_at(o), r, topo.periodic_x, topo.periodic_y);
+            for (int j = 0; j < b.h; ++j)
+                for (int i = 0; i < b.w; ++i) {
+                    if (!b.g[static_cast<size_t>(j) * b.w + i]) continue;
+                    const int ci = b.i0 + i, cj = b.j0 + j;
+                    if (t <= o) {
+                        const int c = topo.find(t, ci >> (o - t), cj >> (o - t));
+                        if (c >= 0) keep[static_cast<size_t>(c)] = 1;
+                    } else {   // the leaves of level t under this cell
+                        const int n = 1 << (t - o);
+                        for (int qj = 0; qj < n; ++qj)
+                            for (int qi = 0; qi < n; ++qi) {
+                                const int c = topo.find(t, ci * n + qi, cj * n + qj);
+                                if (c >= 0) keep[static_cast<size_t>(c)] = 1;
+                            }
+                    }
+                }
+        }
+    }
+    // the leaves along a mass-flow inlet (its average reads them on every rank)
+    for (int s = 0; s < 4; ++s) {
+        if (!engine_.mass_flow_side(s)) continue;
+        for (int c = 0; c < N; ++c) {
+            const int l = topo.level[static_cast<size_t>(c)];
+            const bool on = s == 0 ? topo.ci[static_cast<size_t>(c)] == 0
+                                   : (s == 1 ? topo.ci[static_cast<size_t>(c)] == topo.nx_at(l) - 1
+                                             : (s == 2 ? topo.cj[static_cast<size_t>(c)] == 0 : topo.cj[static_cast<size_t>(c)] == topo.ny_at(l) - 1));
+            if (on) keep[static_cast<size_t>(c)] = 1;
+        }
+    }
+}
+
+bool CellParallel::same_lists(const CellParallel& o) const {
+    const auto same = [](const std::vector<Lists>& a, const std::vector<Lists>& b) {
+        if (a.size() != b.size()) return false;
+        for (size_t l = 0; l < a.size(); ++l)
+            if (a[l].send != b[l].send || a[l].recv != b[l].recv) return false;
+        return true;
+    };
+    return same(stage_, o.stage_) && same(final_, o.final_) && same(reg_, o.reg_) && solid_.send == o.solid_.send &&
+           solid_.recv == o.solid_.recv && owner_ == o.owner_ && held_ == o.held_ && split_ == o.split_ &&
+           level_present_ == o.level_present_ && ob_ == o.ob_ && oe_ == o.oe_;
+}
+
 bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     if (!localized_) throw std::logic_error("CellParallel::remesh: the mesh is not localized");
     using Clock = std::chrono::steady_clock;
@@ -531,16 +595,65 @@ bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     std::vector<std::array<int, 4>>().swap(topo.source);
     const auto t3 = Clock::now();
     // 5) this rank's mesh and engine for the new leaves, the new partition, and the halo
-    mesh_ = topo;
-    mesh_.U.swap(nU);
-    mesh_.prev_leaf.clear();   // the engine's tables are of the localized mesh: a full build
-    mesh_.topo_dirty.clear();
-    mesh_.prev_face.clear();
-    engine_.build(mesh_);
-    const auto t4 = Clock::now();
     localized_ = false;
-    partition();
-    localize();
+    const auto build_whole = [&](CellMesh& m, CellFluxEngine& e) {   // the whole mesh and engine, then the share is extracted
+        m = topo;
+        m.U = nU;
+        m.prev_leaf.clear();   // the engine's tables are of the localized mesh: a full build
+        m.topo_dirty.clear();
+        m.prev_face.clear();
+        e.build(m);
+    };
+    std::unique_ptr<CellMesh> shadow_mesh;
+    std::unique_ptr<CellFluxEngine> shadow_engine;
+    std::unique_ptr<CellParallel> shadow_par;
+    if (!direct_build || shadow) {
+        CellMesh& m = direct_build ? *(shadow_mesh = std::make_unique<CellMesh>(topo)) : mesh_;
+        CellFluxEngine copy(engine_);
+        CellFluxEngine& e = direct_build ? *(shadow_engine = std::make_unique<CellFluxEngine>(copy)) : engine_;
+        build_whole(m, e);
+        if (direct_build) {
+            shadow_par = std::make_unique<CellParallel>(m, e, comm_);
+            shadow_par->partition();
+            shadow_par->localize();
+        }
+    }
+    auto t4 = Clock::now();
+    if (direct_build) {
+        // the leaves within the reach of the owned ones: a partial mesh, its engine tables, the partition; a rank whose share does
+        // not cover what its faces read (before anything is sent) makes every rank try again with a wider reach
+        for (int extra = 1;; extra += 2) {
+            bool ok = true;
+            std::vector<char> keep;
+            region_mask(topo, mine_new, extra, keep);
+            try {
+                mesh_.build_from(topo, keep, &nU);
+                engine_.build(mesh_, &topo);
+                ok = partition_local(&topo);
+            } catch (const std::logic_error&) {
+                ok = false;
+            }
+            if (reduce_max(ok ? 0.0 : 1.0) == 0.0) break;
+            if (extra > 15) throw std::logic_error("CellParallel::remesh: no reach of the leaves covers what the faces read");
+        }
+        t4 = Clock::now();
+        partition_exchange();
+        localize();
+        if (shadow) {
+            // the same share made the old way must be this one
+            for (int l = 0; l <= M; ++l) shadow_par->exchange_final(l);
+            const bool sm = mesh_.same_arrays(*shadow_mesh), se = engine_.same_tables(*shadow_engine, &mesh_), sl = same_lists(*shadow_par);
+            if (!sm || !se || !sl) {
+                std::fprintf(stderr, "shadow rank %d: mesh %d engine %d lists %d\n", comm_.rank, sm, se, sl);
+                std::fflush(stderr);
+            }
+            if (!sm || !se || !sl)
+                throw std::logic_error("CellParallel::remesh: the directly built share differs from the extracted one");
+        }
+    } else {
+        partition();
+        localize();
+    }
     for (int l = 0; l <= M; ++l) exchange_final(l);
     const auto t5 = Clock::now();
     t_migrate += sec(t2, t3);

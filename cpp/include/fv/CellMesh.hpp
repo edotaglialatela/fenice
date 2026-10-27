@@ -126,6 +126,8 @@ public:
     // at the other end of a face), a side whose faces are not all there empty. The state of a leaf comes from whole_state (one
     // entry per leaf of `whole`) if given.
     void build_from(const CellMesh& whole, const std::vector<char>& keep_leaf, const Field* whole_state = nullptr);
+    // True if the leaves, faces, gather lists and level runs are the same as those of `other` (tests).
+    bool same_arrays(const CellMesh& other) const;
     // True after keep_partial / build_from (until the leaves are assigned again).
     bool partial = false;
 

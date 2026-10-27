@@ -3914,6 +3914,8 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
     const auto body = [&](int rank) {
         try {
             DistEnv env(sp);
+            const bool ghost = std::strstr(sp.name, "ghost") != nullptr;
+            env.ph.ibm_ghost = ghost;
             CellMesh m = base;
             m.U.resize(m.num_leaves());
             for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state(env.eos, m.xc(c), m.yc(c));
@@ -3923,12 +3925,20 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
             CellIndicator ind;
             ind.criterion = 0.02;
             CellAdaptor ad(m, eng, env.eos, ind);
-            if (sp.body) ad.set_body(env.ph.ibm_factory, 1);
+            if (sp.body && ghost) {   // the body band wide enough for the ghost cells and their images
+                const Mesh fine = generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(m.max_level), m.ny_at(m.max_level));
+                ImmersedBoundary ib = env.ph.ibm_factory(fine);
+                ib.enable_ghost_cells(fine, false);
+                ad.set_body(env.ph.ibm_factory, std::max(2, ib.ghost_reach()));
+            } else if (sp.body) {
+                ad.set_body(env.ph.ibm_factory, 1);
+            }
             std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4, 1.0, 5, 1e-3);
             std::unique_ptr<CellParallel> par;
             if (ranks > 0) {
                 par = std::make_unique<CellParallel>(m, eng, hub.comm(rank));
                 par->poison = true;
+                par->shadow = dist_remesh;   // the directly built share against the extracted one, at every remesh
             }
             CellAdvance adv(m, eng, *ts);
             adv.par = par.get();
@@ -4065,6 +4075,9 @@ TEST(cellparallel_distributed_remesh_equals_serial_bitwise) {
         {"viscous + force + source periodic", true, true, {per, per, per, per}, true, true, true, false, false, 12u, true},
         {"walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 14u, true},
         {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true},
+        {"immersed body (ghost cells)", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 26u, true},
+        {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, true},
+        {"unsteady source, mixed", true, false, {per, per, BCType::NoSlip, BCType::MovingWall}, true, false, true, true, false, 13u, true},
     };
     for (const DistSpec& sp : specs) {
         const Field serial = run_distributed(sp, 0, 8);

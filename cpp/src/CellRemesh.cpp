@@ -277,15 +277,9 @@ void mark_cell(const CellMesh& m, int t, int i, int j, std::vector<char>& need) 
     for (int q = 0; q < 4; ++q) mark_cell(m, t + 1, 2 * i + (q & 1), 2 * j + (q >> 1), need);
 }
 
-// The cells of a level (NX x NY, periodic axes wrap) within r cells, along each axis, of the seed cells, as a bitmap over the
-// box [i0, i1] x [j0, j1] that holds the seeds and the margin; returns the box (the whole axis if the margin wraps).
-struct Box {
-    int i0, i1, j0, j1;
-    int w() const { return i1 - i0 + 1; }
-    int h() const { return j1 - j0 + 1; }
-};
+}   // namespace
 
-Box dilated_box(const std::vector<std::array<int, 2>>& seeds, int NX, int NY, int r, bool px, bool py) {
+CellBox dilate_cells(const std::vector<std::array<int, 2>>& seeds, int NX, int NY, int r, bool px, bool py) {
     int lo[2] = {NX, NY}, hi[2] = {-1, -1};
     for (const std::array<int, 2>& s : seeds)
         for (int a = 0; a < 2; ++a) {
@@ -297,17 +291,51 @@ Box dilated_box(const std::vector<std::array<int, 2>>& seeds, int NX, int NY, in
     for (int a = 0; a < 2; ++a) {
         lo[a] -= r;
         hi[a] += r;
-        if (per[a] ? (lo[a] < 0 || hi[a] >= N[a]) : false) {
+        if (per[a] && (lo[a] < 0 || hi[a] >= N[a])) {
             lo[a] = 0;
             hi[a] = N[a] - 1;
         }
         lo[a] = std::max(lo[a], 0);
         hi[a] = std::min(hi[a], N[a] - 1);
     }
-    return {lo[0], hi[0], lo[1], hi[1]};
+    CellBox b;
+    b.i0 = lo[0];
+    b.j0 = lo[1];
+    b.w = hi[0] - lo[0] + 1;
+    b.h = hi[1] - lo[1] + 1;
+    const int w = b.w, h = b.h;
+    const bool wrap_x = px && w == NX, wrap_y = py && h == NY;
+    std::vector<char> tmp(static_cast<size_t>(w) * h, 0);
+    b.g.assign(tmp.size(), 0);
+    for (const std::array<int, 2>& s : seeds) b.g[static_cast<size_t>(s[1] - b.j0) * w + (s[0] - b.i0)] = 1;
+    // dilate along x (shifted copies of every row), then along y
+    for (int j = 0; j < h; ++j) {
+        const char* in = &b.g[static_cast<size_t>(j) * w];
+        char* out = &tmp[static_cast<size_t>(j) * w];
+        for (int d = -r; d <= r; ++d)
+            for (int i = 0; i < w; ++i) {
+                int k = i + d;
+                if (k < 0 || k >= w) {
+                    if (!wrap_x) continue;
+                    k = (k % w + w) % w;
+                }
+                if (in[k]) out[i] = 1;
+            }
+    }
+    std::fill(b.g.begin(), b.g.end(), 0);
+    for (int j = 0; j < h; ++j)
+        for (int d = -r; d <= r; ++d) {
+            int k = j + d;
+            if (k < 0 || k >= h) {
+                if (!wrap_y) continue;
+                k = (k % h + h) % h;
+            }
+            const char* in = &tmp[static_cast<size_t>(k) * w];
+            char* out = &b.g[static_cast<size_t>(j) * w];
+            for (int i = 0; i < w; ++i) out[i] = out[i] | in[i];
+        }
+    return b;
 }
-
-}   // namespace
 
 void CellIndicator::region(const CellMesh& m, const std::vector<int>& leaves, std::vector<char>& need) const {
     const int M = m.max_level, r = diffusion + 1;
@@ -321,41 +349,10 @@ void CellIndicator::region(const CellMesh& m, const std::vector<int>& leaves, st
     for (int t = 0; t <= M; ++t) {
         const std::vector<std::array<int, 2>>& sd = seeds[static_cast<size_t>(t)];
         if (sd.empty()) continue;
-        const int NX = m.nx_at(t), NY = m.ny_at(t);
-        const Box b = dilated_box(sd, NX, NY, r, m.periodic_x, m.periodic_y);
-        const int w = b.w(), h = b.h();
-        const bool wrap_x = m.periodic_x && w == NX, wrap_y = m.periodic_y && h == NY;
-        std::vector<char> g(static_cast<size_t>(w) * h, 0), tmp(g.size(), 0);
-        for (const std::array<int, 2>& s : sd) g[static_cast<size_t>(s[1] - b.j0) * w + (s[0] - b.i0)] = 1;
-        // dilate along x (shifted copies of every row), then along y
-        for (int j = 0; j < h; ++j) {
-            const char* in = &g[static_cast<size_t>(j) * w];
-            char* out = &tmp[static_cast<size_t>(j) * w];
-            for (int d = -r; d <= r; ++d)
-                for (int i = 0; i < w; ++i) {
-                    int k = i + d;
-                    if (k < 0 || k >= w) {
-                        if (!wrap_x) continue;
-                        k = (k + w) % w;
-                    }
-                    if (in[k]) out[i] = 1;
-                }
-        }
-        std::fill(g.begin(), g.end(), 0);
-        for (int j = 0; j < h; ++j)
-            for (int d = -r; d <= r; ++d) {
-                int k = j + d;
-                if (k < 0 || k >= h) {
-                    if (!wrap_y) continue;
-                    k = (k + h) % h;
-                }
-                const char* in = &tmp[static_cast<size_t>(k) * w];
-                char* out = &g[static_cast<size_t>(j) * w];
-                for (int i = 0; i < w; ++i) out[i] = out[i] | in[i];
-            }
-        for (int j = 0; j < h; ++j)
-            for (int i = 0; i < w; ++i)
-                if (g[static_cast<size_t>(j) * w + i]) mark_cell(m, t, b.i0 + i, b.j0 + j, need);
+        const CellBox b = dilate_cells(sd, m.nx_at(t), m.ny_at(t), r, m.periodic_x, m.periodic_y);
+        for (int j = 0; j < b.h; ++j)
+            for (int i = 0; i < b.w; ++i)
+                if (b.g[static_cast<size_t>(j) * b.w + i]) mark_cell(m, t, b.i0 + i, b.j0 + j, need);
     }
 }
 
