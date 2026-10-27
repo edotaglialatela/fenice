@@ -507,6 +507,7 @@ void Simulation::initialize_field() {
         if (!replicated_storage()) {
             cell_topo = std::make_unique<CellMesh>(*cells);   // the topology stays whole on every rank, the state does not
             cell_topo->U = Field();
+            cell_topo->set_faceless(true);
             cell_par->localize();   // each rank keeps only its leaves and their halo
         }
     }

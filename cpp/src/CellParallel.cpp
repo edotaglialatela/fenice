@@ -598,6 +598,7 @@ bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     localized_ = false;
     const auto build_whole = [&](CellMesh& m, CellFluxEngine& e) {   // the whole mesh and engine, then the share is extracted
         m = topo;
+        m.set_faceless(false);
         m.U = nU;
         m.prev_leaf.clear();   // the engine's tables are of the localized mesh: a full build
         m.topo_dirty.clear();

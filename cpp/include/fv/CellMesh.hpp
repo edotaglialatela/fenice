@@ -128,6 +128,9 @@ public:
     void build_from(const CellMesh& whole, const std::vector<char>& keep_leaf, const Field* whole_state = nullptr);
     // True if the leaves, faces, gather lists and level runs are the same as those of `other` (tests).
     bool same_arrays(const CellMesh& other) const;
+    // A faceless mesh keeps the leaves and the lookups (find, covering, the level runs) but no face list or side lists, so adapt()
+    // costs no face work: the topology a rank keeps next to its share (CellParallel::remesh). Turning it off rebuilds the faces.
+    void set_faceless(bool on);
     // True after keep_partial / build_from (until the leaves are assigned again).
     bool partial = false;
 
@@ -166,6 +169,7 @@ private:
     std::vector<uint64_t> mkey_;
 
     std::vector<int> face_off_;   // faces made by leaf c: faces[face_off_[c] .. face_off_[c + 1])
+    bool faceless_ = false;
     std::vector<CellFace> face_spare_;   // the face list before last, reused as the buffer of the next rebuild
 
     // Lookup tables, faces and gather lists of the current leaves. `incremental`: prev_leaf is set (adapt), the faces of the clean

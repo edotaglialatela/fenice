@@ -150,6 +150,12 @@ void CellMesh::build_lookups() {
     }
 }
 
+void CellMesh::set_faceless(bool on) {
+    if (faceless_ == on) return;
+    faceless_ = on;
+    rebuild();
+}
+
 void CellMesh::rebuild(bool incremental) {
     const int N = num_leaves();
     ++version;
@@ -159,6 +165,12 @@ void CellMesh::rebuild(bool incremental) {
     topo_dirty.clear();
     prev_face.clear();
     build_lookups();
+    if (faceless_) {
+        for (std::vector<int>* a : {&side_ptr, &side_face, &face_level_begin, &face_off_}) std::vector<int>().swap(*a);
+        std::vector<CellFace>().swap(faces);
+        std::vector<CellFace>().swap(face_spare_);
+        return;
+    }
 
     // faces: each leaf creates the faces it is responsible for
     //   same level  -> the leaf on the lower side creates it (its Right / Top side)

@@ -3954,6 +3954,7 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
             if (dist_remesh) {
                 topo = std::make_unique<CellMesh>(m);
                 topo->U.clear();
+                topo->set_faceless(true);
             }
             if (par) par->partition();
             if (par && local) par->localize();
