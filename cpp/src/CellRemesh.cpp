@@ -89,14 +89,26 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         std::vector<int> pi, pj;
         if (l < M) {
             const LevelCells& D = lev[static_cast<size_t>(l) + 1];
-            const int np = D.size() / 4;
+            // On a whole mesh the cells one level down come in groups of four consecutive siblings. On a partial one (the leaves
+            // a rank needs for its own indicator) a group may be incomplete at the edge: it makes no parent.
+            bool whole = D.size() % 4 == 0;
+            for (int q = 0; whole && q < D.size() / 4; ++q) whole = (D.key[4 * q] >> 2) == (D.key[4 * q + 3] >> 2);
+            std::vector<int> first;   // first cell of every complete group (partial mesh only)
+            if (!whole)
+                for (int c = 0; c < D.size();) {
+                    int e = c + 1;
+                    while (e < D.size() && (D.key[e] >> 2) == (D.key[c] >> 2)) ++e;
+                    if (e - c == 4) first.push_back(c);
+                    c = e;
+                }
+            const int np = whole ? D.size() / 4 : static_cast<int>(first.size());
             pkey.resize(static_cast<size_t>(np));
             pi.resize(static_cast<size_t>(np));
             pj.resize(static_cast<size_t>(np));
             pval.resize(static_cast<size_t>(np));
 #pragma omp parallel for schedule(static) if (np >= kOmpMinWork)
             for (int q = 0; q < np; ++q) {   // four consecutive children share a parent
-                const int c = 4 * q;
+                const int c = whole ? 4 * q : first[static_cast<size_t>(q)];
                 pkey[q] = D.key[c] >> 2;
                 pi[q] = D.ci[c] >> 1;
                 pj[q] = D.cj[c] >> 1;
@@ -237,10 +249,13 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
     for (int c = 0; c < N; ++c) {
         const int l = m.level[c];
         const LevelCells& L = lev[static_cast<size_t>(l)];
-        r.xi[c] = xi[static_cast<size_t>(l)][static_cast<size_t>(L.find(m.ci[c], m.cj[c]))];
+        // (a leaf at the edge of a partial mesh may have no parent cell: its values are not used)
+        const int own = L.find(m.ci[c], m.cj[c]);
+        r.xi[c] = own >= 0 ? xi[static_cast<size_t>(l)][static_cast<size_t>(own)] : 0.0;
         if (l > 0) {
             const LevelCells& P = lev[static_cast<size_t>(l) - 1];
-            r.xi_parent[c] = xi[static_cast<size_t>(l) - 1][static_cast<size_t>(P.find(m.ci[c] >> 1, m.cj[c] >> 1))];
+            const int par = P.find(m.ci[c] >> 1, m.cj[c] >> 1);
+            if (par >= 0) r.xi_parent[c] = xi[static_cast<size_t>(l) - 1][static_cast<size_t>(par)];
         }
     }
     return r;
@@ -248,6 +263,100 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
 
 std::vector<double> CellIndicator::xi(const CellMesh& m, const Field& U, const EOS& eos) const {
     return evaluate(m, U, eos).xi;
+}
+
+namespace {
+
+// every leaf under the cell (t, i, j) of the whole mesh m (the leaf covering it, or the leaves of the cells it is split into)
+void mark_cell(const CellMesh& m, int t, int i, int j, std::vector<char>& need) {
+    const int c = m.covering(t, i, j);
+    if (c >= 0) {
+        need[static_cast<size_t>(c)] = 1;
+        return;
+    }
+    for (int q = 0; q < 4; ++q) mark_cell(m, t + 1, 2 * i + (q & 1), 2 * j + (q >> 1), need);
+}
+
+// The cells of a level (NX x NY, periodic axes wrap) within r cells, along each axis, of the seed cells, as a bitmap over the
+// box [i0, i1] x [j0, j1] that holds the seeds and the margin; returns the box (the whole axis if the margin wraps).
+struct Box {
+    int i0, i1, j0, j1;
+    int w() const { return i1 - i0 + 1; }
+    int h() const { return j1 - j0 + 1; }
+};
+
+Box dilated_box(const std::vector<std::array<int, 2>>& seeds, int NX, int NY, int r, bool px, bool py) {
+    int lo[2] = {NX, NY}, hi[2] = {-1, -1};
+    for (const std::array<int, 2>& s : seeds)
+        for (int a = 0; a < 2; ++a) {
+            lo[a] = std::min(lo[a], s[static_cast<size_t>(a)]);
+            hi[a] = std::max(hi[a], s[static_cast<size_t>(a)]);
+        }
+    const int N[2] = {NX, NY};
+    const bool per[2] = {px, py};
+    for (int a = 0; a < 2; ++a) {
+        lo[a] -= r;
+        hi[a] += r;
+        if (per[a] ? (lo[a] < 0 || hi[a] >= N[a]) : false) {
+            lo[a] = 0;
+            hi[a] = N[a] - 1;
+        }
+        lo[a] = std::max(lo[a], 0);
+        hi[a] = std::min(hi[a], N[a] - 1);
+    }
+    return {lo[0], hi[0], lo[1], hi[1]};
+}
+
+}   // namespace
+
+void CellIndicator::region(const CellMesh& m, const std::vector<int>& leaves, std::vector<char>& need) const {
+    const int M = m.max_level, r = diffusion + 1;
+    // per level t the cells whose neighbourhood matters: the leaves of level t and the parents of the leaves of level t + 1
+    std::vector<std::vector<std::array<int, 2>>> seeds(static_cast<size_t>(M) + 1);
+    for (const int c : leaves) {
+        const int l = m.level[static_cast<size_t>(c)];
+        seeds[static_cast<size_t>(l)].push_back({m.ci[static_cast<size_t>(c)], m.cj[static_cast<size_t>(c)]});
+        if (l > 0) seeds[static_cast<size_t>(l) - 1].push_back({m.ci[static_cast<size_t>(c)] >> 1, m.cj[static_cast<size_t>(c)] >> 1});
+    }
+    for (int t = 0; t <= M; ++t) {
+        const std::vector<std::array<int, 2>>& sd = seeds[static_cast<size_t>(t)];
+        if (sd.empty()) continue;
+        const int NX = m.nx_at(t), NY = m.ny_at(t);
+        const Box b = dilated_box(sd, NX, NY, r, m.periodic_x, m.periodic_y);
+        const int w = b.w(), h = b.h();
+        const bool wrap_x = m.periodic_x && w == NX, wrap_y = m.periodic_y && h == NY;
+        std::vector<char> g(static_cast<size_t>(w) * h, 0), tmp(g.size(), 0);
+        for (const std::array<int, 2>& s : sd) g[static_cast<size_t>(s[1] - b.j0) * w + (s[0] - b.i0)] = 1;
+        // dilate along x (shifted copies of every row), then along y
+        for (int j = 0; j < h; ++j) {
+            const char* in = &g[static_cast<size_t>(j) * w];
+            char* out = &tmp[static_cast<size_t>(j) * w];
+            for (int d = -r; d <= r; ++d)
+                for (int i = 0; i < w; ++i) {
+                    int k = i + d;
+                    if (k < 0 || k >= w) {
+                        if (!wrap_x) continue;
+                        k = (k + w) % w;
+                    }
+                    if (in[k]) out[i] = 1;
+                }
+        }
+        std::fill(g.begin(), g.end(), 0);
+        for (int j = 0; j < h; ++j)
+            for (int d = -r; d <= r; ++d) {
+                int k = j + d;
+                if (k < 0 || k >= h) {
+                    if (!wrap_y) continue;
+                    k = (k + h) % h;
+                }
+                const char* in = &tmp[static_cast<size_t>(k) * w];
+                char* out = &g[static_cast<size_t>(j) * w];
+                for (int i = 0; i < w; ++i) out[i] = out[i] | in[i];
+            }
+        for (int j = 0; j < h; ++j)
+            for (int i = 0; i < w; ++i)
+                if (g[static_cast<size_t>(j) * w + i]) mark_cell(m, t, b.i0 + i, b.j0 + j, need);
+    }
 }
 
 double CellAdaptor::band_bytes() const { return container_bytes(band_); }
@@ -279,14 +388,41 @@ void CellAdaptor::build_band() {
                     if (j + d >= 0 && j + d < NY) band_[static_cast<size_t>(j + d) * NX + i] = 1;
 }
 
-bool CellAdaptor::in_body_band(int c) {
+bool CellAdaptor::in_body_band(int c) { return in_body_band(mesh_.level[c], mesh_.ci[c], mesh_.cj[c]); }
+
+bool CellAdaptor::in_body_band(int level, int ci, int cj) {
     if (!body_) return false;
     if (band_.empty()) build_band();
-    const int M = mesh_.max_level, NX = mesh_.nx_at(M), r = 1 << (M - mesh_.level[c]);
-    for (int j = mesh_.cj[c] * r; j < (mesh_.cj[c] + 1) * r; ++j)
-        for (int i = mesh_.ci[c] * r; i < (mesh_.ci[c] + 1) * r; ++i)
+    const int M = mesh_.max_level, NX = mesh_.nx_at(M), r = 1 << (M - level);
+    for (int j = cj * r; j < (cj + 1) * r; ++j)
+        for (int i = ci * r; i < (ci + 1) * r; ++i)
             if (band_[static_cast<size_t>(j) * NX + i]) return true;
     return false;
+}
+
+void CellAdaptor::decide(int max_level, int level, int i, int j, double xi, double xi_parent, char& refine, char& coarsen) {
+    refine = level < max_level && xi >= ind_.split;
+    // a group is joined on the xi of its parent cell at the parent level (the children's own xi with parent_join off)
+    coarsen = level > 0 && (ind_.parent_join ? xi_parent : xi) < ind_.join;
+    if (in_body_band(level, i, j)) {
+        refine = level < max_level;
+        coarsen = 0;
+    }
+}
+
+void CellAdaptor::flags(const CellMesh& m, const Field& U, const std::vector<int>& which, std::vector<char>& refine,
+                        std::vector<char>& coarsen) {
+    const CellIndicator::Result ev = ind_.evaluate(m, U, eos_);
+    if (body_ && band_.empty()) build_band();   // decide only reads it in the loop
+    const int n = static_cast<int>(which.size());
+    refine.assign(static_cast<size_t>(n), 0);
+    coarsen.assign(static_cast<size_t>(n), 0);
+    for (int k = 0; k < n; ++k) {
+        const int c = which[static_cast<size_t>(k)];
+        decide(m.max_level, m.level[static_cast<size_t>(c)], m.ci[static_cast<size_t>(c)], m.cj[static_cast<size_t>(c)],
+               ev.xi[static_cast<size_t>(c)], ev.xi_parent[static_cast<size_t>(c)], refine[static_cast<size_t>(k)],
+               coarsen[static_cast<size_t>(k)]);
+    }
 }
 
 bool CellAdaptor::remesh() {
@@ -301,13 +437,7 @@ bool CellAdaptor::remesh() {
     long long nr = 0;
 #pragma omp parallel for schedule(static) reduction(+ : nr) if (N >= kOmpMinWork)
     for (int c = 0; c < N; ++c) {
-        refine[c] = mesh_.level[c] < mesh_.max_level && last_xi[c] >= ind_.split;
-        // a group is joined on the xi of its parent cell at the parent level (the children's own xi with parent_join off)
-        coarsen[c] = mesh_.level[c] > 0 && (ind_.parent_join ? ev.xi_parent[c] : last_xi[c]) < ind_.join;
-        if (in_body_band(c)) {
-            refine[c] = mesh_.level[c] < mesh_.max_level;
-            coarsen[c] = 0;
-        }
+        decide(mesh_.max_level, mesh_.level[c], mesh_.ci[c], mesh_.cj[c], last_xi[c], ev.xi_parent[c], refine[c], coarsen[c]);
         nr += refine[c];
     }
     const auto t1 = Clock::now();

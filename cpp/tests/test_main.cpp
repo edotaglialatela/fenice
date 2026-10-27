@@ -4214,6 +4214,77 @@ TEST(halo_reach_bounds_the_halo_of_any_partition) {
                 worst[2], worst[3], worst[4]);
 }
 
+TEST(local_indicator_equals_the_whole_mesh_indicator_for_any_partition) {
+    // docs/design/amr-distributed.md phase 3: a rank evaluates the indicator on its owned leaves and the leaves
+    // CellIndicator::region lists for them (a partial mesh, with the state of those leaves only): xi and xi_parent of its leaves
+    // are the whole mesh's, bit for bit, for any partition, periodicity and smoothing depth.
+    const EOS eos = EOS::ideal(1.4);
+    int compared = 0, active = 0, smaller = 0, regions = 0;
+    for (int per = 0; per < 4; ++per)
+        for (unsigned seed = 0; seed < 3; ++seed) {
+            const bool px = per & 1, py = per & 2;
+            CellMesh m = random_adapted_mesh(px, py, 40u + seed + 10u * static_cast<unsigned>(per), 6);
+            std::mt19937 rng(900u + seed);
+            const int N = m.num_leaves();
+            m.U.resize(static_cast<size_t>(N));
+            for (int c = 0; c < N; ++c) {   // steps of a few percent to a factor, so that the flags and the smoothing are active
+                const double x = m.xc(c), y = m.yc(c);
+                const int s = (static_cast<int>(4.0 * x) + static_cast<int>(3.0 * y)) % 3;
+                const double noise = 0.02 * static_cast<double>(rng() % 100) / 100.0;
+                State w = {1.0 + 0.12 * s + noise, 0.3 * s, -0.2 * (s & 1), 1.0 + 0.1 * s + noise, 0.0};
+                m.U[static_cast<size_t>(c)] = eos.prim_to_cons(w);
+            }
+            CellIndicator ind;
+            ind.use_pressure = ind.use_velocity = true;
+            ind.diffusion = 1 + static_cast<int>(seed);
+            ind.criterion = 0.08;
+            const CellIndicator::Result whole = ind.evaluate(m, m.U, eos);
+            for (const int R : {1, 2, 3, 5, 7, 16}) {
+                for (int r = 0; r < R; ++r) {
+                    std::vector<int> owned;
+                    for (int l = 0; l <= m.max_level; ++l) {
+                        const long long b = m.level_begin[l], n = m.level_begin[l + 1] - b;
+                        for (long long c = b + n * r / R; c < b + n * (r + 1) / R; ++c) owned.push_back(static_cast<int>(c));
+                    }
+                    std::vector<char> need(static_cast<size_t>(N), 0);
+                    ind.region(m, owned, need);
+                    for (const int c : owned) CHECK(need[static_cast<size_t>(c)]);
+                    CellMesh sub(m.Lx, m.Ly, m.nx, m.ny, m.max_level, px, py, m.x0, m.y0);
+                    sub.level.clear();
+                    sub.ci.clear();
+                    sub.cj.clear();
+                    sub.U.clear();
+                    std::vector<int> to_sub(static_cast<size_t>(N), -1);
+                    sub.level_begin.assign(static_cast<size_t>(m.max_level) + 2, 0);
+                    for (int c = 0; c < N; ++c)
+                        if (need[static_cast<size_t>(c)]) {
+                            to_sub[static_cast<size_t>(c)] = static_cast<int>(sub.level.size());
+                            sub.level.push_back(m.level[static_cast<size_t>(c)]);
+                            sub.ci.push_back(m.ci[static_cast<size_t>(c)]);
+                            sub.cj.push_back(m.cj[static_cast<size_t>(c)]);
+                            sub.U.push_back(m.U[static_cast<size_t>(c)]);
+                            ++sub.level_begin[static_cast<size_t>(m.level[static_cast<size_t>(c)]) + 1];
+                        }
+                    for (int l = 0; l <= m.max_level; ++l) sub.level_begin[static_cast<size_t>(l) + 1] += sub.level_begin[static_cast<size_t>(l)];
+                    const CellIndicator::Result part = ind.evaluate(sub, sub.U, eos);
+                    ++regions;
+                    smaller += sub.num_leaves() < N;
+                    for (const int c : owned) {
+                        const int k = to_sub[static_cast<size_t>(c)];
+                        ++compared;
+                        active += whole.xi[static_cast<size_t>(c)] > 0.0;
+                        CHECK(part.xi[static_cast<size_t>(k)] == whole.xi[static_cast<size_t>(c)]);
+                        CHECK(part.xi_parent[static_cast<size_t>(k)] == whole.xi_parent[static_cast<size_t>(c)]);
+                    }
+                }
+            }
+        }
+    CHECK(compared > 0);
+    CHECK(active > compared / 20);   // the indicator is not trivially zero
+    CHECK(smaller > regions / 4);    // and a rank's region is mostly a part of the mesh
+    std::printf("    %d leaves compared in %d regions (%d smaller than the mesh), %d with xi > 0\n", compared, regions, smaller, active);
+}
+
 TEST(cellparallel_ring_counts_cells_of_the_first_leaf) {
     CellMesh m(4.0, 4.0, 4, 4, 2, true, false);
     std::vector<char> r(static_cast<size_t>(m.num_leaves()), 0);

@@ -47,7 +47,13 @@ struct CellIndicator {
     struct Result {
         std::vector<double> xi, xi_parent;
     };
+    // On a partial mesh (a rank's region: whole sibling groups are not required) the values of a leaf are right as long as every
+    // leaf listed by region() for it is present with its state; the others are not to be used.
     Result evaluate(const CellMesh& mesh, const Field& U, const EOS& eos) const;
+    // The leaves of the whole mesh `mesh` that xi and xi_parent of the leaves `leaves` read: the leaves of the cells within
+    // diffusion + 1 cells of the leaf (at its level) and of its parent (at the parent level), with the leaves under a split cell.
+    // Sets need[c] = 1 for them (need has one entry per leaf; entries already set stay).
+    void region(const CellMesh& mesh, const std::vector<int>& leaves, std::vector<char>& need) const;
     // xi of every leaf (evaluate(...).xi).
     std::vector<double> xi(const CellMesh& mesh, const Field& U, const EOS& eos) const;
 };
@@ -74,6 +80,11 @@ public:
     // True if the leaf lies in the finest-level band of the body.
     bool in_body_band(int leaf);
 
+    // The decisions of remesh() (before the ripple and the merge test of CellMesh::adapt) for the leaves `which` of `m`, from
+    // the state U of `m`: refine[k] / coarsen[k] for leaf which[k]. `m` may be a partial mesh (see CellIndicator::evaluate).
+    void flags(const CellMesh& m, const Field& U, const std::vector<int>& which, std::vector<char>& refine,
+               std::vector<char>& coarsen);
+
     std::vector<double> last_xi;
     // Bytes of the body band (finest uniform mesh) and of last_xi.
     double band_bytes() const;
@@ -85,6 +96,9 @@ public:
 
 private:
     void build_band();
+    bool in_body_band(int level, int i, int j);
+    // refine / coarsen of one leaf from its indicator values and the body band
+    void decide(int max_level, int level, int i, int j, double xi, double xi_parent, char& refine, char& coarsen);
 
     CellMesh& mesh_;
     CellFluxEngine& engine_;
