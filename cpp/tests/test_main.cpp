@@ -3902,7 +3902,7 @@ struct DistEnv {
 
 // Run the case for `steps` steps on `ranks` ranks (0: the serial path without CellParallel); returns the final state as every
 // rank sees it after gather_state (all identical, checked), and the held / halo counts of the last rank.
-Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>* counts = nullptr) {
+Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>* counts = nullptr, bool local = false) {
     CellMesh base = random_adapted_mesh(sp.px, sp.py, sp.seed, 6);
     const int Nranks = std::max(ranks, 1);
     FakeHub hub(Nranks);
@@ -3933,6 +3933,7 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
             Field R;
             double S = eng.residual(m, m.U, R), t = 0.0;
             if (par) par->partition();
+            if (par && local) par->localize();
             for (int k = 0; k < steps; ++k) {
                 const double dt = 0.4 * m.dx(0) / S;
                 S = adv.step(dt, t);
@@ -3942,18 +3943,27 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
                     if (par) par->exchange_solid();
                 }
                 if (sp.remesh && (k + 1) % 2 == 0) {
-                    if (par) par->gather_state();
+                    if (par && local) par->globalize();
+                    else if (par) par->gather_state();
                     const bool changed = ad.remesh();
                     if (changed) S = eng.residual(m, m.U, R);   // every leaf is valid here
+                    else if (par && local) eng.build(m);        // the localized tables are gone
                     if (par) par->partition();
+                    if (par && local) par->localize();
                 }
             }
-            if (par) par->gather_state();
-            result[static_cast<size_t>(rank)] = m.U;
             if (par) {
                 held[static_cast<size_t>(rank)] = par->held_count();
                 halo[static_cast<size_t>(rank)] = par->halo_count();
+                if (local) {
+                    CHECK(m.partial);
+                    CHECK(m.num_leaves() == par->held_count());
+                    par->globalize();
+                } else {
+                    par->gather_state();
+                }
             }
+            result[static_cast<size_t>(rank)] = m.U;
         } catch (const std::exception& e) {
             error[static_cast<size_t>(rank)] = e.what();
         }
@@ -3991,6 +4001,99 @@ TEST(cellparallel_equals_serial_bitwise_for_any_rank_count) {
             if (!same) std::printf("    %s on %d ranks differs from the serial run\n", sp.name, ranks);
             if (ranks >= 5) CHECK(counts[0] < static_cast<int>(serial.size()));   // a rank does not hold everything
             if (ranks >= 2) CHECK(counts[1] > 0);                                  // and it does have a halo
+        }
+    }
+}
+
+TEST(cellparallel_localized_run_equals_serial_bitwise_and_keeps_only_its_halo) {
+    // Phase 2 of docs/design/amr-distributed.md: after partition() each rank keeps only its owned leaves and the halo
+    // (CellParallel::localize), steps and remeshes on them (globalize() before the replicated remesh), and the final state is the
+    // serial one bit for bit, with every physics of the replicated test.
+    const BCType per = BCType::Periodic;
+    const DistSpec specs[] = {
+        {"euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 11u, true},
+        {"viscous + force + source periodic", true, true, {per, per, per, per}, true, true, true, false, false, 12u, true},
+        {"unsteady source, mixed", true, false, {per, per, BCType::NoSlip, BCType::MovingWall}, true, false, true, true, false, 13u, false},
+        {"walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 14u, true},
+        {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, false},
+        {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true},
+    };
+    for (const DistSpec& sp : specs) {
+        const Field serial = run_distributed(sp, 0, 6);
+        for (const int ranks : {1, 2, 3, 5, 7}) {
+            std::vector<int> counts;
+            const Field dist = run_distributed(sp, ranks, 6, &counts, true);
+            const bool same = bits_equal(serial, dist);
+            CHECK(same);
+            if (!same) std::printf("    %s on %d ranks (localized) differs from the serial run\n", sp.name, ranks);
+            if (ranks >= 5) CHECK(counts[0] < static_cast<int>(serial.size()));
+        }
+    }
+}
+
+TEST(a_partial_mesh_throws_when_a_face_reads_a_leaf_it_does_not_keep) {
+    // CellFluxEngine::localize checks that every read of every face the rank computes is a kept leaf: a halo that is one leaf
+    // short is an error at once, not a wrong number later.
+    const BCType per = BCType::Periodic;
+    const DistSpec sp{"euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 31u, false};
+    for (const bool drop : {false, true}) {
+        DistEnv env(sp);
+        CellMesh m = random_adapted_mesh(true, true, 31u, 6);
+        CellFluxEngine eng(env.eos, env.rs, &env.mu, env.bm);
+        eng.set_physics(env.ph);
+        eng.build(m);
+        const int N = m.num_leaves();
+        CellFluxEngine::Partition p;   // this rank owns the first half of every level
+        p.leaf_owned.assign(static_cast<size_t>(N), 0);
+        for (int l = 0; l <= m.max_level; ++l)
+            for (int c = m.level_begin[l]; c < (m.level_begin[l] + m.level_begin[l + 1]) / 2; ++c) p.leaf_owned[static_cast<size_t>(c)] = 1;
+        p.face_active.assign(m.faces.size(), 0);
+        p.leaf_held = p.leaf_owned;
+        std::vector<int> reads;
+        for (size_t f = 0; f < m.faces.size(); ++f) {
+            const CellFace& face = m.faces[f];
+            bool mine;
+            if (face.kind == CellFaceKind::Boundary)
+                mine = p.leaf_owned[static_cast<size_t>(face.left >= 0 ? face.left : face.right)] != 0;
+            else if (face.kind == CellFaceKind::CoarseFine)
+                mine = p.leaf_owned[static_cast<size_t>(m.level[face.left] > m.level[face.right] ? face.left : face.right)] != 0;
+            else
+                mine = p.leaf_owned[static_cast<size_t>(face.left)] || p.leaf_owned[static_cast<size_t>(face.right)];
+            if (!mine) continue;
+            p.face_active[f] = 1;
+            reads.clear();
+            eng.face_dependencies(m, static_cast<int>(f), reads);
+            for (const int c : reads) p.leaf_held[static_cast<size_t>(c)] = 1;
+        }
+        if (drop) {   // one halo leaf missing
+            for (int c = N - 1; c >= 0; --c)
+                if (p.leaf_held[static_cast<size_t>(c)] && !p.leaf_owned[static_cast<size_t>(c)]) {
+                    p.leaf_held[static_cast<size_t>(c)] = 0;
+                    break;
+                }
+        }
+        eng.set_partition(m, p);
+        std::vector<char> keep_face = p.face_active;
+        for (size_t f = 0; f < keep_face.size(); ++f) {
+            const CellFace& face = m.faces[f];
+            if ((face.left >= 0 && p.leaf_owned[static_cast<size_t>(face.left)]) || (face.right >= 0 && p.leaf_owned[static_cast<size_t>(face.right)]))
+                keep_face[f] = 1;
+        }
+        std::vector<int> leaf_map, face_map;
+        m.keep_partial(p.leaf_held, keep_face, leaf_map, face_map);
+        bool threw = false;
+        try {
+            eng.localize(m, leaf_map, face_map);
+        } catch (const std::logic_error&) {
+            threw = true;
+        }
+        CHECK(threw == drop);
+        if (!drop) {
+            CHECK(m.partial && m.num_leaves() < N);
+            bool outside = false;   // some side of some kept leaf looks outside, and asking for it is safe
+            for (int c = 0; c < m.num_leaves() && !outside; ++c)
+                for (int s = 0; s < 4; ++s) outside = outside || m.neighbour(c, static_cast<Face>(s)).kind == CellNeighbour::Kind::Outside;
+            CHECK(outside);
         }
     }
 }

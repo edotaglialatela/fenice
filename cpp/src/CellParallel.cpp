@@ -24,9 +24,12 @@ int CellParallel::owner_of(int level, uint64_t key) const {
 }
 
 void CellParallel::partition() {
+    if (localized_) throw std::logic_error("CellParallel::partition: the mesh is localized (globalize() first)");
     const int N = mesh_.num_leaves(), R = comm_.size, M = mesh_.max_level, me = comm_.rank;
     // splitters: each level cut into contiguous blocks of equal count along its Morton order; rank r owns at level l the keys
     // [split[l][r], split[l][r + 1])
+    level_present_.assign(static_cast<size_t>(M) + 1, 0);
+    for (int l = 0; l <= M; ++l) level_present_[static_cast<size_t>(l)] = mesh_.level_begin[l + 1] > mesh_.level_begin[l];
     split_.assign(static_cast<size_t>(M) + 1, std::vector<uint64_t>(static_cast<size_t>(R) + 1, kNoKey));
     ob_.assign(static_cast<size_t>(R), std::vector<int>(static_cast<size_t>(M) + 1, 0));
     oe_ = ob_;
@@ -91,6 +94,7 @@ void CellParallel::partition() {
                         if (n >= 0) held[static_cast<size_t>(n)] = 1;
                 }
     part.leaf_held = held;
+    face_active_ = part.face_active;
     held_.swap(held);
     engine_.set_partition(mesh_, part);
 
@@ -236,7 +240,135 @@ void CellParallel::exchange_registers(int level) {
     }
 }
 
+void CellParallel::localize() {
+    if (localized_) throw std::logic_error("CellParallel::localize: already localized");
+    if (face_active_.size() != mesh_.faces.size() || held_.size() != static_cast<size_t>(mesh_.num_leaves()))
+        throw std::logic_error("CellParallel::localize: partition() was not called for this mesh");
+    const int me = comm_.rank;
+    // the faces to keep: those this rank computes, every face of an owned leaf (the gather of its residual, the registers) and
+    // the faces of the mass-flow inlets
+    std::vector<char> keep_face = face_active_;
+    for (size_t f = 0; f < keep_face.size(); ++f) {
+        const CellFace& face = mesh_.faces[f];
+        if ((face.left >= 0 && owner_[static_cast<size_t>(face.left)] == me) || (face.right >= 0 && owner_[static_cast<size_t>(face.right)] == me))
+            keep_face[f] = 1;
+    }
+    engine_.mass_flow_faces(keep_face);
+    std::vector<int> leaf_map, face_map;
+    mesh_.keep_partial(held_, keep_face, leaf_map, face_map);
+    engine_.localize(mesh_, leaf_map, face_map);
+    // this object's lists: leaf indices (stage, final, solid) and face indices (registers)
+    const auto remap = [](std::vector<std::vector<int>>& v, const std::vector<int>& map) {
+        for (std::vector<int>& row : v)
+            for (int& k : row) {
+                k = map[static_cast<size_t>(k)];
+                if (k < 0) throw std::logic_error("CellParallel::localize: a listed leaf or face is not kept");
+            }
+    };
+    for (std::vector<Lists>* ls : {&stage_, &final_})
+        for (Lists& li : *ls) {
+            remap(li.send, leaf_map);
+            remap(li.recv, leaf_map);
+        }
+    remap(solid_.send, leaf_map);
+    remap(solid_.recv, leaf_map);
+    for (Lists& li : reg_) {
+        remap(li.send, face_map);
+        remap(li.recv, face_map);
+    }
+    std::vector<int> owner(static_cast<size_t>(mesh_.num_leaves()));
+    for (size_t c = 0; c < leaf_map.size(); ++c)
+        if (leaf_map[c] >= 0) owner[static_cast<size_t>(leaf_map[c])] = owner_[c];
+    owner_.swap(owner);
+    held_.assign(static_cast<size_t>(mesh_.num_leaves()), 1);
+    for (std::vector<int>& row : ob_) row.assign(row.size(), 0);
+    oe_ = ob_;
+    for (int l = 0; l <= mesh_.max_level; ++l) {   // this rank's own owned runs (the other ranks' are not known any more)
+        ob_[static_cast<size_t>(me)][static_cast<size_t>(l)] = engine_.owned_begin(l);
+        oe_[static_cast<size_t>(me)][static_cast<size_t>(l)] = engine_.owned_end(l);
+    }
+    std::vector<char>().swap(face_active_);
+    localized_ = true;
+}
+
+void CellParallel::gather_owned(std::vector<double>& all) const {
+    const int R = comm_.size, M = mesh_.max_level;
+    std::vector<double> send;
+    for (int l = 0; l <= M; ++l)
+        for (int c = engine_.owned_begin(l); c < engine_.owned_end(l); ++c) {
+            send.push_back(l);
+            send.push_back(mesh_.ci[static_cast<size_t>(c)]);
+            send.push_back(mesh_.cj[static_cast<size_t>(c)]);
+            send.insert(send.end(), mesh_.U[static_cast<size_t>(c)].begin(), mesh_.U[static_cast<size_t>(c)].end());
+        }
+    std::vector<int> counts(static_cast<size_t>(R), 1), displs(static_cast<size_t>(R));
+    std::vector<double> mine(1, static_cast<double>(send.size())), sizes(static_cast<size_t>(R));
+    for (int r = 0; r < R; ++r) displs[static_cast<size_t>(r)] = r;
+    if (R > 1) comm_.allgatherv(mine.data(), 1, sizes.data(), counts.data(), displs.data());
+    else sizes[0] = mine[0];
+    long long total = 0;
+    for (int r = 0; r < R; ++r) {
+        counts[static_cast<size_t>(r)] = static_cast<int>(sizes[static_cast<size_t>(r)]);
+        displs[static_cast<size_t>(r)] = static_cast<int>(total);
+        total += counts[static_cast<size_t>(r)];
+    }
+    all.resize(static_cast<size_t>(total));
+    if (R > 1) comm_.allgatherv(send.data(), static_cast<int>(send.size()), all.data(), counts.data(), displs.data());
+    else all = send;
+}
+
+void CellParallel::collect(std::vector<int>& level, std::vector<int>& ci, std::vector<int>& cj, Field& U) const {
+    constexpr size_t rec = 3 + kNVar;
+    std::vector<double> all;
+    gather_owned(all);
+    const size_t n = all.size() / rec;
+    std::vector<size_t> order(n);
+    for (size_t k = 0; k < n; ++k) order[k] = k;
+    std::vector<uint64_t> key(n);
+    for (size_t k = 0; k < n; ++k)
+        key[k] = morton_key(static_cast<uint32_t>(all[rec * k + 1]), static_cast<uint32_t>(all[rec * k + 2]));
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        const int la = static_cast<int>(all[rec * a]), lb = static_cast<int>(all[rec * b]);
+        return la != lb ? la < lb : key[a] < key[b];
+    });
+    level.resize(n);
+    ci.resize(n);
+    cj.resize(n);
+    U.resize(n);
+    for (size_t k = 0; k < n; ++k) {
+        const double* r = &all[rec * order[k]];
+        level[k] = static_cast<int>(r[0]);
+        ci[k] = static_cast<int>(r[1]);
+        cj[k] = static_cast<int>(r[2]);
+        for (int q = 0; q < kNVar; ++q) U[k][static_cast<size_t>(q)] = r[3 + q];
+    }
+}
+
+void CellParallel::globalize() {
+    if (!localized_) return;
+    constexpr size_t rec = 3 + kNVar;
+    std::vector<double> all;
+    gather_owned(all);
+    const size_t n = all.size() / rec;
+    std::vector<int> lv(n), ii(n), jj(n);
+    Field U(n);
+    for (size_t k = 0; k < n; ++k) {
+        const double* r = &all[rec * k];
+        lv[k] = static_cast<int>(r[0]);
+        ii[k] = static_cast<int>(r[1]);
+        jj[k] = static_cast<int>(r[2]);
+        for (int q = 0; q < kNVar; ++q) U[k][static_cast<size_t>(q)] = r[3 + q];
+    }
+    mesh_.assign_leaves(lv, ii, jj, &U);   // sorts by (level, key) and rebuilds the faces; the engine and the partition are stale
+    owner_.clear();
+    held_.clear();
+    for (std::vector<Lists>* ls : {&stage_, &final_, &reg_}) ls->clear();
+    solid_ = Lists();
+    localized_ = false;
+}
+
 void CellParallel::gather_state() {
+    if (localized_) throw std::logic_error("CellParallel::gather_state: the mesh is localized (use collect() or globalize())");
     if (comm_.size <= 1) return;
     const int R = comm_.size, M = mesh_.max_level;
     std::vector<int> counts(static_cast<size_t>(R), 0), displs(static_cast<size_t>(R), 0);

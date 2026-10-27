@@ -59,15 +59,23 @@ public:
     std::string checkpoint_path() const;
     // ibm_file resolved: absolute, else next to the case.toml, else the current folder.
     std::string airfoil_file_path() const;
-    // Atomic checkpoint: U, t, step, nx, ny, Lx, Ly and the .pvd index.
-    void save_checkpoint(int step);
+    // The leaves of the whole AMR mesh and their state, in (level, key) order: the arrays of `cells`, or what a distributed run
+    // gathered (CellParallel::collect).
+    struct LeafArrays {
+        const std::vector<int>* level = nullptr;
+        const std::vector<int>* ci = nullptr;
+        const std::vector<int>* cj = nullptr;
+        const Field* U = nullptr;
+    };
+    // Atomic checkpoint: U, t, step, nx, ny, Lx, Ly and the .pvd index. `leaves`: the AMR leaves, if `cells` is not the whole mesh.
+    void save_checkpoint(int step, const LeafArrays* leaves = nullptr);
     // Load the checkpoint (if any); returns the step to resume from (0 if missing).
     int load_checkpoint();
     // Bilinear mapping of a checkpoint (any resolution) onto this run's mesh.
     Field load_hot_start(const std::string& path);
     // Write the final state to `dump_state` (if set) for regression checks: U, and with AMR the leaves' bounds and level
     // (`leaf_meta` rows x0, x1, y0, y1, level). With AMR on several ranks the state of every leaf must be valid on rank 0.
-    void dump_final_state(int step) const;
+    void dump_final_state(int step, const LeafArrays* leaves = nullptr) const;
     // Volume averages of the field: mass, kinetic energy, total energy (all ranks under MPI).
     std::array<double, 3> volume_averages(const Field& U_part, long long n_global) const;
     // Loads of the fluid on the IBM body over the cells of `m`: {Fx, Fy, Mz}, Mz about
@@ -131,6 +139,8 @@ private:
     std::unique_ptr<GridInterp2D> hot_interp_;   // hot-start field of an AMR run
     double cell_speed_ = 0.0;                    // wave-speed bound the next AMR time step is taken from
     MemoryUsage mem_setup_, mem_init_;           // resident memory after setup and after the initial adaptation (AMR report)
+    // FENICE_REPLICATED_REMESH=1: every rank keeps the whole AMR mesh (the storage before docs/design/amr-distributed.md phase 2)
+    static bool replicated_storage();
     void print_halo_reach(const char* when) const;   // FENICE_HALO_REACH=1: CellParallel::halo_reach of the AMR mesh
     // Monitor CSV (rank 0): header on open, one row per call.
     std::FILE* open_monitor() const;

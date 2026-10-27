@@ -140,6 +140,14 @@ public:
     void face_dependencies(const CellMesh& mesh, int face, std::vector<int>& out) const;
     // The leaves along the sides with a mass-flow inlet (their average is summed in position order on every rank).
     void mass_flow_dependencies(const CellMesh& mesh, std::vector<char>& mask) const;
+    // Mark in `mask` (one entry per face) the boundary faces of the mass-flow inlets.
+    void mass_flow_faces(std::vector<char>& mask) const;
+    // A rank's share of the mesh (CellParallel::localize): the engine was built for the whole mesh and has a partition set; `m` is
+    // that mesh after CellMesh::keep_partial, leaf_map / face_map its maps. Re-indexes every table to the kept leaves and faces
+    // (the numbers are the same as a build would give for them, only renumbered), keeps the virtual cells whose leaves are all
+    // kept (a code that points at anything else is kOutside), and frees the rest. Throws if a face this rank computes, the ghost
+    // fill or a mass-flow face reads a leaf that is not kept.
+    void localize(const CellMesh& m, const std::vector<int>& leaf_map, const std::vector<int>& face_map);
     // Owned range [begin, end) of level l (the whole level without a partition).
     int owned_begin(int l) const { return lown_b_[static_cast<size_t>(l)]; }
     int owned_end(int l) const { return lown_e_[static_cast<size_t>(l)]; }
@@ -233,6 +241,7 @@ private:
     void face_stencil(const CellMesh& m, int f);   // stencil_ of face f
     void eval_interp();
     void force_all(const CellMesh& m, const Field& U);   // every leaf (the full residual, whatever the partition)
+    void size_work_arrays(const CellMesh& m);   // registers, viscous fluxes and cell quantities, sized for the mesh
     void rebuild_lists(const CellMesh& m, const Partition* part);
     void rebuild_lists_whole(const CellMesh& m);   // rebuild_lists without a partition (parallel)
     // the leaves read through a code / a tree of a mean-type virtual cell / the flux of a face: mark(leaf) for each

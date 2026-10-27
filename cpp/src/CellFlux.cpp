@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <map>
 #include <stdexcept>
 
@@ -40,6 +41,27 @@ State CellFluxEngine::eval(const Field& U, int code) const {
 }
 
 State CellFluxEngine::cell_state(int code) const { return code < nleaf_ ? (*us_)[code] : Vc_[code - nleaf_]; }
+
+void CellFluxEngine::size_work_arrays(const CellMesh& m) {
+    // Work arrays, sized only: every entry is written before it is read in a step (fluxes and cell quantities by the pass of
+    // their level, registers by clear_registers before the subcycles), as for F_; zero-filling them took ~2 % of the loop.
+    // Registers only for the coarse-fine faces (slot per face, consecutive in face order, so each level's are one run); the
+    // viscous face fluxes only with viscous terms.
+    reg_slot_.assign(m.faces.size(), -1);
+    reg_level_begin_.assign(static_cast<size_t>(m.max_level) + 2, 0);
+    int nreg = 0;
+    for (int l = 0; l <= m.max_level; ++l) {
+        reg_level_begin_[static_cast<size_t>(l)] = nreg;
+        for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f)
+            if (m.faces[static_cast<size_t>(f)].kind == CellFaceKind::CoarseFine) reg_slot_[static_cast<size_t>(f)] = nreg++;
+    }
+    reg_level_begin_[static_cast<size_t>(m.max_level) + 1] = nreg;
+    reg_.resize(static_cast<size_t>(nreg));
+    regv_.resize(static_cast<size_t>(nreg));
+    if (phys_.ns) Fv_.resize(m.faces.size());
+    else Fv_ = Field();
+    for (std::vector<double>* a : {&su_, &sv_, &sT_, &dudx_, &dudy_, &dvdx_, &dvdy_}) a->resize(static_cast<size_t>(nleaf_));
+}
 
 void CellFluxEngine::build(const CellMesh& m) {
     const auto per = [&](Face lo, Face hi) {
@@ -167,24 +189,7 @@ void CellFluxEngine::build(const CellMesh& m) {
         for (int f = 0; f < static_cast<int>(m.faces.size()); ++f) face_stencil(m, f);
     }
 
-    // Work arrays, sized only: every entry is written before it is read in a step (fluxes and cell quantities by the pass of
-    // their level, registers by clear_registers before the subcycles), as for F_; zero-filling them took ~2 % of the loop.
-    // Registers only for the coarse-fine faces (slot per face, consecutive in face order, so each level's are one run); the
-    // viscous face fluxes only with viscous terms.
-    reg_slot_.assign(m.faces.size(), -1);
-    reg_level_begin_.assign(static_cast<size_t>(m.max_level) + 2, 0);
-    int nreg = 0;
-    for (int l = 0; l <= m.max_level; ++l) {
-        reg_level_begin_[static_cast<size_t>(l)] = nreg;
-        for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f)
-            if (m.faces[static_cast<size_t>(f)].kind == CellFaceKind::CoarseFine) reg_slot_[static_cast<size_t>(f)] = nreg++;
-    }
-    reg_level_begin_[static_cast<size_t>(m.max_level) + 1] = nreg;
-    reg_.resize(static_cast<size_t>(nreg));
-    regv_.resize(static_cast<size_t>(nreg));
-    if (phys_.ns) Fv_.resize(m.faces.size());
-    else Fv_ = Field();
-    for (std::vector<double>* a : {&su_, &sv_, &sT_, &dudx_, &dudy_, &dvdx_, &dvdy_}) a->resize(static_cast<size_t>(nleaf_));
+    size_work_arrays(m);
 
     // immersed body: mask of every leaf from the uniform mask of its level (a leaf kept by the adapt keeps its value)
     std::vector<char> old_solid;
@@ -514,6 +519,183 @@ void CellFluxEngine::rebuild_lists_whole(const CellMesh& m) {
 
 void CellFluxEngine::set_partition(const CellMesh& m, const Partition& p) { rebuild_lists(m, &p); }
 
+void CellFluxEngine::mass_flow_faces(std::vector<char>& mask) const {
+    for (int s = 0; s < 4; ++s)
+        for (const int f : mf_face_[s]) mask[static_cast<size_t>(f)] = 1;
+}
+
+namespace {
+// Is every leaf under `code` (a leaf, or a node of vnode) kept?
+bool tree_kept(const std::vector<std::array<int, 4>>& vnode, const std::vector<int>& leaf_map, int code) {
+    if (code >= 0) return leaf_map[static_cast<size_t>(code)] >= 0;
+    for (const int ch : vnode[static_cast<size_t>(-1 - code)])
+        if (!tree_kept(vnode, leaf_map, ch)) return false;
+    return true;
+}
+// Copy the tree of `code` into `out` with the leaves renumbered (children before their node, like block_code).
+int copy_tree(const std::vector<std::array<int, 4>>& vnode, const std::vector<int>& leaf_map, std::vector<std::array<int, 4>>& out,
+              int code) {
+    if (code >= 0) return leaf_map[static_cast<size_t>(code)];
+    std::array<int, 4> ch{};
+    const std::array<int, 4>& old = vnode[static_cast<size_t>(-1 - code)];
+    for (int k = 0; k < 4; ++k) ch[static_cast<size_t>(k)] = copy_tree(vnode, leaf_map, out, old[static_cast<size_t>(k)]);
+    out.push_back(ch);
+    return -static_cast<int>(out.size());
+}
+}   // namespace
+
+void CellFluxEngine::localize(const CellMesh& m, const std::vector<int>& leaf_map, const std::vector<int>& face_map) {
+    const int old_n = nleaf_, new_n = m.num_leaves();
+    if (static_cast<int>(leaf_map.size()) != old_n || face_map.size() != stencil_.size() || lface_.empty())
+        throw std::logic_error("CellFluxEngine::localize: the maps do not match the build / the partition");
+    const int nmean = static_cast<int>(vroot_.size()), nip = static_cast<int>(interp_.size());
+    // virtual cells: the mean-type ones whose leaves are all kept, then the interpolated ones whose fine leaf, coarse leaf and
+    // the codes the coarse leaf's slopes read are all kept; vcode = the new code of each old virtual cell (kOutside: gone)
+    std::vector<int> vcode(static_cast<size_t>(nmean + nip), kOutside);
+    std::vector<int> new_vroot;
+    std::vector<std::array<int, 4>> new_vnode;
+    std::vector<std::array<int, 3>> new_vkey;
+    for (int v = 0; v < nmean; ++v)
+        if (tree_kept(vnode_, leaf_map, vroot_[static_cast<size_t>(v)])) {
+            vcode[static_cast<size_t>(v)] = new_n + static_cast<int>(new_vroot.size());
+            new_vroot.push_back(copy_tree(vnode_, leaf_map, new_vnode, vroot_[static_cast<size_t>(v)]));
+            new_vkey.push_back(vkey_[static_cast<size_t>(v)]);
+        }
+    const int new_nmean = static_cast<int>(new_vroot.size());
+    const auto kept_code = [&](int code) {   // an old code of a leaf or a mean-type virtual cell
+        if (code < 0) return true;
+        return code < old_n ? leaf_map[static_cast<size_t>(code)] >= 0 : vcode[static_cast<size_t>(code - old_n)] != kOutside;
+    };
+    std::vector<InterpVirtual> new_interp;
+    std::vector<std::array<int, 4>> new_ikey;
+    for (int k = 0; k < nip; ++k) {
+        const InterpVirtual& iv = interp_[static_cast<size_t>(k)];
+        bool ok = leaf_map[static_cast<size_t>(iv.fine)] >= 0 && leaf_map[static_cast<size_t>(iv.coarse)] >= 0;
+        for (int s = 0; ok && s < 4; ++s) ok = kept_code(nbr_raw_[static_cast<size_t>(4) * iv.coarse + s]);
+        if (!ok) continue;
+        vcode[static_cast<size_t>(nmean + k)] = new_n + new_nmean + static_cast<int>(new_interp.size());
+        InterpVirtual n = iv;
+        n.fine = leaf_map[static_cast<size_t>(iv.fine)];
+        n.coarse = leaf_map[static_cast<size_t>(iv.coarse)];
+        new_interp.push_back(n);
+        new_ikey.push_back(ikey_[static_cast<size_t>(k)]);
+    }
+    const auto remap = [&](int code) {
+        if (code < 0) return code;   // the edge of the domain (-1), or kOutside
+        if (code < old_n) return leaf_map[static_cast<size_t>(code)] >= 0 ? leaf_map[static_cast<size_t>(code)] : kOutside;
+        return vcode[static_cast<size_t>(code - old_n)];
+    };
+    // tables per leaf
+    std::vector<int> nraw(static_cast<size_t>(4) * new_n), nnbr(static_cast<size_t>(4) * new_n);
+    std::vector<char> nspecial(static_cast<size_t>(new_n), 0), nsolid, nowned(static_cast<size_t>(new_n), 0),
+        nghost(static_cast<size_t>(new_n), 0);
+    Field nsrc;
+    const bool has_src = src_.size() == static_cast<size_t>(old_n);
+    if (!solid_.empty()) nsolid.resize(static_cast<size_t>(new_n));
+    if (has_src) nsrc.resize(static_cast<size_t>(new_n));
+    for (int c = 0; c < old_n; ++c) {
+        const int k = leaf_map[static_cast<size_t>(c)];
+        if (k < 0) continue;
+        for (int s = 0; s < 4; ++s) {
+            nraw[static_cast<size_t>(4) * k + s] = remap(nbr_raw_[static_cast<size_t>(4) * c + s]);
+            nnbr[static_cast<size_t>(4) * k + s] = remap(nbr_[static_cast<size_t>(4) * c + s]);
+        }
+        nspecial[static_cast<size_t>(k)] = special_[static_cast<size_t>(c)];
+        if (!nsolid.empty()) nsolid[static_cast<size_t>(k)] = solid_[static_cast<size_t>(c)];
+        if (has_src) nsrc[static_cast<size_t>(k)] = src_[static_cast<size_t>(c)];
+        nowned[static_cast<size_t>(k)] = owned_mask_.empty() || owned_mask_[static_cast<size_t>(c)];
+        if (!ghost_leaf_mask_.empty()) nghost[static_cast<size_t>(k)] = ghost_leaf_mask_[static_cast<size_t>(c)];
+    }
+    // stencils of the kept faces
+    std::vector<std::array<int, 4>> nst(m.faces.size());
+    for (size_t f = 0; f < face_map.size(); ++f) {
+        if (face_map[f] < 0) continue;
+        for (size_t q = 0; q < 4; ++q) nst[static_cast<size_t>(face_map[f])][q] = remap(stencil_[f][q]);
+    }
+    // the lists of the partition
+    const size_t L = static_cast<size_t>(m.max_level) + 1;
+    for (size_t l = 0; l < L; ++l) {
+        for (std::vector<int>* v : {&lheld_[l], &vcells_[l]})
+            for (int& c : *v) {
+                c = leaf_map[static_cast<size_t>(c)];
+                if (c < 0) throw std::logic_error("CellFluxEngine::localize: a listed leaf is not kept");
+            }
+        for (int& f : lface_[l]) {
+            f = face_map[static_cast<size_t>(f)];
+            if (f < 0) throw std::logic_error("CellFluxEngine::localize: a face this rank computes is not kept");
+        }
+        for (int& code : need_[l]) {
+            code = remap(code);
+            if (code < 0) throw std::logic_error("CellFluxEngine::localize: a face this rank computes reads a cell that is not kept");
+        }
+    }
+    for (int s = 0; s < 4; ++s)
+        for (int& f : mf_face_[s]) {
+            f = face_map[static_cast<size_t>(f)];
+            if (f < 0) throw std::logic_error("CellFluxEngine::localize: a mass-flow face is not kept");
+        }
+    // the ghost-cell wall: finest-level cells -> kept leaves (the table of the cells stays whole, like the IBM mask of each level)
+    std::unordered_map<int, int> nfine;
+    for (const auto& e : fine_leaf_)
+        if (leaf_map[static_cast<size_t>(e.second)] >= 0) nfine[e.first] = leaf_map[static_cast<size_t>(e.second)];
+    fine_leaf_.swap(nfine);
+    std::vector<std::pair<int, int>> nreads;
+    for (const auto& pr : ghost_reads_leaf_)
+        if (leaf_map[static_cast<size_t>(pr.first)] >= 0 && leaf_map[static_cast<size_t>(pr.second)] >= 0)
+            nreads.push_back({leaf_map[static_cast<size_t>(pr.first)], leaf_map[static_cast<size_t>(pr.second)]});
+    ghost_reads_leaf_.swap(nreads);
+    // commit
+    nleaf_ = new_n;
+    nbr_raw_.swap(nraw);
+    nbr_.swap(nnbr);
+    stencil_.swap(nst);
+    special_.swap(nspecial);
+    solid_.swap(nsolid);
+    if (has_src) src_.swap(nsrc);
+    else Field().swap(src_);
+    ghost_leaf_mask_.swap(nghost);
+    vroot_.swap(new_vroot);
+    vnode_.swap(new_vnode);
+    vkey_.swap(new_vkey);
+    interp_.swap(new_interp);
+    ikey_.swap(new_ikey);
+    owned_mask_.swap(nowned);
+    held_mask_.assign(static_cast<size_t>(new_n), 1);
+    all_faces_.resize(m.faces.size());
+    for (size_t f = 0; f < m.faces.size(); ++f) all_faces_[f] = static_cast<int>(f);
+    // the owned range of every level must be one run of the local leaves
+    for (size_t l = 0; l < L; ++l) {
+        const int lv = static_cast<int>(l);
+        int b = m.level_begin[lv], e = b;
+        bool first = true;
+        for (int c = m.level_begin[lv]; c < m.level_begin[lv + 1]; ++c)
+            if (owned_mask_[static_cast<size_t>(c)]) {
+                if (first) b = c;
+                else if (e != c) throw std::logic_error("CellFluxEngine::localize: the owned leaves of a level are not contiguous");
+                first = false;
+                e = c + 1;
+            }
+        lown_b_[l] = b;
+        lown_e_[l] = e;
+    }
+    for (std::vector<int>* a : {&nbr_raw_spare_, &nbr_spare_}) std::vector<int>().swap(*a);
+    std::vector<std::array<int, 4>>().swap(stencil_spare_);
+    for (Field* a : {&W_, &F_, &Fv_, &Vc_, &Wint_, &forced_}) Field().swap(*a);
+    if (has_body()) forced_.resize(static_cast<size_t>(new_n));
+    size_work_arrays(m);
+    built_mesh_ = &m;
+    built_version_ = m.version;
+    // every read of every face this rank computes is a kept leaf or a kept virtual cell (kOutside throws in mark_code)
+    std::vector<int> reads;
+    for (size_t l = 0; l < L; ++l)
+        for (const int f : lface_[l]) {
+            reads.clear();
+            face_dependencies(m, f, reads);
+            for (const int c : reads)
+                if (c < 0 || c >= new_n) throw std::logic_error("CellFluxEngine::localize: a face reads a leaf that is not kept");
+        }
+}
+
 void CellFluxEngine::clear_partition(const CellMesh& m) { rebuild_lists(m, nullptr); }
 
 template <class Mark>
@@ -527,6 +709,7 @@ void CellFluxEngine::mark_tree(int code, const Mark& mark) const {
 
 template <class Mark>
 void CellFluxEngine::mark_code(int code, const Mark& mark) const {
+    if (code == kOutside) throw std::logic_error("CellFluxEngine: a face reads a leaf that is not in this rank's partial mesh");
     if (code < 0) return;
     if (code < nleaf_) {
         mark(code);
@@ -663,12 +846,23 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m) {
 
 void CellFluxEngine::fill_ghost_leaves(const Field& U, Field& out, const std::vector<char>* only) const {
     // the ghost leaves (of `only`, if given) from the fluid leaves their image points read; same bits as the uniform solver
+    // In a rank's partial mesh fine_leaf_ holds only the kept leaves: a cell that is not there is not filled (the first function),
+    // and one read as an image point is NaN (as the state of a leaf outside the halo is in a replicated run with poisoned halos)
+    static const State nan_state = {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(),
+                                    std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(),
+                                    std::numeric_limits<double>::quiet_NaN()};
     ghost_ib_->fill_ghost_cells(
         [&](int fc) {
-            const int leaf = fine_leaf_.at(fc);
+            const auto it = fine_leaf_.find(fc);
+            if (it == fine_leaf_.end()) return -1;
+            const int leaf = it->second;
             return only && !(*only)[static_cast<size_t>(leaf)] ? -1 : leaf;
         },
-        [&](int fc) -> const State& { return U[static_cast<size_t>(fine_leaf_.at(fc))]; }, out, eos_);
+        [&](int fc) -> const State& {
+            const auto it = fine_leaf_.find(fc);
+            return it == fine_leaf_.end() ? nan_state : U[static_cast<size_t>(it->second)];
+        },
+        out, eos_);
 }
 
 std::array<double, 3> CellFluxEngine::ghost_loads(const Field& U, double mu, double cx, double cy) const {

@@ -105,25 +105,27 @@ CellNeighbour CellMesh::neighbour(int leaf, Face side) const {
     const int s = static_cast<int>(side);
     const int b = side_ptr[4 * leaf + s], e = side_ptr[4 * leaf + s + 1];
     CellNeighbour n;
+    if (b == e) {   // a partial mesh: this side looks outside what the rank keeps
+        n.kind = CellNeighbour::Kind::Outside;
+        return n;
+    }
     const auto other = [&](int f) { return faces[f].left == leaf ? faces[f].right : faces[f].left; };
     if (faces[side_face[b]].kind == CellFaceKind::Boundary) return n;
     n.a = other(side_face[b]);
     if (e - b == 2) {
         n.kind = CellNeighbour::Kind::Finer;
         n.b = other(side_face[b + 1]);
+        if (n.a == kOutside || n.b == kOutside) n.kind = CellNeighbour::Kind::Outside;
+    } else if (n.a == kOutside) {
+        n.kind = CellNeighbour::Kind::Outside;
     } else {
         n.kind = level[n.a] == level[leaf] ? CellNeighbour::Kind::Same : CellNeighbour::Kind::Coarser;
     }
     return n;
 }
 
-void CellMesh::rebuild(bool incremental) {
+void CellMesh::build_lookups() {
     const int N = num_leaves();
-    ++version;
-    static const bool force_full = std::getenv("FENICE_FULL_REBUILD") != nullptr;
-    if (!incremental || force_full) prev_leaf.clear();
-    topo_dirty.clear();
-    prev_face.clear();
     // lookup table and level runs
     level_begin.assign(static_cast<size_t>(max_level) + 2, N);
     for (int c = N - 1; c >= 0; --c) level_begin[level[c]] = c;
@@ -146,6 +148,17 @@ void CellMesh::rebuild(bool incremental) {
 #pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
         for (int c = cb; c < ce; ++c) g[static_cast<size_t>(cj[c]) * NX + ci[c]] = c;
     }
+}
+
+void CellMesh::rebuild(bool incremental) {
+    const int N = num_leaves();
+    ++version;
+    partial = false;
+    static const bool force_full = std::getenv("FENICE_FULL_REBUILD") != nullptr;
+    if (!incremental || force_full) prev_leaf.clear();
+    topo_dirty.clear();
+    prev_face.clear();
+    build_lookups();
 
     // faces: each leaf creates the faces it is responsible for
     //   same level  -> the leaf on the lower side creates it (its Right / Top side)
@@ -364,6 +377,73 @@ void CellMesh::assign_leaves(const std::vector<int>& lv, const std::vector<int>&
     if (state) U = std::move(reordered);
     else U.clear();
     rebuild();
+}
+
+void CellMesh::keep_partial(const std::vector<char>& keep_leaf, const std::vector<char>& keep_face, std::vector<int>& leaf_map,
+                            std::vector<int>& face_map) {
+    const int N = num_leaves(), NF = static_cast<int>(faces.size());
+    if (static_cast<int>(keep_leaf.size()) != N || static_cast<int>(keep_face.size()) != NF)
+        throw std::invalid_argument("CellMesh::keep_partial: the flags do not match the leaves / faces");
+    leaf_map.assign(static_cast<size_t>(N), -1);
+    face_map.assign(static_cast<size_t>(NF), -1);
+    int nl = 0, nf = 0;
+    for (int c = 0; c < N; ++c)
+        if (keep_leaf[static_cast<size_t>(c)]) leaf_map[static_cast<size_t>(c)] = nl++;
+    for (int f = 0; f < NF; ++f)
+        if (keep_face[static_cast<size_t>(f)]) face_map[static_cast<size_t>(f)] = nf++;
+    // the leaves, in their order (so the (level, key) order and the level runs stay)
+    std::vector<int> lv(static_cast<size_t>(nl)), ii(static_cast<size_t>(nl)), jj(static_cast<size_t>(nl));
+    Field us;
+    if (!U.empty()) us.resize(static_cast<size_t>(nl));
+    for (int c = 0; c < N; ++c) {
+        const int k = leaf_map[static_cast<size_t>(c)];
+        if (k < 0) continue;
+        lv[static_cast<size_t>(k)] = level[static_cast<size_t>(c)];
+        ii[static_cast<size_t>(k)] = ci[static_cast<size_t>(c)];
+        jj[static_cast<size_t>(k)] = cj[static_cast<size_t>(c)];
+        if (!us.empty()) us[static_cast<size_t>(k)] = U[static_cast<size_t>(c)];
+    }
+    // the faces; a leaf that is not kept becomes kOutside (a boundary keeps -1)
+    std::vector<CellFace> fs(static_cast<size_t>(nf));
+    for (int f = 0; f < NF; ++f) {
+        const int k = face_map[static_cast<size_t>(f)];
+        if (k < 0) continue;
+        CellFace g = faces[static_cast<size_t>(f)];
+        if (g.left >= 0) g.left = leaf_map[static_cast<size_t>(g.left)] >= 0 ? leaf_map[static_cast<size_t>(g.left)] : kOutside;
+        if (g.right >= 0) g.right = leaf_map[static_cast<size_t>(g.right)] >= 0 ? leaf_map[static_cast<size_t>(g.right)] : kOutside;
+        fs[static_cast<size_t>(k)] = g;
+    }
+    // the gather lists of the kept leaves: a side whose faces are not all kept is empty (kOutside)
+    std::vector<int> sp(static_cast<size_t>(4) * nl + 1, 0), sf;
+    for (int c = 0; c < N; ++c) {
+        const int k = leaf_map[static_cast<size_t>(c)];
+        if (k < 0) continue;
+        for (int s = 0; s < 4; ++s) {
+            const int b = side_ptr[static_cast<size_t>(4) * c + s], e = side_ptr[static_cast<size_t>(4) * c + s + 1];
+            bool all = true;
+            for (int q = b; q < e; ++q) all = all && face_map[static_cast<size_t>(side_face[static_cast<size_t>(q)])] >= 0;
+            if (all)
+                for (int q = b; q < e; ++q) sf.push_back(face_map[static_cast<size_t>(side_face[static_cast<size_t>(q)])]);
+            sp[static_cast<size_t>(4) * k + s + 1] = static_cast<int>(sf.size());
+        }
+    }
+    level.swap(lv);
+    ci.swap(ii);
+    cj.swap(jj);
+    U.swap(us);
+    faces.swap(fs);
+    side_ptr.swap(sp);
+    side_face.swap(sf);
+    for (std::vector<int>* a : {&prev_leaf, &prev_face, &face_off_}) std::vector<int>().swap(*a);
+    std::vector<char>().swap(topo_dirty);
+    std::vector<CellFace>().swap(face_spare_);
+    ++version;
+    partial = true;
+    build_lookups();
+    face_level_begin.resize(static_cast<size_t>(max_level) + 2);
+    for (int l = 0; l <= max_level + 1; ++l)
+        face_level_begin[static_cast<size_t>(l)] = static_cast<int>(
+            std::partition_point(faces.begin(), faces.end(), [l](const CellFace& f) { return f.level < l; }) - faces.begin());
 }
 
 double CellMesh::memory_bytes() const {

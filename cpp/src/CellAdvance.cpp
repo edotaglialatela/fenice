@@ -16,12 +16,15 @@ double CellAdvance::step(double dt, double t) {
 double CellAdvance::advance(int l, double dt, double t) {
     const int max_l = mesh_.max_level;
     double S = 0.0;
-    if (l < max_l && mesh_.level_begin[l + 2] > mesh_.level_begin[l + 1]) {
+    // a level that exists on any rank is advanced by every rank (the exchanges are collective): the whole mesh decides, not the
+    // leaves a rank keeps
+    const auto present = [&](int k) { return par ? par->level_present(k) : mesh_.level_begin[k + 1] > mesh_.level_begin[k]; };
+    if (l < max_l && present(l + 1)) {
         engine_.clear_registers(mesh_, l + 1);
         for (int sub = 0; sub < 2; ++sub) S = std::max(S, advance(l + 1, dt / 2, t + sub * (dt / 2)));
         if (par) par->exchange_registers(l + 1);   // the coarse owners get the fine fluxes of their coarse-fine faces
     }
-    if (mesh_.level_begin[l + 1] > mesh_.level_begin[l]) S = std::max(S, advance_own(l, dt, t));
+    if (present(l)) S = std::max(S, advance_own(l, dt, t));
     return S;
 }
 

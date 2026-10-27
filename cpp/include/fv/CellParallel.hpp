@@ -47,6 +47,23 @@ public:
     // exchanges: the request counts, then the requests).
     void partition();
 
+    // Keep only what this rank holds (call right after partition()): the mesh becomes a partial mesh of the held leaves (owned and
+    // halo) and the faces it needs, the engine's tables and the lists of this object are re-indexed to it, and everything else is
+    // freed. Nothing is recomputed, so the results are bit for bit those of the replicated run. A leaf index is local from then on
+    // (the leaves keep their (level, key) order); until globalize() only the time stepping, the exchanges and the monitor sums
+    // may be used: not partition(), gather_state() or an adapt.
+    void localize();
+    // Undo localize() (collective): every rank gets the whole mesh back from the owned leaves of all ranks (assign_leaves, so
+    // the engine must be built again, then partition() and localize()) with the state of every leaf.
+    void globalize();
+    bool localized() const { return localized_; }
+    // True if the whole mesh (not only this rank's share) has leaves at `level`. Every rank must run the collective calls of a level
+    // that exists anywhere, also when it holds no leaf of it (a localized mesh may have an empty level that others do not).
+    bool level_present(int level) const { return level_present_[static_cast<size_t>(level)] != 0; }
+    // Every rank gets the leaves of all ranks, in (level, key) order: the arrays of a whole mesh and its state (collective; the
+    // mesh may be localized or not). For the checkpoint and the dump.
+    void collect(std::vector<int>& level, std::vector<int>& ci, std::vector<int>& cj, Field& U) const;
+
     // Test switch: after partition() the state of the leaves this rank does not hold is set to NaN, so that a missing halo
     // cell cannot go unnoticed.
     bool poison = false;
@@ -108,7 +125,12 @@ private:
         std::vector<std::vector<int>> send, recv;
     };
     void push_leaves(const Lists& lists);
+    // The owned leaves of all ranks as records (level, ci, cj, state), 3 + kNVar doubles each, in rank order.
+    void gather_owned(std::vector<double>& all) const;
 
+    bool localized_ = false;
+    std::vector<char> level_present_;   // per level: the whole mesh has leaves there (set by partition())
+    std::vector<char> face_active_;   // the faces this rank computes (of the last partition(); dropped by localize())
     CellMesh& mesh_;
     CellFluxEngine& engine_;
     CellComm comm_;

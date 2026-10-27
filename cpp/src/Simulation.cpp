@@ -501,9 +501,17 @@ void Simulation::initialize_field() {
                                                      "finest level; the mask forcing is used\n");
         if (p.use_ibm) cell_engine->solid_reset(*cells, cells->U);
     }
-    if (cell_par) cell_par->partition();
+    if (cell_par) {
+        cell_par->partition();
+        print_halo_reach("initial mesh");
+        if (!replicated_storage()) cell_par->localize();   // each rank keeps only its leaves and their halo
+    }
     mem_init_ = memory_usage();
-    print_halo_reach("initial mesh");
+}
+
+bool Simulation::replicated_storage() {
+    const char* env = std::getenv("FENICE_REPLICATED_REMESH");
+    return env && std::string(env) == "1";
 }
 
 void Simulation::print_halo_reach(const char* when) const {
@@ -887,7 +895,7 @@ std::string Simulation::checkpoint_path() const {
     return (fs::path(exporter.output_dir()) / (file_prefix + "_restart.npz")).string();
 }
 
-void Simulation::save_checkpoint(int step) {
+void Simulation::save_checkpoint(int step, const LeafArrays* leaves) {
     const std::string path = checkpoint_path();
     const std::string tmp = path.substr(0, path.size() - 4) + "_tmp.npz";
     std::vector<double> times;
@@ -900,14 +908,15 @@ void Simulation::save_checkpoint(int step) {
     if (cells) {
         // an adaptive run: the leaves (level and integer coordinates) and their state, and the wave-speed bound the next
         // time step is taken from
-        const size_t n = static_cast<size_t>(cells->num_leaves());
+        const LeafArrays lf = leaves ? *leaves : LeafArrays{&cells->level, &cells->ci, &cells->cj, &cells->U};
+        const size_t n = lf.level->size();
         std::vector<double> lev(n), li(n), lj(n);
         for (size_t c = 0; c < n; ++c) {
-            lev[c] = cells->level[c];
-            li[c] = cells->ci[c];
-            lj[c] = cells->cj[c];
+            lev[c] = (*lf.level)[c];
+            li[c] = (*lf.ci)[c];
+            lj[c] = (*lf.cj)[c];
         }
-        a["U"] = field_to_npy(cells->U);
+        a["U"] = field_to_npy(*lf.U);
         a["leaf_level"] = NpyArray::from_doubles(lev, {static_cast<int64_t>(n)});
         a["leaf_i"] = NpyArray::from_doubles(li, {static_cast<int64_t>(n)});
         a["leaf_j"] = NpyArray::from_doubles(lj, {static_cast<int64_t>(n)});
@@ -1018,22 +1027,22 @@ Field Simulation::load_hot_start(const std::string& path) {
     return U3;
 }
 
-void Simulation::dump_final_state(int step) const {
+void Simulation::dump_final_state(int step, const LeafArrays* leaves) const {
     if (p.dump_state.empty()) return;
     NpzArchive a;
     a["t"] = NpyArray::from_double(t);
     a["step"] = NpyArray::from_int(step);
     if (cells) {
+        const LeafArrays lf = leaves ? *leaves : LeafArrays{&cells->level, &cells->ci, &cells->cj, &cells->U};
+        const size_t n = lf.level->size();
         std::vector<double> meta;
-        meta.reserve(static_cast<size_t>(cells->num_leaves()) * 5);
-        for (int c = 0; c < cells->num_leaves(); ++c) {
-            const size_t k = static_cast<size_t>(c);
-            const int l = cells->level[k];
-            meta.insert(meta.end(), {cells->x0 + cells->ci[k] * cells->dx(l), cells->x0 + (cells->ci[k] + 1) * cells->dx(l),
-                                     cells->y0 + cells->cj[k] * cells->dy(l), cells->y0 + (cells->cj[k] + 1) * cells->dy(l),
-                                     static_cast<double>(l)});
+        meta.reserve(n * 5);
+        for (size_t k = 0; k < n; ++k) {
+            const int l = (*lf.level)[k], i = (*lf.ci)[k], j = (*lf.cj)[k];
+            meta.insert(meta.end(), {cells->x0 + i * cells->dx(l), cells->x0 + (i + 1) * cells->dx(l),
+                                     cells->y0 + j * cells->dy(l), cells->y0 + (j + 1) * cells->dy(l), static_cast<double>(l)});
         }
-        a["U"] = field_to_npy(cells->U);
+        a["U"] = field_to_npy(*lf.U);
         a["leaf_meta"] = NpyArray::from_doubles(meta, {static_cast<int64_t>(meta.size() / 5), 5});
     } else {
         a["U"] = field_to_npy(U, mesh.is3d() ? kNVar : 4);
@@ -1193,14 +1202,35 @@ void Simulation::solve_amr() {
     const bool root = rank == 0;
     CellAdvance adv(cm, eng, *scheme);
     if (cell_par) adv.par = cell_par.get();
-    // after this call every rank holds the state of every leaf (collective)
-    const auto gather = [&]() {
+    // each rank keeps only its leaves and their halo (CellParallel::localize), unless FENICE_REPLICATED_REMESH=1
+    const bool local_run = cell_par && cell_par->localized();
+    // the leaves of the whole mesh and their state, the same arrays on every rank (collective)
+    std::vector<int> g_level, g_ci, g_cj;
+    Field g_U;
+    const auto leaves = [&]() -> LeafArrays {
+        if (local_run) {
+            cell_par->collect(g_level, g_ci, g_cj, g_U);
+            return {&g_level, &g_ci, &g_cj, &g_U};
+        }
         if (cell_par) cell_par->gather_state();
+        return {&cm.level, &cm.ci, &cm.cj, &cm.U};
+    };
+    // number of leaves of the whole mesh (collective)
+    const auto total_leaves = [&]() {
+        double n = 0.0;
+        for (int l = 0; l <= cm.max_level; ++l) n += eng.owned_end(l) - eng.owned_begin(l);
+        return static_cast<int>(cell_par ? cell_par->reduce_sum(n) : n);
+    };
+    // largest wave speed of the leaves of the whole mesh (collective), from the forced state of the leaves a rank holds
+    const auto wave_speed = [&]() {
+        eng.force_state(cm, cm.U);
+        const double s = eng.wave_speed(cm, cm.U);
+        return cell_par ? cell_par->reduce_max(s) : s;
     };
 
     Field R;
     // wave-speed bound the time step is taken from, one step old (a restart reads it from the checkpoint)
-    double S = start_step > 0 ? cell_speed_ : eng.residual(cm, cm.U, R);
+    double S = start_step > 0 ? cell_speed_ : (local_run ? wave_speed() : eng.residual(cm, cm.U, R));
     cell_speed_ = S;
     int step = start_step;
 
@@ -1240,7 +1270,7 @@ void Simulation::solve_amr() {
                 Field Rown(static_cast<size_t>(cm.num_leaves()));
                 eng.force_state(cm, cm.U);   // as the first pass of a step does
                 for (int l = 0; l <= cm.max_level; ++l) {
-                    if (cm.level_begin[l + 1] == cm.level_begin[l]) continue;
+                    if (!cell_par->level_present(l)) continue;
                     eng.compute_level_fluxes(cm, cm.U, l);
                     if (l == 0) continue;
                     eng.clear_registers(cm, l);
@@ -1248,7 +1278,7 @@ void Simulation::solve_amr() {
                     cell_par->exchange_registers(l);
                 }
                 for (int l = 0; l <= cm.max_level; ++l) {
-                    if (cm.level_begin[l + 1] == cm.level_begin[l]) continue;
+                    if (!cell_par->level_present(l)) continue;
                     eng.gather_level(cm, l, true, Rl);
                     std::copy(Rl.begin(), Rl.end(), Rown.begin() + eng.owned_begin(l));
                 }
@@ -1283,15 +1313,23 @@ void Simulation::solve_amr() {
 
         if (step % p.amr_refine_every == 0) {
             const auto r0 = Clock::now();
-            gather();   // the indicator looks at every leaf
+            // the indicator looks at every leaf: the whole mesh and its state on every rank (the replicated remesh)
+            if (local_run)
+                cell_par->globalize();
+            else if (cell_par)
+                cell_par->gather_state();
             t_gather += seconds_since(r0);
-            if (cell_adaptor->remesh()) {
+            const bool changed = cell_adaptor->remesh();
+            if (changed || local_run) {
                 const auto r2 = Clock::now();
+                if (!changed) eng.build(cm);   // the tables of the localized engine are gone
                 if (cell_par) cell_par->partition();
+                if (local_run) cell_par->localize();
                 t_partition += seconds_since(r2);
+            }
+            if (changed) {
                 const auto r1 = Clock::now();
-                S = eng.wave_speed(cm, cm.U);   // the wave-speed bound follows the new leaves (each rank's leaves, then the maximum)
-                if (cell_par) S = cell_par->reduce_max(S);
+                S = wave_speed();   // the wave-speed bound follows the new leaves (each rank's leaves, then the maximum)
                 cell_speed_ = S;
                 t_speed += seconds_since(r1);
             }
@@ -1301,11 +1339,12 @@ void Simulation::solve_amr() {
 
         if (step % p.save_interval == 0) {
             export_state(step);
-            gather();
-            if (root) save_checkpoint(step);
+            const LeafArrays lf = leaves();
+            const int nleaves = total_leaves();
+            if (root) save_checkpoint(step, &lf);
             if (root)
                 std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | leaves = %d | wall = %s | Checkpoint saved\n",
-                            step, t, dt, S, cm.num_leaves(), format_elapsed(seconds_since(t0)).c_str());
+                            step, t, dt, S, nleaves, format_elapsed(seconds_since(t0)).c_str());
             std::fflush(stdout);
         }
         const double stop = g_stop_requested.load() ? 1.0 : 0.0;
@@ -1323,8 +1362,7 @@ void Simulation::solve_amr() {
     }
     if (root && interrupted) std::printf("\n[INTERRUPTED] Stopping the simulation...\n");
     if (interrupted || step % p.save_interval != 0) export_state(step);
-    gather();
-    // resident memory of every rank (collective)
+    // resident memory of every rank (collective), before the whole mesh is gathered for the files
     const MemoryUsage mem_end = memory_usage();
     std::vector<double> mem = {mem_setup_.current, mem_init_.current, mem_end.current, mem_end.peak};
     if (cell_par) {
@@ -1334,14 +1372,15 @@ void Simulation::solve_amr() {
         cell_comm.allgatherv(mem.data(), 4, all.data(), counts.data(), displs.data());
         mem.swap(all);
     }
+    const LeafArrays lf = leaves();
     if (!root) return;
-    save_checkpoint(step);
+    save_checkpoint(step, &lf);
     exporter.write_pvd(file_prefix);
-    dump_final_state(step);
-    print_halo_reach("final mesh");
+    dump_final_state(step, &lf);
+    if (!local_run) print_halo_reach("final mesh");
     std::vector<int> per_level(static_cast<size_t>(cm.max_level) + 1, 0);
-    for (int c = 0; c < cm.num_leaves(); ++c) ++per_level[static_cast<size_t>(cm.level[static_cast<size_t>(c)])];
-    std::printf("[AMR] %d leaves at the end (", cm.num_leaves());
+    for (const int l : *lf.level) ++per_level[static_cast<size_t>(l)];
+    std::printf("[AMR] %d leaves at the end (", static_cast<int>(lf.level->size()));
     for (int l = 0; l <= cm.max_level; ++l) std::printf("%slevel %d: %d", l ? ", " : "", l, per_level[static_cast<size_t>(l)]);
     std::printf("); remesh %.2f s of the %.2f s time loop\n", remesh_wall, loop_wall);
     std::printf("[AMR] remesh parts: gather %.2f s, indicator %.2f s, adapt %.2f s, engine build %.2f s, wave-speed bound %.2f s, partition %.2f s\n",

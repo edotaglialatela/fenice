@@ -23,9 +23,13 @@ enum class CellFaceKind : uint8_t {
     Boundary,     // one leaf and the edge of the domain
 };
 
+// A leaf that is not in a partial mesh (a face end, a neighbour); never -1, which is the missing side of a boundary face.
+constexpr int kOutside = -2;
+
 // One face between two leaves, or between a leaf and a domain edge.  `left` / `right` are the leaves on the
-// lower / higher side along `axis` (-1 on the missing side of a boundary face); across a periodic wrap `left`
-// is the last column (row) and `right` the first.  The face belongs to the level of the finer of its two cells.
+// lower / higher side along `axis` (-1 on the missing side of a boundary face, kOutside in a partial mesh for a leaf that is not
+// kept); across a periodic wrap `left` is the last column (row) and `right` the first.  The face belongs to the level of the
+// finer of its two cells.
 struct CellFace {
     int left = -1, right = -1;
     int level = 0;                          // level of the finer cell
@@ -38,7 +42,8 @@ struct CellFace {
 
 // A leaf's neighbourhood across one side (a summary of the face list).
 struct CellNeighbour {
-    enum class Kind { Boundary, Same, Coarser, Finer } kind = Kind::Boundary;
+    // Outside: a partial mesh does not know this side (a leaf across it, or one of the two finer ones, is not kept)
+    enum class Kind { Boundary, Same, Coarser, Finer, Outside } kind = Kind::Boundary;
     int a = -1;   // the neighbour leaf; for Finer the one with the lower transverse position
     int b = -1;   // Finer only: the upper one
 };
@@ -108,6 +113,16 @@ public:
     void assign_leaves(const std::vector<int>& levels, const std::vector<int>& is, const std::vector<int>& js,
                        Field* state = nullptr);
 
+    // --- partial mesh (one rank's share of a distributed run, CellParallel::localize) ---
+    // Keep only the leaves with keep_leaf != 0 and the faces with keep_face != 0 (call on a whole mesh), in the same order: the
+    // leaf and face indices become local ones, leaf_map / face_map give the new index of every old leaf / face (-1: dropped).
+    // A face keeps its end as kOutside if that leaf is dropped; a side whose faces are not all kept has an empty gather list
+    // (neighbour() says Outside). The state U goes with the leaves. Frees the incremental bookkeeping.
+    void keep_partial(const std::vector<char>& keep_leaf, const std::vector<char>& keep_face, std::vector<int>& leaf_map,
+                      std::vector<int>& face_map);
+    // True after keep_partial (until the leaves are assigned again).
+    bool partial = false;
+
     // --- last change of the leaves (lets dependent tables be updated instead of rebuilt) ---
     // Counter of the changes of the leaves (construction, adapt, assign_leaves).
     long long version = 0;
@@ -142,6 +157,8 @@ private:
     // Lookup tables, faces and gather lists of the current leaves. `incremental`: prev_leaf is set (adapt), the faces of the clean
     // leaves are copied from the old ones.
     void rebuild(bool incremental = false);
+    // Level runs and the position -> leaf lookup of the current leaves.
+    void build_lookups();
     // Wrap (i, j) of level l into the domain on periodic axes; false if it falls outside a non-periodic edge.
     bool wrap(int l, int& i, int& j) const;
 };
