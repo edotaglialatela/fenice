@@ -1,6 +1,6 @@
 # AMR with distributed storage and a local remesh (plan)
 
-Status: **approved (D1-D5 answered, section 7); phases 0 (section 8) and 1 (section 9) done, phase 2 next.** Branch `amr-distributed`, from `main`
+Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9) and 2 (section 10) done, phase 3 next.** Branch `amr-distributed`, from `main`
 at 883c45d (both PRs #4 / #5 merged). This is option 2 of `docs/design/amr-optimisation.md`, as a step towards 3-D octree AMR.
 Every number below that was not measured is marked *(estimate)*.
 
@@ -329,3 +329,54 @@ Reach of the remesh (from the code, for phase 3; checked by the guard test then)
   like the indicator / adapt / build it slows down 2.5-4x from 2 to 16 ranks as the ranks share the memory bandwidth. Phase 1
   removed the R factor and every global index between ranks (needed for phase 2), not the O(N) per rank; that goes with the
   replicated mesh in phases 2 and 4. Memory unchanged, as expected.
+
+## 10. Phase 2 (done): local storage for the time stepping
+
+Commits: 2a registers / `Fv_` saving, 2b the monitor without a gather (D2), 2c localize.
+
+* **2a** `reg_` / `regv_` hold one entry per coarse-fine face (`reg_slot_`, `reg_level_begin_`), `Fv_` exists only with viscous terms.
+  Bits unchanged (golden dumps, regression).
+* **2b (D2)** `CellComm::allreduce_sum` (MPI and `FakeHub`). The monitor row is the sum over the owned leaves in leaf order, one
+  allreduce per value: one rank gives the serial bits (the golden monitors are identical), several ranks agree to roundoff. The
+  loads of a partitioned engine come from the level passes (`compute_level_fluxes`, the coarse-fine fluxes handed to the coarse owners
+  as registers of weight 1, `gather_level`), not from a full residual; `Simulation::cell_loads` sums the owned solid leaves.
+* **2c** After the (still replicated) remesh and `partition()`, `CellParallel::localize()` keeps what the rank holds:
+  * `CellMesh::keep_partial(keep_leaf, keep_face)` drops the other leaves and faces in place (same order, so the (level, key) order and the
+    level runs stay) and returns the maps. A face keeps `kOutside` (-2) for a leaf that is gone; a side whose faces are not all kept has an
+    empty gather list and `neighbour()` says `Outside`. Kept faces: those the rank computes, every face of an owned leaf (the gather, the
+    registers) and the mass-flow faces.
+  * `CellFluxEngine::localize` re-indexes every table of the build and of the partition (stencils, neighbour codes, solid flags,
+    steady sources, mass-flow faces, per-level lists, ghost tables) with the maps. A virtual cell stays if every leaf of its tree is kept
+    (an interpolated one also if the cells its slopes read are); any code that points elsewhere is `kOutside`. It then runs
+    `face_dependencies` on every face the rank computes and **throws** if one reads `kOutside` or a leaf that is not kept
+    (`a_partial_mesh_throws_when_a_face_reads_a_leaf_it_does_not_keep` shrinks the halo by one leaf and expects it). Nothing is
+    recomputed, so the bits hold by construction.
+  * `CellParallel` re-indexes its lists (leaf indices by the leaf map, register lists by the face map); `level_present(l)` keeps the
+    whole mesh's answer to "does level l have leaves", which `CellAdvance` and the monitor use: a rank may hold no leaf of a level that
+    others have and must still make the collective calls of that level (this hung the hot-start regression on 4 ranks before).
+  * The remesh calls `globalize()` first: the owned leaves of all ranks (level, i, j, state: 8 doubles) are allgathered and
+    `assign_leaves` rebuilds the whole mesh; then `remesh()` (which builds the engine in full, the old incremental base is gone),
+    `partition()`, `localize()`. If the remesh changed nothing the engine is built anyway (its tables were freed).
+  * Checkpoint, `dump_state`, the leaf counts and the final report go through `CellParallel::collect` (allgather, sorted by (level, key);
+    the file formats are unchanged). `FENICE_REPLICATED_REMESH=1` skips `localize()` (D5).
+  * `Simulation::solve_amr` takes the wave-speed bound after a remesh from `force_state` + `wave_speed` on both paths; the golden dumps
+    stay bitwise (the old code used the forced state of the old indexing, which the maximum did not depend on).
+* **Checks**: unit tests (new: `cellparallel_localized_run_equals_serial_bitwise_and_keeps_only_its_halo`, 1-7 emulated ranks, every
+  physics, remesh included; `a_partial_mesh_throws...`), regression serial and 4 ranks ALL MATCH, golden dumps ALL BITWISE, real MPI
+  (`amr_mpi.py --check`, `ibm_ghost.py --check`) 1-7 ranks bitwise.
+* **Measured** (this machine, Ryzen 7 7800X3D, MSVC, airfoil 720 x 360, 50 steps, `amr_memory.py --force`; before phase 2 in section 8.1):
+
+| ranks | wall [s] | remesh [s] (gather / indicator / adapt / build / partition) | RSS after init / end [MB] | peak [MB] |
+|---|---|---|---|---|
+| 1 (serial) | 5.06 | 0.80 (0.00 / 0.28 / 0.23 / 0.14 / 0.00) | 184 / 257 | 349 |
+| 2 | 4.99 | 2.31 (0.53 / 0.34 / 0.32 / 0.47 / 0.62) | 101 / 133 | 342 |
+| 4 | 3.71 | 2.23 (0.59 / 0.37 / 0.39 / 0.53 / 0.43) | 74 / 91 | 342 |
+| 8 | 4.25 | 3.07 (0.84 / 0.55 / 0.58 / 0.72 / 0.57) | 60 / 70 | 342 |
+| 16 | 7.53 | 5.63 (1.71 / 1.06 / 1.35 / 1.25 / 0.86) | 54 / 60 | 342 |
+
+  Steady memory per rank now falls with the ranks (end of the run 257 MB serial, 133 / 91 / 70 / 60 MB on 2 / 4 / 8 / 16; the
+  replicated storage was 239 MB on 4 ranks). The **peak does not**: it is the remesh, where every rank still holds the whole mesh and
+  engine (phases 3-4 remove it). **The wall time got worse** (4 ranks 3.71 s against 2.89 s, 16 ranks 7.53 against 5.74): every remesh
+  now rebuilds the whole mesh and does a full engine build on every rank (the incremental rebuild of PR #4 needs the tables that
+  `localize` frees), so the "gather" and "build" columns grow. This is the expected price of phase 2 and goes with phases 3-4 (the
+  remesh on owned data) and 6 (the incremental local rebuild); `FENICE_REPLICATED_REMESH=1` is the fast path until then.
