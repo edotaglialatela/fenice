@@ -142,18 +142,22 @@ OpenMP threads share the face loops of a level. With `use_mpi` each level is cut
 its Morton order and a rank advances its owned leaves. A rank keeps only its owned leaves and the halo, the leaves its faces read
 (stencil points, virtual cells, gradients): its share of the mesh, faces, stencils and state, with the same numbers a whole-mesh
 build gives for them (a face that read a leaf outside the share would be an error, checked when the share is made). The remesh
-needs every leaf: the ranks gather the whole mesh and state, adapt it, and each keeps its new share
-(`FENICE_REPLICATED_REMESH=1` keeps the whole mesh on every rank instead). The owners exchange the halo after each stage, the final state of a level
+does not gather the state: each rank takes the indicator of its owned leaves from the leaves around them (the ones it does not hold
+are fetched from their owners), the refine / coarsen flags of all ranks are gathered (one number per leaf), every rank applies
+them to the topology of the whole mesh (leaves and faces, no state; the ripple and the merges are the same on every rank), builds
+the state of its new leaves from the old leaves they come from, and rebuilds its share
+(`FENICE_REPLICATED_REMESH=1` keeps the whole mesh and state on every rank and remeshes it there instead). The owners exchange the halo after each stage, the final state of a level
 after it advanced, and the registers of the coarse-fine faces. A same-level face is computed by both owners with the same inputs, a coarse-fine face
 by the owner of the fine leaf. The result is identical to the serial run for any number of ranks (1 to 7 are checked in
 `amr_mpi.py --check`, on cases with remeshing, an immersed body, viscosity, a non-reflecting outlet and a time-dependent source).
 
-**Known limits.** The remesh (indicator, flags, adaptation, update of the face list and stencils) is replicated on every
-rank: the whole mesh and state are gathered on every rank, and the engine is built for all of it, in full (the incremental update
-needs the tables of the previous build, which a rank no longer holds). It runs OpenMP-parallel inside a rank, but it is a serial
-fraction across ranks (on the airfoil below 2.2 of the 3.7 s on 4 ranks, 5.6 of 7.5 s on 16), so the MPI speed-up flattens at a few
-ranks, and the peak memory per rank, reached during the remesh, does not fall with the number of ranks. What does fall is the
-memory between remeshes (the airfoil below: 257 MB serial, 133 / 91 / 70 / 60 MB per rank on 2 / 4 / 8 / 16 ranks). On one node
+**Known limits.** The indicator, the flags and the state of the new leaves are local, but every rank still adapts the topology of
+the whole mesh (update of the leaves and of the face list), builds the engine tables of the whole mesh, in full (the incremental
+update needs the tables of the previous build, which a rank no longer holds), and then keeps its share. That work is the same on
+every rank, so it is a serial fraction across ranks (on the airfoil below 1.6 of the 2.9 s on 4 ranks, 4.1 of 5.3 s on 16), the MPI speed-up
+flattens at a few ranks, and the peak memory per rank, reached during the remesh, does not fall with the number of ranks. What falls
+is the memory between remeshes, except the topology of the whole mesh (87 MB on the airfoil): 256 MB serial, 229 / 184 / 160 / 151 MB per rank
+on 2 / 4 / 8 / 16 ranks. On one node
 OpenMP is the better choice; MPI gives the same result for any rank count and a moderate speed-up. Checkpoint and `dump_state` gather the
 leaves on every rank (a transient copy of the whole state); a restart reads the whole checkpoint on every rank.
 At the end of a run the solver prints the resident memory of the ranks (after setup, after the initial adaptation, at the end,
@@ -165,7 +169,7 @@ the remesh as well).
 |---|---:|---:|
 | serial, 1 thread | 5.9 s | 1.0 s |
 | OpenMP, 2 / 4 / 8 / 16 threads | 3.5 / 2.3 / 2.1 / 2.0 s | 0.75 / 0.65 / 0.65 / 0.74 s |
-| MPI, 2 / 4 / 8 / 16 ranks, each rank its share of the mesh (default) | 5.0 / 3.7 / 4.3 / 7.5 s | 2.3 / 2.2 / 3.1 / 5.6 s |
+| MPI, 2 / 4 / 8 / 16 ranks, each rank its share of the mesh (default) | 4.0 / 2.9 / 3.4 / 5.3 s | 1.7 / 1.6 / 2.3 / 4.1 s |
 | MPI, 2 / 4 / 8 / 16 ranks, `FENICE_REPLICATED_REMESH=1` (every rank the whole mesh) | 3.9 / 3.1 / 3.8 / 7.5 s | 1.1 / 1.3 / 2.0 / 4.4 s |
 
 Ryzen 7 7800X3D (8 cores, 16 logical processors), MSVC build, one run after the incremental remesh update (scalar viscous loops); the 16-rank row is
@@ -181,7 +185,7 @@ viscous vector kernels (MSVC with `/arch:AVX2`) the serial run takes 5.20 s (rem
 On the Threadripper (gcc, without the viscous vector kernels, which save another ~0.5 s on one thread) OpenMP is fastest at
 16 threads (5.50 -> 1.45 s, 3.8×; 1.63 / 1.74 / 1.80 s on 24 / 32 / 48 threads) and MPI at 8 to 16 ranks (2.96 to 3.08 s). There the
 stepping alone keeps scaling up to 16 ranks (2.68 s on 2, 1.09 s on 16) while the replicated remesh grows from 0.98 s on 2 ranks to
-1.99 s on 16 and 6.1 s on 48. Every run gave the serial state bit for bit.
+1.99 s on 16 and 6.1 s on 48 (with `FENICE_REPLICATED_REMESH=1`). Every run gave the serial state bit for bit.
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/amr_mpi.png" style="width:100%">

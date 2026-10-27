@@ -42,8 +42,8 @@ the thread count.
 
 **AMR on MPI.** Under MPI the leaves of each level are distributed over the ranks along a Morton
 (Z-order) curve. The result is identical to the serial one for any number of ranks, but the speed-up is
-limited: the remesh (indicator, adaptation, update of the face list and stencils) is repeated on every rank, on the whole
-mesh, while between remeshes a rank stores only its leaves and the halo. On one rank or thread the update after a remesh is
+limited: the indicator and the flags are local to each rank, but the adaptation of the whole mesh (its leaves and face list) and the
+build of the stencils are repeated on every rank, while between remeshes a rank stores only its leaves and the halo. On one rank or thread the update after a remesh is
 incremental: only the leaves the adaptation touched and their face neighbours are recomputed, the rest is copied. OpenMP threads
 are faster on one node; see [AMR]({{root}}modules/AMR.html) for the timings.
 

@@ -1,6 +1,6 @@
 # AMR with distributed storage and a local remesh (plan)
 
-Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9) and 2 (section 10) done, phase 3 next.** Branch `amr-distributed`, from `main`
+Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9), 2 (section 10) and 3 (section 11, with the topology of the whole mesh kept on every rank) done, phase 4 next.** Branch `amr-distributed`, from `main`
 at 883c45d (both PRs #4 / #5 merged). This is option 2 of `docs/design/amr-optimisation.md`, as a step towards 3-D octree AMR.
 Every number below that was not measured is marked *(estimate)*.
 
@@ -395,3 +395,49 @@ the validation in `CellFluxEngine::localize` (throws, with a negative test), and
 wave-speed bound is taken from the freshly forced state on every path (`force_state` + `wave_speed`); the serial code before used the forced
 state of the old indexing, which the maximum did not depend on in any oracle (golden, regression, MPI). Bit-identical on all of them, but it
 is a change of the serial path.
+
+## 11. Phase 3 (done, as built): the indicator, the flags and the state of the new leaves are local
+
+* **Built** (`CellParallel::remesh(topo, adaptor)`, for a localized run; the replicated path is unchanged):
+  * Every rank keeps `topo`, the topology of the whole mesh (leaves, faces, no state). It is what makes the ripple, the merge test and
+    the new leaf list identical on every rank without exchanging them: the flags of all ranks (one number per leaf, an allgatherv of
+    the owned leaves in (level, key) order) are applied by `CellMesh::adapt` on `topo` on every rank, and `CellMesh::source` (set with
+    `record_sources`) says for every new leaf which old leaves its state comes from (a kept leaf, the parent of a child, the four
+    siblings of a merged group).
+  * Indicator: `CellIndicator::region` lists the leaves the xi and xi_parent of the owned leaves read: the leaves of the cells within
+    `diffusion + 1` cells of the leaf at its level and of its parent at the parent level (the face test of a cell reads its
+    neighbours, each smoothing iteration the neighbours' xi), plus the leaves under a split cell and the coarser leaf covering a cell.
+    A bitmap per level dilates the cells of the owned leaves, so the cost is that of the owned leaves and their margin. The state of
+    the leaves a rank does not hold comes from their owners (`fetch_states`: two exchanges); `CellIndicator::evaluate` runs on that
+    partial mesh (a split cell of an incomplete sibling group has no parent cell: its values are not used) and `CellAdaptor::flags`
+    takes the decisions of `remesh()` (the same `decide`).
+  * State: the new owned leaves (the equal-count blocks of the new mesh) read their old leaves (fetched where not held) and build
+    injection or the mean `((a + b) + (c + d)) * 0.25`, the expression of `adapt`. Then `mesh_ = topo`, the full engine build,
+    `partition()`, `localize()` and `exchange_final` for every level (the halo state). If the flags change nothing, nothing else runs
+    (before, every remesh globalized and rebuilt).
+* **Checks**: `local_indicator_equals_the_whole_mesh_indicator_for_any_partition` (xi and xi_parent of every owned leaf, 1-16 partitions,
+  four periodicities, three smoothing depths; with the region one cell smaller it fails: 146 checks), `cellparallel_distributed_remesh_equals_serial_bitwise`
+  (four physics, 1-16 emulated ranks; fails with the refine flags dropped), regression serial and 4 ranks, `amr_mpi.py --check` and
+  `ibm_ghost.py --check` 1-7 ranks, golden dumps (the entries both dumps have are bitwise).
+* **Measured** (same machine and script as section 10; wall [s] / remesh [s] (gather = region and fetch, indicator = flags, adapt =
+  topology adapt and migration, build, partition = partition, localize, halo) / RSS at the end [MB]):
+
+| ranks | wall | remesh (gather / indicator / adapt / build / partition) | RSS end |
+|---|---|---|---|
+| 1 | 5.00 | 0.78 (0.00 / 0.28 / 0.22 / 0.13 / 0.00) | 256 |
+| 2 | 3.99 | 1.69 (0.10 / 0.13 / 0.29 / 0.45 / 0.53) | 229 |
+| 4 | 2.93 | 1.57 (0.09 / 0.09 / 0.33 / 0.54 / 0.42) | 184 |
+| 8 | 3.38 | 2.26 (0.10 / 0.14 / 0.57 / 0.85 / 0.49) | 160 |
+| 16 | 5.32 | 4.07 (0.17 / 0.13 / 1.16 / 1.67 / 0.85) | 151 |
+
+  Against phase 2 (section 10): 4 ranks 3.71 -> 2.93 s, 16 ranks 7.53 -> 5.32 s; gather plus indicator 0.96 -> 0.18 s on 4 ranks.
+  Per remesh on 4 ranks (rank 0): copy of `topo` 12 ms, engine build 41 ms, partition 17 ms, localize 23 ms, topology adapt and migration
+  31 ms, region and indicator about 14 ms. What is left is O(N) work on every rank (adapt, copy, build, partition, localize), which is
+  why it grows from 4 to 16 ranks (the ranks share the memory bandwidth), and the whole-mesh `topo` (87 MB) costs memory: the steady
+  RSS per rank is 184 MB on 4 ranks (91 in phase 2), the peak is unchanged (342 MB).
+* **Left for phase 4**: the whole-mesh topology, its adapt (ripple and merges are cheap, the face list update is not), the full
+  engine build on a mesh the rank then mostly drops, and the partition over all faces are the remaining replicated work. Plan: build
+  the partial mesh directly from the leaves of the geometric halo (rings per level difference from `halo_reach`, section 3.2), make
+  `CellFluxEngine::build` tolerate `Outside` on the part of the mesh nobody reads, and take the exact halo from `partition()` on that
+  mesh. Then `topo` can shrink to the keys (or go), the ripple and merge test use the halo flags (section 3.4), and the memory and the
+  remesh time fall with the rank count.
