@@ -143,8 +143,8 @@ private:
     MemoryUsage mem_setup_, mem_init_;           // resident memory after setup and after the initial adaptation (AMR report)
     // FENICE_REPLICATED_REMESH=1: every rank keeps the whole AMR mesh (the storage before docs/design/amr-distributed.md phase 2)
     static bool replicated_storage();
-    // Every rank keeps the topology of the whole mesh and adapts it (the remesh of phase 5, the default: it is the faster one on the meshes
-    // measured); FENICE_DISTRIBUTED_TOPOLOGY=1 selects the remesh in which no rank does (CellParallel::remesh(ad)).
+    // By default no rank keeps the topology of the whole mesh (CellParallel::remesh(ad)); FENICE_REPLICATED_TOPOLOGY=1 selects the remesh
+    // of phase 5, in which every rank does and adapts it (faster on the meshes measured, for A/B).
     static bool replicated_topology();
     void print_halo_reach(const char* when) const;   // FENICE_HALO_REACH=1: CellParallel::halo_reach of the AMR mesh
     // Monitor CSV (rank 0): header on open, one row per call.

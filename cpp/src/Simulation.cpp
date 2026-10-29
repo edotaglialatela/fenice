@@ -557,8 +557,8 @@ void Simulation::initialize_field() {
 }
 
 bool Simulation::replicated_topology() {
-    const char* env = std::getenv("FENICE_DISTRIBUTED_TOPOLOGY");
-    return !(env && std::string(env) == "1");
+    const char* env = std::getenv("FENICE_REPLICATED_TOPOLOGY");
+    return env && std::string(env) == "1";
 }
 
 bool Simulation::replicated_storage() {

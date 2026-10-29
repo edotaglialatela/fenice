@@ -1,6 +1,6 @@
 # AMR with distributed storage and a local remesh (plan)
 
-Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9), 2 (section 10) 3 (section 11), 4 and 5 (sections 12 and 13), 6 (section 14: the topology adapt without a whole-mesh topology, opt-in) done.** Branch `amr-distributed`, from `main`
+Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9), 2 (section 10) 3 (section 11), 4 and 5 (sections 12 and 13), 6 (section 14: the topology adapt without a whole-mesh topology, now the default) done.** Branch `amr-distributed`, from `main`
 at 883c45d (both PRs #4 / #5 merged). This is option 2 of `docs/design/amr-optimisation.md`, as a step towards 3-D octree AMR.
 Every number below that was not measured is marked *(estimate)*.
 
@@ -485,7 +485,7 @@ bound after a remesh is taken from the freshly forced state on every path (`forc
 * Left: the topology adapt (0.13 s on 4 ranks, 0.50 s on 16: the same O(N) work, slower with the cores shared), which would need a
   distributed topology; an incremental share build (reuse of the previous local mesh and engine); gather to one rank for the checkpoint.
 
-## 14. Phase 6: the topology adapt without a whole-mesh topology (done, opt-in)
+## 14. Phase 6: the topology adapt without a whole-mesh topology (done, default)
 
 Goal: no rank holds the whole topology (`topo`) any more; the remesh costs and the memory per rank fall with the rank count.
 
@@ -511,10 +511,10 @@ all use it.
 **Stages** (each committed, the oracles after each): 1 the primitive and its test against `topo`; 2 `GlobalFacts` and the distributed
 splitters (equal to `partition()` on the whole mesh); 3 `build_share` from a fetched T; 4 the distributed adapt, compared with
 `topo.adapt` at every remesh in the tests (shadow topology, leaves only; the states by the serial-versus-ranks bitwise test); 5 `topo`
-dropped from `Simulation` (when `FENICE_DISTRIBUTED_TOPOLOGY=1`; the old remesh stays the default, see the result below).
+dropped from `Simulation` (default; `FENICE_REPLICATED_TOPOLOGY=1` keeps the old remesh, see the result below).
 
 **Result (phase 6, done).** All five stages are implemented and bitwise equal to serial; `CellParallel::remesh(ad)` is the remesh in which no rank
-holds the topology of the whole mesh, selected with `FENICE_DISTRIBUTED_TOPOLOGY=1` (the default stays the remesh of phase 5, see below).
+holds the topology of the whole mesh, the default; `FENICE_REPLICATED_TOPOLOGY=1` selects the remesh of phase 5 (every rank holds the topology), which is faster, see below.
 
 * `fetch_leaves` (region items, owners answer, descent only through split cells, mirror lists), `GlobalFacts` (splitters by bisection on the key, equal to
   `partition()` on the whole mesh up to 40 ranks), `build_share_fetched` (region + ghost-wall readiness as a collective count), and the adapt:
@@ -534,7 +534,7 @@ holds the topology of the whole mesh, selected with `FENICE_DISTRIBUTED_TOPOLOGY
   56 / 76 / 145, 40 / 50 / 109, 32 / 39 / 93 MB against 140 / 171 / 228, 105 / 121 / 160, 87 / 96 / 129, 79 / 84 / 116 MB. So on this mesh (268 k leaves)
   the memory falls by 7-20 % at the peak and 40-50 % at the end of the run, and the wall time rises by 1.6-1.9 x; the memory gain grows with the mesh and so does
   the time: on the 1440 x 720 airfoil (1 064 706 leaves) on 4 / 16 ranks the wall time is 18.5 / 25.3 s against 12.3 / 12.7 s, the remesh 11.8 / 18.9 s against 5.35 / 6.2 s,
-  and the memory per rank at the end of the run 255 / 106 MB against 446 / 291 MB (peak 530 / 330 against 583 / 422 MB). **Decision: opt-in.** Things tried that did not
+  and the memory per rank at the end of the run 255 / 106 MB against 446 / 291 MB (peak 530 / 330 against 583 / 422 MB). **Decision (user): the distributed topology is the default despite the cost; the replicated one stays as `FENICE_REPLICATED_TOPOLOGY=1`.** Things tried that did not
   remove the cost: no state in the fetch of the share (-0.1 s), one fetch for the share instead of two, one item per level instead of nine. Not tried:
   fetching only around the leaves on the border of the owned region (the interior is processed now at every remesh); the seeds would have to be the
   cells of every level that are fully owned and have a 4-neighbour that is not (a staircase path from any owned seed to a foreign cell leaves the owned

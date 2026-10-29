@@ -104,8 +104,8 @@ public:
     // every new leaf to its owner, and builds the share from a fetched region. Same decisions, leaves and state as CellAdaptor::remesh
     // on the whole mesh, bit for bit; returns whether the leaves changed (if not, nothing was touched). Collective.
     bool remesh(CellAdaptor& ad);
-    // The remesh of init_adapt and of Simulation: with `replicated_topology` the one above that takes the whole-mesh topology (the
-    // default of Simulation; FENICE_DISTRIBUTED_TOPOLOGY=1 clears it), otherwise the one with none (the default of this member).
+    // The remesh of init_adapt and of Simulation: with `replicated_topology` the one above that takes the whole-mesh topology (set
+    // by FENICE_REPLICATED_TOPOLOGY=1 in Simulation), otherwise the one with none (the default).
     bool replicated_topology = false;
     // Test switches of remesh(ad): `flag_hook` replaces the indicator (it gets the fetched region, the indices of the owned leaves in it,
     // and fills their refine / coarsen flags); `region_shrink` adds that many rings to the region (a negative one must make it fail).
