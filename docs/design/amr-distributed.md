@@ -484,3 +484,31 @@ bound after a remesh is taken from the freshly forced state on every path (`forc
   `FENICE_HALO_REACH=1` needs the whole mesh (serial or `FENICE_REPLICATED_REMESH=1`); on a distributed start it says so.
 * Left: the topology adapt (0.13 s on 4 ranks, 0.50 s on 16: the same O(N) work, slower with the cores shared), which would need a
   distributed topology; an incremental share build (reuse of the previous local mesh and engine); gather to one rank for the checkpoint.
+
+## 14. Phase 6: the topology adapt without a whole-mesh topology (plan, in progress)
+
+Goal: no rank holds the whole topology (`topo`) any more; the remesh costs and the memory per rank fall with the rank count.
+
+**Whole-mesh dependencies of `remesh(topo, ad)` and what replaces them**
+
+| dependency | replacement |
+|---|---|
+| `owned_run`, `owned_leaves` (equal-count run of `topo.level_begin`) | the owned leaves of the share (`owner_ == me`) |
+| `CellIndicator::region(topo, owned)`, `fetch_states` | a fetched work set W of old leaves with states (`fetch_leaves`), same region |
+| flags allgather (one number per leaf of the whole mesh) | flags of the owned leaves; the flags / R of the margin leaves of W from their owners along the fetch lists |
+| `topo.adapt` (ripple, merges), `topo.source`, `nU(N)` | the same rules on W: ripple rounds with an exchange of R and an allreduce of "changed", merges evaluated by every rank for the groups touching its owned leaves, new leaves built by their creator with the injection / `((a+b)+(c+d))*0.25` expressions |
+| `partition_local`: `level_begin` runs, `leaf_key(g, s0)`, `level_present_`, `ob_`/`oe_` | `GlobalFacts`: per-level counts and the splitters, found by a distributed bisection on the key (the k-th smallest key per level and boundary, exact), `level_present_` from the counts |
+| `region_mask(topo)`, `build_from(topo)`, `engine_.build(mesh, &topo)` | the same functions on a fetched local set T (the leaves of the region and of the mass-flow sides); `ghost_ready` by a collective count of the referenced finest-level cells |
+| the new ownership | new splitters, then the new leaves and their states migrate to their owners (count handshake and `exchange`) |
+| `init_adapt` | builds the first share from a transient base topology (setup only), frees it, then the passes use the distributed remesh |
+
+**Primitive** `fetch_leaves`: the leaves of the current mesh that intersect a region (items: level, box of cells, range of leaf levels), answered by the
+owners (routed by the splitters; per level, coarse to fine, a cell covered by a leaf already found is not asked again), with their states if
+wanted; it records the lists of leaves exchanged with each rank (the mirror lists carry the flags later). The indicator region, the
+adapt neighbourhood W (rings of the leaf's level: 3, the merge test reaches the parent's neighbours) and the input of `build_share`
+all use it.
+
+**Stages** (each committed, the oracles after each): 1 the primitive and its test against `topo`; 2 `GlobalFacts` and the distributed
+splitters (equal to `partition()` on the whole mesh); 3 `build_share` from a fetched T; 4 the distributed adapt, compared with
+`topo.adapt` at every remesh in the tests (shadow topology, leaves only; the states by the serial-versus-ranks bitwise test); 5 `topo`
+dropped from `Simulation`; `FENICE_REPLICATED_TOPOLOGY=1` keeps the old remesh for comparison.
