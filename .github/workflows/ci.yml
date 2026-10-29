@@ -60,6 +60,10 @@ jobs:
         run: python cpp/tests/regression.py --mpi 4
       - name: AMR on 1-7 MPI ranks bitwise equal to serial
         run: python cases/validation/amr/amr_mpi.py --check
+      - name: AMR with no rank holding the whole topology (FENICE_DISTRIBUTED_TOPOLOGY=1), bitwise equal to serial
+        env:
+          FENICE_DISTRIBUTED_TOPOLOGY: "1"
+        run: python cases/validation/amr/amr_mpi.py --check
       - name: Ghost-cell IBM on 2-7 MPI ranks bitwise equal to serial
         run: python cases/validation/features/ibm_ghost.py --check
       - name: Manufactured solutions (quick order study)
@@ -90,6 +94,10 @@ jobs:
       - name: Regression (4 MPI ranks)
         run: python cpp/tests/regression.py --mpi 4
       - name: AMR on 1-7 MPI ranks bitwise equal to serial
+        run: python cases/validation/amr/amr_mpi.py --check
+      - name: AMR with no rank holding the whole topology (FENICE_DISTRIBUTED_TOPOLOGY=1), bitwise equal to serial
+        env:
+          FENICE_DISTRIBUTED_TOPOLOGY: "1"
         run: python cases/validation/amr/amr_mpi.py --check
       - name: Ghost-cell IBM on 2-7 MPI ranks bitwise equal to serial
         run: python cases/validation/features/ibm_ghost.py --check
