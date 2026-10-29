@@ -24,18 +24,18 @@ namespace {
 
 Field taylor_green_profile(const Mesh& m, const EOS& eos, const Params& run) {
     const double mu = run.num("mu", 0.0);
-    Field U(static_cast<size_t>(m.num_cells()));
-    for (int j = 0; j < m.ny; ++j)
-        for (int i = 0; i < m.nx; ++i)
-            U[j * m.nx + i] = eos.prim_to_cons(taylor_green_exact(m.xc(i), m.yc(j), 0.0, m.Lx, mu));
+    Field U(static_cast<size_t>(m.window_cells()));
+    for (int j = m.win_j0; j < m.window_j1(); ++j)
+        for (int i = m.win_i0; i < m.window_i1(); ++i)
+            U[m.window_cell(i, j)] = eos.prim_to_cons(taylor_green_exact(m.xc(i), m.yc(j), 0.0, m.Lx, mu));
     return U;
 }
 
 Field isentropic_vortex_profile(const Mesh& m, const EOS& eos, const Params&) {
-    Field U(static_cast<size_t>(m.num_cells()));
-    for (int j = 0; j < m.ny; ++j)
-        for (int i = 0; i < m.nx; ++i)
-            U[j * m.nx + i] = eos.prim_to_cons(isentropic_vortex_exact(m.xc(i), m.yc(j), 0.0, m.Lx, m.Ly, eos.gamma));
+    Field U(static_cast<size_t>(m.window_cells()));
+    for (int j = m.win_j0; j < m.window_j1(); ++j)
+        for (int i = m.win_i0; i < m.window_i1(); ++i)
+            U[m.window_cell(i, j)] = eos.prim_to_cons(isentropic_vortex_exact(m.xc(i), m.yc(j), 0.0, m.Lx, m.Ly, eos.gamma));
     return U;
 }
 

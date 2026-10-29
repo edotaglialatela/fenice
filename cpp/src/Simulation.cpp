@@ -463,6 +463,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     std::fflush(stdout);
 }
 
+static void mem_trace(const char* w){ if(!std::getenv("FENICE_MEM_TRACE")) return; const MemoryUsage m=memory_usage(); std::fprintf(stderr,"MEMTRACE %s cur %.0f peak %.0f MB\n",w,m.current * 1e-6,m.peak * 1e-6); }
 void Simulation::initialize_field() {
     if (test_case->requires_viscosity && !ns)
         std::printf("[WARNING] This test case requires Navier-Stokes - viscous physics is off!\n");
@@ -489,17 +490,20 @@ void Simulation::initialize_field() {
         // discontinuities rather than their interpolation from the base grid
         fill_cells(*cells);
         cell_engine->build(*cells);
+        mem_trace("base built");
         for (int k = 0; k < p.amr_init_levels; ++k) {
             if (!cells->adapt(std::vector<char>(static_cast<size_t>(cells->num_leaves()), 1))) break;
             cell_engine->build(*cells);
             fill_cells(*cells);
         }
+        mem_trace("init levels");
         cell_adaptor->init_adapt([this](CellMesh& m) { fill_cells(m); });
         if (p.use_ibm && p.ibm_method == "ghost")
             std::printf(cell_engine->ghost_ready() ? "[IBM] Ghost-cell wall active on the finest-level band\n"
                                                    : "[WARNING] Ghost-cell wall inactive: the cells around the body are not all at the "
                                                      "finest level; the mask forcing is used\n");
         if (p.use_ibm) cell_engine->solid_reset(*cells, cells->U);
+        mem_trace("init_adapt done");
     }
     if (cell_par) {
         cell_par->partition();
@@ -508,9 +512,12 @@ void Simulation::initialize_field() {
             cell_topo = std::make_unique<CellMesh>(*cells);   // the topology stays whole on every rank, the state does not
             cell_topo->U = Field();
             cell_topo->set_faceless(true);
+            mem_trace("before localize");
             cell_par->localize();   // each rank keeps only its leaves and their halo
+            mem_trace("after localize");
         }
     }
+    mem_trace("init end");
     mem_init_ = memory_usage();
 }
 
@@ -550,10 +557,22 @@ void Simulation::fill_cells(CellMesh& m) const {
     }
     for (int l = 0; l <= m.max_level; ++l) {
         if (m.level_begin[l + 1] == m.level_begin[l]) continue;
-        const Mesh ml = generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(l), m.ny_at(l), m.x0, m.y0);
+        Mesh ml = generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(l), m.ny_at(l), m.x0, m.y0);
+        // only the box of cells that holds this level's leaves (the values are those of the whole level: Mesh window)
+        int i0 = ml.nx, i1 = 0, j0 = ml.ny, j1 = 0;
+        for (int c = m.level_begin[l]; c < m.level_begin[l + 1]; ++c) {
+            i0 = std::min(i0, m.ci[static_cast<size_t>(c)]);
+            i1 = std::max(i1, m.ci[static_cast<size_t>(c)] + 1);
+            j0 = std::min(j0, m.cj[static_cast<size_t>(c)]);
+            j1 = std::max(j1, m.cj[static_cast<size_t>(c)] + 1);
+        }
+        ml.win_i0 = i0;
+        ml.win_i1 = i1;
+        ml.win_j0 = j0;
+        ml.win_j1 = j1;
         const Field F = test_case->initialize(ml, fluid, p.source);
         for (int c = m.level_begin[l]; c < m.level_begin[l + 1]; ++c)
-            m.U[static_cast<size_t>(c)] = F[static_cast<size_t>(m.cj[static_cast<size_t>(c)]) * m.nx_at(l) + m.ci[static_cast<size_t>(c)]];
+            m.U[static_cast<size_t>(c)] = F[static_cast<size_t>(ml.window_cell(m.ci[static_cast<size_t>(c)], m.cj[static_cast<size_t>(c)]))];
     }
 }
 

@@ -92,6 +92,15 @@ struct Mesh {
     // Global z of the centre of layer k.
     double zc(int k) const { return (k + 0.5) * dz + z0; }
 
+    // Window of columns and rows that an initial-condition evaluation covers (2-D; default: the whole mesh). A field made for a
+    // window holds only its cells, row-major from (win_i0, win_j0); nx, ny, dx and xc / yc are those of the whole mesh, so the
+    // values are the bits of the whole-mesh evaluation.
+    int win_i0 = 0, win_i1 = -1, win_j0 = 0, win_j1 = -1;   // [i0, i1) x [j0, j1); a negative end means the mesh edge
+    int window_i1() const { return win_i1 < 0 ? nx : win_i1; }
+    int window_j1() const { return win_j1 < 0 ? ny : win_j1; }
+    int window_cells() const { return (window_i1() - win_i0) * (window_j1() - win_j0) * nz; }
+    int window_cell(int i, int j, int k = 0) const { return (k * (window_j1() - win_j0) + (j - win_j0)) * (window_i1() - win_i0) + (i - win_i0); }
+
     // Cell index of (i, j, k).
     int cell(int i, int j, int k = 0) const { return (k * ny + j) * nx + i; }
     // Index of the x-face left of cell (i, j, k) (i = nx: right boundary).

@@ -628,12 +628,12 @@ Field evaluate_initial(const InitialSpec& spec, const Mesh& m, const EOS& eos, c
             g.state.push_back({state_index(var), ev.compile(src, what + ".state." + var)});
     }
 
-    Field U(static_cast<size_t>(m.num_cells()));
+    Field U(static_cast<size_t>(m.window_cells()));
     const bool three_d = m.is3d();
     for (int k = 0; k < m.nz; ++k)
-        for (int j = 0; j < m.ny; ++j)
-            for (int i = 0; i < m.nx; ++i) {
-                const int cell = m.cell(i, j, k);
+        for (int j = m.win_j0; j < m.window_j1(); ++j)
+            for (int i = m.win_i0; i < m.window_i1(); ++i) {
+                const int cell = m.window_cell(i, j, k);
                 const double c[3] = {m.xc(i), m.yc(j), three_d ? m.zc(k) : 0.0};
                 ev.set_position(c[0], c[1], c[2]);
                 bool hit = false;
