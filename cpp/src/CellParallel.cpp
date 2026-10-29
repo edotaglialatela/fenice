@@ -1,11 +1,11 @@
 #include "fv/CellParallel.hpp"
 
 #include <algorithm>
-#include <set>
 #include <array>
 #include <chrono>
 #include <cstdio>
 #include <limits>
+#include <set>
 #include <stdexcept>
 
 #include "fv/CellRemesh.hpp"
