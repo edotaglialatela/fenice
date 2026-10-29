@@ -485,7 +485,27 @@ void Simulation::initialize_field() {
         hot_interp_ = std::make_unique<GridInterp2D>(linspace(dx_s / 2.0, mesh.Lx - dx_s / 2.0, mesh.nx),
                                                      linspace(dy_s / 2.0, mesh.Ly - dy_s / 2.0, mesh.ny), U);
     }
-    if (start_step == 0) {
+    // Several ranks with the shares kept separately: no rank ever holds the whole mesh (the topology is faceless, the share is built
+    // from it, and the initial passes run through CellParallel::remesh with the initial condition filled on the share)
+    const bool distributed_init = start_step == 0 && cell_par && !replicated_storage();
+    if (distributed_init) {
+        cell_topo = std::make_unique<CellMesh>(*cells);
+        cell_topo->U = Field();
+        cell_topo->set_faceless(true);
+        for (int k = 0; k < p.amr_init_levels; ++k)
+            if (!cell_topo->adapt(std::vector<char>(static_cast<size_t>(cell_topo->num_leaves()), 1))) break;
+        mem_trace("base topology");
+        cell_par->init_adapt(*cell_topo, *cell_adaptor, [this](CellMesh& m) { fill_cells(m); });
+        if (p.use_ibm && p.ibm_method == "ghost")
+            std::printf(cell_engine->ghost_ready() ? "[IBM] Ghost-cell wall active on the finest-level band\n"
+                                                   : "[WARNING] Ghost-cell wall inactive: the cells around the body are not all at the "
+                                                     "finest level; the mask forcing is used\n");
+        if (p.use_ibm) {
+            cell_engine->solid_reset(*cells, cells->U);
+            cell_par->exchange_solid();
+        }
+        mem_trace("init_adapt done");
+    } else if (start_step == 0) {
         // The initial condition is evaluated at each leaf's own resolution, so refined leaves see the exact initial
         // discontinuities rather than their interpolation from the base grid
         fill_cells(*cells);
@@ -505,7 +525,7 @@ void Simulation::initialize_field() {
         if (p.use_ibm) cell_engine->solid_reset(*cells, cells->U);
         mem_trace("init_adapt done");
     }
-    if (cell_par) {
+    if (cell_par && !distributed_init) {
         cell_par->partition();
         print_halo_reach("initial mesh");
         if (!replicated_storage()) {

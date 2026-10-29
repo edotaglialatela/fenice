@@ -17,6 +17,7 @@
 #pragma once
 
 #include <array>
+#include <chrono>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -71,6 +72,10 @@ public:
     // changed, the mesh and the engine are rebuilt, then partition() and localize(), and the halo is filled; returns whether
     // they did (if not, nothing was touched). The decisions and the state are those of ad.remesh() on the whole mesh, bit for bit.
     bool remesh(CellMesh& topo, CellAdaptor& ad);
+    // The adaptation of a fresh start without a whole mesh on any rank: `topo` is the faceless topology of the base mesh (already
+    // refined to the initial levels); every rank builds its share of it directly, then the passes of CellAdaptor::init_adapt run
+    // through remesh(), `fill` giving the initial condition on the share (all its leaves). Returns the number of passes.
+    int init_adapt(CellMesh& topo, CellAdaptor& ad, const std::function<void(CellMesh&)>& fill);
     // Test switches of remesh(): `direct_build` false makes the mesh and the engine for the whole mesh and extracts the share
     // (the way of phase 2); `shadow` also does that and throws if the direct build gave anything else (mesh, tables, lists).
     // `first_extra`: rings added to the first reach tried (a negative one makes the retry run); `region_retries` counts the retries.
@@ -154,6 +159,12 @@ private:
     // exchange of the requests and the lists that need the other ranks.
     bool partition_local(const CellMesh* whole);
     void partition_exchange();
+    // The share of the leaves `mine` (indices in `topo`): the reach of region_mask with retries, then partition_exchange and
+    // localize. `nU` is the state of `topo` (entries of the leaves in the share), or null. `built` gets the time the tables were done.
+    void build_share(const CellMesh& topo, const std::vector<int>& mine, const Field* nU,
+                     std::chrono::steady_clock::time_point* built);
+    // The leaves of `topo` this rank owns under the equal-count split of each level.
+    void owned_leaves(const CellMesh& topo, std::vector<int>& out) const;
     // The leaves a rank keeps to build its share directly: those within the reach of its owned leaves of `topo` (the whole mesh
     // after the adapt), `extra` rings more than the measured reach, and the leaves along the mass-flow inlets.
     void region_mask(const CellMesh& topo, const std::vector<int>& owned, int extra, std::vector<char>& keep) const;

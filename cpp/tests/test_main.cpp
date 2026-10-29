@@ -4093,6 +4093,98 @@ TEST(cellparallel_distributed_remesh_equals_serial_bitwise) {
     }
 }
 
+TEST(cellparallel_distributed_init_equals_serial_init_bitwise) {
+    // The adaptation of a fresh start (CellParallel::init_adapt): every rank builds its share of the base mesh from the faceless
+    // topology and the passes run through remesh() with the initial condition filled on the share; the leaves and their state are
+    // those of CellAdaptor::init_adapt on the whole mesh, bit for bit.
+    const BCType per = BCType::Periodic;
+    const DistSpec specs[] = {
+        {"euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 11u, true},
+        {"walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 14u, true},
+        {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true},
+        {"immersed body (ghost cells)", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 26u, true},
+        {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, true},
+    };
+    struct Out {
+        std::vector<int> level, ci, cj;
+        Field U;
+        int passes = 0;
+    };
+    const auto run = [&](const DistSpec& sp, int ranks) {
+        const int Nranks = std::max(ranks, 1);
+        FakeHub hub(Nranks);
+        std::vector<Out> out(static_cast<size_t>(Nranks));
+        std::vector<std::string> error(static_cast<size_t>(Nranks));
+        const auto body = [&](int rank) {
+            try {
+                DistEnv env(sp);
+                const bool ghost = std::strstr(sp.name, "ghost") != nullptr;
+                env.ph.ibm_ghost = ghost;
+                CellMesh m(1.5, 1.0, 12, 8, 2, sp.px, sp.py);
+                const auto fill = [&](CellMesh& mm) {
+                    mm.U.resize(static_cast<size_t>(mm.num_leaves()));
+                    for (int c = 0; c < mm.num_leaves(); ++c) mm.U[static_cast<size_t>(c)] = test_state(env.eos, mm.xc(c), mm.yc(c));
+                };
+                CellFluxEngine eng(env.eos, env.rs, &env.mu, env.bm);
+                eng.set_physics(env.ph);
+                CellIndicator ind;
+                ind.criterion = 0.02;
+                CellAdaptor ad(m, eng, env.eos, ind);
+                if (sp.body && ghost) {
+                    const Mesh fine = generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(m.max_level), m.ny_at(m.max_level));
+                    ImmersedBoundary ib = env.ph.ibm_factory(fine);
+                    ib.enable_ghost_cells(fine, false);
+                    ad.set_body(env.ph.ibm_factory, std::max(2, ib.ghost_reach()));
+                } else if (sp.body) {
+                    ad.set_body(env.ph.ibm_factory, 1);
+                }
+                Out& o = out[static_cast<size_t>(rank)];
+                if (ranks == 0) {
+                    eng.build(m);
+                    o.passes = ad.init_adapt(fill);
+                } else {
+                    CellParallel par(m, eng, hub.comm(rank));
+                    par.poison = true;
+                    par.first_extra = -5;
+                    CellMesh topo = m;
+                    topo.U.clear();
+                    topo.set_faceless(true);
+                    o.passes = par.init_adapt(topo, ad, fill);
+                    CHECK(m.partial);
+                    par.globalize();
+                }
+                o.level = m.level;
+                o.ci = m.ci;
+                o.cj = m.cj;
+                o.U = m.U;
+            } catch (const std::exception& e) {
+                error[static_cast<size_t>(rank)] = e.what();
+            }
+        };
+        std::vector<std::thread> threads;
+        for (int r = 0; r < Nranks; ++r) threads.emplace_back(body, r);
+        for (std::thread& th : threads) th.join();
+        for (int r = 0; r < Nranks; ++r)
+            if (!error[static_cast<size_t>(r)].empty()) std::printf("    rank %d: %s\n", r, error[static_cast<size_t>(r)].c_str());
+        return out;
+    };
+    int adapted = 0;
+    for (const DistSpec& sp : specs) {
+        const Out serial = run(sp, 0)[0];
+        adapted += serial.passes > 1;
+        for (const int ranks : {1, 2, 3, 5, 8}) {
+            const std::vector<Out> d = run(sp, ranks);
+            for (const Out& o : d) {
+                const bool same = o.level == serial.level && o.ci == serial.ci && o.cj == serial.cj && bits_equal(o.U, serial.U) &&
+                                  o.passes == serial.passes;
+                CHECK(same);
+                if (!same) std::printf("    %s on %d ranks (distributed init) differs from the serial init\n", sp.name, ranks);
+            }
+        }
+    }
+    CHECK(adapted >= 3);   // the initial mesh does adapt in most of the specs
+}
+
 TEST(a_partial_mesh_throws_when_a_face_reads_a_leaf_it_does_not_keep) {
     // CellFluxEngine::localize checks that every read of every face the rank computes is a kept leaf: a halo that is one leaf
     // short is an error at once, not a wrong number later.

@@ -408,8 +408,7 @@ void CellMesh::build_from(const CellMesh& whole, const std::vector<char>& keep_l
     level.resize(static_cast<size_t>(N));
     ci.resize(static_cast<size_t>(N));
     cj.resize(static_cast<size_t>(N));
-    if (whole_state) U.resize(static_cast<size_t>(N));
-    else U.clear();
+    U.assign(static_cast<size_t>(N), State{});   // (the state of a leaf comes from whole_state, or is set by the caller)
     for (int k = 0; k < N; ++k) {
         const size_t c = static_cast<size_t>(from_whole[static_cast<size_t>(k)]);
         level[static_cast<size_t>(k)] = whole.level[c];

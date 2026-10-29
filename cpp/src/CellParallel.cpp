@@ -458,6 +458,56 @@ bool CellParallel::same_lists(const CellParallel& o) const {
            level_present_ == o.level_present_ && ob_ == o.ob_ && oe_ == o.oe_;
 }
 
+void CellParallel::owned_leaves(const CellMesh& topo, std::vector<int>& out) const {
+    const int R = comm_.size, me = comm_.rank;
+    out.clear();
+    for (int l = 0; l <= topo.max_level; ++l) {
+        const long long lb = topo.level_begin[static_cast<size_t>(l)], n = topo.level_begin[static_cast<size_t>(l) + 1] - lb;
+        for (long long c = lb + n * me / R; c < lb + n * (me + 1) / R; ++c) out.push_back(static_cast<int>(c));
+    }
+}
+
+void CellParallel::build_share(const CellMesh& topo, const std::vector<int>& mine, const Field* nU,
+                               std::chrono::steady_clock::time_point* built) {
+    // the leaves within the reach of the owned ones: a partial mesh, its engine tables, the partition; a rank whose share does
+    // not cover what its faces read (before anything is sent) makes every rank try again with a wider reach
+    for (int extra = first_extra;; extra += 2) {
+        bool ok = true;
+        std::vector<char> keep;
+        region_mask(topo, mine, extra, keep);
+        try {
+            mesh_.build_from(topo, keep, nU);
+            engine_.build(mesh_, &topo);
+            ok = partition_local(&topo);
+        } catch (const std::logic_error&) {
+            ok = false;
+        }
+        if (reduce_max(ok ? 0.0 : 1.0) == 0.0) break;
+        ++region_retries;
+        if (extra > 15) throw std::logic_error("CellParallel: no reach of the leaves covers what the faces read");
+    }
+    if (built) *built = std::chrono::steady_clock::now();
+    partition_exchange();
+    localize();
+}
+
+int CellParallel::init_adapt(CellMesh& topo, CellAdaptor& ad, const std::function<void(CellMesh&)>& fill) {
+    localized_ = false;
+    std::vector<int> mine;
+    owned_leaves(topo, mine);
+    build_share(topo, mine, nullptr, nullptr);
+    int passes = 0;
+    for (; passes < topo.max_level + 1; ++passes) {
+        fill(mesh_);
+        if (!remesh(topo, ad)) {
+            ++passes;
+            break;
+        }
+    }
+    fill(mesh_);
+    return passes;
+}
+
 bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     if (!localized_) throw std::logic_error("CellParallel::remesh: the mesh is not localized");
     using Clock = std::chrono::steady_clock;
@@ -621,26 +671,7 @@ bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     }
     auto t4 = Clock::now();
     if (direct_build) {
-        // the leaves within the reach of the owned ones: a partial mesh, its engine tables, the partition; a rank whose share does
-        // not cover what its faces read (before anything is sent) makes every rank try again with a wider reach
-        for (int extra = first_extra;; extra += 2) {
-            bool ok = true;
-            std::vector<char> keep;
-            region_mask(topo, mine_new, extra, keep);
-            try {
-                mesh_.build_from(topo, keep, &nU);
-                engine_.build(mesh_, &topo);
-                ok = partition_local(&topo);
-            } catch (const std::logic_error&) {
-                ok = false;
-            }
-            if (reduce_max(ok ? 0.0 : 1.0) == 0.0) break;
-            ++region_retries;
-            if (extra > 15) throw std::logic_error("CellParallel::remesh: no reach of the leaves covers what the faces read");
-        }
-        t4 = Clock::now();
-        partition_exchange();
-        localize();
+        build_share(topo, mine_new, &nU, &t4);
         if (shadow) {
             // the same share made the old way must be this one
             for (int l = 0; l <= M; ++l) shadow_par->exchange_final(l);
