@@ -97,6 +97,17 @@ public:
     // changed, the mesh and the engine are rebuilt, then partition() and localize(), and the halo is filled; returns whether
     // they did (if not, nothing was touched). The decisions and the state are those of ad.remesh() on the whole mesh, bit for bit.
     bool remesh(CellMesh& topo, CellAdaptor& ad);
+    // The same remesh with no rank holding the topology of the whole mesh (docs/design/amr-distributed.md section 14): each rank
+    // fetches from the owners the leaves around its own (with their state, fetch_leaves), takes the indicator and the decisions of its
+    // owned leaves from them, settles the ripple with the ranks around it (rounds of an exchange of the flags and a reduction), judges
+    // the merges of the groups it owns a member of, makes the new leaves of its old ones, finds the new splitters (global_facts), sends
+    // every new leaf to its owner, and builds the share from a fetched region. Same decisions, leaves and state as CellAdaptor::remesh
+    // on the whole mesh, bit for bit; returns whether the leaves changed (if not, nothing was touched). Collective.
+    bool remesh(CellAdaptor& ad);
+    // Test switches of remesh(ad): `flag_hook` replaces the indicator (it gets the fetched region, the indices of the owned leaves in it,
+    // and fills their refine / coarsen flags); `region_shrink` adds that many rings to the region (a negative one must make it fail).
+    std::function<void(const CellMesh&, const std::vector<int>&, std::vector<char>&, std::vector<char>&)> flag_hook;
+    int region_shrink = 0;
     // The adaptation of a fresh start without a whole mesh on any rank: `topo` is the faceless topology of the base mesh (already
     // refined to the initial levels); every rank builds its share of it directly, then the passes of CellAdaptor::init_adapt run
     // through remesh(), `fill` giving the initial condition on the share (all its leaves). Returns the number of passes.

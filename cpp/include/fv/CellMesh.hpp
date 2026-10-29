@@ -158,6 +158,14 @@ public:
     // every leaf, where its state comes from: {c, -1, -1, -1}: the state of the old leaf c (a leaf that stayed, or the injection
     // into a child of a refined leaf); {a, b, c, d}: the mean of the four old leaves of a merged group, in the order (i, j),
     // (i + 1, j), (i, j + 1), (i + 1, j + 1).
+    // The decisions of adapt on any mesh with lookups: a whole mesh, or the partial mesh of a fetched region (CellParallel::remesh).
+    // forced_by_finer: leaf b, not flagged itself, must be refined because a finer leaf around its block is (R: one flag per leaf).
+    // merge_ok: the sibling group anchored at the leaf a (even, even) can be merged (coarsen, R: one flag per leaf). With `check`, a
+    // cell that holds no leaf at all (a region that was fetched too small) throws std::logic_error instead of counting as subdivided.
+    bool forced_by_finer(int b, const std::vector<char>& R, bool check) const;
+    bool merge_ok(int a, const std::vector<char>& coarsen, const std::vector<char>& R, bool check) const;
+    // True if the cell (l, i, j) is covered by a leaf or holds leaves.
+    bool has_leaf_under(int l, int i, int j) const;
     bool record_sources = false;
     std::vector<std::array<int, 4>> source;
 

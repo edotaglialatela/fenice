@@ -14,6 +14,7 @@
 #include <mutex>
 #include <numeric>
 #include <random>
+#include <map>
 #include <set>
 #include <string>
 #include <thread>
@@ -3905,7 +3906,7 @@ struct DistEnv {
 // Run the case for `steps` steps on `ranks` ranks (0: the serial path without CellParallel); returns the final state as every
 // rank sees it after gather_state (all identical, checked), and the held / halo counts of the last rank.
 Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>* counts = nullptr, bool local = false,
-                      bool dist_remesh = false) {
+                      bool dist_remesh = false, bool no_topo = false) {
     CellMesh base = random_adapted_mesh(sp.px, sp.py, sp.seed, 6);
     const int Nranks = std::max(ranks, 1);
     FakeHub hub(Nranks);
@@ -3940,7 +3941,7 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
                 par = std::make_unique<CellParallel>(m, eng, hub.comm(rank));
                 par->poison = true;
                 par->first_extra = dist_remesh ? -5 : 1;   // the first reach is too small: the retry runs at every remesh
-                par->shadow = dist_remesh;   // the directly built share against the extracted one, at every remesh
+                par->shadow = dist_remesh && !no_topo;   // the directly built share against the extracted one, at every remesh
             }
             CellAdvance adv(m, eng, *ts);
             adv.par = par.get();
@@ -3953,7 +3954,7 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
                 return par ? par->reduce_max(s) : s;
             };
             std::unique_ptr<CellMesh> topo;   // the whole mesh's topology, kept by every rank for the distributed remesh
-            if (dist_remesh) {
+            if (dist_remesh && !no_topo) {
                 topo = std::make_unique<CellMesh>(m);
                 topo->U.clear();
                 topo->set_faceless(true);
@@ -3968,7 +3969,9 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
                     eng.solid_reset(m, m.U);
                     if (par) par->exchange_solid();
                 }
-                if (sp.remesh && (k + 1) % 2 == 0 && dist_remesh) {
+                if (sp.remesh && (k + 1) % 2 == 0 && no_topo) {
+                    if (par->remesh(ad)) S = wave_speed();
+                } else if (sp.remesh && (k + 1) % 2 == 0 && dist_remesh) {
                     if (par->remesh(*topo, ad)) S = wave_speed();
                 } else if (sp.remesh && (k + 1) % 2 == 0) {
                     if (par && local) par->globalize();
@@ -4364,6 +4367,227 @@ TEST(global_facts_by_bisection_equal_the_splitters_of_partition) {
             }
         }
     CHECK(levels_compared > 0);
+}
+
+// Hash of a leaf and a seed, the same on every rank: the random decisions of the direct test of the topology-free remesh.
+static unsigned leaf_hash(int l, int i, int j, unsigned seed) {
+    unsigned h = seed * 2654435761u + static_cast<unsigned>(l) * 40503u;
+    h = (h ^ (h >> 15)) * 2246822519u + static_cast<unsigned>(i) * 3266489917u;
+    h = (h ^ (h >> 13)) * 668265263u + static_cast<unsigned>(j) * 374761393u;
+    return h ^ (h >> 16);
+}
+
+TEST(topology_free_adapt_equals_whole_mesh_adapt_on_random_flags) {
+    // docs/design/amr-distributed.md section 14: random refine / coarsen flags (a hash of the leaf, the same for any partition) on random
+    // balanced meshes: the leaves and the state the ranks make, with no rank holding the whole topology, are those of CellMesh::adapt
+    // on the whole mesh, bit for bit. Counted, so that the test cannot pass without meeting a ripple that crosses a rank boundary
+    // twice, a sibling group split over ranks, and a merge another rank's refinement blocks.
+    const BCType per = BCType::Periodic, wall = BCType::Wall;
+    long long multihop = 0, split_groups = 0, blocked = 0, merged = 0, forced = 0;
+    for (int pp = 0; pp < 4; ++pp)
+        for (unsigned seed = 0; seed < 8; ++seed) {
+            const bool px = pp & 1, py = pp & 2;
+            CellMesh m = random_adapted_mesh(px, py, 120u + seed + 10u * static_cast<unsigned>(pp), seed % 2 ? 3 : 5);
+            const int N = m.num_leaves(), M = m.max_level;
+            m.U.resize(static_cast<size_t>(N));
+            for (int c = 0; c < N; ++c) m.U[static_cast<size_t>(c)] = {1.0 + 0.01 * c, 0.5 + 0.003 * c, -0.25 * c, 2.0 + 0.1 * c, 0.125};
+            const unsigned fs = 31u + seed;
+            std::vector<char> rf(static_cast<size_t>(N), 0), cf(static_cast<size_t>(N), 0);
+            for (int c = 0; c < N; ++c) {
+                const int l = m.level[static_cast<size_t>(c)], i = m.ci[static_cast<size_t>(c)], j = m.cj[static_cast<size_t>(c)];
+                rf[static_cast<size_t>(c)] = l < M && leaf_hash(l, i, j, fs) % 9 == 0;
+                cf[static_cast<size_t>(c)] = leaf_hash(l, i, j, fs + 77u) % 10 < 8;
+            }
+            CellMesh ref = m;   // the whole-mesh adapt, and the ripple closure to count what the test meets
+            ref.record_sources = true;
+            ref.adapt(rf, cf);
+            std::vector<char> closure = rf;
+            for (bool again = true; again;) {
+                again = false;
+                for (int c = 0; c < N; ++c)
+                    if (!closure[static_cast<size_t>(c)] && m.forced_by_finer(c, closure, false)) closure[static_cast<size_t>(c)] = 1, again = true;
+            }
+            for (const int R : {1, 2, 3, 5, 7, 16}) {
+                const auto owner_of_leaf = [&](int c) {   // the equal-count blocks of every level
+                    const int l = m.level[static_cast<size_t>(c)];
+                    const long long b = m.level_begin[l], n = m.level_begin[l + 1] - b, k = c - b;
+                    for (int r = 0; r < R; ++r)
+                        if (k >= n * r / R && k < n * (r + 1) / R) return r;
+                    return R - 1;
+                };
+                if (R >= 2) {
+                    for (int c = 0; c < N; ++c) {
+                        const int l = m.level[static_cast<size_t>(c)];
+                        if (!closure[static_cast<size_t>(c)] || rf[static_cast<size_t>(c)]) continue;
+                        ++forced;
+                        for (int dj = -1; dj <= 2; ++dj)
+                            for (int di = -1; di <= 2; ++di) {
+                                if (l >= M || (di >= 0 && di <= 1 && dj >= 0 && dj <= 1)) continue;
+                                int i = 2 * m.ci[static_cast<size_t>(c)] + di, j = 2 * m.cj[static_cast<size_t>(c)] + dj;
+                                if (i < 0 || j < 0 || i >= m.nx_at(l + 1) || j >= m.ny_at(l + 1)) continue;
+                                const int a = m.find(l + 1, i, j);
+                                if (a >= 0 && closure[static_cast<size_t>(a)] && !rf[static_cast<size_t>(a)] && owner_of_leaf(a) != owner_of_leaf(c)) ++multihop;
+                            }
+                    }
+                    for (int a = 0; a < N; ++a) {   // groups that merge or are blocked
+                        const int l = m.level[static_cast<size_t>(a)];
+                        if (l == 0 || (m.ci[static_cast<size_t>(a)] & 1) || (m.cj[static_cast<size_t>(a)] & 1)) continue;
+                        const int s[4] = {a, m.find(l, m.ci[static_cast<size_t>(a)] + 1, m.cj[static_cast<size_t>(a)]),
+                                          m.find(l, m.ci[static_cast<size_t>(a)], m.cj[static_cast<size_t>(a)] + 1),
+                                          m.find(l, m.ci[static_cast<size_t>(a)] + 1, m.cj[static_cast<size_t>(a)] + 1)};
+                        bool sib = true;
+                        for (const int q : s) sib = sib && q >= 0 && cf[static_cast<size_t>(q)] && !closure[static_cast<size_t>(q)];
+                        if (!sib) continue;
+                        bool cross = false;
+                        for (const int q : s) cross = cross || owner_of_leaf(q) != owner_of_leaf(a);
+                        if (m.merge_ok(a, cf, closure, false)) {
+                            ++merged;
+                            split_groups += cross;
+                        } else {   // blocked: by a refined child next to the group owned elsewhere
+                            for (int q = 0; q < N; ++q) {
+                                if (!closure[static_cast<size_t>(q)] || m.level[static_cast<size_t>(q)] != l) continue;
+                                const int di = m.ci[static_cast<size_t>(q)] - m.ci[static_cast<size_t>(a)], dj = m.cj[static_cast<size_t>(q)] - m.cj[static_cast<size_t>(a)];
+                                if (di >= -2 && di <= 3 && dj >= -2 && dj <= 3 && owner_of_leaf(q) != owner_of_leaf(a)) {
+                                    ++blocked;
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                FakeHub hub(R);
+                std::vector<std::string> error(static_cast<size_t>(R));
+                std::mutex mu;
+                std::vector<std::array<double, 8>> got;   // level, i, j and the state of the leaves the ranks own after the remesh
+                const auto body = [&](int rank) {
+                    try {
+                        const DistSpec sp{"euler", px, py, {px ? per : wall, px ? per : wall, py ? per : wall, py ? per : wall}, false, false, false, false, false, 11u, false};
+                        DistEnv env(sp);
+                        CellMesh mine = m;
+                        CellFluxEngine eng(env.eos, env.rs, &env.mu, env.bm);
+                        eng.build(mine);
+                        CellIndicator ind;
+                        CellAdaptor ad(mine, eng, env.eos, ind);
+                        CellParallel par(mine, eng, hub.comm(rank));
+                        par.poison = true;
+                        par.partition();
+                        par.localize();
+                        par.flag_hook = [&](const CellMesh& W, const std::vector<int>& which, std::vector<char>& r, std::vector<char>& c) {
+                            r.assign(which.size(), 0);
+                            c.assign(which.size(), 0);
+                            for (size_t k = 0; k < which.size(); ++k) {
+                                const int w = which[k], l = W.level[static_cast<size_t>(w)], i = W.ci[static_cast<size_t>(w)], j = W.cj[static_cast<size_t>(w)];
+                                r[k] = l < M && leaf_hash(l, i, j, fs) % 9 == 0;
+                                c[k] = leaf_hash(l, i, j, fs + 77u) % 10 < 8;
+                            }
+                        };
+                                                const bool changed = par.remesh(ad);
+                        (void)changed;
+                        std::lock_guard<std::mutex> lock(mu);
+                        for (int l = 0; l <= M; ++l)
+                            for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c) {
+                                const State& u = mine.U[static_cast<size_t>(c)];
+                                got.push_back({static_cast<double>(l), static_cast<double>(mine.ci[static_cast<size_t>(c)]), static_cast<double>(mine.cj[static_cast<size_t>(c)]),
+                                               u[0], u[1], u[2], u[3], u[4]});
+                            }
+                    } catch (const std::exception& e) {
+                        error[static_cast<size_t>(rank)] = e.what();
+                    }
+                };
+                std::vector<std::thread> threads;
+                for (int r = 0; r < R; ++r) threads.emplace_back(body, r);
+                for (std::thread& th : threads) th.join();
+                for (int r = 0; r < R; ++r) {
+                    if (!error[static_cast<size_t>(r)].empty()) std::printf("    rank %d: %s\n", r, error[static_cast<size_t>(r)].c_str());
+                    CHECK(error[static_cast<size_t>(r)].empty());
+                }
+                // the leaves and the state against the whole-mesh adapt
+                std::map<std::array<int, 3>, State> want;
+                for (int c = 0; c < ref.num_leaves(); ++c) want[{ref.level[static_cast<size_t>(c)], ref.ci[static_cast<size_t>(c)], ref.cj[static_cast<size_t>(c)]}] = ref.U[static_cast<size_t>(c)];
+                bool same = got.size() == want.size();
+                for (const std::array<double, 8>& g : got) {
+                    const auto it = want.find({static_cast<int>(g[0]), static_cast<int>(g[1]), static_cast<int>(g[2])});
+                    if (it == want.end()) {
+                        if (same) std::printf("    leaf (%d,%d,%d) not in the whole-mesh result\n", static_cast<int>(g[0]), static_cast<int>(g[1]), static_cast<int>(g[2]));
+                        same = false;
+                        continue;
+                    }
+                    for (int q = 0; q < kNVar; ++q) if (same && std::memcmp(&g[3 + static_cast<size_t>(q)], &it->second[static_cast<size_t>(q)], sizeof(double)) != 0) std::printf("    state differs at (%d,%d,%d) var %d: %.17g vs %.17g\n", static_cast<int>(g[0]), static_cast<int>(g[1]), static_cast<int>(g[2]), q, g[3 + static_cast<size_t>(q)], it->second[static_cast<size_t>(q)]);
+                    for (int q = 0; q < kNVar; ++q) same = same && std::memcmp(&g[3 + static_cast<size_t>(q)], &it->second[static_cast<size_t>(q)], sizeof(double)) == 0;
+                }
+                if (!same) std::printf("    level_begin %d %d %d, find(0,1,2)=%d find(1,3,5)=%d U0 %.3f U1 %.3f\n", m.level_begin[0], m.level_begin[1], m.level_begin[2], m.find(0, 1, 2), m.find(1, 3, 5), m.U[0][0], m.U[1][0]);
+                if (!same) std::printf("    %d ranks: the leaves or their state differ from the whole-mesh adapt (%zu vs %zu leaves)\n", R, got.size(), want.size());
+                CHECK(same);
+            }
+        }
+    std::printf("    ripple-forced leaves %lld, across a boundary through a forced finer leaf %lld; merged groups %lld, split over ranks %lld; blocked by another rank %lld\n",
+                forced, multihop, merged, split_groups, blocked);
+    CHECK(multihop > 0);
+    CHECK(split_groups > 0);
+    CHECK(blocked > 0);
+}
+
+TEST(cellparallel_topology_free_remesh_equals_serial_bitwise) {
+    // The remesh with no rank holding the topology of the whole mesh (CellParallel::remesh(ad)) on every physics of the other tests, with
+    // the real indicator: the final state is the serial run's, bit for bit, on 1-16 emulated ranks (NaN-poisoned halos, a first reach
+    // too small so that the retry runs).
+    const BCType per = BCType::Periodic;
+    const DistSpec specs[] = {
+        {"euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 11u, true},
+        {"viscous + force + source periodic", true, true, {per, per, per, per}, true, true, true, false, false, 12u, true},
+        {"walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 14u, true},
+        {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true},
+        {"immersed body (ghost cells)", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 26u, true},
+        {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, true},
+        {"unsteady source, mixed", true, false, {per, per, BCType::NoSlip, BCType::MovingWall}, true, false, true, true, false, 13u, true},
+    };
+    for (const DistSpec& sp : specs) {
+        const Field serial = run_distributed(sp, 0, 8);
+        for (const int ranks : {1, 2, 3, 5, 7, 16}) {
+            const Field dist = run_distributed(sp, ranks, 8, nullptr, true, true, true);
+            const bool same = bits_equal(serial, dist);
+            CHECK(same);
+            if (!same) std::printf("    %s on %d ranks (topology-free remesh) differs from the serial run\n", sp.name, ranks);
+        }
+    }
+}
+
+TEST(topology_free_remesh_fails_loudly_when_the_region_is_too_small) {
+    // Mutation check: with the region shrunk to the owned cells themselves, the decisions would silently read "no finer leaf, no
+    // blocked merge" for every cell not fetched. They throw instead, on every rank.
+    const BCType per = BCType::Periodic;
+    CellMesh m = random_adapted_mesh(true, true, 140u, 5);
+    const int N = m.num_leaves();
+    m.U.assign(static_cast<size_t>(N), State{1.0, 0.0, 0.0, 2.5, 0.0});
+    const int R = 3;
+    FakeHub hub(R);
+    std::vector<std::string> error(static_cast<size_t>(R));
+    const auto body = [&](int rank) {
+        try {
+            const DistSpec sp{"euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 11u, false};
+            DistEnv env(sp);
+            CellMesh mine = m;
+            CellFluxEngine eng(env.eos, env.rs, &env.mu, env.bm);
+            eng.build(mine);
+            CellIndicator ind;
+            CellAdaptor ad(mine, eng, env.eos, ind);
+            CellParallel par(mine, eng, hub.comm(rank));
+            par.partition();
+            par.localize();
+            par.flag_hook = [](const CellMesh&, const std::vector<int>& which, std::vector<char>& r, std::vector<char>& c) {
+                r.assign(which.size(), 0);
+                c.assign(which.size(), 1);
+            };
+            par.region_shrink = -(ind.diffusion + 1);
+            par.remesh(ad);
+        } catch (const std::exception& e) {
+            error[static_cast<size_t>(rank)] = e.what();
+        }
+    };
+    std::vector<std::thread> threads;
+    for (int r = 0; r < R; ++r) threads.emplace_back(body, r);
+    for (std::thread& th : threads) th.join();
+    for (int r = 0; r < R; ++r) CHECK(!error[static_cast<size_t>(r)].empty());
 }
 
 TEST(a_partial_mesh_throws_when_a_face_reads_a_leaf_it_does_not_keep) {

@@ -622,6 +622,68 @@ double CellMesh::memory_bytes() const {
            container_bytes(mkey_) + container_bytes(face_off_) + container_bytes(face_spare_);
 }
 
+bool CellMesh::has_leaf_under(int l, int i, int j) const {
+    if (covering(l, i, j) >= 0) return true;
+    if (l >= max_level) return false;
+    for (int q = 0; q < 4; ++q)
+        if (has_leaf_under(l + 1, 2 * i + (q & 1), 2 * j + (q >> 1))) return true;
+    return false;
+}
+
+bool CellMesh::forced_by_finer(int b, const std::vector<char>& R, bool check) const {
+    // the level l+1 cells of the ring around the 2 x 2 block of b: a leaf there is a corner neighbour of a leaf that b covers
+    const int l = level[b];
+    if (l >= max_level) return false;
+    for (int dj = -1; dj <= 2; ++dj)
+        for (int di = -1; di <= 2; ++di) {
+            if (di >= 0 && di <= 1 && dj >= 0 && dj <= 1) continue;
+            int i = 2 * ci[b] + di, j = 2 * cj[b] + dj;
+            if (!wrap(l + 1, i, j)) continue;
+            const int a = find(l + 1, i, j);
+            if (a >= 0) {
+                if (R[a]) return true;
+            } else if (check && !has_leaf_under(l + 1, i, j)) {
+                throw std::logic_error("CellMesh::forced_by_finer: a cell next to the leaf is not in the mesh (the region fetched is too small)");
+            }
+        }
+    return false;
+}
+
+bool CellMesh::merge_ok(int a, const std::vector<char>& coarsen, const std::vector<char>& R, bool check) const {
+    const int l = level[a];
+    if (l == 0 || (ci[a] & 1) || (cj[a] & 1)) return false;
+    int sib[4] = {a, find(l, ci[a] + 1, cj[a]), find(l, ci[a], cj[a] + 1), find(l, ci[a] + 1, cj[a] + 1)};
+    bool ok = true;
+    for (int q = 1; q < 4 && ok; ++q)
+        if (sib[q] < 0 && check && !has_leaf_under(l, ci[a] + (q & 1), cj[a] + (q >> 1)))
+            throw std::logic_error("CellMesh::merge_ok: a sibling cell is not in the mesh (the region fetched is too small)");
+    for (int s : sib) ok = ok && s >= 0 && coarsen[s] && !R[s];
+    if (!ok) return false;
+    // the parent (level l-1) must stay within one level of every corner neighbour block
+    const int pi = ci[a] >> 1, pj = cj[a] >> 1;
+    for (int dj = -1; dj <= 1 && ok; ++dj)
+        for (int di = -1; di <= 1 && ok; ++di) {
+            if (di == 0 && dj == 0) continue;
+            int ni = pi + di, nj = pj + dj;
+            if (!wrap(l - 1, ni, nj)) continue;
+            if (covering(l - 1, ni, nj) >= 0) continue;   // same level or coarser: no conflict
+            if (check && !has_leaf_under(l - 1, ni, nj))
+                throw std::logic_error("CellMesh::merge_ok: a block next to the group is not in the mesh (the region fetched is too small)");
+            // the neighbour block is subdivided: the children touching the parent must be leaves
+            // that stay at level l
+            for (int oj = 0; oj < 2; ++oj)
+                for (int oi = 0; oi < 2; ++oi) {
+                    if ((di < 0 && oi == 0) || (di > 0 && oi == 1) || (dj < 0 && oj == 0) || (dj > 0 && oj == 1))
+                        continue;
+                    const int k = find(l, 2 * ni + oi, 2 * nj + oj);
+                    if (k < 0 && check && !has_leaf_under(l, 2 * ni + oi, 2 * nj + oj))
+                        throw std::logic_error("CellMesh::merge_ok: a child of the block next to the group is not in the mesh (the region fetched is too small)");
+                    if (k < 0 || R[k]) ok = false;
+                }
+        }
+    return ok;
+}
+
 bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>& coarsen_in) {
     const int N = num_leaves();
     if ((!refine_in.empty() && static_cast<int>(refine_in.size()) != N) ||
@@ -661,33 +723,11 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
         // each group is tested by its anchor and writes its own four entries
 #pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
         for (int a = 0; a < N; ++a) {
+            if (!merge_ok(a, coarsen_in, R, false)) continue;
             const int l = level[a];
-            if (l == 0 || (ci[a] & 1) || (cj[a] & 1)) continue;
-            int sib[4] = {a, find(l, ci[a] + 1, cj[a]), find(l, ci[a], cj[a] + 1), find(l, ci[a] + 1, cj[a] + 1)};
-            bool ok = true;
-            for (int s : sib) ok = ok && s >= 0 && coarsen_in[s] && !R[s];
-            if (!ok) continue;
-            // the parent (level l-1) must stay within one level of every corner neighbour block
-            const int pi = ci[a] >> 1, pj = cj[a] >> 1;
-            for (int dj = -1; dj <= 1 && ok; ++dj)
-                for (int di = -1; di <= 1 && ok; ++di) {
-                    if (di == 0 && dj == 0) continue;
-                    int ni = pi + di, nj = pj + dj;
-                    if (!wrap(l - 1, ni, nj)) continue;
-                    if (covering(l - 1, ni, nj) >= 0) continue;   // same level or coarser: no conflict
-                    // the neighbour block is subdivided: the children touching the parent must be leaves
-                    // that stay at level l
-                    for (int oj = 0; oj < 2; ++oj)
-                        for (int oi = 0; oi < 2; ++oi) {
-                            if ((di < 0 && oi == 0) || (di > 0 && oi == 1) || (dj < 0 && oj == 0) || (dj > 0 && oj == 1))
-                                continue;
-                            const int k = find(l, 2 * ni + oi, 2 * nj + oj);
-                            if (k < 0 || R[k]) ok = false;
-                        }
-                }
-            if (!ok) continue;
+            const int sib[3] = {find(l, ci[a] + 1, cj[a]), find(l, ci[a], cj[a] + 1), find(l, ci[a] + 1, cj[a] + 1)};
             merge_anchor[a] = 1;
-            for (int s = 1; s < 4; ++s) absorbed[sib[s]] = 1;
+            for (int s = 0; s < 3; ++s) absorbed[sib[s]] = 1;
         }
     }
 
