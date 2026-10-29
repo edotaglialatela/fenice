@@ -1,6 +1,6 @@
 # AMR with distributed storage and a local remesh (plan)
 
-Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9), 2 (section 10) 3 (section 11), 4 and 5 (sections 12 and 13; the topology of the whole mesh is kept on every rank, without faces) done.** Branch `amr-distributed`, from `main`
+Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9), 2 (section 10) 3 (section 11), 4 and 5 (sections 12 and 13), 6 (section 14: the topology adapt without a whole-mesh topology, opt-in) done.** Branch `amr-distributed`, from `main`
 at 883c45d (both PRs #4 / #5 merged). This is option 2 of `docs/design/amr-optimisation.md`, as a step towards 3-D octree AMR.
 Every number below that was not measured is marked *(estimate)*.
 
@@ -485,7 +485,7 @@ bound after a remesh is taken from the freshly forced state on every path (`forc
 * Left: the topology adapt (0.13 s on 4 ranks, 0.50 s on 16: the same O(N) work, slower with the cores shared), which would need a
   distributed topology; an incremental share build (reuse of the previous local mesh and engine); gather to one rank for the checkpoint.
 
-## 14. Phase 6: the topology adapt without a whole-mesh topology (plan, in progress)
+## 14. Phase 6: the topology adapt without a whole-mesh topology (done, opt-in)
 
 Goal: no rank holds the whole topology (`topo`) any more; the remesh costs and the memory per rank fall with the rank count.
 
@@ -512,3 +512,28 @@ all use it.
 splitters (equal to `partition()` on the whole mesh); 3 `build_share` from a fetched T; 4 the distributed adapt, compared with
 `topo.adapt` at every remesh in the tests (shadow topology, leaves only; the states by the serial-versus-ranks bitwise test); 5 `topo`
 dropped from `Simulation`; `FENICE_REPLICATED_TOPOLOGY=1` keeps the old remesh for comparison.
+
+**Result (phase 6, done).** All five stages are implemented and bitwise equal to serial; `CellParallel::remesh(ad)` is the remesh in which no rank
+holds the topology of the whole mesh, selected with `FENICE_DISTRIBUTED_TOPOLOGY=1` (the default stays the remesh of phase 5, see below).
+
+* `fetch_leaves` (region items, owners answer, descent only through split cells, mirror lists), `GlobalFacts` (splitters by bisection on the key, equal to
+  `partition()` on the whole mesh up to 40 ranks), `build_share_fetched` (region + ghost-wall readiness as a collective count), and the adapt:
+  `CellMesh::forced_by_finer` / `merge_ok` (the decisions of `CellMesh::adapt`, shared by the serial and the distributed paths, with a `check` that
+  throws when a cell holds no leaf because the region was too small), ripple rounds (exchange of the codes along the fetch lists, reduction of "changed"),
+  merges judged by every owner of a member of the group on the converged flags, parents made by the owner of the anchor, new splitters, migration.
+* Oracles: `topology_free_adapt_equals_whole_mesh_adapt_on_random_flags` (random balanced meshes and flags, 1-16 emulated ranks, leaves and states
+  equal to `CellMesh::adapt` bit for bit; it counts what it meets: 128 ripple hops across a rank boundary through a forced finer leaf, 193 merged groups
+  split over ranks, 511 merges blocked by another rank's refinement), `cellparallel_topology_free_remesh_equals_serial_bitwise` (the seven physics
+  of the other tests, real indicator), `topology_free_remesh_fails_loudly_when_the_region_is_too_small` (mutation: a region shrunk to the owned cells throws on every
+  rank), the unrelaxed shadow comparison of the fetched share (`shadow`), `amr_mpi.py --check` and `ibm_ghost.py --check` with and without the switch
+  (CI runs both), golden dumps equal to phase 5.
+* **Measured cost** (720 x 360 airfoil, 50 steps, 268 362 leaves, Ryzen 7 7800X3D, 2 / 4 / 8 / 16 ranks, one run each): wall time 6.0 / 4.1 / 4.2 / 5.7 s with
+  the distributed topology against 4.2 / 2.6 / 2.35 / 3.1 s with the replicated one; remesh 3.7 / 2.7 / 3.0 / 4.4 s against 1.8 / 1.2 / 1.2 / 1.55 s. The
+  difference is the fetches of the regions (the indicator region before the adapt, the region of the new share after it; about 25-60 ms each, a
+  third of it waiting for the slowest rank) and the rebuild of the lookups of what they bring. Resident memory per rank (init / end / peak): 89 / 121 / 213,
+  56 / 76 / 145, 40 / 50 / 109, 32 / 39 / 93 MB against 140 / 171 / 228, 105 / 121 / 160, 87 / 96 / 129, 79 / 84 / 116 MB. So on this mesh (268 k leaves)
+  the memory falls by 7-20 % at the peak and 40-50 % at the end of the run, and the wall time rises by 1.6-1.9 x; the memory gain grows with the mesh
+  (the topology is 20-40 bytes per leaf on every rank), the time does not shrink with it. **Decision: opt-in.** Things tried that did not
+  remove the cost: no state in the fetch of the share (-0.1 s), one fetch for the share instead of two, one item per level instead of nine. Not tried:
+  fetching only around the leaves on the border of the owned region (the interior is processed now at every remesh), which needs the boundary leaves
+  of all levels as seeds (exactness argument in the session notes: a path argument on cells, valid for 4-neighbour boundary cells of the owned set).
