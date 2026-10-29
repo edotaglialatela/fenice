@@ -28,13 +28,71 @@ int CellParallel::owner_of(int level, uint64_t key) const {
     return static_cast<int>(std::upper_bound(sp.begin(), sp.end() - 1, key) - sp.begin()) - 1;
 }
 
-void CellParallel::partition(const CellMesh* whole) {
-    if (!partition_local(whole))
+void CellParallel::partition(const CellMesh* whole, const GlobalFacts* facts) {
+    if (!partition_local(whole, facts))
         throw std::logic_error("CellParallel::partition: the leaves this rank keeps do not cover what its faces read");
     partition_exchange();
 }
 
-bool CellParallel::partition_local(const CellMesh* whole) {
+GlobalFacts CellParallel::global_facts(const std::vector<std::vector<uint64_t>>& keys) const {
+    const int R = comm_.size, M = mesh_.max_level;
+    const size_t L = static_cast<size_t>(M) + 1;
+    GlobalFacts gf;
+    gf.count.assign(L, 0);
+    gf.split.assign(L, std::vector<uint64_t>(static_cast<size_t>(R) + 1, kNoKey));
+    // all ranks' values of a vector of doubles, in rank order
+    const auto gather = [&](const std::vector<double>& mine, std::vector<double>& all) {
+        const int n = static_cast<int>(mine.size());
+        all.resize(static_cast<size_t>(n) * R);
+        std::vector<int> counts(static_cast<size_t>(R), n), displs(static_cast<size_t>(R));
+        for (int r = 0; r < R; ++r) displs[static_cast<size_t>(r)] = r * n;
+        if (R > 1) comm_.allgatherv(mine.data(), n, all.data(), counts.data(), displs.data());
+        else all = mine;
+    };
+    std::vector<double> mine(L), all;
+    for (size_t l = 0; l < L; ++l) mine[l] = static_cast<double>(keys[l].size());
+    gather(mine, all);
+    for (int r = 0; r < R; ++r)
+        for (size_t l = 0; l < L; ++l) gf.count[l] += static_cast<long long>(all[static_cast<size_t>(r) * L + l]);
+    // the target position of every (level, rank): the key found is the one of that position in the level's order
+    struct Target {
+        size_t l;
+        int r;
+        long long pos;
+        uint64_t lo, hi;
+    };
+    std::vector<Target> tg;
+    int rounds = 0;
+    for (size_t l = 0; l < L; ++l) {
+        int bits = 1;
+        while ((1 << bits) < std::max(mesh_.nx_at(static_cast<int>(l)), mesh_.ny_at(static_cast<int>(l)))) ++bits;
+        rounds = std::max(rounds, 2 * bits);
+        for (int r = 0; r < R; ++r) {
+            const long long pos = gf.count[l] * r / R;
+            if (pos < gf.count[l]) tg.push_back({l, r, pos, 0, (static_cast<uint64_t>(1) << (2 * bits)) - 1});
+        }
+    }
+    std::vector<double> cnt(tg.size()), tot;
+    for (int round = 0; round <= rounds; ++round) {
+        for (size_t k = 0; k < tg.size(); ++k) {   // the keys <= mid of this rank
+            const uint64_t mid = tg[k].lo + (tg[k].hi - tg[k].lo) / 2;
+            const std::vector<uint64_t>& kl = keys[tg[k].l];
+            cnt[k] = static_cast<double>(std::upper_bound(kl.begin(), kl.end(), mid) - kl.begin());
+        }
+        gather(cnt, tot);
+        for (size_t k = 0; k < tg.size(); ++k) {
+            long long below = 0;
+            for (int r = 0; r < R; ++r) below += static_cast<long long>(tot[static_cast<size_t>(r) * tg.size() + k]);
+            const uint64_t mid = tg[k].lo + (tg[k].hi - tg[k].lo) / 2;
+            if (below >= tg[k].pos + 1) tg[k].hi = mid;
+            else tg[k].lo = mid + 1;
+        }
+    }
+    for (const Target& t : tg) gf.split[t.l][static_cast<size_t>(t.r)] = t.lo;
+    return gf;
+}
+
+bool CellParallel::partition_local(const CellMesh* whole, const GlobalFacts* facts) {
     if (localized_) throw std::logic_error("CellParallel::partition: the mesh is localized (globalize() first)");
     // `whole`: the mesh is a partial one (CellMesh::build_from) and the splitters, the levels present and the global indices of the
     // blocks are those of the whole mesh; a face that reads what the rank does not keep makes this return false (nothing
@@ -44,18 +102,21 @@ bool CellParallel::partition_local(const CellMesh* whole) {
     // splitters: each level cut into contiguous blocks of equal count along its Morton order; rank r owns at level l the keys
     // [split[l][r], split[l][r + 1])
     level_present_.assign(static_cast<size_t>(M) + 1, 0);
-    for (int l = 0; l <= M; ++l) level_present_[static_cast<size_t>(l)] = g.level_begin[l + 1] > g.level_begin[l];
     split_.assign(static_cast<size_t>(M) + 1, std::vector<uint64_t>(static_cast<size_t>(R) + 1, kNoKey));
     ob_.assign(static_cast<size_t>(R), std::vector<int>(static_cast<size_t>(M) + 1, 0));
     oe_ = ob_;
+    long long b = 0;   // the index of the first leaf of the level in the whole mesh
     for (int l = 0; l <= M; ++l) {
-        const long long b = g.level_begin[l], n = g.level_begin[l + 1] - b;
+        const long long n = facts ? facts->count[static_cast<size_t>(l)] : g.level_begin[l + 1] - g.level_begin[l];
+        level_present_[static_cast<size_t>(l)] = n > 0;
         for (int r = 0; r < R; ++r) {
             const int s0 = static_cast<int>(b + n * r / R), s1 = static_cast<int>(b + n * (r + 1) / R);
             ob_[static_cast<size_t>(r)][static_cast<size_t>(l)] = s0;
             oe_[static_cast<size_t>(r)][static_cast<size_t>(l)] = s1;
-            if (s0 < b + n) split_[static_cast<size_t>(l)][static_cast<size_t>(r)] = leaf_key(g, s0);
+            if (facts) split_[static_cast<size_t>(l)][static_cast<size_t>(r)] = facts->split[static_cast<size_t>(l)][static_cast<size_t>(r)];
+            else if (s0 < b + n) split_[static_cast<size_t>(l)][static_cast<size_t>(r)] = leaf_key(g, s0);
         }
+        b += n;
     }
     owner_.resize(static_cast<size_t>(N));
 #pragma omp parallel for schedule(static) if (N >= kOmpMinWork)

@@ -4315,6 +4315,57 @@ TEST(fetch_leaves_returns_exactly_the_leaves_of_a_region_from_the_owners) {
     CHECK(remote > checked / 2);   // most ranks do fetch leaves of other ranks
 }
 
+TEST(global_facts_by_bisection_equal_the_splitters_of_partition) {
+    // The splitters and the counts of the levels from the leaves as they happen to be spread over the ranks (not the owners' blocks),
+    // found without any rank holding the order of a level, are the ones partition() cuts on the whole mesh: same keys, same empty ranks.
+    const BCType per = BCType::Periodic;
+    int levels_compared = 0;
+    for (int pp = 0; pp < 4; ++pp)
+        for (unsigned seed = 0; seed < 3; ++seed) {
+            const bool px = pp & 1, py = pp & 2;
+            CellMesh m = random_adapted_mesh(px, py, 80u + seed + 10u * static_cast<unsigned>(pp), 6);
+            const int M = m.max_level;
+            for (const int R : {1, 2, 3, 5, 7, 16, 40}) {
+                FakeHub hub(R);
+                std::vector<std::string> error(static_cast<size_t>(R));
+                const auto body = [&](int rank) {
+                    try {
+                        const BCType wall = BCType::Wall;
+                        const DistSpec sp{"euler", px, py, {px ? per : wall, px ? per : wall, py ? per : wall, py ? per : wall}, false, false, false, false, false, 11u, false};
+                        DistEnv env(sp);
+                        CellMesh mine = m;
+                        mine.U.assign(static_cast<size_t>(mine.num_leaves()), State{1.0, 0.0, 0.0, 2.5, 0.0});
+                        CellFluxEngine eng(env.eos, env.rs, &env.mu, env.bm);
+                        eng.build(mine);
+                        CellParallel par(mine, eng, hub.comm(rank));
+                        par.partition();   // the oracle: the splitters on the whole mesh
+                        std::vector<std::vector<uint64_t>> keys(static_cast<size_t>(M) + 1);
+                        for (int c = 0; c < m.num_leaves(); ++c)   // the leaves spread over the ranks by a hash
+                            if (static_cast<int>((static_cast<unsigned>(c) * 2654435761u + 12345u) % static_cast<unsigned>(R)) == rank)
+                                keys[static_cast<size_t>(m.level[static_cast<size_t>(c)])].push_back(
+                                    morton_key(static_cast<uint32_t>(m.ci[static_cast<size_t>(c)]), static_cast<uint32_t>(m.cj[static_cast<size_t>(c)])));
+                        for (std::vector<uint64_t>& k : keys) std::sort(k.begin(), k.end());
+                        const GlobalFacts gf = par.global_facts(keys);
+                        bool ok = gf.split == par.splitters();
+                        for (int l = 0; l <= M; ++l) ok = ok && gf.count[static_cast<size_t>(l)] == m.level_begin[l + 1] - m.level_begin[l];
+                        CHECK(ok);
+                        if (rank == 0) levels_compared += M + 1;
+                    } catch (const std::exception& e) {
+                        error[static_cast<size_t>(rank)] = e.what();
+                    }
+                };
+                std::vector<std::thread> threads;
+                for (int r = 0; r < R; ++r) threads.emplace_back(body, r);
+                for (std::thread& th : threads) th.join();
+                for (int r = 0; r < R; ++r) {
+                    if (!error[static_cast<size_t>(r)].empty()) std::printf("    rank %d: %s\n", r, error[static_cast<size_t>(r)].c_str());
+                    CHECK(error[static_cast<size_t>(r)].empty());
+                }
+            }
+        }
+    CHECK(levels_compared > 0);
+}
+
 TEST(a_partial_mesh_throws_when_a_face_reads_a_leaf_it_does_not_keep) {
     // CellFluxEngine::localize checks that every read of every face the rank computes is a kept leaf: a halo that is one leaf
     // short is an error at once, not a wrong number later.

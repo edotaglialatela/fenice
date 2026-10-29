@@ -42,6 +42,13 @@ struct CellComm {
     std::function<void(const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv)> exchange;
 };
 
+// What every rank knows about the whole mesh without holding it: the number of leaves of each level and the splitters (rank r owns at
+// level l the keys [split[l][r], split[l][r + 1]); the position floor(n r / R) of the level, as partition() cuts it).
+struct GlobalFacts {
+    std::vector<long long> count;
+    std::vector<std::vector<uint64_t>> split;
+};
+
 // A part of the mesh asked of the owners: the leaves with a level in [tmin, tmax] that intersect the cells of `box` (cells of `level`).
 struct RegionItem {
     int level = 0;
@@ -66,7 +73,11 @@ public:
     // exchanges: the request counts, then the requests).
     // With `whole` (the remesh of a localized run) the mesh is a partial one made by CellMesh::build_from and `whole` supplies the
     // whole mesh's splitters and levels.
-    void partition(const CellMesh* whole = nullptr);
+    void partition(const CellMesh* whole = nullptr, const GlobalFacts* facts = nullptr);
+    // The facts of the whole mesh from the leaves each rank has (`keys[level]`: the Morton keys of this rank's leaves of the level,
+    // sorted; the leaves of all ranks tile the mesh once, wherever they are). The splitters are found by a bisection on the key, all
+    // levels and boundaries together (collective): the k-th smallest key of a level, exactly.
+    GlobalFacts global_facts(const std::vector<std::vector<uint64_t>>& keys) const;
 
     // Keep only what this rank holds (call right after partition()): the mesh becomes a partial mesh of the held leaves (owned and
     // halo) and the faces it needs, the engine's tables and the lists of this object are re-indexed to it, and everything else is
@@ -183,7 +194,7 @@ private:
     // partition() in two halves: the first communicates nothing and, with `whole`, returns false if the partial mesh does not
     // cover what this rank's faces read (the caller then makes a larger one on every rank before going on); the second is the
     // exchange of the requests and the lists that need the other ranks.
-    bool partition_local(const CellMesh* whole);
+    bool partition_local(const CellMesh* whole, const GlobalFacts* facts = nullptr);
     void partition_exchange();
     // The share of the leaves `mine` (indices in `topo`): the reach of region_mask with retries, then partition_exchange and
     // localize. `nU` is the state of `topo` (entries of the leaves in the share), or null. `built` gets the time the tables were done.
