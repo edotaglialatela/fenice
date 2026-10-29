@@ -501,7 +501,9 @@ void Simulation::initialize_field() {
         for (int k = 0; k < p.amr_init_levels; ++k)
             if (!cell_topo->adapt(std::vector<char>(static_cast<size_t>(cell_topo->num_leaves()), 1))) break;
         mem_trace("base topology");
+        cell_par->replicated_topology = replicated_topology();
         cell_par->init_adapt(*cell_topo, *cell_adaptor, [this](CellMesh& m) { fill_cells(m); });
+        if (!replicated_topology()) cell_topo.reset();   // the base topology was only needed to cut the first share
         if (p.use_ibm && p.ibm_method == "ghost")
             std::printf(cell_engine->ghost_ready() ? "[IBM] Ghost-cell wall active on the finest-level band\n"
                                                    : "[WARNING] Ghost-cell wall inactive: the cells around the body are not all at the "
@@ -539,9 +541,12 @@ void Simulation::initialize_field() {
         cell_par->partition();
         print_halo_reach("initial mesh");
         if (!replicated_storage()) {
-            cell_topo = std::make_unique<CellMesh>(*cells);   // the topology stays whole on every rank, the state does not
-            cell_topo->U = Field();
-            cell_topo->set_faceless(true);
+            cell_par->replicated_topology = replicated_topology();
+            if (replicated_topology()) {
+                cell_topo = std::make_unique<CellMesh>(*cells);   // the topology stays whole on every rank, the state does not
+                cell_topo->U = Field();
+                cell_topo->set_faceless(true);
+            }
             mem_trace("before localize");
             cell_par->localize();   // each rank keeps only its leaves and their halo
             mem_trace("after localize");
@@ -549,6 +554,11 @@ void Simulation::initialize_field() {
     }
     mem_trace("init end");
     mem_init_ = memory_usage();
+}
+
+bool Simulation::replicated_topology() {
+    const char* env = std::getenv("FENICE_REPLICATED_TOPOLOGY");
+    return env && std::string(env) == "1";
 }
 
 bool Simulation::replicated_storage() {
@@ -1370,7 +1380,7 @@ void Simulation::solve_amr() {
             bool changed;
             if (local_run) {
                 // indicator on the owned leaves and their region, flags gathered, state of the new leaves migrated: no whole mesh
-                changed = cell_par->remesh(*cell_topo, *cell_adaptor);
+                changed = cell_par->replicated_topology ? cell_par->remesh(*cell_topo, *cell_adaptor) : cell_par->remesh(*cell_adaptor);
             } else {
                 // the indicator looks at every leaf: the whole mesh and its state on every rank (the replicated remesh)
                 if (cell_par) cell_par->gather_state();

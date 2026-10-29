@@ -673,7 +673,7 @@ int CellParallel::init_adapt(CellMesh& topo, CellAdaptor& ad, const std::functio
     int passes = 0;
     for (; passes < topo.max_level + 1; ++passes) {
         fill(mesh_);
-        if (!remesh(topo, ad)) {
+        if (!(replicated_topology ? remesh(topo, ad) : remesh(ad))) {
             ++passes;
             break;
         }
