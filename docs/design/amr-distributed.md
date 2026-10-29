@@ -390,11 +390,9 @@ reference. What phase 2 checks instead: bitwise states on 1-16 emulated ranks an
 the validation in `CellFluxEngine::localize` (throws, with a negative test), and a resume on 4 ranks equal to a straight run
 (30 steps = 15 + checkpoint + 15, `dump_state` bit for bit).
 
-**Open for the user.** (1) `localize` is the default; `FENICE_REPLICATED_REMESH=1` is the fast path (every remesh is 2-3x cheaper on
-4-16 ranks) until phases 3-4 and 6; making it opt-in until then is a one-line change in `Simulation::setup`. (2) After a remesh the
-wave-speed bound is taken from the freshly forced state on every path (`force_state` + `wave_speed`); the serial code before used the forced
-state of the old indexing, which the maximum did not depend on in any oracle (golden, regression, MPI). Bit-identical on all of them, but it
-is a change of the serial path.
+**Decided by the user (2026-10-29).** CI is green; `localize` stays the default (`FENICE_REPLICATED_REMESH=1` is the A/B path). The wave-speed
+bound after a remesh is taken from the freshly forced state on every path (`force_state` + `wave_speed`): bit-identical on every oracle
+(golden, regression, MPI) and it makes the serial and the localized runs use the same rule.
 
 ## 11. Phase 3 (done, as built): the indicator, the flags and the state of the new leaves are local
 
