@@ -463,7 +463,13 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     std::fflush(stdout);
 }
 
-static void mem_trace(const char* w){ if(!std::getenv("FENICE_MEM_TRACE")) return; const MemoryUsage m=memory_usage(); std::fprintf(stderr,"MEMTRACE %s cur %.0f peak %.0f MB\n",w,m.current * 1e-6,m.peak * 1e-6); }
+// FENICE_MEM_TRACE=1: the resident and peak memory of the process at a step of the setup (stderr)
+static void mem_trace(const char* where) {
+    if (!std::getenv("FENICE_MEM_TRACE")) return;
+    const MemoryUsage m = memory_usage();
+    std::fprintf(stderr, "MEMTRACE %s: resident %.0f MB, peak %.0f MB\n", where, m.current * 1e-6, m.peak * 1e-6);
+}
+
 void Simulation::initialize_field() {
     if (test_case->requires_viscosity && !ns)
         std::printf("[WARNING] This test case requires Navier-Stokes - viscous physics is off!\n");
@@ -505,6 +511,10 @@ void Simulation::initialize_field() {
             cell_par->exchange_solid();
         }
         mem_trace("init_adapt done");
+        cell_par->reset_timers();   // the report of the remesh counts the time loop only
+        const char* reach = std::getenv("FENICE_HALO_REACH");
+        if (reach && std::string(reach) == "1" && cell_comm.rank == 0)
+            std::printf("[AMR] FENICE_HALO_REACH needs the whole mesh: use a serial run or FENICE_REPLICATED_REMESH=1\n");
     } else if (start_step == 0) {
         // The initial condition is evaluated at each leaf's own resolution, so refined leaves see the exact initial
         // discontinuities rather than their interpolation from the base grid
@@ -1248,12 +1258,12 @@ void Simulation::solve_amr() {
     if (cell_par) adv.par = cell_par.get();
     // each rank keeps only its leaves and their halo (CellParallel::localize), unless FENICE_REPLICATED_REMESH=1
     const bool local_run = cell_par && cell_par->localized();
-    // the leaves of the whole mesh and their state, the same arrays on every rank (collective)
+    // the leaves of the whole mesh and their state (collective; a localized run gives them to rank 0 only, the one that writes)
     std::vector<int> g_level, g_ci, g_cj;
     Field g_U;
     const auto leaves = [&]() -> LeafArrays {
         if (local_run) {
-            cell_par->collect(g_level, g_ci, g_cj, g_U);
+            cell_par->collect(g_level, g_ci, g_cj, g_U, true);   // rank 0 only: it alone writes
             return {&g_level, &g_ci, &g_cj, &g_U};
         }
         if (cell_par) cell_par->gather_state();

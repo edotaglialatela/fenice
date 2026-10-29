@@ -477,5 +477,10 @@ bound after a remesh is taken from the freshly forced state on every path (`forc
 * Airfoil 720x360, 50 steps (wall [s], RSS at the end / peak [MB]): 2 ranks 4.14, 171 / 227; 4 ranks 2.56, 121 / 158; 8 ranks 2.25, 95 / 128;
   16 ranks 2.62, 83 / 116 (serial 5.03, 257 / 348). Split of the share build on 4 ranks (50 steps plus the initial passes): region 0.19 s,
   partial mesh 0.10, engine 0.14, partition 0.15, localize 0.20, all O(share).
+* Checkpoint: `CellParallel::collect(..., root_only)` sends the records to rank 0 only (`exchange`), the only rank that writes; with a
+  checkpoint every 10 steps the peak was 172-176 / 129-137 MB (4 / 16 ranks) on every rank with the gather to all, now 159-176 / 115-137
+  (rank 0 holds the state). The timers of the remesh are reset after the initial passes. Real MPI: `amr_mpi.py --check` has a case with
+  `amr_init_levels=1`; a hot start (uniform checkpoint mapped on the airfoil, 20 178 leaves) gave the serial bits on 1, 2, 4, 5 ranks.
+  `FENICE_HALO_REACH=1` needs the whole mesh (serial or `FENICE_REPLICATED_REMESH=1`); on a distributed start it says so.
 * Left: the topology adapt (0.13 s on 4 ranks, 0.50 s on 16: the same O(N) work, slower with the cores shared), which would need a
   distributed topology; an incremental share build (reuse of the previous local mesh and engine); gather to one rank for the checkpoint.

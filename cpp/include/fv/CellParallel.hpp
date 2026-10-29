@@ -85,13 +85,16 @@ public:
     bool same_lists(const CellParallel& other) const;
     // Accumulated wall time [s] of remesh(): region + fetch + indicator, flags + adapt of topo, state migration, engine build,
     // partition + localize + halo.
+    // The timers of the remesh since the last reset (the initial passes are reset out of them).
+    void reset_timers() { t_topo = t_region = t_flags = t_migrate = t_rebuild = t_repartition = 0.0; region_retries = 0; }
     double t_topo = 0.0, t_region = 0.0, t_flags = 0.0, t_migrate = 0.0, t_rebuild = 0.0, t_repartition = 0.0;
     // True if the whole mesh (not only this rank's share) has leaves at `level`. Every rank must run the collective calls of a level
     // that exists anywhere, also when it holds no leaf of it (a localized mesh may have an empty level that others do not).
     bool level_present(int level) const { return level_present_[static_cast<size_t>(level)] != 0; }
     // Every rank gets the leaves of all ranks, in (level, key) order: the arrays of a whole mesh and its state (collective; the
-    // mesh may be localized or not). For the checkpoint and the dump.
-    void collect(std::vector<int>& level, std::vector<int>& ci, std::vector<int>& cj, Field& U) const;
+    // mesh may be localized or not). For the checkpoint and the dump. With `root_only` only rank 0 gets them (the other ranks' arrays
+    // are empty): the other ranks never hold a copy of the whole state.
+    void collect(std::vector<int>& level, std::vector<int>& ci, std::vector<int>& cj, Field& U, bool root_only = false) const;
 
     // Test switch: after partition() the state of the leaves this rank does not hold is set to NaN, so that a missing halo
     // cell cannot go unnoticed.
@@ -171,8 +174,9 @@ private:
     // The states of the leaves `want` ((level, i, j), each owned by some rank under the current partition): from this rank's leaves
     // if it holds them, else from their owners (collective).
     void fetch_states(const std::vector<std::array<int, 3>>& want, std::vector<State>& out) const;
-    // The owned leaves of all ranks as records (level, ci, cj, state), 3 + kNVar doubles each, in rank order.
-    void gather_owned(std::vector<double>& all) const;
+    // The owned leaves of all ranks as records (level, ci, cj, state), 3 + kNVar doubles each, in rank order
+    // (with `root_only`, on rank 0 only).
+    void gather_owned(std::vector<double>& all, bool root_only = false) const;
 
     std::unique_ptr<CellMesh> sub_;   // the partial mesh of remesh(), kept to avoid rebuilding the base mesh each time
     bool localized_ = false;

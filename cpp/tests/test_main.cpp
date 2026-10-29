@@ -4110,7 +4110,7 @@ TEST(cellparallel_distributed_init_equals_serial_init_bitwise) {
         Field U;
         int passes = 0;
     };
-    const auto run = [&](const DistSpec& sp, int ranks) {
+    const auto run = [&](const DistSpec& sp, int ranks, int init_levels) {
         const int Nranks = std::max(ranks, 1);
         FakeHub hub(Nranks);
         std::vector<Out> out(static_cast<size_t>(Nranks));
@@ -4140,6 +4140,7 @@ TEST(cellparallel_distributed_init_equals_serial_init_bitwise) {
                 }
                 Out& o = out[static_cast<size_t>(rank)];
                 if (ranks == 0) {
+                    for (int k = 0; k < init_levels; ++k) m.adapt(std::vector<char>(static_cast<size_t>(m.num_leaves()), 1));   // amr_init_levels
                     eng.build(m);
                     o.passes = ad.init_adapt(fill);
                 } else {
@@ -4149,8 +4150,17 @@ TEST(cellparallel_distributed_init_equals_serial_init_bitwise) {
                     CellMesh topo = m;
                     topo.U.clear();
                     topo.set_faceless(true);
+                    for (int k = 0; k < init_levels; ++k) topo.adapt(std::vector<char>(static_cast<size_t>(topo.num_leaves()), 1));
                     o.passes = par.init_adapt(topo, ad, fill);
                     CHECK(m.partial);
+                    {   // the gather to rank 0 gives it the arrays of the gather to every rank, and the others nothing
+                        std::vector<int> l1, i1, j1, l2, i2, j2;
+                        Field u1, u2;
+                        par.collect(l1, i1, j1, u1);
+                        par.collect(l2, i2, j2, u2, true);
+                        if (rank == 0) CHECK(l1 == l2 && i1 == i2 && j1 == j2 && bits_equal(u1, u2));
+                        else CHECK(l2.empty() && u2.empty());
+                    }
                     par.globalize();
                 }
                 o.level = m.level;
@@ -4169,11 +4179,12 @@ TEST(cellparallel_distributed_init_equals_serial_init_bitwise) {
         return out;
     };
     int adapted = 0;
-    for (const DistSpec& sp : specs) {
-        const Out serial = run(sp, 0)[0];
+    for (const DistSpec& sp : specs)
+      for (const int init_levels : {0, 1}) {
+        const Out serial = run(sp, 0, init_levels)[0];
         adapted += serial.passes > 1;
         for (const int ranks : {1, 2, 3, 5, 8}) {
-            const std::vector<Out> d = run(sp, ranks);
+            const std::vector<Out> d = run(sp, ranks, init_levels);
             for (const Out& o : d) {
                 const bool same = o.level == serial.level && o.ci == serial.ci && o.cj == serial.cj && bits_equal(o.U, serial.U) &&
                                   o.passes == serial.passes;

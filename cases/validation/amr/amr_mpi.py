@@ -46,6 +46,7 @@ def measure(args, tag, mpi=0, threads=None):
 CHECK_CASES = {   # name: (case, overrides)
     "sod": ("Sod Shock Tube", ["nx=50", "ny=4", "Ly=0.08", "amr_max_level=2", "amr_refine_every=4"]),
     "airfoil": ("IBM Airfoil AMR", ["t_end=0.6"]),
+    "sod_init_levels": ("Sod Shock Tube", ["nx=50", "ny=4", "Ly=0.08", "amr_max_level=2", "amr_refine_every=4", "amr_init_levels=1"]),
     # default indicator: all three levels stay in use and the leaves change during the run (with amr_criterion=0.01 the whole
     # domain was refined at the start and the 2 steps of t_end=0.05 never remeshed)
     "mms": ("Manufactured Solution", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "max_steps=16"]),

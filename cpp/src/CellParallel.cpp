@@ -696,7 +696,7 @@ bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     return true;
 }
 
-void CellParallel::gather_owned(std::vector<double>& all) const {
+void CellParallel::gather_owned(std::vector<double>& all, bool root_only) const {
     const int R = comm_.size, M = mesh_.max_level;
     std::vector<double> send;
     for (int l = 0; l <= M; ++l)
@@ -717,15 +717,33 @@ void CellParallel::gather_owned(std::vector<double>& all) const {
         displs[static_cast<size_t>(r)] = static_cast<int>(total);
         total += counts[static_cast<size_t>(r)];
     }
+    if (R > 1 && root_only) {   // every rank sends its records to rank 0
+        const int me = comm_.rank;
+        std::vector<std::vector<double>> out(static_cast<size_t>(R)), in(static_cast<size_t>(R));
+        if (me != 0) out[0].swap(send);
+        else
+            for (int r = 1; r < R; ++r) in[static_cast<size_t>(r)].resize(static_cast<size_t>(counts[static_cast<size_t>(r)]));
+        comm_.exchange(out, in);
+        all.clear();
+        if (me == 0) {
+            all.reserve(static_cast<size_t>(total));
+            all.insert(all.end(), send.begin(), send.end());
+            for (int r = 1; r < R; ++r) {
+                all.insert(all.end(), in[static_cast<size_t>(r)].begin(), in[static_cast<size_t>(r)].end());
+                std::vector<double>().swap(in[static_cast<size_t>(r)]);
+            }
+        }
+        return;
+    }
     all.resize(static_cast<size_t>(total));
     if (R > 1) comm_.allgatherv(send.data(), static_cast<int>(send.size()), all.data(), counts.data(), displs.data());
     else all = send;
 }
 
-void CellParallel::collect(std::vector<int>& level, std::vector<int>& ci, std::vector<int>& cj, Field& U) const {
+void CellParallel::collect(std::vector<int>& level, std::vector<int>& ci, std::vector<int>& cj, Field& U, bool root_only) const {
     constexpr size_t rec = 3 + kNVar;
     std::vector<double> all;
-    gather_owned(all);
+    gather_owned(all, root_only);
     const size_t n = all.size() / rec;
     std::vector<size_t> order(n);
     for (size_t k = 0; k < n; ++k) order[k] = k;
