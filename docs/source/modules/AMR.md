@@ -151,9 +151,9 @@ after it advanced, and the registers of the coarse-fine faces. A same-level face
 by the owner of the fine leaf. The result is identical to the serial run for any number of ranks (1 to 7 are checked in
 `amr_mpi.py --check`, on cases with remeshing, an immersed body, viscosity, a non-reflecting outlet and a time-dependent source).
 
-**Known limits.** The indicator, the flags and the state of the new leaves are local, and each rank builds its share of the mesh and the engine tables directly from the leaves near its own (a wider reach is tried if a face reads what the share lacks). Every rank still adapts the topology of the whole mesh (leaves and lookups only, no faces), which is a serial fraction across ranks (0.65 of the 1.6 s remesh on 16 ranks), so the MPI speed-up flattens at 8 ranks and the peak memory per rank, reached at setup and at a checkpoint, does not fall with the number of ranks. The memory between remeshes does: 256 MB serial, 184 / 139 / 116 / 105 MB per rank on 2 / 4 / 8 / 16 ranks. On one node
+**Known limits.** The indicator, the flags and the state of the new leaves are local, each rank builds its share of the mesh and the engine tables directly from the leaves near its own (a wider reach is tried if a face reads what the share lacks), and the first mesh is adapted the same way, so no rank holds the whole mesh or its engine at any time. Every rank still adapts the topology of the whole mesh (leaves and lookups only, no faces), which is a serial fraction across ranks (0.5 s of the 1.5 s remesh on 16 ranks), so the MPI speed-up flattens at 8 ranks. The resident memory per rank on the airfoil is 257 MB serial and 171 / 121 / 95 / 83 MB at the end of the run on 2 / 4 / 8 / 16 ranks, the peak (the remesh and the first share) 348 MB serial and 227 / 158 / 128 / 116 MB. On one node
 OpenMP is the better choice; MPI gives the same result for any rank count and a moderate speed-up. Checkpoint and `dump_state` gather the
-leaves on every rank (a transient copy of the whole state); a restart reads the whole checkpoint on every rank.
+leaves on every rank (a transient copy of the whole state); a restart reads the whole checkpoint on every rank and a hot start the whole source field.
 At the end of a run the solver prints the resident memory of the ranks (after setup, after the initial adaptation, at the end,
 the peak: minimum / maximum over the ranks) and the size of the tables of a rank: about 1.5 kB per leaf on the airfoil
 (`cases/validation/amr/amr_memory.py` measures it on 1 to 16 ranks; `docs/design/amr-distributed.md` is the plan to distribute
@@ -163,7 +163,7 @@ the remesh as well).
 |---|---:|---:|
 | serial, 1 thread | 5.9 s | 1.0 s |
 | OpenMP, 2 / 4 / 8 / 16 threads | 3.5 / 2.3 / 2.1 / 2.0 s | 0.75 / 0.65 / 0.65 / 0.74 s |
-| MPI, 2 / 4 / 8 / 16 ranks, each rank its share of the mesh (default) | 4.1 / 2.6 / 2.3 / 2.9 s | 1.8 / 1.2 / 1.2 / 1.6 s |
+| MPI, 2 / 4 / 8 / 16 ranks, each rank its share of the mesh (default) | 4.1 / 2.6 / 2.3 / 2.6 s | 1.8 / 1.2 / 1.2 / 1.5 s |
 | MPI, 2 / 4 / 8 / 16 ranks, `FENICE_REPLICATED_REMESH=1` (every rank the whole mesh) | 3.9 / 3.1 / 3.8 / 7.5 s | 1.1 / 1.3 / 2.0 / 4.4 s |
 
 Ryzen 7 7800X3D (8 cores, 16 logical processors), MSVC build, one run after the incremental remesh update (scalar viscous loops); the 16-rank row is

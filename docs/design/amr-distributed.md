@@ -1,6 +1,6 @@
 # AMR with distributed storage and a local remesh (plan)
 
-Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9), 2 (section 10) 3 (section 11) and 4 (section 12; the topology of the whole mesh is kept on every rank, without faces) done.** Branch `amr-distributed`, from `main`
+Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9), 2 (section 10) 3 (section 11), 4 and 5 (sections 12 and 13; the topology of the whole mesh is kept on every rank, without faces) done.** Branch `amr-distributed`, from `main`
 at 883c45d (both PRs #4 / #5 merged). This is option 2 of `docs/design/amr-optimisation.md`, as a step towards 3-D octree AMR.
 Every number below that was not measured is marked *(estimate)*.
 
@@ -458,3 +458,24 @@ bound after a remesh is taken from the freshly forced state on every path (`forc
   the state is still gathered once at a checkpoint and the setup builds the whole mesh.
 * Left: the topology adapt (0.65 s at 16 ranks) and the engine build on the share are still O(share) plus O(N) lookups on every rank; the
   topology could shrink to keys, and the state of the initial mesh is still distributed from a whole mesh.
+
+## 13. Phase 5: the first mesh without a whole mesh, windowed initial condition (done)
+
+* The peak memory per rank was 342 MB at every rank count: the initial adaptation ran on the whole mesh and engine on every rank (`init_adapt`),
+  and `fill_cells` evaluated the initial condition on the whole uniform field of each level (166 MB on the finest level of the airfoil).
+* `Mesh::win_i0 / win_i1 / win_j0 / win_j1`: an initial-condition evaluation covers a window of cells (the 2-D profiles and
+  `evaluate_initial`), indexed relative to it, with the coordinates of the whole mesh, so the bits are the same. `fill_cells` evaluates the box
+  that holds a level's leaves: serial peak 358 -> 242 MB during the initial adaptation, golden dumps unchanged.
+* `CellParallel::init_adapt(topo, ad, fill)` (several ranks, localized storage): `topo` is the faceless base mesh (refined to
+  `amr_init_levels`), every rank builds its share of it with `build_share` (the code of the remesh, factored out) and the passes of
+  `CellAdaptor::init_adapt` run through `remesh()` with the initial condition filled on all the leaves of the share (the state the remesh
+  migrates is overwritten, as it is in the serial passes). The solid reset follows with `exchange_solid`. A resume still reads the whole
+  checkpoint, then localizes.
+* Test: `cellparallel_distributed_init_equals_serial_init_bitwise` (leaves, passes and state bit for bit, 1-8 emulated ranks, with a body,
+  ghost cells and a mass-flow inlet, first reach too small to force the retry); `amr_mpi.py --check` and `ibm_ghost.py --check` use it on
+  real MPI.
+* Airfoil 720x360, 50 steps (wall [s], RSS at the end / peak [MB]): 2 ranks 4.14, 171 / 227; 4 ranks 2.56, 121 / 158; 8 ranks 2.25, 95 / 128;
+  16 ranks 2.62, 83 / 116 (serial 5.03, 257 / 348). Split of the share build on 4 ranks (50 steps plus the initial passes): region 0.19 s,
+  partial mesh 0.10, engine 0.14, partition 0.15, localize 0.20, all O(share).
+* Left: the topology adapt (0.13 s on 4 ranks, 0.50 s on 16: the same O(N) work, slower with the cores shared), which would need a
+  distributed topology; an incremental share build (reuse of the previous local mesh and engine); gather to one rank for the checkpoint.

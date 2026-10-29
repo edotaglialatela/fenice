@@ -85,7 +85,7 @@ public:
     bool same_lists(const CellParallel& other) const;
     // Accumulated wall time [s] of remesh(): region + fetch + indicator, flags + adapt of topo, state migration, engine build,
     // partition + localize + halo.
-    double t_region = 0.0, t_flags = 0.0, t_migrate = 0.0, t_rebuild = 0.0, t_repartition = 0.0;
+    double t_topo = 0.0, t_region = 0.0, t_flags = 0.0, t_migrate = 0.0, t_rebuild = 0.0, t_repartition = 0.0;
     // True if the whole mesh (not only this rank's share) has leaves at `level`. Every rank must run the collective calls of a level
     // that exists anywhere, also when it holds no leaf of it (a localized mesh may have an empty level that others do not).
     bool level_present(int level) const { return level_present_[static_cast<size_t>(level)] != 0; }

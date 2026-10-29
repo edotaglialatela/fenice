@@ -1431,10 +1431,11 @@ void Simulation::solve_amr() {
     // (a localized run has no gather: the "gather" is the region of the mesh the indicator reads and its state, the "indicator" the
     // flags of the owned leaves and their exchange, the "adapt" the adapt of the topology and the state of the new leaves, the
     // "partition" the partition, localize and halo fill after the engine build)
-    if (local_run)
+    if (local_run) {
         std::printf("[AMR] remesh parts: gather %.2f s, indicator %.2f s, adapt %.2f s, engine build %.2f s, wave-speed bound %.2f s, partition %.2f s\n",
                     cell_par->t_region, cell_par->t_flags, cell_par->t_migrate, cell_par->t_rebuild, t_speed, cell_par->t_repartition);
-    else
+        std::printf("[AMR] of the adapt, the topology: %.2f s\n", cell_par->t_topo);
+    } else
         std::printf("[AMR] remesh parts: gather %.2f s, indicator %.2f s, adapt %.2f s, engine build %.2f s, wave-speed bound %.2f s, partition %.2f s\n",
                     t_gather, cell_adaptor->t_indicator, cell_adaptor->t_adapt, cell_adaptor->t_build, t_speed, t_partition);
     double lo[4], hi[4];

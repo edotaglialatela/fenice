@@ -601,6 +601,7 @@ bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     const int before = N;
     const bool changed = topo.adapt(refine, coarsen);
     topo.record_sources = false;
+    t_topo += sec(t2, Clock::now());
     t_region += sec(t0, t1);
     t_flags += sec(t1, t2);
     ad.t_indicator += sec(t0, t2);
