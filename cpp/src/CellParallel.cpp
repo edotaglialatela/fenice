@@ -547,18 +547,23 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
     const auto rings = [](int d) { return d < 0 ? 4 : (d == 0 ? 6 : (d == 1 ? 8 : (d == 2 ? 9 : 11))); };
     for (int extra = first_extra;; extra += 2) {
         std::vector<RegionItem> items;
-        for (int o = 0; o <= M; ++o) {
+        for (int o = 0; o <= M; ++o) {   // one item per level of the owned leaves, with the widest of the rings of the levels read (a superset of what region_mask keeps)
             if (seeds[static_cast<size_t>(o)].empty()) continue;
+            int r = 0;
             for (int t = 0; t <= M; ++t) {
                 if (gf.count[static_cast<size_t>(t)] == 0) continue;
-                int r = std::max(0, rings(o - t) + extra);
-                if (engine_.has_body() && t == o && o == M) r = std::max(r, 8 + extra);   // the images of the ghost cells
-                RegionItem it;
-                it.level = o;
-                it.box = dilate_cells(seeds[static_cast<size_t>(o)], mesh_.nx_at(o), mesh_.ny_at(o), r, mesh_.periodic_x, mesh_.periodic_y);
-                it.tmin = it.tmax = t;
-                items.push_back(std::move(it));
+                int rt = std::max(0, rings(o - t) + extra);
+                if (engine_.has_body() && t == o && o == M) rt = std::max(rt, 8 + extra);   // the images of the ghost cells
+                // one cell more than region_mask reads, in the units of the seeds' level, so that the leaves at the border of the
+                // share have the neighbours that make their faces: one cell of the leaf's level, or of the next coarser
+                r = std::max(r, rt + (t >= o ? 1 : 2 * (1 << (o - t))));
             }
+            RegionItem it;
+            it.level = o;
+            it.box = dilate_cells(seeds[static_cast<size_t>(o)], mesh_.nx_at(o), mesh_.ny_at(o), r, mesh_.periodic_x, mesh_.periodic_y);
+            it.tmin = 0;
+            it.tmax = M;
+            items.push_back(std::move(it));
         }
         for (int s = 0; s < 4; ++s) {   // the leaves along a mass-flow inlet (its average reads them on every rank)
             if (!engine_.mass_flow_side(s)) continue;
@@ -568,54 +573,28 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
                 RegionItem it;
                 it.level = t;
                 it.tmin = it.tmax = t;
-                it.box.i0 = s == 1 ? nx - 1 : 0;
-                it.box.j0 = s == 3 ? ny - 1 : 0;
-                it.box.w = s < 2 ? 1 : nx;
-                it.box.h = s < 2 ? ny : 1;
+                it.box.i0 = s == 1 ? std::max(0, nx - 2) : 0;
+                it.box.j0 = s == 3 ? std::max(0, ny - 2) : 0;
+                it.box.w = s < 2 ? std::min(2, nx) : nx;
+                it.box.h = s < 2 ? ny : std::min(2, ny);
                 it.box.g.assign(static_cast<size_t>(it.box.w) * it.box.h, 1);
                 items.push_back(std::move(it));
             }
         }
-        CellMesh T0(mesh_.Lx, mesh_.Ly, mesh_.nx, mesh_.ny, M, mesh_.periodic_x, mesh_.periodic_y, mesh_.x0, mesh_.y0);
-        fetch_leaves(gf.split, own, &own.U, items, T0);
-        // the leaves the share keeps are those of region_mask; a second fetch brings the neighbours of those (one cell, the same
-        // level or the coarser) so that the faces at the border of the share are the ones of a build on the whole mesh
-        std::vector<char> keep0(static_cast<size_t>(T0.num_leaves()), 1);
-        std::vector<std::vector<std::array<int, 2>>> kseeds(static_cast<size_t>(M) + 1);
-        for (int c = 0; c < T0.num_leaves(); ++c)
-            kseeds[static_cast<size_t>(T0.level[static_cast<size_t>(c)])].push_back({T0.ci[static_cast<size_t>(c)], T0.cj[static_cast<size_t>(c)]});
-        std::vector<RegionItem> nb;
-        for (int t = 0; t <= M; ++t) {
-            if (kseeds[static_cast<size_t>(t)].empty()) continue;
-            RegionItem it;
-            it.level = t;
-            it.box = dilate_cells(kseeds[static_cast<size_t>(t)], mesh_.nx_at(t), mesh_.ny_at(t), 1, mesh_.periodic_x, mesh_.periodic_y);
-            it.tmin = std::max(0, t - 1);
-            it.tmax = t;
-            nb.push_back(std::move(it));
-        }
+        // (one cell more around the region than region_mask reads, in the units of the seeds' level, so that the leaves at the border of
+        // the share have the neighbours that make their faces: one cell of the leaf's level, or of the next coarser)
         CellMesh T(mesh_.Lx, mesh_.Ly, mesh_.nx, mesh_.ny, M, mesh_.periodic_x, mesh_.periodic_y, mesh_.x0, mesh_.y0);
-        fetch_leaves(gf.split, own, &own.U, nb, T);
-        {   // T0 and T: the union, with the state
-            std::vector<int> ul, ui, uj;
-            Field uu;
-            std::set<std::array<int, 3>> seen;
-            for (const CellMesh* src : {&T0, &T})
-                for (int c = 0; c < src->num_leaves(); ++c)
-                    if (seen.insert({src->level[static_cast<size_t>(c)], src->ci[static_cast<size_t>(c)], src->cj[static_cast<size_t>(c)]}).second) {
-                        ul.push_back(src->level[static_cast<size_t>(c)]);
-                        ui.push_back(src->ci[static_cast<size_t>(c)]);
-                        uj.push_back(src->cj[static_cast<size_t>(c)]);
-                        uu.push_back(src->U[static_cast<size_t>(c)]);
-                    }
-            T.assign_partial_leaves(ul, ui, uj, &uu);
-        }
-        std::vector<char> keep(static_cast<size_t>(T.num_leaves()), 0);
-        for (int c = 0; c < T0.num_leaves(); ++c)
-            keep[static_cast<size_t>(T.find(T0.level[static_cast<size_t>(c)], T0.ci[static_cast<size_t>(c)], T0.cj[static_cast<size_t>(c)]))] = 1;
+        fetch_leaves(gf.split, own, nullptr, items, T);   // (no state: the halo is filled by exchange_final)
+        std::vector<int> owned_t;
+        for (int c = 0; c < own.num_leaves(); ++c)
+            owned_t.push_back(T.find(own.level[static_cast<size_t>(c)], own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)]));
+        std::vector<char> keep;
+        region_mask(T, owned_t, extra, keep);
         bool ok = true;
         try {
-            mesh_.build_from(T, keep, &T.U);
+            mesh_.build_from(T, keep, nullptr);
+            for (int c = 0; c < own.num_leaves(); ++c)   // the state of the owned leaves
+                mesh_.U[static_cast<size_t>(mesh_.find(own.level[static_cast<size_t>(c)], own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)]))] = own.U[static_cast<size_t>(c)];
             engine_.set_ghost_whole_ready(ghost_hint);
             engine_.build(mesh_, &T);
             engine_.set_ghost_whole_ready(-1);
@@ -708,7 +687,6 @@ void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split,
                                 const std::vector<RegionItem>& items, CellMesh& out, FetchPlan* plan) const {
     const int R = comm_.size, me = comm_.rank, M = responder.max_level;
     const bool states = resp_state != nullptr;
-    const size_t rec = states ? 2 + kNVar : 2;
     if (plan) {
         plan->from.assign(static_cast<size_t>(R), {});
         plan->served.assign(static_cast<size_t>(R), {});
@@ -717,66 +695,107 @@ void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split,
     Field U;
     std::vector<std::vector<long long>> found(static_cast<size_t>(M) + 1);   // sorted cell numbers (j * nx + i) of the leaves found, per level
     const auto cell_no = [&](int t, int i, int j) { return static_cast<long long>(j) * responder.nx_at(t) + i; };
-    for (int t = 0; t <= M; ++t) {
-        // the cells of level t the region asks about, minus those a coarser leaf already found covers
-        std::vector<long long> cand;
-        for (const RegionItem& it : items) {
-            if (t < it.tmin || t > it.tmax) continue;
-            const CellBox& b = it.box;
-            for (int j = 0; j < b.h; ++j)
-                for (int i = 0; i < b.w; ++i) {
-                    if (!b.g[static_cast<size_t>(j) * b.w + i]) continue;
-                    const int ci = b.i0 + i, cj = b.j0 + j;
-                    if (t <= it.level) {
-                        cand.push_back(cell_no(t, ci >> (it.level - t), cj >> (it.level - t)));
-                    } else {
-                        const int n = 1 << (t - it.level);
-                        for (int qj = 0; qj < n; ++qj)
-                            for (int qi = 0; qi < n; ++qi) cand.push_back(cell_no(t, ci * n + qi, cj * n + qj));
-                    }
+    // Per item the cells of its box (at its own level), and the cells of the level reached that hold no leaf (they are split: the
+    // next level asks about their children)
+    struct Work {
+        const RegionItem* it;
+        std::vector<int> bi, bj;
+        std::vector<long long> split_cells;
+    };
+    std::vector<Work> work;
+    for (const RegionItem& it : items) {
+        Work w;
+        w.it = &it;
+        for (int j = 0; j < it.box.h; ++j)
+            for (int i = 0; i < it.box.w; ++i)
+                if (it.box.g[static_cast<size_t>(j) * it.box.w + i]) {
+                    w.bi.push_back(it.box.i0 + i);
+                    w.bj.push_back(it.box.j0 + j);
                 }
+        if (!w.bi.empty()) work.push_back(std::move(w));
+    }
+    const auto sort_unique = [](std::vector<long long>& v) {
+        std::sort(v.begin(), v.end());
+        v.erase(std::unique(v.begin(), v.end()), v.end());
+    };
+    for (int t = 0; t <= M; ++t) {
+        // 1) the cells of level t each item asks about: its box's ancestors above its level, the box, the children of the split cells below
+        std::vector<std::vector<long long>> frontier(work.size());
+        std::vector<long long> ask_cells, want_cells;
+        for (size_t k = 0; k < work.size(); ++k) {
+            Work& w = work[k];
+            const int L = w.it->level;
+            std::vector<long long>& fr = frontier[k];
+            if (t > w.it->tmax) continue;
+            if (t < L) {
+                if (t < w.it->tmin) continue;
+                for (size_t q = 0; q < w.bi.size(); ++q) fr.push_back(cell_no(t, w.bi[q] >> (L - t), w.bj[q] >> (L - t)));
+                sort_unique(fr);
+            } else if (t == L) {
+                for (size_t q = 0; q < w.bi.size(); ++q) fr.push_back(cell_no(t, w.bi[q], w.bj[q]));
+            } else {
+                const int nxp = responder.nx_at(t - 1);
+                for (const long long no : w.split_cells) {
+                    const int i = static_cast<int>(no % nxp), j = static_cast<int>(no / nxp);
+                    for (int q = 0; q < 4; ++q) fr.push_back(cell_no(t, 2 * i + (q & 1), 2 * j + (q >> 1)));
+                }
+                sort_unique(fr);
+            }
+            ask_cells.insert(ask_cells.end(), fr.begin(), fr.end());
+            if (t >= w.it->tmin) want_cells.insert(want_cells.end(), fr.begin(), fr.end());
         }
-        std::sort(cand.begin(), cand.end());
-        cand.erase(std::unique(cand.begin(), cand.end()), cand.end());
+        sort_unique(ask_cells);
+        sort_unique(want_cells);
+        // 2) those not inside a leaf already found go to the owners: (i, j, wanted)
         std::vector<std::vector<double>> ask(static_cast<size_t>(R));
-        std::vector<long long> mine;
-        for (const long long no : cand) {
-            const int i = static_cast<int>(no % responder.nx_at(t)), j = static_cast<int>(no / responder.nx_at(t));
+        std::vector<long long> mine, covered_cells;
+        const int nx = responder.nx_at(t);
+        for (const long long no : ask_cells) {
+            const int i = static_cast<int>(no % nx), j = static_cast<int>(no / nx);
             bool covered = false;
             for (int s = 0; s < t && !covered; ++s)
                 covered = std::binary_search(found[static_cast<size_t>(s)].begin(), found[static_cast<size_t>(s)].end(),
                                              cell_no(s, i >> (t - s), j >> (t - s)));
-            if (covered) continue;
+            if (covered) {
+                covered_cells.push_back(no);
+                continue;
+            }
             const int o = owner_in(split, t, morton_key(static_cast<uint32_t>(i), static_cast<uint32_t>(j)));
             if (o == me) {
                 mine.push_back(no);
             } else {
                 ask[static_cast<size_t>(o)].push_back(i);
                 ask[static_cast<size_t>(o)].push_back(j);
+                ask[static_cast<size_t>(o)].push_back(std::binary_search(want_cells.begin(), want_cells.end(), no) ? 1.0 : 0.0);
             }
         }
         std::vector<std::vector<double>> got_ask, reply(static_cast<size_t>(R)), got_reply;
         exchange_sized(ask, got_ask);
-        for (int r = 0; r < R; ++r) {   // the leaves asked of this rank that it has
+        for (int r = 0; r < R; ++r) {   // the leaves asked of this rank that it has: (i, j, wanted) and, if wanted, the state
             if (r == me) continue;
             const std::vector<double>& q = got_ask[static_cast<size_t>(r)];
-            for (size_t k = 0; k + 1 < q.size(); k += 2) {
+            for (size_t k = 0; k + 2 < q.size(); k += 3) {
                 const int c = responder.find(t, static_cast<int>(q[k]), static_cast<int>(q[k + 1]));
                 if (c < 0) continue;
-                reply[static_cast<size_t>(r)].push_back(q[k]);
-                reply[static_cast<size_t>(r)].push_back(q[k + 1]);
-                if (states)
-                    for (int v = 0; v < kNVar; ++v) reply[static_cast<size_t>(r)].push_back((*resp_state)[static_cast<size_t>(c)][static_cast<size_t>(v)]);
-                if (plan) plan->served[static_cast<size_t>(r)].push_back(c);
+                std::vector<double>& rp = reply[static_cast<size_t>(r)];
+                rp.push_back(q[k]);
+                rp.push_back(q[k + 1]);
+                rp.push_back(q[k + 2]);
+                if (q[k + 2] != 0.0) {
+                    if (states)
+                        for (int v = 0; v < kNVar; ++v) rp.push_back((*resp_state)[static_cast<size_t>(c)][static_cast<size_t>(v)]);
+                    if (plan) plan->served[static_cast<size_t>(r)].push_back(c);
+                }
             }
         }
         exchange_sized(reply, got_reply);
         std::vector<long long>& fl = found[static_cast<size_t>(t)];
         for (const long long no : mine) {
-            const int i = static_cast<int>(no % responder.nx_at(t)), j = static_cast<int>(no / responder.nx_at(t));
+            const int i = static_cast<int>(no % nx), j = static_cast<int>(no / nx);
             const int c = responder.find(t, i, j);
             if (c < 0) continue;
             fl.push_back(no);
+            if (!std::binary_search(want_cells.begin(), want_cells.end(), no)) continue;
             lv.push_back(t);
             ii.push_back(i);
             jj.push_back(j);
@@ -785,21 +804,34 @@ void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split,
         for (int r = 0; r < R; ++r) {
             if (r == me) continue;
             const std::vector<double>& a = got_reply[static_cast<size_t>(r)];
-            for (size_t k = 0; k + rec <= a.size(); k += rec) {
+            for (size_t k = 0; k + 3 <= a.size();) {
                 const int i = static_cast<int>(a[k]), j = static_cast<int>(a[k + 1]);
+                const bool wanted = a[k + 2] != 0.0;
                 fl.push_back(cell_no(t, i, j));
+                k += 3;
+                if (!wanted) continue;
                 lv.push_back(t);
                 ii.push_back(i);
                 jj.push_back(j);
                 if (states) {
                     State u;
-                    for (int v = 0; v < kNVar; ++v) u[static_cast<size_t>(v)] = a[k + 2 + static_cast<size_t>(v)];
+                    for (int v = 0; v < kNVar; ++v) u[static_cast<size_t>(v)] = a[k + static_cast<size_t>(v)];
                     U.push_back(u);
+                    k += static_cast<size_t>(kNVar);
                 }
                 if (plan) plan->from[static_cast<size_t>(r)].push_back({t, i, j});
             }
         }
         std::sort(fl.begin(), fl.end());
+        // 3) the cells reached that hold no leaf are split: their children are asked next, down to the item's deepest level
+        for (size_t k = 0; k < work.size(); ++k) {
+            Work& w = work[k];
+            w.split_cells.clear();
+            if (t < w.it->level || t >= w.it->tmax || t >= M) continue;
+            for (const long long no : frontier[k])
+                if (!std::binary_search(covered_cells.begin(), covered_cells.end(), no) && !std::binary_search(fl.begin(), fl.end(), no))
+                    w.split_cells.push_back(no);
+        }
     }
     out.assign_partial_leaves(lv, ii, jj, states ? &U : nullptr);
 }
@@ -1209,7 +1241,9 @@ bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     }
     auto t4 = Clock::now();
     if (direct_build) {
-        {   // the new owned leaves and their state, the facts of the new mesh, then the share from a fetched region
+        if (!shadow) {
+            build_share(topo, mine_new, &nU, &t4);   // (the share cut from the topology this rank holds)
+        } else {   // the test switch: the share from a fetched region, which the comparison below holds to the extracted one
             std::vector<int> lv, ii, jj;
             Field ou;
             std::vector<std::vector<uint64_t>> keys(static_cast<size_t>(M) + 1);
