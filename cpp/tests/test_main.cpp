@@ -14,6 +14,7 @@
 #include <mutex>
 #include <numeric>
 #include <random>
+#include <set>
 #include <string>
 #include <thread>
 #include <tuple>
@@ -4194,6 +4195,124 @@ TEST(cellparallel_distributed_init_equals_serial_init_bitwise) {
         }
     }
     CHECK(adapted >= 3);   // the initial mesh does adapt in most of the specs
+}
+
+TEST(fetch_leaves_returns_exactly_the_leaves_of_a_region_from_the_owners) {
+    // Phase 6 of docs/design/amr-distributed.md: the leaves of the mesh that intersect a region (boxes of cells of one level, a range
+    // of leaf levels) are fetched from the owners, each answering from its own leaves only: the set and the state are those a brute-force
+    // search of the whole mesh finds, for any partition, periodicity and region.
+    const BCType per = BCType::Periodic;
+    int checked = 0, remote = 0;
+    for (int pp = 0; pp < 4; ++pp)
+        for (unsigned seed = 0; seed < 3; ++seed) {
+            const bool px = pp & 1, py = pp & 2;
+            CellMesh m = random_adapted_mesh(px, py, 60u + seed + 10u * static_cast<unsigned>(pp), 6);
+            const int N = m.num_leaves(), M = m.max_level;
+            m.U.resize(static_cast<size_t>(N));
+            for (int c = 0; c < N; ++c) m.U[static_cast<size_t>(c)] = {1.0 + c, 0.5 * c, -0.25 * c, 2.0 + c, 0.125 * c};
+            for (const int R : {1, 2, 3, 5, 7}) {
+                std::vector<std::vector<uint64_t>> split(static_cast<size_t>(M) + 1, std::vector<uint64_t>(static_cast<size_t>(R) + 1, ~static_cast<uint64_t>(0)));
+                for (int l = 0; l <= M; ++l) {
+                    const long long b = m.level_begin[l], n = m.level_begin[l + 1] - b;
+                    for (int r = 0; r < R; ++r) {
+                        const long long pos = b + n * r / R;
+                        if (pos < b + n)
+                            split[static_cast<size_t>(l)][static_cast<size_t>(r)] =
+                                morton_key(static_cast<uint32_t>(m.ci[static_cast<size_t>(pos)]), static_cast<uint32_t>(m.cj[static_cast<size_t>(pos)]));
+                    }
+                }
+                FakeHub hub(R);
+                std::vector<std::string> error(static_cast<size_t>(R));
+                std::vector<int> nfound(static_cast<size_t>(R), 0), nown(static_cast<size_t>(R), 0);
+                const auto body = [&](int rank) {
+                    try {
+                        const DistSpec sp{"euler periodic", px, py, {per, per, per, per}, false, false, false, false, false, 11u, false};
+                        DistEnv env(sp);
+                        CellMesh mine = m;
+                        CellFluxEngine eng(env.eos, env.rs, &env.mu, env.bm);
+                        CellParallel par(mine, eng, hub.comm(rank));
+                        std::vector<int> ol, oi, oj;
+                        Field ou;
+                        std::vector<int> owned;
+                        for (int l = 0; l <= M; ++l) {
+                            const long long b = m.level_begin[l], n = m.level_begin[l + 1] - b;
+                            for (long long c = b + n * rank / R; c < b + n * (rank + 1) / R; ++c) owned.push_back(static_cast<int>(c));
+                        }
+                        for (const int c : owned) {
+                            ol.push_back(m.level[static_cast<size_t>(c)]);
+                            oi.push_back(m.ci[static_cast<size_t>(c)]);
+                            oj.push_back(m.cj[static_cast<size_t>(c)]);
+                            ou.push_back(m.U[static_cast<size_t>(c)]);
+                        }
+                        CellMesh own(m.Lx, m.Ly, m.nx, m.ny, M, px, py, m.x0, m.y0);
+                        own.assign_partial_leaves(ol, oi, oj, &ou);   // the responder holds its own leaves only
+                        std::vector<RegionItem> items;
+                        std::mt19937 rng(7u + static_cast<unsigned>(rank));
+                        for (int o = 0; o <= M; ++o) {
+                            std::vector<std::array<int, 2>> seeds;
+                            for (const int c : owned)
+                                if (m.level[static_cast<size_t>(c)] == o) seeds.push_back({m.ci[static_cast<size_t>(c)], m.cj[static_cast<size_t>(c)]});
+                            if (seeds.empty()) continue;
+                            RegionItem it;
+                            it.level = o;
+                            it.box = dilate_cells(seeds, m.nx_at(o), m.ny_at(o), 1 + static_cast<int>(rng() % 4), px, py);
+                            it.tmin = static_cast<int>(rng() % (M + 1));
+                            it.tmax = it.tmin + static_cast<int>(rng() % (M + 1 - it.tmin));
+                            items.push_back(std::move(it));
+                        }
+                        CellMesh out(m.Lx, m.Ly, m.nx, m.ny, M, px, py, m.x0, m.y0);
+                        par.fetch_leaves(split, own, &ou, items, out);
+                        std::set<std::array<int, 3>> expect;   // brute force on the whole mesh
+                        for (int c = 0; c < N; ++c) {
+                            const int t = m.level[static_cast<size_t>(c)], i = m.ci[static_cast<size_t>(c)], j = m.cj[static_cast<size_t>(c)];
+                            for (const RegionItem& it : items) {
+                                if (t < it.tmin || t > it.tmax) continue;
+                                const auto in_box = [&](int a, int b) {
+                                    return a >= it.box.i0 && a < it.box.i0 + it.box.w && b >= it.box.j0 && b < it.box.j0 + it.box.h &&
+                                           it.box.g[static_cast<size_t>(b - it.box.j0) * it.box.w + (a - it.box.i0)];
+                                };
+                                bool hit = false;
+                                if (t > it.level) {
+                                    hit = in_box(i >> (t - it.level), j >> (t - it.level));
+                                } else {
+                                    const int n = 1 << (it.level - t);
+                                    for (int b = 0; b < n && !hit; ++b)
+                                        for (int a = 0; a < n && !hit; ++a) hit = in_box(i * n + a, j * n + b);
+                                }
+                                if (hit) {
+                                    expect.insert({t, i, j});
+                                    break;
+                                }
+                            }
+                        }
+                        std::set<std::array<int, 3>> got;
+                        bool states_ok = true;
+                        for (int c = 0; c < out.num_leaves(); ++c) {
+                            got.insert({out.level[static_cast<size_t>(c)], out.ci[static_cast<size_t>(c)], out.cj[static_cast<size_t>(c)]});
+                            const int w = m.find(out.level[static_cast<size_t>(c)], out.ci[static_cast<size_t>(c)], out.cj[static_cast<size_t>(c)]);
+                            states_ok = states_ok && w >= 0 && bits_equal(Field{out.U[static_cast<size_t>(c)]}, Field{m.U[static_cast<size_t>(w)]});
+                        }
+                        CHECK(got == expect);
+                        CHECK(states_ok);
+                        nfound[static_cast<size_t>(rank)] = static_cast<int>(got.size());
+                        nown[static_cast<size_t>(rank)] = static_cast<int>(owned.size());
+                    } catch (const std::exception& e) {
+                        error[static_cast<size_t>(rank)] = e.what();
+                    }
+                };
+                std::vector<std::thread> threads;
+                for (int r = 0; r < R; ++r) threads.emplace_back(body, r);
+                for (std::thread& th : threads) th.join();
+                for (int r = 0; r < R; ++r) {
+                    if (!error[static_cast<size_t>(r)].empty()) std::printf("    rank %d: %s\n", r, error[static_cast<size_t>(r)].c_str());
+                    CHECK(error[static_cast<size_t>(r)].empty());
+                    ++checked;
+                    if (nfound[static_cast<size_t>(r)] > nown[static_cast<size_t>(r)]) ++remote;
+                }
+            }
+        }
+    CHECK(checked > 0);
+    CHECK(remote > checked / 2);   // most ranks do fetch leaves of other ranks
 }
 
 TEST(a_partial_mesh_throws_when_a_face_reads_a_leaf_it_does_not_keep) {

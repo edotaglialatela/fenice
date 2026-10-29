@@ -498,6 +498,43 @@ void CellMesh::build_from(const CellMesh& whole, const std::vector<char>& keep_l
     }
 }
 
+void CellMesh::assign_partial_leaves(const std::vector<int>& lv, const std::vector<int>& ii, const std::vector<int>& jj, Field* state) {
+    const size_t n = lv.size();
+    if (ii.size() != n || jj.size() != n || (state && state->size() != n))
+        throw std::invalid_argument("CellMesh::assign_partial_leaves: the arrays differ in length");
+    std::vector<SortKey> keys(n);
+    for (size_t k = 0; k < n; ++k) {
+        if (lv[k] < 0 || lv[k] > max_level || ii[k] < 0 || ii[k] >= nx_at(lv[k]) || jj[k] < 0 || jj[k] >= ny_at(lv[k]))
+            throw std::invalid_argument("CellMesh::assign_partial_leaves: a leaf is outside the mesh or deeper than max_level");
+        keys[k] = {lv[k], morton_key(static_cast<uint32_t>(ii[k]), static_cast<uint32_t>(jj[k]))};
+    }
+    std::vector<int> order(n);
+    std::iota(order.begin(), order.end(), 0);
+    std::sort(order.begin(), order.end(), [&](int a, int b) { return keys[a] < keys[b]; });
+    for (size_t k = 1; k < n; ++k)
+        if (!(keys[order[k - 1]] < keys[order[k]])) throw std::invalid_argument("CellMesh::assign_partial_leaves: a leaf is given twice");
+    level.resize(n);
+    ci.resize(n);
+    cj.resize(n);
+    Field reordered;
+    if (state) reordered.resize(n);
+    for (size_t k = 0; k < n; ++k) {
+        level[k] = lv[order[k]];
+        ci[k] = ii[order[k]];
+        cj[k] = jj[order[k]];
+        if (state) reordered[k] = (*state)[static_cast<size_t>(order[k])];
+    }
+    if (state) U = std::move(reordered);
+    else U.clear();
+    for (std::vector<int>* a : {&prev_leaf, &prev_face, &face_off_, &side_ptr, &side_face, &face_level_begin}) std::vector<int>().swap(*a);
+    std::vector<char>().swap(topo_dirty);
+    std::vector<CellFace>().swap(faces);
+    std::vector<CellFace>().swap(face_spare_);
+    ++version;
+    partial = true;
+    build_lookups();
+}
+
 bool CellMesh::same_arrays(const CellMesh& o) const {
     if (level != o.level || ci != o.ci || cj != o.cj || level_begin != o.level_begin || side_ptr != o.side_ptr ||
         side_face != o.side_face || face_level_begin != o.face_level_begin || faces.size() != o.faces.size() || partial != o.partial)

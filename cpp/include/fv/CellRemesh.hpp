@@ -24,10 +24,6 @@ namespace fv {
 
 // The cells of a level (NX x NY, periodic axes wrap) within r cells, along each axis, of the `seeds` (i, j): a bitmap over the box
 // [i0, i0 + w) x [j0, j0 + h) that holds the seeds and the margin (the whole axis where the margin wraps a periodic one).
-struct CellBox {
-    int i0 = 0, j0 = 0, w = 0, h = 0;
-    std::vector<char> g;   // g[(j - j0) * w + (i - i0)]
-};
 CellBox dilate_cells(const std::vector<std::array<int, 2>>& seeds, int NX, int NY, int r, bool periodic_x, bool periodic_y);
 
 // Parameters of the indicator.  The defaults are a starting point for the user to fix (section 11).

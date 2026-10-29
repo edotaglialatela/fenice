@@ -42,6 +42,20 @@ struct CellComm {
     std::function<void(const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv)> exchange;
 };
 
+// A part of the mesh asked of the owners: the leaves with a level in [tmin, tmax] that intersect the cells of `box` (cells of `level`).
+struct RegionItem {
+    int level = 0;
+    CellBox box;
+    int tmin = 0, tmax = 0;
+};
+
+// What fetch_leaves exchanged with each rank, in the same order on both sides: the leaves received from rank r, and the indices
+// (in the responder's mesh) of the leaves sent to it.
+struct FetchPlan {
+    std::vector<std::vector<std::array<int, 3>>> from;
+    std::vector<std::vector<int>> served;
+};
+
 class CellParallel {
 public:
     // The mesh (with its state U) and the engine (built for the mesh) must outlive the object.
@@ -81,6 +95,15 @@ public:
     // `first_extra`: rings added to the first reach tried (a negative one makes the retry run); `region_retries` counts the retries.
     bool direct_build = true, shadow = false;
     int first_extra = 1, region_retries = 0;
+    // The leaves of the mesh that intersect the region `items` (collective). The requests go to the ranks that own the leaves under
+    // the splitters `split` (split[level][rank] = first key of the rank, then the end); each answers from `responder`, a mesh that holds
+    // at least its own leaves (with their state `resp_state`, or none: then the result has no state). `out` gets the leaves found,
+    // the rank's own among them, as a partial mesh. Level by level, coarse to fine; a cell inside a leaf already found is not asked.
+    void fetch_leaves(const std::vector<std::vector<uint64_t>>& split, const CellMesh& responder, const Field* resp_state,
+                      const std::vector<RegionItem>& items, CellMesh& out, FetchPlan* plan = nullptr) const;
+    // The rank that owns the cell (level, key) under the splitters `split`.
+    static int owner_in(const std::vector<std::vector<uint64_t>>& split, int level, uint64_t key);
+    const std::vector<std::vector<uint64_t>>& splitters() const { return split_; }
     // True if the lists and the ownership of the two objects are the same (the shadow check).
     bool same_lists(const CellParallel& other) const;
     // Accumulated wall time [s] of remesh(): region + fetch + indicator, flags + adapt of topo, state migration, engine build,
@@ -174,6 +197,8 @@ private:
     // The states of the leaves `want` ((level, i, j), each owned by some rank under the current partition): from this rank's leaves
     // if it holds them, else from their owners (collective).
     void fetch_states(const std::vector<std::array<int, 3>>& want, std::vector<State>& out) const;
+    // Sparse all-to-all of vectors of any length: the sizes first, then the data (recv is sized here). send[own rank] must be empty.
+    void exchange_sized(const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) const;
     // The owned leaves of all ranks as records (level, ci, cj, state), 3 + kNVar doubles each, in rank order
     // (with `root_only`, on rank 0 only).
     void gather_owned(std::vector<double>& all, bool root_only = false) const;

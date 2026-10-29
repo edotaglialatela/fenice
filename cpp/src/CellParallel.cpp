@@ -508,6 +508,128 @@ int CellParallel::init_adapt(CellMesh& topo, CellAdaptor& ad, const std::functio
     return passes;
 }
 
+void CellParallel::exchange_sized(const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) const {
+    const int R = comm_.size, me = comm_.rank;
+    recv.assign(static_cast<size_t>(R), {});
+    if (R == 1) return;
+    std::vector<std::vector<double>> cs(static_cast<size_t>(R)), cr(static_cast<size_t>(R));
+    for (int r = 0; r < R; ++r)
+        if (r != me) {
+            cs[static_cast<size_t>(r)].assign(1, static_cast<double>(send[static_cast<size_t>(r)].size()));
+            cr[static_cast<size_t>(r)].assign(1, 0.0);
+        }
+    comm_.exchange(cs, cr);
+    for (int r = 0; r < R; ++r)
+        if (r != me) recv[static_cast<size_t>(r)].resize(static_cast<size_t>(cr[static_cast<size_t>(r)][0]));
+    comm_.exchange(send, recv);
+}
+
+int CellParallel::owner_in(const std::vector<std::vector<uint64_t>>& split, int level, uint64_t key) {
+    const std::vector<uint64_t>& sp = split[static_cast<size_t>(level)];
+    // (a cell below the first key of the level has no leaf: rank 0 answers that there is none)
+    return std::max(0, static_cast<int>(std::upper_bound(sp.begin(), sp.end() - 1, key) - sp.begin()) - 1);
+}
+
+void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split, const CellMesh& responder, const Field* resp_state,
+                                const std::vector<RegionItem>& items, CellMesh& out, FetchPlan* plan) const {
+    const int R = comm_.size, me = comm_.rank, M = responder.max_level;
+    const bool states = resp_state != nullptr;
+    const size_t rec = states ? 2 + kNVar : 2;
+    if (plan) {
+        plan->from.assign(static_cast<size_t>(R), {});
+        plan->served.assign(static_cast<size_t>(R), {});
+    }
+    std::vector<int> lv, ii, jj;
+    Field U;
+    std::vector<std::vector<long long>> found(static_cast<size_t>(M) + 1);   // sorted cell numbers (j * nx + i) of the leaves found, per level
+    const auto cell_no = [&](int t, int i, int j) { return static_cast<long long>(j) * responder.nx_at(t) + i; };
+    for (int t = 0; t <= M; ++t) {
+        // the cells of level t the region asks about, minus those a coarser leaf already found covers
+        std::vector<long long> cand;
+        for (const RegionItem& it : items) {
+            if (t < it.tmin || t > it.tmax) continue;
+            const CellBox& b = it.box;
+            for (int j = 0; j < b.h; ++j)
+                for (int i = 0; i < b.w; ++i) {
+                    if (!b.g[static_cast<size_t>(j) * b.w + i]) continue;
+                    const int ci = b.i0 + i, cj = b.j0 + j;
+                    if (t <= it.level) {
+                        cand.push_back(cell_no(t, ci >> (it.level - t), cj >> (it.level - t)));
+                    } else {
+                        const int n = 1 << (t - it.level);
+                        for (int qj = 0; qj < n; ++qj)
+                            for (int qi = 0; qi < n; ++qi) cand.push_back(cell_no(t, ci * n + qi, cj * n + qj));
+                    }
+                }
+        }
+        std::sort(cand.begin(), cand.end());
+        cand.erase(std::unique(cand.begin(), cand.end()), cand.end());
+        std::vector<std::vector<double>> ask(static_cast<size_t>(R));
+        std::vector<long long> mine;
+        for (const long long no : cand) {
+            const int i = static_cast<int>(no % responder.nx_at(t)), j = static_cast<int>(no / responder.nx_at(t));
+            bool covered = false;
+            for (int s = 0; s < t && !covered; ++s)
+                covered = std::binary_search(found[static_cast<size_t>(s)].begin(), found[static_cast<size_t>(s)].end(),
+                                             cell_no(s, i >> (t - s), j >> (t - s)));
+            if (covered) continue;
+            const int o = owner_in(split, t, morton_key(static_cast<uint32_t>(i), static_cast<uint32_t>(j)));
+            if (o == me) {
+                mine.push_back(no);
+            } else {
+                ask[static_cast<size_t>(o)].push_back(i);
+                ask[static_cast<size_t>(o)].push_back(j);
+            }
+        }
+        std::vector<std::vector<double>> got_ask, reply(static_cast<size_t>(R)), got_reply;
+        exchange_sized(ask, got_ask);
+        for (int r = 0; r < R; ++r) {   // the leaves asked of this rank that it has
+            if (r == me) continue;
+            const std::vector<double>& q = got_ask[static_cast<size_t>(r)];
+            for (size_t k = 0; k + 1 < q.size(); k += 2) {
+                const int c = responder.find(t, static_cast<int>(q[k]), static_cast<int>(q[k + 1]));
+                if (c < 0) continue;
+                reply[static_cast<size_t>(r)].push_back(q[k]);
+                reply[static_cast<size_t>(r)].push_back(q[k + 1]);
+                if (states)
+                    for (int v = 0; v < kNVar; ++v) reply[static_cast<size_t>(r)].push_back((*resp_state)[static_cast<size_t>(c)][static_cast<size_t>(v)]);
+                if (plan) plan->served[static_cast<size_t>(r)].push_back(c);
+            }
+        }
+        exchange_sized(reply, got_reply);
+        std::vector<long long>& fl = found[static_cast<size_t>(t)];
+        for (const long long no : mine) {
+            const int i = static_cast<int>(no % responder.nx_at(t)), j = static_cast<int>(no / responder.nx_at(t));
+            const int c = responder.find(t, i, j);
+            if (c < 0) continue;
+            fl.push_back(no);
+            lv.push_back(t);
+            ii.push_back(i);
+            jj.push_back(j);
+            if (states) U.push_back((*resp_state)[static_cast<size_t>(c)]);
+        }
+        for (int r = 0; r < R; ++r) {
+            if (r == me) continue;
+            const std::vector<double>& a = got_reply[static_cast<size_t>(r)];
+            for (size_t k = 0; k + rec <= a.size(); k += rec) {
+                const int i = static_cast<int>(a[k]), j = static_cast<int>(a[k + 1]);
+                fl.push_back(cell_no(t, i, j));
+                lv.push_back(t);
+                ii.push_back(i);
+                jj.push_back(j);
+                if (states) {
+                    State u;
+                    for (int v = 0; v < kNVar; ++v) u[static_cast<size_t>(v)] = a[k + 2 + static_cast<size_t>(v)];
+                    U.push_back(u);
+                }
+                if (plan) plan->from[static_cast<size_t>(r)].push_back({t, i, j});
+            }
+        }
+        std::sort(fl.begin(), fl.end());
+    }
+    out.assign_partial_leaves(lv, ii, jj, states ? &U : nullptr);
+}
+
 bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     if (!localized_) throw std::logic_error("CellParallel::remesh: the mesh is not localized");
     using Clock = std::chrono::steady_clock;

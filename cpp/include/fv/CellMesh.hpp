@@ -50,6 +50,12 @@ struct CellNeighbour {
 };
 
 // Leaf cells of a 2-D adaptive mesh, their faces and the gather lists; see the file header.
+// A box of cells of one level: a bitmap over [i0, i0 + w) x [j0, j0 + h) (see dilate_cells in CellRemesh.hpp).
+struct CellBox {
+    int i0 = 0, j0 = 0, w = 0, h = 0;
+    std::vector<char> g;   // g[(j - j0) * w + (i - i0)]
+};
+
 class CellMesh {
 public:
     // Base mesh nx x ny on [x0, x0+Lx] x [y0, y0+Ly]; levels 0..max_level.  A periodic axis wraps its two edges.
@@ -126,6 +132,9 @@ public:
     // at the other end of a face), a side whose faces are not all there empty. The state of a leaf comes from whole_state (one
     // entry per leaf of `whole`) if given.
     void build_from(const CellMesh& whole, const std::vector<char>& keep_leaf, const Field* whole_state = nullptr);
+    // The leaves given (any subset of a mesh, in any order) as a partial mesh without faces: sorted by (level, key), with the lookups
+    // (find, covering). The state, if given, follows the leaves. For a fetched region (CellParallel::fetch_leaves).
+    void assign_partial_leaves(const std::vector<int>& levels, const std::vector<int>& is, const std::vector<int>& js, Field* state);
     // True if the leaves, faces, gather lists and level runs are the same as those of `other` (tests).
     bool same_arrays(const CellMesh& other) const;
     // A faceless mesh keeps the leaves and the lookups (find, covering, the level runs) but no face list or side lists, so adapt()
