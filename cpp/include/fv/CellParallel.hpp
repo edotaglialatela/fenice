@@ -200,6 +200,11 @@ private:
     // localize. `nU` is the state of `topo` (entries of the leaves in the share), or null. `built` gets the time the tables were done.
     void build_share(const CellMesh& topo, const std::vector<int>& mine, const Field* nU,
                      std::chrono::steady_clock::time_point* built);
+    // The share of the new owned leaves (arrays, state, the facts of the new mesh): the region around them is fetched from the other
+    // owners (fetch_leaves), the partial mesh, the engine tables and the partition are made from it, retrying with a wider reach if a
+    // face reads what the share lacks; then partition_exchange and localize.
+    void build_share_fetched(const std::vector<int>& lv, const std::vector<int>& ii, const std::vector<int>& jj, const Field& U,
+                             const GlobalFacts& gf, std::chrono::steady_clock::time_point* built);
     // The leaves of `topo` this rank owns under the equal-count split of each level.
     void owned_leaves(const CellMesh& topo, std::vector<int>& out) const;
     // The leaves a rank keeps to build its share directly: those within the reach of its owned leaves of `topo` (the whole mesh

@@ -83,6 +83,11 @@ public:
     // has; a code that leads to a leaf it does not have is kOutside, a virtual cell with a leaf missing is dropped, and the facts about
     // the whole mesh (the ghost-cell wall) are taken from `whole`. The lists of a partition are not made (set_partition does).
     void build(const CellMesh& mesh, const CellMesh* whole = nullptr);
+    // The ghost-cell wall of a partial mesh when the whole mesh is not at hand (CellParallel with fetched shares): the cells the wall
+    // reads, and whether all of them are finest-level leaves of the whole mesh (set before build: 1 yes, 0 no, -1 look in `whole`).
+    bool ghost_enabled() const { return has_body() && phys_.ibm_ghost; }
+    std::vector<int> ghost_referenced_cells(const CellMesh& mesh);
+    void set_ghost_whole_ready(int v) { ghost_whole_ready_ = v; }
     // True if the side s (Face) has a mass-flow inlet.
     bool mass_flow_side(int s) const { return bc_.type(static_cast<Face>(s)) == BCType::MassflowInlet; }
     // True if every table of the build (virtual cells, neighbour codes, stencils, per-level lists, solid mask, steady sources,
@@ -282,6 +287,7 @@ private:
     std::unordered_map<int, int> fine_leaf_;
     std::vector<std::pair<int, int>> ghost_reads_leaf_;
     std::vector<char> ghost_leaf_mask_, held_mask_, ghost_incomplete_;
+    int ghost_whole_ready_ = -1;
     bool ghost_ready_ = false;
     void map_ghost_cells(const CellMesh& m, const CellMesh* whole);
     void fill_ghost_leaves(const Field& U, Field& out, const std::vector<char>* only) const;

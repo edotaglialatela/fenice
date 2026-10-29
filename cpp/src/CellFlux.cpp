@@ -323,7 +323,7 @@ bool CellFluxEngine::same_tables(const CellFluxEngine& o, const CellMesh* edge_m
     }
     for (int s = 0; ok && s < 4; ++s) ok = mf_face_[s] == o.mf_face_[s] && mf_weight_[s] == o.mf_weight_[s];
     ok = ok && owned_mask_ == o.owned_mask_ && held_mask_ == o.held_mask_ && all_faces_ == o.all_faces_ && ghost_ready_ == o.ghost_ready_ &&
-         fine_leaf_ == o.fine_leaf_ && ghost_reads_leaf_ == o.ghost_reads_leaf_ && ghost_leaf_mask_ == o.ghost_leaf_mask_;
+         (!ghost_ready_ || (fine_leaf_ == o.fine_leaf_ && ghost_reads_leaf_ == o.ghost_reads_leaf_ && ghost_leaf_mask_ == o.ghost_leaf_mask_));
     return ok;
 }
 
@@ -872,6 +872,18 @@ void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
     if (ghost_ready_ && l == m.max_level) fill_ghost_leaves(U, forced_, held_mask_.empty() ? nullptr : &held_mask_);
 }
 
+std::vector<int> CellFluxEngine::ghost_referenced_cells(const CellMesh& m) {
+    if (!has_body() || !phys_.ibm_ghost) return {};
+    if (!ghost_ib_) {
+        const int M = m.max_level;
+        const Mesh fine = generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(M), m.ny_at(M), m.x0, m.y0);
+        ghost_ib_ = std::make_shared<ImmersedBoundary>(phys_.ibm_factory(fine));
+        ghost_ib_->enable_ghost_cells(fine, phys_.ibm_slip);
+    }
+    const auto& cells = ghost_ib_->referenced_cells();
+    return std::vector<int>(cells.begin(), cells.end());
+}
+
 void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
     ghost_ready_ = false;
     fine_leaf_.clear();
@@ -880,16 +892,14 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
     ghost_leaf_mask_.assign(static_cast<size_t>(nleaf_), 0);
     if (!has_body() || !phys_.ibm_ghost) return;
     const int M = m.max_level, NX = m.nx_at(M);
-    if (!ghost_ib_) {
-        const Mesh fine = generate_cartesian_mesh(m.Lx, m.Ly, NX, m.ny_at(M), m.x0, m.y0);
-        ghost_ib_ = std::make_shared<ImmersedBoundary>(phys_.ibm_factory(fine));
-        ghost_ib_->enable_ghost_cells(fine, phys_.ibm_slip);
-    }
-    // whether the wall is active is a fact of the whole mesh; a rank keeps the cells whose leaf it has
+    ghost_referenced_cells(m);
+    // whether the wall is active is a fact of the whole mesh (given, or looked up in `whole`); a rank keeps the cells whose leaf it has
+    const bool known = ghost_whole_ready_ >= 0;
+    if (known && ghost_whole_ready_ == 0) return;   // not (yet) all finest-level leaves: the mask forcing stays
     const CellMesh& all = whole ? *whole : m;
     for (const int fc : ghost_ib_->referenced_cells()) {
-        if (all.find(M, fc % NX, fc / NX) < 0) return;   // not (yet) a finest-level leaf: the mask forcing stays
-        const int leaf = whole ? m.find(M, fc % NX, fc / NX) : all.find(M, fc % NX, fc / NX);
+        if (!known && all.find(M, fc % NX, fc / NX) < 0) return;   // not (yet) a finest-level leaf: the mask forcing stays
+        const int leaf = m.find(M, fc % NX, fc / NX);
         if (leaf >= 0) fine_leaf_[fc] = leaf;
     }
     for (const int g : ghost_ib_->ghost_cell_list()) {
