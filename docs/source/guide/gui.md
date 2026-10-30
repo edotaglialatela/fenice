@@ -41,11 +41,12 @@ is below; the modules share one project (the parameters of the run, its results 
   opens on the finest mesh level.
 * **Run.** The upper half shows the time step, the wave speed and one more quantity of your choice (a column of the monitor file, or the
   number of leaves of an AMR run) against time; the lower half is the solver's console in colour. They are filled from the progress lines
-  (every `save_interval` steps) and the monitor file (every `monitor_interval` steps): residuals are not written by the solver. The console
+  (every `save_interval` steps) and the monitor file (every `monitor_interval` steps): the residual norms are the `res_*` columns of the monitor file. The console
   states the total physical time and notes each time the run passes a multiple of 10 % of it; the status line gives the percentage and
   an estimate of the time left. Every run starts with an empty console and empty plots; *Run again* runs what the Setup page holds now.
-  The buttons are *Stop*, *Kill* and *Run again*. *Stop* does what Ctrl+C does in a terminal: the solver saves its checkpoint and the `.pvd` index, then exits. Under MPI,
-  `mpiexec` aborts the job on Ctrl+C (also in a terminal), so the last periodic checkpoint is the one kept. *Kill* ends the solver and
+  The buttons are *Stop*, *Kill* and *Run again*. *Stop* creates a `STOP` file in the output folder: the solver saves its
+  checkpoint and the `.pvd` index, then exits, serial or under MPI. The residual norms of the monitor file (`res_rho`, `res_mom`,
+  `res_E`) are offered in the lower plot relative to their first row, on a log axis. *Kill* ends the solver and
   every process it started at once. Closing the window with a run going asks which of the two to do; if the workbench itself is ended (on
   Windows) the solver and its MPI processes end with it.
 * **Results.** The result viewer, below, opened on the folder the solver reports and following it while the run goes on.

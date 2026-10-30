@@ -144,9 +144,17 @@ private:
     void print_halo_reach(const char* when) const;   // FENICE_HALO_REACH=1: CellParallel::halo_reach of the AMR mesh
     // Monitor CSV (rank 0): header on open, one row per call.
     std::FILE* open_monitor() const;
+    // A file named STOP in the output folder asks for the same clean stop as Ctrl+C (checkpoint + .pvd); this works under MPI,
+    // where mpiexec aborts the job on Ctrl+C. arm_stop_file removes a stale one at the start of the time loop, poll_stop_file
+    // (once per step) turns a new one into g_stop_requested.
+    void arm_stop_file() const;
+    void poll_stop_file() const;
     // `loads`: {Fx, Fy, Mz} of the IBM body (adds Fx, Fy, Cd, Cl, Cm), nullptr without IBM.
-    void monitor_row(std::FILE* f, int step, const std::array<double, 3>& v,
-                     const std::array<double, 3>* loads = nullptr) const;
+    // `res`: the residual norms {rho, momentum, energy} (columns res_rho, res_mom, res_E): the root-mean-square over the fluid
+    // cells (weighted by cell area / volume) of dU/dt, the right-hand side of the semi-discrete equations, per conserved quantity
+    // (momentum: the magnitude of the vector). They tend to zero as a flow becomes steady; the GUI normalises them by the first row.
+    void monitor_row(std::FILE* f, int step, const std::array<double, 3>& v, const std::array<double, 3>* loads,
+                     const std::array<double, 3>& res) const;
 
     // Scratch buffers reused across residual evaluations
     Field Uf_, UL_, UR_, F_, Upad_, gX_, gY_, Rv_;

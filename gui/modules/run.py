@@ -8,6 +8,8 @@ from __future__ import annotations
 import time
 from pathlib import Path
 
+import numpy as np
+
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
 from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget
@@ -32,7 +34,7 @@ class RunPanel(QWidget):
         self.btn_run = QPushButton("Run again")
         self.btn_run.setToolTip("Run the solver with what the Setup page holds now")
         self.btn_stop = QPushButton("Stop")
-        self.btn_stop.setToolTip("Stop as Ctrl+C does: the solver saves its checkpoint and index, then exits")
+        self.btn_stop.setToolTip("Stop cleanly: the solver saves its checkpoint and index, then exits (serial or MPI)")
         self.btn_kill = QPushButton("Kill")
         self.btn_kill.setToolTip("End the solver and everything it started at once, without a checkpoint")
         self.status = QLabel("idle")
@@ -269,7 +271,14 @@ class RunPanel(QWidget):
         if q == "leaves" and self.leaf_hist:
             self.ax_q.plot(self.leaf_t, self.leaf_hist, color=c["primary"], lw=1.2, marker=".")
         elif q and self.monitor is not None and q in self.monitor.dtype.names:
-            self.ax_q.plot(self.monitor["t"], self.monitor[q], color=c["primary"], lw=1.2)
+            y = np.asarray(self.monitor[q], dtype=float)
+            if q.startswith("res_"):   # residual norms: relative to the first row that is not zero, on a log axis
+                ref = next((v for v in y if v > 0), 0.0)
+                if ref > 0:
+                    y = np.where(y > 0, y / ref, np.nan)
+                    self.ax_q.set_yscale("log")
+                    q = q + " / first"
+            self.ax_q.plot(self.monitor["t"], y, color=c["primary"], lw=1.2)
         self.ax_q.set_ylabel(q or "monitor", fontsize=8)
         self.ax_q.set_xlabel("t [s]", fontsize=8)
         if self.t_end > 0:
@@ -290,7 +299,7 @@ class RunPanel(QWidget):
 
     def _finished(self, code: int, stopped: bool) -> None:
         how = "stopped" if stopped else "finished"
-        note = "   (no final checkpoint: mpiexec aborts an MPI job on Ctrl+C; the last periodic checkpoint is kept)" if stopped and code else ""
+        note = "   (the solver did not exit cleanly: the last periodic checkpoint is the one kept)" if stopped and code else ""
         self._read_monitor()
         self._fill_choices()
         self._redraw()

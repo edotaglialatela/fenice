@@ -84,11 +84,15 @@ class Project(QObject):
         self._timer.start()
 
     def stop(self) -> None:
-        """Stop as Ctrl+C does: the solver saves its checkpoint and index, then exits."""
+        """Stop cleanly: the solver saves its checkpoint and index, then exits (asked with a STOP file in its output folder)."""
         if self._run is not None and self.state == RUNNING:
             self._stop_asked = True
             self._set_state(STOPPING)
-            self._run.interrupt()
+            if self.results_dir is not None and self.results_dir.is_dir():
+                # a STOP file in the output folder is the solver's clean stop, also under MPI (where Ctrl+C aborts the job)
+                (self.results_dir / "STOP").write_text("")
+            else:
+                self._run.interrupt()
 
     def kill(self) -> None:
         """Stop the solver and every process it started, without a checkpoint."""

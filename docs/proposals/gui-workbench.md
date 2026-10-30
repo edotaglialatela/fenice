@@ -40,11 +40,7 @@ it reads and writes are the solver's own.
 
 ## Run: stopping
 
-The Run module starts the solver in a console of its own and stops it by sending the console interrupt (what Ctrl+C does in a terminal),
-from a small helper process so that the workbench keeps its own console. A serial run saves its checkpoint and the `.pvd` and exits.
-An MPI run does not: `mpiexec` aborts the job on Ctrl+C, in a terminal as here, so only the last periodic checkpoint is kept. A clean
-stop of an MPI run needs a stop file that the solver polls once per step and answers with the same checkpoint and index: a small,
-numerics-free change to the solver, and the user's decision.
+The Run module starts the solver in a console of its own. Stop writes a file named `STOP` in the solver's output folder, which the solver polls once per step and answers with its checkpoint and the `.pvd`; this works under MPI, where `mpiexec` aborts the job on Ctrl+C. Without a known output folder Stop falls back to the console interrupt, sent from a small helper process so that the workbench keeps its own console. Kill ends the solver and its processes at once, and a job object ends them if the workbench dies.
 
 ## Order
 
@@ -55,6 +51,5 @@ numerics-free change to the solver, and the user's decision.
 ## Questions
 
 1. Is a project a case folder (`cases/<name>/`, files on disk) or a session object that is saved on demand?
-2. A stop file in the solver, for a clean stop of an MPI run?
 3. The order above.
 4. Embedded rendering for 3-D (a GPU-backed viewer) later, or slices and the 2-D picture only?

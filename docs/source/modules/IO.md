@@ -71,4 +71,12 @@ fluid on the body and their coefficients (see
 residual evaluation of the current state at each monitor step, so they do not change the
 solution.
 
+Three more columns, `res_rho,res_mom,res_E`, always end the row: the residual norms. With
+$R = \mathrm{d}U/\mathrm{d}t$ the right-hand side of the semi-discrete equations at the current
+state, each is the root mean square of $R$ over the fluid cells (weighted by the cell area or
+volume; solid cells of an immersed body are left out), for $ho$, for the momentum (the
+magnitude of the vector) and for $ho E$. They tend to zero as a flow becomes steady; they are
+raw values, to be normalised by the reader (the GUI divides by the first row). They come from the
+same extra residual evaluation, now made at every monitor step; under MPI they are all-reduced.
+
 {{api}}

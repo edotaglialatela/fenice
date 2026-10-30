@@ -99,7 +99,10 @@ limiter, EOS, IBM shape, scheme), a half-periodic axis or a non-positive `cfl` /
 stops the run with an error.
 
 **Ctrl+C** stops cleanly after the current step: the final snapshot, the
-checkpoint and the `.pvd` index are written. A second Ctrl+C aborts immediately.
+checkpoint and the `.pvd` index are written. A second Ctrl+C aborts immediately. Creating a file
+named `STOP` in the output folder asks for the same clean stop (the solver removes a stale one at
+the start); under MPI, where `mpiexec` aborts the job on Ctrl+C, it is the way to stop with a
+checkpoint.
 
 ### MPI
 

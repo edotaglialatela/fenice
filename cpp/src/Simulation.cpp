@@ -1123,17 +1123,27 @@ std::array<double, 3> Simulation::volume_averages(const Field& Up, long long n_g
     return {sums[0] / n_global, sums[1] / n_global, sums[2] / n_global};
 }
 
+void Simulation::arm_stop_file() const {
+    std::error_code ec;
+    fs::remove(fs::path(exporter.output_dir()) / "STOP", ec);
+}
+
+void Simulation::poll_stop_file() const {
+    std::error_code ec;
+    if (!g_stop_requested.load() && fs::exists(fs::path(exporter.output_dir()) / "STOP", ec)) g_stop_requested = true;
+}
+
 std::FILE* Simulation::open_monitor() const {
     if (p.monitor_interval <= 0) return nullptr;
     const std::string path = (fs::path(exporter.output_dir()) / (file_prefix + "_monitor.csv")).string();
     std::FILE* f = std::fopen(path.c_str(), start_step > 0 ? "a" : "w");
     if (f && start_step == 0)
-        std::fprintf(f, "step,t,mass,kinetic_energy,total_energy%s\n", p.use_ibm ? ",Fx,Fy,Cd,Cl,Cm" : "");
+        std::fprintf(f, "step,t,mass,kinetic_energy,total_energy%s,res_rho,res_mom,res_E\n", p.use_ibm ? ",Fx,Fy,Cd,Cl,Cm" : "");
     return f;
 }
 
-void Simulation::monitor_row(std::FILE* f, int step, const std::array<double, 3>& v,
-                             const std::array<double, 3>* loads) const {
+void Simulation::monitor_row(std::FILE* f, int step, const std::array<double, 3>& v, const std::array<double, 3>* loads,
+                             const std::array<double, 3>& res) const {
     if (!f) return;
     std::fprintf(f, "%d,%.10e,%.15e,%.15e,%.15e", step, t, v[0], v[1], v[2]);
     if (loads) {
@@ -1150,9 +1160,26 @@ void Simulation::monitor_row(std::FILE* f, int step, const std::array<double, 3>
         std::fprintf(f, ",%.10e,%.10e,%.10e,%.10e,%.10e", Fx, Fy, qA > 0 ? Fx / qA : 0.0, qA > 0 ? Fy / qA : 0.0,
                      qA > 0 ? -Mz / (qA * L) : 0.0);
     }
-    std::fprintf(f, "\n");
+    std::fprintf(f, ",%.10e,%.10e,%.10e\n", res[0], res[1], res[2]);
     std::fflush(f);
 }
+
+namespace {
+// Sums of the squared residual per quantity and of the weights: {rho, momentum, energy, weight}; the norm is sqrt(sum / weight).
+using ResSums = std::array<double, 4>;
+
+inline void add_residual(ResSums& s, const State& r, double weight) {
+    s[0] += r[0] * r[0] * weight;
+    s[1] += (r[1] * r[1] + r[2] * r[2] + r[4] * r[4]) * weight;
+    s[2] += r[3] * r[3] * weight;
+    s[3] += weight;
+}
+
+inline std::array<double, 3> residual_norms(const ResSums& s) {
+    if (!(s[3] > 0.0)) return {0.0, 0.0, 0.0};
+    return {std::sqrt(s[0] / s[3]), std::sqrt(s[1] / s[3]), std::sqrt(s[2] / s[3])};
+}
+}   // namespace
 
 std::array<double, 3> Simulation::ibm_loads(const Mesh& m, const ImmersedBoundary& ib, const Field& U,
                                             const Field& R) const {
@@ -1192,15 +1219,17 @@ void Simulation::solve() {
 
     const ResidualFn res = [this](const Field& Uin, Field& R) { return residual(Uin, R); };
     std::FILE* mon = open_monitor();
+    arm_stop_file();
     const long long n_all = mesh.num_cells();
     Field R_loads;
     auto row = [&](int st) {   // averages, plus the IBM loads from a residual of the current state
         std::array<double, 3> loads{};
-        if (p.use_ibm) {
-            residual(U, R_loads);
-            loads = ibm_loads(mesh, *ibm, U, R_loads);
-        }
-        monitor_row(mon, st, volume_averages(U, n_all), p.use_ibm ? &loads : nullptr);
+        residual(U, R_loads);
+        if (p.use_ibm) loads = ibm_loads(mesh, *ibm, U, R_loads);
+        ResSums rs{};
+        for (int c = 0; c < mesh.num_cells(); ++c)
+            if (!p.use_ibm || !ibm->mask()[c]) add_residual(rs, R_loads[c], 1.0);
+        monitor_row(mon, st, volume_averages(U, n_all), p.use_ibm ? &loads : nullptr, residual_norms(rs));
     };
     if (mon && step == 0) row(step);
     const auto t0 = Clock::now();
@@ -1222,6 +1251,7 @@ void Simulation::solve() {
                         step, t, r.dt, r.s_max, inner, format_elapsed(seconds_since(t0)).c_str());
             std::fflush(stdout);
         }
+        poll_stop_file();
         if (g_stop_requested) {
             interrupted = true;
             break;
@@ -1299,6 +1329,7 @@ void Simulation::solve_amr() {
     // Monitor: area-weighted means over the leaves and the IBM loads. Every rank sums its owned leaves in leaf order and the
     // partial sums are added over the ranks (collective): one rank gives the serial bits, several agree with it to roundoff.
     std::FILE* mon = root ? open_monitor() : nullptr;
+    arm_stop_file();
     const bool monitoring = p.monitor_interval > 0;
     const auto row = [&](int st) {
         double sums[4] = {0.0, 0.0, 0.0, 0.0};   // mass, kinetic energy, total energy, area
@@ -1312,7 +1343,8 @@ void Simulation::solve_amr() {
                 sums[3] += a;
             }
         std::array<double, 3> loads{};
-        if (p.use_ibm) {
+        ResSums rs{};
+        {
             Field Rl;
             if (!cell_par) {
                 eng.residual(cm, cm.U, Rl);
@@ -1336,14 +1368,22 @@ void Simulation::solve_amr() {
                 }
                 Rl.swap(Rown);
             }
-            loads = cell_loads(cm, Rl);
-            if (cell_par)
-                for (double& v : loads) v = cell_par->reduce_sum(v);
+            if (p.use_ibm) {
+                loads = cell_loads(cm, Rl);
+                if (cell_par)
+                    for (double& v : loads) v = cell_par->reduce_sum(v);
+            }
+            const std::vector<char>& solid = eng.solid();
+            for (int l = 0; l <= cm.max_level; ++l)
+                for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c)
+                    if (!p.use_ibm || !solid[static_cast<size_t>(c)]) add_residual(rs, Rl[static_cast<size_t>(c)], cm.area(c));
         }
-        if (cell_par)
+        if (cell_par) {
             for (double& v : sums) v = cell_par->reduce_sum(v);
+            for (double& v : rs) v = cell_par->reduce_sum(v);
+        }
         monitor_row(mon, st, {sums[0] / sums[3] * mesh.cell_area(), sums[1] / sums[3] * mesh.cell_area(), sums[2] / sums[3] * mesh.cell_area()},
-                    p.use_ibm ? &loads : nullptr);
+                    p.use_ibm ? &loads : nullptr, residual_norms(rs));
     };
 
     if (step == 0) export_state(step);
@@ -1406,6 +1446,7 @@ void Simulation::solve_amr() {
                             step, t, dt, S, nleaves, format_elapsed(seconds_since(t0)).c_str());
             std::fflush(stdout);
         }
+        poll_stop_file();
         const double stop = g_stop_requested.load() ? 1.0 : 0.0;
         if ((cell_par ? cell_par->reduce_max(stop) : stop) > 0.0) {
             interrupted = true;
@@ -1722,18 +1763,23 @@ void Simulation::run_mpi(MPI_Comm comm) {
     int step = start;
     start_step = start;
     std::FILE* mon = root ? open_monitor() : nullptr;
+    arm_stop_file();
     const bool monitoring = p.monitor_interval > 0;
     const long long n_all = static_cast<long long>(p.nx) * p.ny * p.nz;
     Field R_loads;
     auto row = [&](int st) {   // collective: every rank calls it
         const auto v = volume_averages(U_local, n_all);
         std::array<double, 3> loads{};
-        if (p.use_ibm) {   // IBM loads: residual of the current state (mask or ghost cells), summed over the strips
-            res(U_local, R_loads);
+        res(U_local, R_loads);   // residual of the current state: the IBM loads (mask or ghost cells) and the norms, summed over the strips
+        if (p.use_ibm) {
             const std::array<double, 3> mine = ibm_loads(lm, *local_ibm, U_local, R_loads);
             MPI_Allreduce(mine.data(), loads.data(), 3, MPI_DOUBLE, MPI_SUM, comm);
         }
-        monitor_row(mon, st, v, p.use_ibm ? &loads : nullptr);
+        ResSums mine_rs{}, rs{};
+        for (int c = 0; c < lm.num_cells(); ++c)
+            if (!p.use_ibm || !local_ibm->mask()[c]) add_residual(mine_rs, R_loads[c], 1.0);
+        MPI_Allreduce(mine_rs.data(), rs.data(), 4, MPI_DOUBLE, MPI_SUM, comm);
+        monitor_row(mon, st, v, p.use_ibm ? &loads : nullptr, residual_norms(rs));
     };
     if (monitoring && step == 0) row(step);
     const auto t0 = Clock::now();
@@ -1757,6 +1803,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
             }
         }
         // Agree on Ctrl+C across ranks so nobody blocks in a collective
+        poll_stop_file();
         if (decomp.allreduce_max(g_stop_requested ? 1.0 : 0.0) > 0.0) {
             interrupted = true;
             break;
