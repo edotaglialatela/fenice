@@ -33,6 +33,7 @@ add_library(fenice_core STATIC
   src/Params.cpp
   src/TestCases.cpp
   src/Switches.cpp
+  src/Profile.cpp
   src/MPIDecomposition.cpp
   src/Simulation.cpp
 )

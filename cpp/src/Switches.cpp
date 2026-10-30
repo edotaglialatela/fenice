@@ -22,6 +22,9 @@ const std::vector<EnvSwitch>& env_switches() {
          "rank does, and it uses more memory per rank; the results are identical bit for bit."},
         {"FENICE_MEM_TRACE", "flag", "solver",
          "Print the resident and the peak memory of the process at the steps of the setup (standard error)."},
+        {"FENICE_PROFILE", "flag", "solver",
+         "AMR: print, at the end of the run, the wall time of the time step, the output and each part of the remesh (min / max over "
+         "the ranks). Costs nothing when off."},
         {"FENICE_HALO_REACH", "flag", "solver",
          "AMR: print the halo reach of the mesh (how many rings of leaves the face lists read across a rank boundary). Needs the "
          "whole mesh: a serial run, or FENICE_REPLICATED_REMESH=1 on MPI."},

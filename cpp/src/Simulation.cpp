@@ -1,3 +1,4 @@
+#include "fv/Profile.hpp"
 #include "fv/Switches.hpp"
 #include "fv/Simulation.hpp"
 
@@ -1359,11 +1360,15 @@ void Simulation::solve_amr() {
     if (monitoring && step == 0) row(step);
 
     const auto t0 = Clock::now();
+    profile_reset();   // the profile counts the time loop only
     double remesh_wall = 0.0, t_gather = 0.0, t_speed = 0.0, t_partition = 0.0;
     bool interrupted = false;
     while (t < p.t_end) {
         const double dt = std::min(scheme->cfl * std::min(cm.dx(0), cm.dy(0)) / std::max(S, 1e-10), p.t_end - t);
-        S = adv.step(dt, t);
+        {
+            ProfileScope ps(Section::Step);
+            S = adv.step(dt, t);
+        }
         cell_speed_ = S;
         if (p.use_ibm) {
             eng.solid_reset(cm, cm.U);
@@ -1396,10 +1401,12 @@ void Simulation::solve_amr() {
                 t_speed += seconds_since(r1);
             }
             remesh_wall += seconds_since(r0);
+            profile_add(Section::Remesh, seconds_since(r0));
         }
         if (monitoring && step % p.monitor_interval == 0) row(step);
 
         if (step % p.save_interval == 0) {
+            ProfileScope ps(Section::Output);
             export_state(step);
             const LeafArrays lf = leaves();
             const int nleaves = total_leaves();
@@ -1433,6 +1440,16 @@ void Simulation::solve_amr() {
         for (int r = 0; r < nranks; ++r) displs[static_cast<size_t>(r)] = 4 * r;
         cell_comm.allgatherv(mem.data(), 4, all.data(), counts.data(), displs.data());
         mem.swap(all);
+    }
+    // the profile of every rank (collective; empty, and the same on every rank, when FENICE_PROFILE is off)
+    std::vector<double> profile = profile_values();
+    if (!profile.empty() && cell_par) {
+        const int n = static_cast<int>(profile.size());
+        std::vector<double> all(profile.size() * static_cast<size_t>(nranks));
+        std::vector<int> counts(static_cast<size_t>(nranks), n), displs(static_cast<size_t>(nranks));
+        for (int r = 0; r < nranks; ++r) displs[static_cast<size_t>(r)] = n * r;
+        cell_comm.allgatherv(profile.data(), n, all.data(), counts.data(), displs.data());
+        profile.swap(all);
     }
     const LeafArrays lf = leaves();
     if (!root) return;
@@ -1474,6 +1491,7 @@ void Simulation::solve_amr() {
                 "engine uniform-mesh %.1f (IBM masks, ghost table), body band %.1f, indicator %.1f\n",
                 cm.memory_bytes() / MB, eng_leaf / MB, eng_uniform / MB, cell_adaptor->band_bytes() / MB,
                 cell_adaptor->xi_bytes() / MB);
+    if (!profile.empty()) print_profile(stdout, profile, nranks);
     std::printf("=== DONE  - open '%s.pvd' in ParaView ===  (time loop %.3f s, %d steps)\n", file_prefix.c_str(), loop_wall,
                 step - start_step);
 }

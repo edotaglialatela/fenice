@@ -13,6 +13,7 @@
 
 #include "CellParallelDetail.hpp"
 #include "fv/CellFlux.hpp"
+#include "fv/Profile.hpp"
 #include "fv/CellRemesh.hpp"
 
 namespace fv {

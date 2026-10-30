@@ -76,3 +76,5 @@ On a MacBook Air (Apple M4, 10 threads), which runs the scalar kernels, superson
 * `max_steps = N` stops a run after N steps, which is useful for timing.
 * For low-Mach steady problems, `BDF2 Dual Time` with a convective $\Delta t_{\rm phys}$
   avoids the acoustic CFL limit; see [TimeScheme]({{root}}modules/TimeScheme.html).
+
+**Where the time goes.** `FENICE_PROFILE=1` prints, at the end of an AMR run, the wall time of the time step, the output and each part of the remesh (the region the indicator reads, the flags, the topology, the migration of the state, the rebuild of the share and its engine tables, the partition; inside the rebuild the fetch of the leaves, the mask, the partial mesh, the engine build, the partition and the localisation), with the minimum and the maximum over the ranks. The parts are timed once per step or per remesh, never per face, and cost nothing when the switch is off. A part nested in another is counted in both.

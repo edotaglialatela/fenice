@@ -13,6 +13,7 @@
 
 #include "CellParallelDetail.hpp"
 #include "fv/CellFlux.hpp"
+#include "fv/Profile.hpp"
 #include "fv/CellRemesh.hpp"
 
 namespace fv {
@@ -132,21 +133,36 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
         // (one cell more around the region than region_mask reads, in the units of the seeds' level, so that the leaves at the border of
         // the share have the neighbours that make their faces: one cell of the leaf's level, or of the next coarser)
         CellMesh T(mesh_.Lx, mesh_.Ly, mesh_.nx, mesh_.ny, M, mesh_.periodic_x, mesh_.periodic_y, mesh_.x0, mesh_.y0);
-        fetch_leaves(gf.split, own, nullptr, items, T);   // (no state: the halo is filled by exchange_final)
+        {
+            ProfileScope ps(Section::Fetch);
+            fetch_leaves(gf.split, own, nullptr, items, T);   // (no state: the halo is filled by exchange_final)
+        }
         std::vector<int> owned_t;
         for (int c = 0; c < own.num_leaves(); ++c)
             owned_t.push_back(T.find(own.level[static_cast<size_t>(c)], own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)]));
         std::vector<char> keep;
-        region_mask(T, owned_t, extra, keep);
+        {
+            ProfileScope ps(Section::ShareRegion);
+            region_mask(T, owned_t, extra, keep);
+        }
         bool ok = true;
         try {
-            mesh_.build_from(T, keep, nullptr);
+            {
+                ProfileScope ps(Section::ShareMesh);
+                mesh_.build_from(T, keep, nullptr);
+            }
             for (int c = 0; c < own.num_leaves(); ++c)   // the state of the owned leaves
                 mesh_.U[static_cast<size_t>(mesh_.find(own.level[static_cast<size_t>(c)], own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)]))] = own.U[static_cast<size_t>(c)];
             engine_.set_ghost_whole_ready(ghost_hint);
-            engine_.build(mesh_, &T);
+            {
+                ProfileScope ps(Section::ShareEngine);
+                engine_.build(mesh_, &T);
+            }
             engine_.set_ghost_whole_ready(-1);
-            ok = partition_local(&T, &gf);
+            {
+                ProfileScope ps(Section::SharePartition);
+                ok = partition_local(&T, &gf);
+            }
         } catch (const std::logic_error&) {
             ok = false;
         }
@@ -155,8 +171,14 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
         if (extra > 15) throw std::logic_error("CellParallel: no reach of the leaves covers what the faces read");
     }
     if (built) *built = std::chrono::steady_clock::now();
-    partition_exchange();
-    localize();
+    {
+        ProfileScope ps(Section::SharePartition);
+        partition_exchange();
+    }
+    {
+        ProfileScope ps(Section::ShareLocalize);
+        localize();
+    }
 }
 
 void CellParallel::owned_leaves(const CellMesh& topo, std::vector<int>& out) const {
@@ -175,11 +197,23 @@ void CellParallel::build_share(const CellMesh& topo, const std::vector<int>& min
     for (int extra = first_extra;; extra += 2) {
         bool ok = true;
         std::vector<char> keep;
-        region_mask(topo, mine, extra, keep);
+        {
+            ProfileScope ps(Section::ShareRegion);
+            region_mask(topo, mine, extra, keep);
+        }
         try {
-            mesh_.build_from(topo, keep, nU);
-            engine_.build(mesh_, &topo);
-            ok = partition_local(&topo);
+            {
+                ProfileScope ps(Section::ShareMesh);
+                mesh_.build_from(topo, keep, nU);
+            }
+            {
+                ProfileScope ps(Section::ShareEngine);
+                engine_.build(mesh_, &topo);
+            }
+            {
+                ProfileScope ps(Section::SharePartition);
+                ok = partition_local(&topo);
+            }
         } catch (const std::logic_error&) {
             ok = false;
         }
@@ -188,8 +222,14 @@ void CellParallel::build_share(const CellMesh& topo, const std::vector<int>& min
         if (extra > 15) throw std::logic_error("CellParallel: no reach of the leaves covers what the faces read");
     }
     if (built) *built = std::chrono::steady_clock::now();
-    partition_exchange();
-    localize();
+    {
+        ProfileScope ps(Section::SharePartition);
+        partition_exchange();
+    }
+    {
+        ProfileScope ps(Section::ShareLocalize);
+        localize();
+    }
 }
 
 int CellParallel::init_adapt(CellMesh& topo, CellAdaptor& ad, const std::function<void(CellMesh&)>& fill) {

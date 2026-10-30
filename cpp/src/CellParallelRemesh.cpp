@@ -1,5 +1,6 @@
 // CellParallel: the remesh, with the topology of the whole mesh on every rank and without it (FENICE_REPLICATED_TOPOLOGY).
 #include "fv/CellParallel.hpp"
+#include "fv/Profile.hpp"
 
 #include <algorithm>
 #include <array>
@@ -51,7 +52,10 @@ bool CellParallel::remesh(CellAdaptor& ad) {
     }
     CellMesh W(mesh_.Lx, mesh_.Ly, mesh_.nx, mesh_.ny, M, mesh_.periodic_x, mesh_.periodic_y, mesh_.x0, mesh_.y0);
     FetchPlan plan;
-    fetch_leaves(split_, mesh_, &mesh_.U, items, W, &plan);
+    {
+        ProfileScope ps(Section::Fetch);
+        fetch_leaves(split_, mesh_, &mesh_.U, items, W, &plan);
+    }
     const int NW = W.num_leaves();
     std::vector<int> owned_w(owned.size());
     for (size_t k = 0; k < owned.size(); ++k) {
@@ -156,8 +160,11 @@ bool CellParallel::remesh(CellAdaptor& ad) {
         if (any == 2.0) throw std::logic_error(failure.empty() ? "CellParallel::remesh: another rank's region was too small" : failure);
         if (any == 0.0) {
             t_topo += sec(t2, Clock::now());
+            profile_add(Section::RemeshTopology, sec(t2, Clock::now()));
             t_region += sec(t0, t1);
+            profile_add(Section::RemeshRegion, sec(t0, t1));
             t_flags += sec(t1, t2);
+            profile_add(Section::RemeshFlags, sec(t1, t2));
             ad.t_indicator += sec(t0, t2);
             return false;
         }
@@ -250,11 +257,17 @@ bool CellParallel::remesh(CellAdaptor& ad) {
     for (int l = 0; l <= M; ++l) exchange_final(l);
     const auto t5 = Clock::now();
     t_topo += sec(t2, t3);
+    profile_add(Section::RemeshTopology, sec(t2, t3));
     t_region += sec(t0, t1);
+    profile_add(Section::RemeshRegion, sec(t0, t1));
     t_flags += sec(t1, t2);
+    profile_add(Section::RemeshFlags, sec(t1, t2));
     t_migrate += sec(t2, t3);
+    profile_add(Section::RemeshMigrate, sec(t2, t3));
     t_rebuild += sec(t3, t4);
+    profile_add(Section::RemeshRebuild, sec(t3, t4));
     t_repartition += sec(t4, t5);
+    profile_add(Section::RemeshPartition, sec(t4, t5));
     ad.t_indicator += sec(t0, t2);
     ad.t_adapt += sec(t2, t3);
     ad.t_build += sec(t3, t4);
@@ -355,8 +368,11 @@ bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     const bool changed = topo.adapt(refine, coarsen);
     topo.record_sources = false;
     t_topo += sec(t2, Clock::now());
+    profile_add(Section::RemeshTopology, sec(t2, Clock::now()));
     t_region += sec(t0, t1);
+    profile_add(Section::RemeshRegion, sec(t0, t1));
     t_flags += sec(t1, t2);
+    profile_add(Section::RemeshFlags, sec(t1, t2));
     ad.t_indicator += sec(t0, t2);
     if (!changed) return false;
     N = topo.num_leaves();
@@ -457,8 +473,11 @@ bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
     for (int l = 0; l <= M; ++l) exchange_final(l);
     const auto t5 = Clock::now();
     t_migrate += sec(t2, t3);
+    profile_add(Section::RemeshMigrate, sec(t2, t3));
     t_rebuild += sec(t3, t4);
+    profile_add(Section::RemeshRebuild, sec(t3, t4));
     t_repartition += sec(t4, t5);
+    profile_add(Section::RemeshPartition, sec(t4, t5));
     ad.t_adapt += sec(t2, t3);
     ad.t_build += sec(t3, t4);
     return true;
