@@ -12,11 +12,14 @@ from pathlib import Path
 
 from PyQt6.QtCore import QObject, QTimer, pyqtSignal
 
+from gui.ansi import strip as strip_ansi
 from gui.runner import SolverRun
 from gui.solver import ROOT_DIR, solver_exe, write_config
 
 _OUTPUT_DIR = re.compile(r"\[EXPORTER\] Output directory: '(?P<path>[^']+)'")
-_PROGRESS = re.compile(r"^Step\s+(?P<step>\d+)\s*\|\s*t = (?P<t>\S+) s\s*\|\s*dt = (?P<dt>\S+) s\s*\|\s*S_max = (?P<smax>\S+) m/s")
+_PROGRESS = re.compile(r"^Step\s+(?P<step>\d+)\s*\|\s*t = (?P<t>\S+) s\s*\|\s*dt = (?P<dt>\S+) s\s*\|\s*S_max = (?P<smax>\S+) m/s(?P<rest>.*)$")
+_LEAVES = re.compile(r"leaves = (\d+)")
+_WALL = re.compile(r"wall = (\S+)")
 
 IDLE, RUNNING, STOPPING = "idle", "running", "stopping"
 
@@ -27,6 +30,8 @@ class Project(QObject):
     results_changed = pyqtSignal(str)         # the results folder of the run, as soon as the solver reports it
     log = pyqtSignal(str)                     # lines of the solver output
     progress = pyqtSignal(int, float, float, float)   # step, t, dt, S_max of the last progress line
+    progress_extra = pyqtSignal(int, str)             # leaves (0 if not AMR), wall-clock text of the same line
+    started = pyqtSignal()                    # a run begins: before its first log line
     finished = pyqtSignal(int, bool)          # return code, stopped by the user
 
     def __init__(self, parent=None):
@@ -70,6 +75,7 @@ class Project(QObject):
         write_config(self.params, cfg)
         self.results_dir = None
         self._stop_asked = False
+        self.started.emit()
         self._run = SolverRun([solver_exe(), "--config", cfg], cwd=ROOT_DIR, cleanup=(cfg,))
         self._run.start()
         self.log.emit(f"[GUI] {self._run.argv[0]} --config {cfg}")
@@ -97,6 +103,7 @@ class Project(QObject):
         run = self._run
         for line in run.drain():
             self.log.emit(line)
+            line = strip_ansi(line)
             m = _OUTPUT_DIR.search(line)
             if m:
                 self.results_dir = Path(m["path"])
@@ -104,6 +111,8 @@ class Project(QObject):
             m = _PROGRESS.match(line)
             if m:
                 self.progress.emit(int(m["step"]), float(m["t"]), float(m["dt"]), float(m["smax"]))
+                lv, wl = _LEAVES.search(m["rest"]), _WALL.search(m["rest"])
+                self.progress_extra.emit(int(lv[1]) if lv else 0, wl[1] if wl else "")
         if not run.running:
             for line in run.drain():
                 self.log.emit(line)

@@ -65,7 +65,8 @@ class SolverRun:
     def __init__(self, argv: list[str], cwd: str | None = None, env: dict | None = None, cleanup: tuple[str, ...] = ()):
         self.argv = list(argv)
         self.cwd = cwd
-        self.env = dict(os.environ if env is None else env, NO_COLOR="1")   # no colour codes in the log
+        self.env = dict(os.environ if env is None else env, FORCE_COLOR="1", COLORTERM="truecolor")   # the banner in colour; the GUI strips codes to parse
+        self.env.pop("NO_COLOR", None)
         self.cleanup = cleanup   # files removed once the run is over (the config is read again by every MPI process)
         self.proc: subprocess.Popen | None = None
         self._lines: queue.Queue = queue.Queue()
