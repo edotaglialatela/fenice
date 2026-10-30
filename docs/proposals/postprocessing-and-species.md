@@ -57,6 +57,8 @@ Every item is off by default, changes no state and no existing reference, and is
   molecular weights and reaction data, which the solver reads. The second keeps the C++ build and CI unchanged and keeps the references
   independent of the library's version; the solver then needs its own rate evaluation (Arrhenius, third bodies, falloff) and integrator.
 
+The target cases that part B is verified against (inert interface, 0-D ignition, 1-D detonation) are in `species-target-cases.md`.
+
 ## Suggested order
 
 A1, A4, A3, A2, A5, then B in the order passive scalars, thermodynamics, interface test, chemistry. Verification of B: a transported
