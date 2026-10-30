@@ -16,7 +16,6 @@ non-reflecting outlet, a periodic viscous manufactured solution, and one with a 
 serially and on 1 to 7 MPI ranks and compares the final states bit for bit; CI runs it on every platform.
 """
 import json
-import re
 
 import numpy as np
 
@@ -37,9 +36,8 @@ def measure(args, tag, mpi=0, threads=None):
         d.mkdir(parents=True, exist_ok=True)
         print(f"[RUN] {STUDY}/{tag}", flush=True)
         r = fenice.run(CASE, *BASE, "save_interval=1000000000", out_root=d, mpi=mpi, threads=threads, dump=d / "final.npz")
-        wall = float(re.search(r"time loop ([0-9.]+) s", r.stdout).group(1))
-        m = re.search(r"\[AMR\] (\d+) leaves at the end .*?remesh ([0-9.]+) s", r.stdout)
-        info.write_text(json.dumps({"wall": wall, "remesh": float(m.group(2)), "leaves": int(m.group(1))}))
+        got = fenice.parse_summary(r.stdout, require=("amr",))
+        info.write_text(json.dumps({"wall": got["wall"], "remesh": got["remesh"], "leaves": got["leaves"]}))
     return d, json.loads(info.read_text())
 
 

@@ -16,7 +16,6 @@ Prints a table and writes summary.json (and the figure amr_memory.png).
 """
 import json
 import os
-import re
 
 import fenice
 from fenice import study
@@ -25,35 +24,7 @@ STUDY, CASE = "amr_memory", "IBM Airfoil AMR"
 CASES = {"airfoil_720": ("nx=720", "ny=360"), "airfoil_1440": ("nx=1440", "ny=720")}
 RANKS = [1, 2, 4, 8, 16]
 
-NUM = r"([0-9.]+)"
-PATTERNS = {
-    "wall": re.compile(rf"time loop {NUM} s"),
-    "leaves": re.compile(r"\[AMR\] (\d+) leaves at the end"),
-    "remesh": re.compile(rf"remesh {NUM} s of the"),
-    "parts": re.compile(rf"remesh parts: gather {NUM} s, indicator {NUM} s, adapt {NUM} s, engine build {NUM} s, "
-                        rf"wave-speed bound {NUM} s, partition {NUM} s"),
-    "memory": re.compile(rf"resident memory per rank \[MB\].*?after setup {NUM} / {NUM}, after the initial adaptation "
-                         rf"{NUM} / {NUM}, at the end {NUM} / {NUM}, peak {NUM} / {NUM}"),
-    "tables": re.compile(rf"tables of rank 0 \[MB\]: mesh {NUM} .*?engine {NUM} .*?engine uniform-mesh {NUM} .*?body band "
-                         rf"{NUM}, indicator {NUM}"),
-}
-PARTS = ["gather", "indicator", "adapt", "build", "speed", "partition"]
-MEMORY = ["setup", "init", "end", "peak"]
-TABLES = ["mesh", "engine", "uniform", "band", "xi"]
-
-
-def parse(out):
-    """The numbers of the end-of-run report of an AMR run."""
-    got = {k: p.search(out) for k, p in PATTERNS.items()}
-    missing = [k for k, m in got.items() if m is None]
-    if missing:
-        raise RuntimeError(f"not in the solver output: {', '.join(missing)}")
-    v = {k: [float(x) for x in m.groups()] for k, m in got.items()}
-    mem = v["memory"]
-    return {"wall": v["wall"][0], "leaves": int(v["leaves"][0]), "remesh": v["remesh"][0],
-            "parts": dict(zip(PARTS, v["parts"])),
-            "memory_min": dict(zip(MEMORY, mem[0::2])), "memory_max": dict(zip(MEMORY, mem[1::2])),
-            "tables": dict(zip(TABLES, v["tables"]))}
+MEMORY = fenice.summary.MEMORY
 
 
 def measure(args, name, ranks):
@@ -66,7 +37,7 @@ def measure(args, name, ranks):
         print(f"[RUN] {STUDY}/{tag}", flush=True)
         r = fenice.run(CASE, *CASES[name], f"max_steps={args.steps}", "save_interval=1000000000", out_root=d,
                        mpi=ranks if ranks > 1 else 0, threads=1 if ranks == 1 else None)
-        info.write_text(json.dumps(parse(r.stdout), indent=1))
+        info.write_text(json.dumps(fenice.parse_summary(r.stdout, require=("amr", "parts", "memory", "tables")), indent=1))
     return json.loads(info.read_text())
 
 

@@ -6,9 +6,12 @@ tools and the regression check (``python prerequisites.py`` installs it in edita
     for t, path in fenice.read_pvd(fenice.RESULTS / "validation" / "sod" / "sod_shock_tube"):
         f = fenice.read_vtr(path)          # f["Density"], f["Velocity"], f["x"], ...
     fenice.read_vtu(path)                  # an adaptive-mesh snapshot: f["x0"], f["level"], f["Density"], ...
+    fenice.parse_summary(result.stdout)    # the end-of-run report: wall time, steps, AMR leaves / remesh / memory
 """
 from .io import primitive, read_dump, read_monitor, read_pvd, read_vtr, read_vtu, vtk_array
 from .solver import RESULTS, ROOT, exe, run
+from . import summary
+from .summary import parse_summary
 
 __all__ = ["ROOT", "RESULTS", "exe", "run", "vtk_array", "read_pvd", "read_vtr", "read_vtu", "read_monitor", "read_dump",
-           "primitive"]
+           "primitive", "parse_summary"]
