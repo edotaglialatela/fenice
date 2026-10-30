@@ -35,9 +35,16 @@ is below; the modules share one project (the parameters of the run, its results 
   pixels wide, and the *Mesh level* box shows the same body on the finer levels of an AMR run (cells across the chord or diameter, solid
   cells, the finest cell). The boundary condition of each side is written beside it. The shapes come from `fenice.geometry`, which follows
   the solver's rules; `cases/validation/check_geometry.py` checks that the number of solid cells equals the solver's on every case with a
-  body, on three meshes each.
-* **Run.** The solver's output as it arrives, the last step, time, time step and wave speed, and the buttons *Stop*, *Kill* and *Run
-  again*. *Stop* does what Ctrl+C does in a terminal: the solver saves its checkpoint and the `.pvd` index, then exits. Under MPI,
+  body, on three meshes each. The base mesh (`nx`, `ny`) and the boundary condition of every side can be edited here, with the buttons
+  *Apply mesh*, *2×* and *½×* (each doubles or halves `nx` and `ny`: four times or a quarter of the cells in 2-D); the edits are written
+  into the Setup page, which keeps the only copy. Choosing *Periodic* on a side sets the opposite side too; for a case with AMR the page
+  opens on the finest mesh level.
+* **Run.** The upper half shows the time step, the wave speed and one more quantity of your choice (a column of the monitor file, or the
+  number of leaves of an AMR run) against time; the lower half is the solver's console in colour. They are filled from the progress lines
+  (every `save_interval` steps) and the monitor file (every `monitor_interval` steps): residuals are not written by the solver. The console
+  states the total physical time and notes each time the run passes a multiple of 10 % of it; the status line gives the percentage and
+  an estimate of the time left. Every run starts with an empty console and empty plots; *Run again* runs what the Setup page holds now.
+  The buttons are *Stop*, *Kill* and *Run again*. *Stop* does what Ctrl+C does in a terminal: the solver saves its checkpoint and the `.pvd` index, then exits. Under MPI,
   `mpiexec` aborts the job on Ctrl+C (also in a terminal), so the last periodic checkpoint is the one kept. *Kill* ends the solver and
   every process it started at once. Closing the window with a run going asks which of the two to do; if the workbench itself is ended (on
   Windows) the solver and its MPI processes end with it.
@@ -57,22 +64,23 @@ saved or loaded yet. `gui/run.py`, described next, is unchanged.
 * **Immersed Boundaries.** Obstacle shape, radius and centre (CZ appears for 3-D).
 * **Solution Mapping.** Hot start from a checkpoint `.npz`. The source grid size is read
   from the file; legacy files without metadata ask for Nx / Ny.
-* **AMR.** Refinement levels, indicator variables, the relative variation that flags a cell, the
+* **AMR.** Refinement levels, indicator variables (check boxes: density, velocity, pressure), the relative variation that flags a cell, the
   refine and join thresholds, smoothing iterations, remesh interval and initial levels. AMR can run on MPI ranks
   (the leaves are distributed over them; on one node OpenMP threads are usually faster), and it requires Nz = 1.
 
 ## Result viewer
 
 ```powershell
-python guiiewer.py results\<case>          # a results folder, or one of its snapshot files
-python guiiewer.py results\<case> --screenshot view.png --field Mach --step 100 --zoom 2.5,4.2,2.6,3.5 --leaves
+python gui\viewer.py results\<case>          # a results folder, or one of its snapshot files
+python gui\viewer.py results\<case> --screenshot view.png --field Mach --step 100 --zoom 2.5,4.2,2.6,3.5 --leaves
 ```
 
 The viewer shows the fields of a run snapshot by snapshot, and its monitor curves. It reads the `.vtr` snapshots of a uniform mesh and
 the `.vtu` / `.pvtu` snapshots of an adaptive one (also from an MPI run) through `fenice.io`, with no physics of its own.
 
 * **Field tab.** Density, pressure, temperature, Mach number, the speed and the velocity components, and for an adaptive mesh the
-  refinement level; the colour map, an optional locked colour range, pan and zoom (matplotlib's toolbar), and the value under the
+  refinement level and, for a run on MPI ranks, `MPI_Rank` (the rank that owns each leaf; a uniform-mesh MPI run writes one file and has
+  none); the colour map, an optional locked colour range, pan and zoom (matplotlib's toolbar), and the value under the
   pointer (with the leaf level). A 3-D snapshot is shown as a slice normal to z, y or x, picked with a slider. An adaptive mesh is
   sampled on the pixels of the view, so zooming shows the finest leaves in sight; *Leaf outlines* draws them when fewer than 4000
   are in the view.

@@ -32,6 +32,7 @@ def _make(project):
 
     page = EmbeddedSetup()
     project.provider = page.peek_params
+    project.editor = page
     return page
 
 

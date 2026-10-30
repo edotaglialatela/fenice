@@ -39,6 +39,7 @@ class Project(QObject):
         self.params: dict = {}
         self.results_dir: Path | None = None
         self.state = IDLE
+        self.editor = None     # the module that can take mesh and boundary edits from another page (Setup): apply_geometry(dict), bc_choices()
         self.provider = None   # a module that holds the live parameters (Setup) registers a function returning them, or None
         self._run: SolverRun | None = None
         self._stop_asked = False

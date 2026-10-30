@@ -12,7 +12,7 @@ def _make(project):
     from matplotlib.collections import LineCollection
     from matplotlib.figure import Figure
     from PyQt6.QtCore import QTimer
-    from PyQt6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QPushButton, QVBoxLayout, QWidget
+    from PyQt6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
 
     import fenice
     from fenice import geometry
@@ -21,6 +21,8 @@ def _make(project):
 
     def flag(p: dict, key: str, default: str = "false") -> bool:
         return str(p.get(key, default)).strip().lower() in ("1", "true", "yes", "on")
+
+    OPPOSITE = {'left': 'right', 'right': 'left', 'bottom': 'top', 'top': 'bottom', 'front': 'back', 'back': 'front'}
 
     class GeometryPanel(QWidget):
         def __init__(self):
@@ -40,12 +42,41 @@ def _make(project):
             self.info = QLabel("")
             self.info.setWordWrap(True)
             self.info.setObjectName("note")
+            self.warn = QLabel("")
+            self.warn.setStyleSheet("color: #b00020;")
+            self.warn.setWordWrap(True)
+            self.edit_nx, self.edit_ny = QLineEdit(), QLineEdit()
+            for e in (self.edit_nx, self.edit_ny):
+                e.setMaximumWidth(70)
+            self.btn_apply = QPushButton("Apply mesh")
+            self.btn_apply.setToolTip("Set nx and ny of the base mesh in Setup")
+            self.btn_half = QPushButton("\u00bd\u00d7")
+            self.btn_half.setToolTip("Halve nx and ny: a quarter of the cells in 2-D, an eighth in 3-D")
+            self.btn_double = QPushButton("2\u00d7")
+            self.btn_double.setToolTip("Double nx and ny: four times the cells in 2-D, eight times in 3-D (the usual step of a grid study)")
+            self.bc_combos: dict[str, QComboBox] = {}
+            bc_row = QHBoxLayout()
+            for side in ("left", "right", "bottom", "top", "front", "back"):
+                cb = QComboBox()
+                self.bc_combos[side] = cb
+                lbl = QLabel(side.capitalize())
+                cb._label = lbl
+                bc_row.addWidget(lbl)
+                bc_row.addWidget(cb)
+            bc_row.addStretch(1)
+            mesh_row = QHBoxLayout()
+            for w in (QLabel("Base mesh nx"), self.edit_nx, QLabel("ny"), self.edit_ny, self.btn_apply, self.btn_half, self.btn_double):
+                mesh_row.addWidget(w)
+            mesh_row.addStretch(1)
             row = QHBoxLayout()
             for w in (self.btn_refresh, QLabel("Mesh level"), self.cb_level, self.chk_grid, self.chk_solid, self.btn_zoom):
                 row.addWidget(w)
             row.addStretch(1)
             lay = QVBoxLayout(self)
             lay.addLayout(row)
+            lay.addLayout(mesh_row)
+            lay.addLayout(bc_row)
+            lay.addWidget(self.warn)
             lay.addWidget(self.toolbar)
             lay.addWidget(self.canvas, 1)
             lay.addWidget(self.info)
@@ -54,12 +85,20 @@ def _make(project):
             self._grid = None
             self._bc_texts: list = []
             self._busy = False
+            self._last_case = None
             self._timer = QTimer(self)   # redraw the grid lines once a zoom or a resize has settled
             self._timer.setSingleShot(True)
             self._timer.setInterval(90)
             self._timer.timeout.connect(self._draw_grid)
             self.btn_refresh.clicked.connect(self.refresh)
             self.btn_zoom.clicked.connect(self._zoom_to_body)
+            self.btn_apply.clicked.connect(lambda: self._set_mesh(self.edit_nx.text(), self.edit_ny.text()))
+            self.btn_half.clicked.connect(lambda: self._scale_mesh(0.5))
+            self.btn_double.clicked.connect(lambda: self._scale_mesh(2.0))
+            self.edit_nx.returnPressed.connect(self.btn_apply.click)
+            self.edit_ny.returnPressed.connect(self.btn_apply.click)
+            for side, cb in self.bc_combos.items():
+                cb.activated.connect(lambda _, s=side: self._set_bc(s))
             self.cb_level.currentIndexChanged.connect(lambda _: self._draw())
             self.chk_grid.toggled.connect(lambda _: self._draw())
             self.chk_solid.toggled.connect(lambda _: self._draw())
@@ -72,10 +111,12 @@ def _make(project):
             self.refresh()   # the page shows what Setup holds when it comes up
 
         # ---- the parameters
-        def refresh(self) -> None:
+        def refresh(self, reset_view: bool = True) -> None:
             cur = project.current_params()
             if cur is None:
                 self.info.setText("The setup has an input that is not valid yet: correct it in Setup, then refresh.")
+                if self.p is not None and project.editor is not None:   # the boundary conditions can still be shown and corrected here
+                    self._fill_controls({**self.p, **project.editor.bc_values()})
                 return
             try:
                 p = dict(case_defaults(cur["test_case"])) if "test_case" in cur else {}
@@ -90,13 +131,78 @@ def _make(project):
                 self.info.setText(f"The body cannot be drawn: {exc}")
             levels = int(p.get("amr_max_level", "0")) if flag(p, "use_amr") else 0
             keep = self.cb_level.currentIndex()
+            if (p.get("test_case"), levels) != self._last_case:   # a new case or level count: show the finest mesh, where the body is resolved most
+                keep, self._last_case = levels, (p.get("test_case"), levels)
             nx, ny = int(p["nx"]), int(p["ny"])
             self.cb_level.blockSignals(True)
             self.cb_level.clear()
             self.cb_level.addItems([f"{l}: {nx << l} x {ny << l}" for l in range(levels + 1)])
             self.cb_level.setCurrentIndex(min(max(keep, 0), levels))
             self.cb_level.blockSignals(False)
-            self._draw(reset_view=True)
+            self._fill_controls(p)
+            self._draw(reset_view=reset_view)
+
+        # ---- editing: the changes go to the Setup page, which keeps the only copy
+        def _fill_controls(self, p: dict) -> None:
+            ed = project.editor
+            choices = ed.bc_choices() if ed is not None else {}
+            by_name = {v: k for k, v in choices.items()}
+            nz = int(p.get("nz", "1"))
+            enabled = ed is not None
+            for e, key in ((self.edit_nx, "nx"), (self.edit_ny, "ny")):
+                e.setText(str(int(p[key])))
+            for w in (self.edit_nx, self.edit_ny, self.btn_apply, self.btn_half, self.btn_double):
+                w.setEnabled(enabled)
+            for side, cb in self.bc_combos.items():
+                shown = side in ("left", "right", "bottom", "top") or nz > 1
+                cb.setVisible(shown)
+                cb._label.setVisible(shown)
+                cb.blockSignals(True)
+                cb.clear()
+                cb.addItems(list(choices))
+                cb.setEnabled(enabled)
+                i = cb.findText(by_name.get(p.get(f"bc_{side}", ""), ""))
+                cb.setCurrentIndex(max(i, 0) if choices else -1)
+                cb.blockSignals(False)
+            pairs = [("left", "right"), ("bottom", "top")] + ([("front", "back")] if nz > 1 else [])
+            bad = [f"{a} / {b}" for a, b in pairs if (str(p.get(f"bc_{a}")) == "periodic") != (str(p.get(f"bc_{b}")) == "periodic")]
+            self.warn.setText("Periodic must be set on both sides of a pair (" + ", ".join(bad) + "): Setup will refuse the run until it is." if bad else "")
+
+        def _push(self, values: dict) -> None:
+            if project.editor is None:
+                return
+            project.editor.apply_geometry(values)
+            self.refresh(reset_view=False)
+
+        def _set_mesh(self, nx_text: str, ny_text: str) -> None:
+            try:
+                nx, ny = int(nx_text), int(ny_text)
+            except ValueError:
+                self.warn.setText("nx and ny must be whole numbers.")
+                return
+            if nx < 1 or ny < 1:
+                self.warn.setText("nx and ny must be at least 1.")
+                return
+            self._push({"nx": nx, "ny": ny})
+            self._warn_mpi(nx, ny)
+
+        def _scale_mesh(self, factor: float) -> None:
+            if self.p is None:
+                return
+            nx, ny = int(self.p["nx"]), int(self.p["ny"])
+            self._set_mesh(str(max(1, round(nx * factor))), str(max(1, round(ny * factor))))
+
+        def _warn_mpi(self, nx: int, ny: int) -> None:
+            cur = project.current_params()
+            if cur and str(cur.get("use_mpi")).lower() in ("true", "1") and int(cur.get("n_cpus", 1)) > max(nx, ny):
+                self.warn.setText("The number of MPI processes exceeds max(nx, ny): Setup will refuse the run.")
+
+        def _set_bc(self, side: str) -> None:
+            name = project.editor.bc_choices()[self.bc_combos[side].currentText()]
+            values = {f"bc_{side}": name}
+            if name == "periodic":   # periodic is a pair: the opposite side follows
+                values["bc_" + OPPOSITE[side]] = name
+            self._push(values)
 
         # ---- drawing
         def _draw(self, reset_view: bool = False) -> None:

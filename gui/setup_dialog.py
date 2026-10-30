@@ -707,6 +707,28 @@ class SetupDialog(QDialog):
         if not getattr(self, "_quiet", False):
             QMessageBox.critical(self, title, text)
 
+    def apply_geometry(self, values: dict) -> None:
+        """Set the mesh size and the boundary conditions from another page: keys nx, ny, bc_left / right / bottom / top / front / back
+        (solver names, e.g. 'wall'); the fields are the only copy, so what is set here is what the run uses."""
+        labels = {v: k for k, v in self._BC_LABELS.items()}
+        for key, edit in (("nx", self.input_nx), ("ny", self.input_ny)):
+            if key in values:
+                edit.setText(str(int(values[key])))
+        for side in ("left", "right", "bottom", "top", "front", "back"):
+            if f"bc_{side}" in values:
+                combo = getattr(self, f"bc_{side}")
+                i = combo.findText(labels.get(values[f"bc_{side}"], values[f"bc_{side}"]))
+                if i >= 0:
+                    combo.setCurrentIndex(i)
+
+    def bc_values(self) -> dict:
+        """The boundary conditions as the fields hold them now (solver names), valid or not."""
+        return {f"bc_{s}": self._BC_LABELS[getattr(self, f"bc_{s}").currentText()] for s in ("left", "right", "bottom", "top", "front", "back")}
+
+    def bc_choices(self) -> dict:
+        """{label shown: solver name} of the boundary conditions."""
+        return dict(self._BC_LABELS)
+
     def peek_params(self):
         """The parameters as they stand, or None if some input is invalid, without any message box (for previews)."""
         self._quiet = True

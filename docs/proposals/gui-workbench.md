@@ -30,9 +30,9 @@ it reads and writes are the solver's own.
 | Module | What it does | State |
 | --- | --- | --- |
 | Setup | the existing dialog (case, mesh, physics, boundaries, numerics, IBM, AMR) as a module | exists |
-| Geometry and grid | the immersed body drawn in the domain (cylinder, sphere, NACA section, airfoil file), the Cartesian grid, the mask at the chosen resolution ("cells per chord"), the finer AMR levels; read-only so far (editing the body, an airfoil generator, are not done) | exists |
-| Boundaries | the boundary condition of each side drawn on the domain, with its values | proposed |
-| Run | starts the solver, streams its log, shows the step and the time, stops it with the checkpoint (live monitor curves next) | exists |
+| Geometry and grid | the immersed body drawn in the domain (cylinder, sphere, NACA section, airfoil file), the Cartesian grid, the mask at the chosen resolution ("cells per chord"), the finer AMR levels; the mesh size and the boundary conditions are edited here and written to Setup (editing the body, an airfoil generator, are not done) | exists |
+| Boundaries | the boundary condition of each side is chosen on the Geometry page; its values (velocity, pressure, mass flow) are still on Setup | partly |
+| Run | starts the solver, streams its log in colour, plots the time step, wave speed and monitor columns, shows progress, stops it with the checkpoint (true residuals need new solver output, see the Run section) | exists |
 | Results | the viewer: fields, slices, adaptive meshes, monitor curves, following a run | exists |
 | Studies | the validation studies and the regression, with their pass or fail | proposed |
 | Thermochemistry | species, mechanism and reference reactor, when the species work exists (`species-target-cases.md`) | later |
