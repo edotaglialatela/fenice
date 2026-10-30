@@ -928,6 +928,12 @@ TEST(env_switches_are_a_closed_table) {
     }
     CHECK(threw);
     const char* f = "FENICE_DEBUG_TABLES";
+    const char* old_f = std::getenv(f);   // (restored at the end: the other tests must see the environment they were started in)
+    const std::string saved_f = old_f ? old_f : "";
+    const bool had_f = old_f != nullptr;
+    const char* old_c = std::getenv("FENICE_CASES");
+    const std::string saved_c = old_c ? old_c : "";
+    const bool had_c = old_c != nullptr;
     set_env(f, nullptr);
     CHECK(!switch_on(f));
     set_env(f, "0");
@@ -942,4 +948,6 @@ TEST(env_switches_are_a_closed_table) {
     CHECK(switch_value("FENICE_CASES") == "some_folder");
     set_env("FENICE_CASES", nullptr);
     CHECK(switch_value("FENICE_CASES").empty());
+    set_env(f, had_f ? saved_f.c_str() : nullptr);
+    set_env("FENICE_CASES", had_c ? saved_c.c_str() : nullptr);
 }

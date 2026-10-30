@@ -10,12 +10,26 @@ order: 50
 python cpp\tests\regression.py --mpi 4          # regression against the reference states
 ```
 
-Run both after any change to the solver.
+Run both after any change to the solver, or all the checks of CI in one command:
+
+```powershell
+python casesalidation\check_all.py            # unit tests, regression (serial, 4 ranks), AMR on 1-7 ranks, ghost-cell IBM, MMS, switch table
+python casesalidation\check_all.py --full     # + the unit tests without SIMD, the replicated-storage and replicated-topology variants
+python casesalidation\check_all.py --golden OLD   # + golden dumps of this build compared bit for bit with the dump OLD
+```
+
+Each step is judged by its exit code and logs to `results/validation/check_all/`; the run stops at the first failure
+(`--keep-going` runs the rest). OLD is made before the change with `cases/validation/amr/golden.py dump OLD --exe <old fenice>`;
+`--full` also dumps with `FENICE_NO_SIMD=1` and `FENICE_FULL_REBUILD=1`, which must give the same states.
 
 ## Unit tests (`fenice_tests`)
 
-`cpp/tests/test_main.cpp` uses a self-contained harness, so no test framework is needed,
-and exits non-zero on failure. Its 72 tests cover:
+The tests in `cpp/tests/` use a self-contained harness (`test_common.hpp`), so no test framework is needed, and the runner
+exits non-zero on failure. They are split by area: `test_core.cpp` (EOS, limiters, Riemann solvers, boundaries, time schemes, IBM,
+mapping, I/O), `test_periodic.cpp` (periodic and 3-D flows), `test_casefile.cpp`, and `test_amr_mesh.cpp`, `test_amr_physics.cpp`,
+`test_amr_remesh.cpp`, `test_amr_distributed.cpp` for the AMR (the helpers they share are in `test_amr_common.hpp`). With no
+argument `fenice_tests` runs all 110 tests; `fenice_tests --list` prints their names and `fenice_tests NAME ..` runs those whose name
+contains one of the arguments (a filter that matches nothing exits with code 2). They cover:
 
 * **EOS.** Round trips, floors, and the stiffened gas reducing to the ideal gas.
 * **Limiters.** TVD bounds, symmetry, and Minmod being the most diffusive.
