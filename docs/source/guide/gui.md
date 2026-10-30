@@ -18,6 +18,27 @@ solver output streams there. Ctrl+C reaches the solver, which writes its checkpo
 built solver (`.\cpp\build.ps1`). Set `FENICE_EXE` to use an executable other than
 `build\release\fenice.exe`.
 
+## Workbench
+
+```powershell
+python gui\workbench.py
+```
+
+One window for the steps of a study. A list on the left holds the modules, the module on show is in the middle, and the state of the run
+is below; the modules share one project (the parameters of the run, its results folder and its state).
+
+* **Setup.** The dialog described below. *Run Simulation* hands the validated parameters to the project and starts the solver as a
+  child process (`fenice --config <file>`); the window switches to Run.
+* **Run.** The solver's output as it arrives, the last step, time, time step and wave speed, and the buttons *Stop*, *Kill* and *Run
+  again*. *Stop* does what Ctrl+C does in a terminal: the solver saves its checkpoint and the `.pvd` index, then exits. Under MPI,
+  `mpiexec` aborts the job on Ctrl+C (also in a terminal), so the last periodic checkpoint is the one kept. *Kill* ends the solver and
+  every process it started at once. Closing the window with a run going asks which of the two to do.
+* **Results.** The result viewer, below, opened on the folder the solver reports and following it while the run goes on.
+
+Modules are files in `gui/modules/`, each defining a `MODULE` record (name, title, a factory that takes the project, the Python packages
+it needs); a module whose packages are missing is listed as unavailable. The project (`gui/project.py`) lives in memory: nothing is
+saved or loaded yet. `gui/run.py`, described next, is unchanged.
+
 ## Tabs
 
 * **Configuration.** Test case, mesh, thermodynamics (ideal / stiffened gas), viscous
@@ -74,6 +95,7 @@ automatically.
 |---|---|
 | `gui/run.py` | Entry point: dialog, config file, solver launch |
 | `gui/setup_dialog.py` | `SetupDialog` (four tabs, validation, `sim_params`) |
+| `gui/workbench.py`, `gui/project.py`, `gui/runner.py`, `gui/modules/` | The workbench window, the shared project, the solver as a child process, the modules |
 | `gui/viewer.py`, `gui/viewer_data.py` | The result viewer (`ViewerPanel`; the data side has no Qt) |
 | `gui/solver.py` | Bridge to the executable (`available_cases`, `case_defaults`, `write_config`, `save_case`) |
 | `gui/theme.py` | Qt stylesheet and palette shared with the documentation theme |

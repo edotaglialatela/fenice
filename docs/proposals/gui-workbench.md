@@ -1,7 +1,7 @@
 # A modular front end: proposal
 
-Status: proposal. The first module (the result viewer, `gui/viewer.py`) exists and is written as a widget so that it can be hosted;
-the shell and the rest are not started. The scope of each module, and the order, are the user's.
+Status: the shell (`gui/workbench.py`), the project, and the Setup, Run and Results modules exist (see the GUI page); the rest is a
+proposal. The scope of each remaining module, and the order, are the user's.
 
 ## Aim
 
@@ -29,32 +29,32 @@ it reads and writes are the solver's own.
 
 | Module | What it does | State |
 | --- | --- | --- |
-| Setup | the existing dialog (case, mesh, physics, boundaries, numerics, IBM, AMR) as a module | exists as a dialog |
+| Setup | the existing dialog (case, mesh, physics, boundaries, numerics, IBM, AMR) as a module | exists |
 | Geometry and grid | the immersed body drawn in the domain (cylinder, sphere, NACA section, airfoil file), the Cartesian grid, the mask at the chosen resolution ("cells per chord"), where AMR would refine; an airfoil generator | proposed |
 | Boundaries | the boundary condition of each side drawn on the domain, with its values | proposed |
-| Run | starts the solver, streams its log, shows the step, the time and the residual-like monitor values, stops it with the checkpoint | proposed |
+| Run | starts the solver, streams its log, shows the step and the time, stops it with the checkpoint (live monitor curves next) | exists |
 | Results | the viewer: fields, slices, adaptive meshes, monitor curves, following a run | exists |
 | Studies | the validation studies and the regression, with their pass or fail | proposed |
 | Thermochemistry | species, mechanism and reference reactor, when the species work exists (`species-target-cases.md`) | later |
 | Mesh (unstructured) | only if the unstructured solver is built (`unstructured-solver.md`) | later |
 
-## Run: what has to be decided
+## Run: stopping
 
-Now the dialog quits and the solver runs in the terminal, where Ctrl+C reaches it and it saves a checkpoint and the `.pvd`. A Run
-module would start it as a child process and stream the output. Stopping it cleanly from a window needs one of: sending the console
-interrupt to the child (platform-dependent), or a stop file that the solver polls once per step and answers with the same
-checkpoint and index. The second changes the solver (a small, numerics-free addition) and is the user's decision.
+The Run module starts the solver in a console of its own and stops it by sending the console interrupt (what Ctrl+C does in a terminal),
+from a small helper process so that the workbench keeps its own console. A serial run saves its checkpoint and the `.pvd` and exits.
+An MPI run does not: `mpiexec` aborts the job on Ctrl+C, in a terminal as here, so only the last periodic checkpoint is kept. A clean
+stop of an MPI run needs a stop file that the solver polls once per step and answers with the same checkpoint and index: a small,
+numerics-free change to the solver, and the user's decision.
 
 ## Order
 
-1. The result viewer (done), then the shell around it with the setup dialog as the first neighbour.
-2. Run module, so that the three steps (set up, run, look) are in one window.
-3. Geometry and grid, then boundaries.
-4. Studies. Thermochemistry and the unstructured mesh only with their solver work.
+1. The result viewer, the shell, the Setup and Run modules (done).
+2. Geometry and grid preview, then live monitoring of a run, then boundaries.
+3. Studies. Thermochemistry and the unstructured mesh only with their solver work.
 
 ## Questions
 
 1. Is a project a case folder (`cases/<name>/`, files on disk) or a session object that is saved on demand?
-2. A stop file in the solver for the Run module, or the console interrupt?
-3. The order above, and which modules are in the first version of the shell.
+2. A stop file in the solver, for a clean stop of an MPI run?
+3. The order above.
 4. Embedded rendering for 3-D (a GPU-backed viewer) later, or slices and the 2-D picture only?

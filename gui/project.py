@@ -1,0 +1,113 @@
+"""The project of the workbench: the parameters of a run, its results folder and its state, shared by the modules.
+
+A module reads the project and tells it what it changed; modules do not talk to each other. The project owns the solver process
+(`gui.runner.SolverRun`), so a run goes on whichever module is on show. In memory only: nothing is saved or loaded yet.
+"""
+from __future__ import annotations
+
+import os
+import re
+import tempfile
+from pathlib import Path
+
+from PyQt6.QtCore import QObject, QTimer, pyqtSignal
+
+from gui.runner import SolverRun
+from gui.solver import ROOT_DIR, solver_exe, write_config
+
+_OUTPUT_DIR = re.compile(r"\[EXPORTER\] Output directory: '(?P<path>[^']+)'")
+_PROGRESS = re.compile(r"^Step\s+(?P<step>\d+)\s*\|\s*t = (?P<t>\S+) s\s*\|\s*dt = (?P<dt>\S+) s\s*\|\s*S_max = (?P<smax>\S+) m/s")
+
+IDLE, RUNNING, STOPPING = "idle", "running", "stopping"
+
+
+class Project(QObject):
+    params_changed = pyqtSignal(dict)
+    state_changed = pyqtSignal(str)           # idle / running / stopping
+    results_changed = pyqtSignal(str)         # the results folder of the run, as soon as the solver reports it
+    log = pyqtSignal(str)                     # lines of the solver output
+    progress = pyqtSignal(int, float, float, float)   # step, t, dt, S_max of the last progress line
+    finished = pyqtSignal(int, bool)          # return code, stopped by the user
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.params: dict = {}
+        self.results_dir: Path | None = None
+        self.state = IDLE
+        self._run: SolverRun | None = None
+        self._stop_asked = False
+        self._timer = QTimer(self)
+        self._timer.setInterval(100)
+        self._timer.timeout.connect(self._poll)
+
+    # ---- parameters
+    def set_params(self, params: dict) -> None:
+        self.params = dict(params)
+        self.params_changed.emit(self.params)
+
+    # ---- the run
+    @property
+    def running(self) -> bool:
+        return self.state != IDLE
+
+    def start_run(self, params: dict | None = None) -> None:
+        """Run the solver with `params` (the last ones if None). Raises SolverNotFound if it is not built."""
+        if self.running:
+            raise RuntimeError("a run is already going")
+        if params is not None:
+            self.set_params(params)
+        if not self.params:
+            raise RuntimeError("no parameters to run")
+        fd, cfg = tempfile.mkstemp(prefix="fenice_", suffix=".cfg")
+        os.close(fd)
+        write_config(self.params, cfg)
+        self.results_dir = None
+        self._stop_asked = False
+        self._run = SolverRun([solver_exe(), "--config", cfg], cwd=ROOT_DIR, cleanup=(cfg,))
+        self._run.start()
+        self.log.emit(f"[GUI] {self._run.argv[0]} --config {cfg}")
+        self._set_state(RUNNING)
+        self._timer.start()
+
+    def stop(self) -> None:
+        """Stop as Ctrl+C does: the solver saves its checkpoint and index, then exits."""
+        if self._run is not None and self.state == RUNNING:
+            self._stop_asked = True
+            self._set_state(STOPPING)
+            self._run.interrupt()
+
+    def kill(self) -> None:
+        """Stop the solver and every process it started, without a checkpoint."""
+        if self._run is not None:
+            self._stop_asked = True
+            self._run.kill()
+
+    def _set_state(self, state: str) -> None:
+        self.state = state
+        self.state_changed.emit(state)
+
+    def _poll(self) -> None:
+        run = self._run
+        for line in run.drain():
+            self.log.emit(line)
+            m = _OUTPUT_DIR.search(line)
+            if m:
+                self.results_dir = Path(m["path"])
+                self.results_changed.emit(str(self.results_dir))
+            m = _PROGRESS.match(line)
+            if m:
+                self.progress.emit(int(m["step"]), float(m["t"]), float(m["dt"]), float(m["smax"]))
+        if not run.running:
+            for line in run.drain():
+                self.log.emit(line)
+            self._timer.stop()
+            code = run.returncode
+            self._run = None
+            self._set_state(IDLE)
+            self.finished.emit(-1 if code is None else code, self._stop_asked)
+
+    def shutdown(self) -> None:
+        """Called when the application closes: no solver is left running."""
+        self._timer.stop()
+        if self._run is not None:
+            self._run.kill()
