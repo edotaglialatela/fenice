@@ -734,10 +734,8 @@ TEST(topology_free_adapt_equals_whole_mesh_adapt_on_random_flags) {
                         same = false;
                         continue;
                     }
-                    for (int q = 0; q < kNVar; ++q) if (same && std::memcmp(&g[3 + static_cast<size_t>(q)], &it->second[static_cast<size_t>(q)], sizeof(double)) != 0) std::printf("    state differs at (%d,%d,%d) var %d: %.17g vs %.17g\n", static_cast<int>(g[0]), static_cast<int>(g[1]), static_cast<int>(g[2]), q, g[3 + static_cast<size_t>(q)], it->second[static_cast<size_t>(q)]);
                     for (int q = 0; q < kNVar; ++q) same = same && std::memcmp(&g[3 + static_cast<size_t>(q)], &it->second[static_cast<size_t>(q)], sizeof(double)) == 0;
                 }
-                if (!same) std::printf("    level_begin %d %d %d, find(0,1,2)=%d find(1,3,5)=%d U0 %.3f U1 %.3f\n", m.level_begin[0], m.level_begin[1], m.level_begin[2], m.find(0, 1, 2), m.find(1, 3, 5), m.U[0][0], m.U[1][0]);
                 if (!same) std::printf("    %d ranks: the leaves or their state differ from the whole-mesh adapt (%zu vs %zu leaves)\n", R, got.size(), want.size());
                 CHECK(same);
             }
