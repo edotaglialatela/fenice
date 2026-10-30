@@ -43,6 +43,36 @@ def _gui_values(params):
     return out
 
 
+class IndicatorBox(QWidget):
+    """The variables of the AMR indicator as check boxes; text() / setText() use the solver's string ('density+velocity', in this order)."""
+    VARIABLES = (("density", "Density"), ("velocity", "Velocity (speed)"), ("pressure", "Pressure"))
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.boxes = {key: QCheckBox(label) for key, label in self.VARIABLES}
+        self.warning = QLabel("")
+        self.warning.setStyleSheet("color: #b00020;")
+        lay = QVBoxLayout(self)
+        lay.setContentsMargins(0, 0, 0, 0)
+        for b in self.boxes.values():
+            lay.addWidget(b)
+        lay.addWidget(self.warning)
+        self.warning.hide()
+        self._unknown: list[str] = []
+
+    def setText(self, text: str) -> None:
+        tokens = [t.strip() for t in str(text).split("+") if t.strip()]
+        self._unknown = [t for t in tokens if t not in self.boxes]
+        for key, b in self.boxes.items():
+            b.setChecked(key in tokens)
+        self.warning.setText(f"The case names an unknown variable: {', '.join(self._unknown)}" if self._unknown else "")
+        self.warning.setVisible(bool(self._unknown))
+
+    def text(self) -> str:
+        """The string for the solver; an unknown variable of the case is kept, so that the solver rejects it, not the dialog."""
+        return "+".join([k for k, b in self.boxes.items() if b.isChecked()] + self._unknown)
+
+
 class SetupDialog(QDialog):
     """PyQt6 dialog for configuring a simulation run.
 
@@ -444,14 +474,15 @@ class SetupDialog(QDialog):
         f.addRow("", self.check_amr)
 
         self.input_amr_max_level     = QLineEdit("2")
-        self.input_amr_indicator     = QLineEdit("density+velocity")
+        self.input_amr_indicator     = IndicatorBox()
+        self.input_amr_indicator.setText("density+velocity")
         self.input_amr_criterion     = QLineEdit("0.1")
         self.input_amr_refine_thr    = QLineEdit("0.15")
         self.input_amr_derefine_thr  = QLineEdit("0.1")
         self.input_amr_diffusion     = QLineEdit("2")
         self.input_amr_refine_every  = QLineEdit("10")
         self.input_amr_init_levels   = QLineEdit("0")
-        self.input_amr_indicator.setToolTip("density, velocity, pressure, joined by '+'")
+        self.input_amr_indicator.setToolTip("Refine where the variation across a face of any ticked variable exceeds the criterion")
 
         self.lbl_amr_max_level    = QLabel("Max refinement levels:")
         self.lbl_amr_indicator    = QLabel("Indicator variables:")
@@ -686,6 +717,9 @@ class SetupDialog(QDialog):
 
     def _collect_params(self):
         """Read every field into ``self.sim_params``; show an error and return False if invalid."""
+        if self.check_amr.isChecked() and not self.input_amr_indicator.text():
+            self._error("Input Error", "Tick at least one variable of the AMR indicator.")
+            return False
         try:
             self.sim_params = {
                 'test_case': self.combo_testcase.currentText(),
