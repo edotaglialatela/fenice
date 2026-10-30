@@ -30,7 +30,7 @@ it reads and writes are the solver's own.
 | Module | What it does | State |
 | --- | --- | --- |
 | Setup | the existing dialog (case, mesh, physics, boundaries, numerics, IBM, AMR) as a module | exists |
-| Geometry and grid | the immersed body drawn in the domain (cylinder, sphere, NACA section, airfoil file), the Cartesian grid, the mask at the chosen resolution ("cells per chord"), where AMR would refine; an airfoil generator | proposed |
+| Geometry and grid | the immersed body drawn in the domain (cylinder, sphere, NACA section, airfoil file), the Cartesian grid, the mask at the chosen resolution ("cells per chord"), the finer AMR levels; read-only so far (editing the body, an airfoil generator, are not done) | exists |
 | Boundaries | the boundary condition of each side drawn on the domain, with its values | proposed |
 | Run | starts the solver, streams its log, shows the step and the time, stops it with the checkpoint (live monitor curves next) | exists |
 | Results | the viewer: fields, slices, adaptive meshes, monitor curves, following a run | exists |
@@ -48,8 +48,8 @@ numerics-free change to the solver, and the user's decision.
 
 ## Order
 
-1. The result viewer, the shell, the Setup and Run modules (done).
-2. Geometry and grid preview, then live monitoring of a run, then boundaries.
+1. The result viewer, the shell, the Setup, Geometry and Run modules (done).
+2. Live monitoring of a run, then boundaries.
 3. Studies. Thermochemistry and the unstructured mesh only with their solver work.
 
 ## Questions

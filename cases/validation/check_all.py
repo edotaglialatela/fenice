@@ -45,6 +45,7 @@ def steps(args):
         ("ibm_ghost", [PY, "cases/validation/features/ibm_ghost.py", "--check"], {}, "quick"),
         ("mms quick", [PY, "cases/validation/verification/mms.py"], {}, "quick"),
         ("switch table", [PY, "cases/validation/check_switches.py"], {}, "quick"),
+        ("geometry preview", [PY, "cases/validation/check_geometry.py"], {}, "quick"),
         ("unit tests no simd", [t], {"FENICE_NO_SIMD": "1"}, "full"),
         ("amr_mpi replicated storage", [PY, "cases/validation/amr/amr_mpi.py", "--check"], {"FENICE_REPLICATED_REMESH": "1"}, "full"),
     ]

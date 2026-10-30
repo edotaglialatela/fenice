@@ -34,6 +34,7 @@ class Project(QObject):
         self.params: dict = {}
         self.results_dir: Path | None = None
         self.state = IDLE
+        self.provider = None   # a module that holds the live parameters (Setup) registers a function returning them, or None
         self._run: SolverRun | None = None
         self._stop_asked = False
         self._timer = QTimer(self)
@@ -41,6 +42,12 @@ class Project(QObject):
         self._timer.timeout.connect(self._poll)
 
     # ---- parameters
+    def current_params(self) -> dict | None:
+        """The parameters as they are being edited (from the provider, None if invalid), else those of the last run."""
+        if self.provider is not None:
+            return self.provider()
+        return dict(self.params) if self.params else None
+
     def set_params(self, params: dict) -> None:
         self.params = dict(params)
         self.params_changed.emit(self.params)

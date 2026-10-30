@@ -671,6 +671,19 @@ class SetupDialog(QDialog):
         self._toggle_amr_inputs(self.check_amr.isChecked())
         self._update_dim_inputs()
 
+    def _error(self, title, text):
+        """A message box for a rejected input, unless the dialog is only being read (peek_params)."""
+        if not getattr(self, "_quiet", False):
+            QMessageBox.critical(self, title, text)
+
+    def peek_params(self):
+        """The parameters as they stand, or None if some input is invalid, without any message box (for previews)."""
+        self._quiet = True
+        try:
+            return dict(self.sim_params) if self._collect_params() else None
+        finally:
+            self._quiet = False
+
     def _collect_params(self):
         """Read every field into ``self.sim_params``; show an error and return False if invalid."""
         try:
@@ -721,40 +734,40 @@ class SetupDialog(QDialog):
                 'amr_diffusion':          int(self.input_amr_diffusion.text()),
             }
             if self.sim_params['nz'] < 1:
-                QMessageBox.critical(self, "Config Error", "Nz must be at least 1 (1 = 2-D).")
+                self._error( "Config Error", "Nz must be at least 1 (1 = 2-D).")
                 return False
             if self.sim_params['nz'] > 1 and self.sim_params['use_amr']:
-                QMessageBox.critical(self, "Config Error", "AMR is 2-D only: set Nz = 1 or disable AMR.")
+                self._error( "Config Error", "AMR is 2-D only: set Nz = 1 or disable AMR.")
                 return False
             if self.sim_params['resume'] and self.sim_params['use_amr']:
-                QMessageBox.critical(self, "Config Error",
+                self._error( "Config Error",
                                      "Resume is not available with AMR (AMR runs write no checkpoint).")
                 return False
             for a, b in (('bc_left', 'bc_right'), ('bc_bottom', 'bc_top'), ('bc_front', 'bc_back')):
                 if (self.sim_params[a] == 'periodic') != (self.sim_params[b] == 'periodic'):
-                    QMessageBox.critical(self, "Config Error",
+                    self._error( "Config Error",
                                          f"{a} / {b}: periodic must be set on both sides or neither.")
                     return False
             if self.sim_params['use_mpi']:
                 if self.sim_params['n_cpus'] > max(self.sim_params['nx'], self.sim_params['ny']):
-                    QMessageBox.critical(self, "Config Error", "Ncpus cannot exceed max(Nx, Ny).")
+                    self._error( "Config Error", "Ncpus cannot exceed max(Nx, Ny).")
                     return False
             if self.sim_params['use_hot_start']:
                 hs_path = self.sim_params['hot_start_file']
                 if not hs_path or not os.path.isfile(hs_path):
-                    QMessageBox.critical(self, "Config Error",
+                    self._error( "Config Error",
                                          "Solution Mapping is enabled but no valid .npz file was selected.")
                     return False
                 if any(w.isVisible() for w in self._fallback_widgets):
                     nx_ov = self.sim_params['hot_start_src_nx']
                     ny_ov = self.sim_params['hot_start_src_ny']
                     if nx_ov <= 0 or ny_ov <= 0:
-                        QMessageBox.critical(self, "Config Error",
+                        self._error( "Config Error",
                                              "Source Nx and Ny must be positive integers.")
                         return False
             return True
         except ValueError:
-            QMessageBox.critical(self, "Input Error", "Please check all fields.")
+            self._error( "Input Error", "Please check all fields.")
             return False
 
     def validate_and_accept(self):

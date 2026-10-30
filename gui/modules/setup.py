@@ -30,7 +30,9 @@ def _make(project):
         def reject(self):
             pass   # Escape does not close a page
 
-    return EmbeddedSetup()
+    page = EmbeddedSetup()
+    project.provider = page.peek_params
+    return page
 
 
 MODULE = ModuleSpec("setup", "Setup", _make, order=10, requires=("PyQt6",),
