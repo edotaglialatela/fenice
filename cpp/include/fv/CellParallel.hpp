@@ -1,7 +1,6 @@
-// Distributed run of a CellMesh: replicated topology, distributed state.
-//
-// Every rank holds the whole mesh (leaf arrays, faces, stencils: the metadata), so every rank takes the same remesh
-// decisions; the state of a leaf is valid only on the rank that owns it and on the ranks that read it (the halo).
+// Distributed run of a CellMesh: each rank stores its share of the leaves (the owned ones and the halo) with their faces and
+// stencils, and no rank holds the whole mesh or its topology after the setup (FENICE_REPLICATED_REMESH=1 keeps the whole mesh on
+// every rank, for comparison). The state of a leaf is valid only on the rank that owns it and on the ranks that read it (the halo).
 //  * Ownership: each level is cut into contiguous blocks of equal leaf count along its Morton order, described by per-level
 //    splitters (the first key of each rank's block), so the owner of a leaf follows from its (level, key).
 //  * Work: a rank advances its owned leaves and computes every face it needs for them: a same-level face is computed by the
@@ -89,24 +88,13 @@ public:
     // the engine must be built again, then partition() and localize()) with the state of every leaf.
     void globalize();
     bool localized() const { return localized_; }
-    // The remesh of a localized run (collective), without gathering the mesh or its state: `topo` is the whole mesh's topology
-    // (leaves and faces, no state) that every rank keeps. Each rank takes the indicator of its owned leaves from the leaves
-    // CellIndicator::region lists for them (those it does not hold are fetched from their owners), the flags of all ranks are
-    // gathered (one byte per leaf), every rank applies them to `topo` (CellMesh::adapt: ripple and merges, identical everywhere),
-    // and the state of the new owned leaves is built from the old leaves it comes from (fetched where not held). If the leaves
-    // changed, the mesh and the engine are rebuilt, then partition() and localize(), and the halo is filled; returns whether
-    // they did (if not, nothing was touched). The decisions and the state are those of ad.remesh() on the whole mesh, bit for bit.
-    bool remesh(CellMesh& topo, CellAdaptor& ad);
-    // The same remesh with no rank holding the topology of the whole mesh (docs/design/amr-distributed.md section 14): each rank
+    // The remesh of a localized run (collective), with no rank holding the topology of the whole mesh (docs/design/amr-distributed.md section 14): each rank
     // fetches from the owners the leaves around its own (with their state, fetch_leaves), takes the indicator and the decisions of its
     // owned leaves from them, settles the ripple with the ranks around it (rounds of an exchange of the flags and a reduction), judges
     // the merges of the groups it owns a member of, makes the new leaves of its old ones, finds the new splitters (global_facts), sends
     // every new leaf to its owner, and builds the share from a fetched region. Same decisions, leaves and state as CellAdaptor::remesh
     // on the whole mesh, bit for bit; returns whether the leaves changed (if not, nothing was touched). Collective.
     bool remesh(CellAdaptor& ad);
-    // The remesh of init_adapt and of Simulation: with `replicated_topology` the one above that takes the whole-mesh topology (set
-    // by FENICE_REPLICATED_TOPOLOGY=1 in Simulation), otherwise the one with none (the default).
-    bool replicated_topology = false;
     // Test switches of remesh(ad): `flag_hook` replaces the indicator (it gets the fetched region, the indices of the owned leaves in it,
     // and fills their refine / coarsen flags); `region_shrink` adds that many rings to the region (a negative one must make it fail).
     std::function<void(const CellMesh&, const std::vector<int>&, std::vector<char>&, std::vector<char>&)> flag_hook;
@@ -115,10 +103,10 @@ public:
     // refined to the initial levels); every rank builds its share of it directly, then the passes of CellAdaptor::init_adapt run
     // through remesh(), `fill` giving the initial condition on the share (all its leaves). Returns the number of passes.
     int init_adapt(CellMesh& topo, CellAdaptor& ad, const std::function<void(CellMesh&)>& fill);
-    // Test switches of remesh(): `direct_build` false makes the mesh and the engine for the whole mesh and extracts the share
-    // (the way of phase 2); `shadow` also does that and throws if the direct build gave anything else (mesh, tables, lists).
+    // Test switches of remesh(): `shadow` makes the mesh and the engine of the whole new mesh after every remesh, cuts the share from
+    // them and throws if the share built directly differs (mesh, tables, lists): O(N) per rank, for the tests only.
     // `first_extra`: rings added to the first reach tried (a negative one makes the retry run); `region_retries` counts the retries.
-    bool direct_build = true, shadow = false;
+    bool shadow = false;
     int first_extra = 1, region_retries = 0;
     // The leaves of the mesh that intersect the region `items` (collective). The requests go to the ranks that own the leaves under
     // the splitters `split` (split[level][rank] = first key of the rank, then the end); each answers from `responder`, a mesh that holds
@@ -210,10 +198,11 @@ private:
     // exchange of the requests and the lists that need the other ranks.
     bool partition_local(const CellMesh* whole, const GlobalFacts* facts = nullptr);
     void partition_exchange();
-    // The share of the leaves `mine` (indices in `topo`): the reach of region_mask with retries, then partition_exchange and
-    // localize. `nU` is the state of `topo` (entries of the leaves in the share), or null. `built` gets the time the tables were done.
-    void build_share(const CellMesh& topo, const std::vector<int>& mine, const Field* nU,
-                     std::chrono::steady_clock::time_point* built);
+    // The share of the leaves `mine` (indices in `topo`, without state): the reach of region_mask with retries, then
+    // partition_exchange and localize.
+    void build_share(const CellMesh& topo, const std::vector<int>& mine);
+    // The shadow check of remesh(): the share just built against the one cut from the mesh and engine of the whole new mesh.
+    void check_against_whole_build();
     // The share of the new owned leaves (arrays, state, the facts of the new mesh): the region around them is fetched from the other
     // owners (fetch_leaves), the partial mesh, the engine tables and the partition are made from it, retrying with a wider reach if a
     // face reads what the share lacks; then partition_exchange and localize.
@@ -224,16 +213,12 @@ private:
     // The leaves a rank keeps to build its share directly: those within the reach of its owned leaves of `topo` (the whole mesh
     // after the adapt), `extra` rings more than the measured reach, and the leaves along the mass-flow inlets.
     void region_mask(const CellMesh& topo, const std::vector<int>& owned, int extra, std::vector<char>& keep) const;
-    // The states of the leaves `want` ((level, i, j), each owned by some rank under the current partition): from this rank's leaves
-    // if it holds them, else from their owners (collective).
-    void fetch_states(const std::vector<std::array<int, 3>>& want, std::vector<State>& out) const;
     // Sparse all-to-all of vectors of any length: the sizes first, then the data (recv is sized here). send[own rank] must be empty.
     void exchange_sized(const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) const;
     // The owned leaves of all ranks as records (level, ci, cj, state), 3 + kNVar doubles each, in rank order
     // (with `root_only`, on rank 0 only).
     void gather_owned(std::vector<double>& all, bool root_only = false) const;
 
-    std::unique_ptr<CellMesh> sub_;   // the partial mesh of remesh(), kept to avoid rebuilding the base mesh each time
     bool localized_ = false;
     std::vector<char> level_present_;   // per level: the whole mesh has leaves there (set by partition())
     std::vector<char> face_active_;   // the faces this rank computes (of the last partition(); dropped by localize())

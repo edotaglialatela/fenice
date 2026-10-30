@@ -1,4 +1,4 @@
-// CellParallel: the remesh, with the topology of the whole mesh on every rank and without it (FENICE_REPLICATED_TOPOLOGY).
+// CellParallel: the remesh of a localized run, with no rank holding the topology of the whole mesh.
 #include "fv/CellParallel.hpp"
 #include "fv/Profile.hpp"
 
@@ -271,216 +271,28 @@ bool CellParallel::remesh(CellAdaptor& ad) {
     ad.t_indicator += sec(t0, t2);
     ad.t_adapt += sec(t2, t3);
     ad.t_build += sec(t3, t4);
+    if (shadow) check_against_whole_build();
     return true;
 }
 
-bool CellParallel::remesh(CellMesh& topo, CellAdaptor& ad) {
-    if (!localized_) throw std::logic_error("CellParallel::remesh: the mesh is not localized");
-    using Clock = std::chrono::steady_clock;
-    const auto sec = [](Clock::time_point a, Clock::time_point b) { return std::chrono::duration<double>(b - a).count(); };
-    const int R = comm_.size, me = comm_.rank, M = topo.max_level;
-    const auto owned_run = [&](const CellMesh& t, int l, int r, int& b, int& e) {   // the equal-count block of partition()
-        const long long lb = t.level_begin[static_cast<size_t>(l)], n = t.level_begin[static_cast<size_t>(l) + 1] - lb;
-        b = static_cast<int>(lb + n * r / R);
-        e = static_cast<int>(lb + n * (r + 1) / R);
-    };
-    const auto t0 = Clock::now();
-    // 1) this rank's owned leaves (topo indices), the leaves its indicator reads, and their state (held here, or from the owners)
-    int N = topo.num_leaves();
-    std::vector<int> owned;
-    for (int l = 0; l <= M; ++l) {
-        int b, e;
-        owned_run(topo, l, me, b, e);
-        for (int c = b; c < e; ++c) owned.push_back(c);
-    }
-    std::vector<char> need(static_cast<size_t>(N), 0);
-    ad.indicator().region(topo, owned, need);
-    for (const int c : owned) need[static_cast<size_t>(c)] = 1;
-    if (!sub_)
-        sub_ = std::make_unique<CellMesh>(topo.Lx, topo.Ly, topo.nx, topo.ny, topo.max_level, topo.periodic_x, topo.periodic_y,
-                                          topo.x0, topo.y0);
-    CellMesh& sub = *sub_;
-    sub.level.clear();
-    sub.ci.clear();
-    sub.cj.clear();
-    sub.level_begin.assign(static_cast<size_t>(M) + 2, 0);
-    std::vector<std::array<int, 3>> want;
-    for (int c = 0; c < N; ++c)
-        if (need[static_cast<size_t>(c)]) {
-            const int l = topo.level[static_cast<size_t>(c)];
-            sub.level.push_back(l);
-            sub.ci.push_back(topo.ci[static_cast<size_t>(c)]);
-            sub.cj.push_back(topo.cj[static_cast<size_t>(c)]);
-            ++sub.level_begin[static_cast<size_t>(l) + 1];
-            want.push_back({l, topo.ci[static_cast<size_t>(c)], topo.cj[static_cast<size_t>(c)]});
-        }
-    for (int l = 0; l <= M; ++l) sub.level_begin[static_cast<size_t>(l) + 1] += sub.level_begin[static_cast<size_t>(l)];
-    fetch_states(want, sub.U);
-    const auto t1 = Clock::now();
-    // 2) the decisions for the owned leaves, then everybody's (one number per leaf)
-    std::vector<int> owned_sub;
-    {
-        int k = 0;
-        size_t o = 0;
-        for (int c = 0; c < N && o < owned.size(); ++c) {
-            if (!need[static_cast<size_t>(c)]) continue;
-            if (c == owned[o]) {
-                owned_sub.push_back(k);
-                ++o;
-            }
-            ++k;
-        }
-    }
-    std::vector<char> rf, cf;
-    ad.flags(sub, sub.U, owned_sub, rf, cf);
-    std::vector<double> mine(owned.size());
-    for (size_t k = 0; k < owned.size(); ++k) mine[k] = static_cast<double>(rf[k] + 2 * cf[k]);
-    std::vector<int> counts(static_cast<size_t>(R), 0), displs(static_cast<size_t>(R), 0);
-    for (int r = 0; r < R; ++r) {
-        for (int l = 0; l <= M; ++l) {
-            int b, e;
-            owned_run(topo, l, r, b, e);
-            counts[static_cast<size_t>(r)] += e - b;
-        }
-        if (r > 0) displs[static_cast<size_t>(r)] = displs[static_cast<size_t>(r) - 1] + counts[static_cast<size_t>(r) - 1];
-    }
-    std::vector<double> all(static_cast<size_t>(N));
-    if (R > 1) comm_.allgatherv(mine.data(), static_cast<int>(mine.size()), all.data(), counts.data(), displs.data());
-    else all = mine;
-    std::vector<char> refine(static_cast<size_t>(N), 0), coarsen(static_cast<size_t>(N), 0);
-    long long nr = 0;
-    for (int r = 0, k = 0; r < R; ++r)
-        for (int l = 0; l <= M; ++l) {
-            int b, e;
-            owned_run(topo, l, r, b, e);
-            for (int c = b; c < e; ++c, ++k) {
-                const int code = static_cast<int>(all[static_cast<size_t>(k)]);
-                refine[static_cast<size_t>(c)] = static_cast<char>(code & 1);
-                coarsen[static_cast<size_t>(c)] = static_cast<char>(code >> 1);
-                nr += code & 1;
-            }
-        }
-    const auto t2 = Clock::now();
-    // 3) the same adapt on every rank (ripple, merges), which also says where the state of every new leaf comes from
-    const std::vector<int> old_level = topo.level, old_ci = topo.ci, old_cj = topo.cj;
-    topo.record_sources = true;
-    const int before = N;
-    const bool changed = topo.adapt(refine, coarsen);
-    topo.record_sources = false;
-    t_topo += sec(t2, Clock::now());
-    profile_add(Section::RemeshTopology, sec(t2, Clock::now()));
-    t_region += sec(t0, t1);
-    profile_add(Section::RemeshRegion, sec(t0, t1));
-    t_flags += sec(t1, t2);
-    profile_add(Section::RemeshFlags, sec(t1, t2));
-    ad.t_indicator += sec(t0, t2);
-    if (!changed) return false;
-    N = topo.num_leaves();
-    ad.n_refined += nr;
-    ad.n_joined += std::max(0, before + 3 * static_cast<int>(nr) - N) / 3;
-    // 4) the state of the new owned leaves: the old leaves they come from (held here, or fetched), then injection / mean
-    std::vector<int> mine_new;
-    for (int l = 0; l <= M; ++l) {
-        int b, e;
-        owned_run(topo, l, me, b, e);
-        for (int c = b; c < e; ++c) mine_new.push_back(c);
-    }
-    std::vector<int> from;   // the old leaves read
-    for (const int c : mine_new)
-        for (const int s : topo.source[static_cast<size_t>(c)])
-            if (s >= 0) from.push_back(s);
-    std::sort(from.begin(), from.end());
-    from.erase(std::unique(from.begin(), from.end()), from.end());
-    std::vector<std::array<int, 3>> ask(from.size());
-    for (size_t k = 0; k < from.size(); ++k)
-        ask[k] = {old_level[static_cast<size_t>(from[k])], old_ci[static_cast<size_t>(from[k])], old_cj[static_cast<size_t>(from[k])]};
-    std::vector<State> got;
-    fetch_states(ask, got);
-    const auto state_of = [&](int old_leaf) -> const State& {
-        return got[static_cast<size_t>(std::lower_bound(from.begin(), from.end(), old_leaf) - from.begin())];
-    };
-    Field nU(static_cast<size_t>(N));
-    for (State& u : nU) u.fill(std::numeric_limits<double>::quiet_NaN());
-    for (const int c : mine_new) {
-        const std::array<int, 4>& s = topo.source[static_cast<size_t>(c)];
-        if (s[1] < 0) {
-            nU[static_cast<size_t>(c)] = state_of(s[0]);   // stays, or the injection into a child
-        } else {
-            const State &a = state_of(s[0]), &b = state_of(s[1]), &cc = state_of(s[2]), &d = state_of(s[3]);
-            State m;
-            for (size_t q = 0; q < static_cast<size_t>(kNVar); ++q) m[q] = ((a[q] + b[q]) + (cc[q] + d[q])) * 0.25;
-            nU[static_cast<size_t>(c)] = m;
-        }
-    }
-    std::vector<std::array<int, 4>>().swap(topo.source);
-    const auto t3 = Clock::now();
-    // 5) this rank's mesh and engine for the new leaves, the new partition, and the halo
-    localized_ = false;
-    const auto build_whole = [&](CellMesh& m, CellFluxEngine& e) {   // the whole mesh and engine, then the share is extracted
-        m = topo;
-        m.set_faceless(false);
-        m.U = nU;
-        m.prev_leaf.clear();   // the engine's tables are of the localized mesh: a full build
-        m.topo_dirty.clear();
-        m.prev_face.clear();
-        e.build(m);
-    };
-    std::unique_ptr<CellMesh> shadow_mesh;
-    std::unique_ptr<CellFluxEngine> shadow_engine;
-    std::unique_ptr<CellParallel> shadow_par;
-    if (!direct_build || shadow) {
-        CellMesh& m = direct_build ? *(shadow_mesh = std::make_unique<CellMesh>(topo)) : mesh_;
-        CellFluxEngine copy(engine_);
-        CellFluxEngine& e = direct_build ? *(shadow_engine = std::make_unique<CellFluxEngine>(copy)) : engine_;
-        build_whole(m, e);
-        if (direct_build) {
-            shadow_par = std::make_unique<CellParallel>(m, e, comm_);
-            shadow_par->partition();
-            shadow_par->localize();
-        }
-    }
-    auto t4 = Clock::now();
-    if (direct_build) {
-        if (!shadow) {
-            build_share(topo, mine_new, &nU, &t4);   // (the share cut from the topology this rank holds)
-        } else {   // the test switch: the share from a fetched region, which the comparison below holds to the extracted one
-            std::vector<int> lv, ii, jj;
-            Field ou;
-            std::vector<std::vector<uint64_t>> keys(static_cast<size_t>(M) + 1);
-            for (const int c : mine_new) {
-                lv.push_back(topo.level[static_cast<size_t>(c)]);
-                ii.push_back(topo.ci[static_cast<size_t>(c)]);
-                jj.push_back(topo.cj[static_cast<size_t>(c)]);
-                ou.push_back(nU[static_cast<size_t>(c)]);
-                keys[static_cast<size_t>(lv.back())].push_back(morton_key(static_cast<uint32_t>(ii.back()), static_cast<uint32_t>(jj.back())));
-            }
-            const GlobalFacts gf = global_facts(keys);
-            build_share_fetched(lv, ii, jj, ou, gf, &t4);
-        }
-        if (shadow) {
-            // the same share made the old way must be this one
-            for (int l = 0; l <= M; ++l) shadow_par->exchange_final(l);
-            const bool sm = mesh_.same_arrays(*shadow_mesh), se = engine_.same_tables(*shadow_engine, &mesh_), sl = same_lists(*shadow_par);
-            if (!sm || !se || !sl) std::fprintf(stderr, "shadow rank %d: mesh %d engine %d lists %d\n", comm_.rank, sm, se, sl);
-            // every rank throws together (a rank that threw alone would leave the others waiting in a collective)
-            if (reduce_max(sm && se && sl ? 0.0 : 1.0) != 0.0)
-                throw std::logic_error("CellParallel::remesh: the directly built share differs from the extracted one");
-        }
-    } else {
-        partition();
-        localize();
-    }
-    for (int l = 0; l <= M; ++l) exchange_final(l);
-    const auto t5 = Clock::now();
-    t_migrate += sec(t2, t3);
-    profile_add(Section::RemeshMigrate, sec(t2, t3));
-    t_rebuild += sec(t3, t4);
-    profile_add(Section::RemeshRebuild, sec(t3, t4));
-    t_repartition += sec(t4, t5);
-    profile_add(Section::RemeshPartition, sec(t4, t5));
-    ad.t_adapt += sec(t2, t3);
-    ad.t_build += sec(t3, t4);
-    return true;
+void CellParallel::check_against_whole_build() {
+    // the whole new mesh and its engine, the way a run with the topology on every rank makes them, and the share cut from them
+    std::vector<int> lv, ci, cj;
+    Field U;
+    collect(lv, ci, cj, U, false);
+    CellMesh whole(mesh_.Lx, mesh_.Ly, mesh_.nx, mesh_.ny, mesh_.max_level, mesh_.periodic_x, mesh_.periodic_y, mesh_.x0, mesh_.y0);
+    whole.assign_leaves(lv, ci, cj, &U);
+    CellFluxEngine eng(engine_);
+    eng.build(whole);
+    CellParallel ref(whole, eng, comm_);
+    ref.partition();
+    ref.localize();
+    for (int l = 0; l <= mesh_.max_level; ++l) ref.exchange_final(l);
+    const bool sm = mesh_.same_arrays(whole), se = engine_.same_tables(eng, &mesh_), sl = same_lists(ref);
+    if (!sm || !se || !sl) std::fprintf(stderr, "shadow rank %d: mesh %d engine %d lists %d\n", comm_.rank, sm, se, sl);
+    // every rank throws together (a rank that threw alone would leave the others waiting in a collective)
+    if (reduce_max(sm && se && sl ? 0.0 : 1.0) != 0.0)
+        throw std::logic_error("CellParallel::remesh: the directly built share differs from the one cut from the whole mesh");
 }
 
 }   // namespace fv

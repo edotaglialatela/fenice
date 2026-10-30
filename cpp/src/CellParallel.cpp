@@ -349,53 +349,6 @@ void CellParallel::localize() {
     localized_ = true;
 }
 
-void CellParallel::fetch_states(const std::vector<std::array<int, 3>>& want, std::vector<State>& out) const {
-    const int R = comm_.size, me = comm_.rank;
-    out.assign(want.size(), State{});
-    std::vector<std::vector<size_t>> slot(static_cast<size_t>(R));   // per owner: the entries of `want` it answers
-    std::vector<std::vector<double>> req(static_cast<size_t>(R));
-    for (size_t k = 0; k < want.size(); ++k) {
-        const int c = mesh_.find(want[k][0], want[k][1], want[k][2]);
-        if (c >= 0) {
-            out[k] = mesh_.U[static_cast<size_t>(c)];
-            continue;
-        }
-        const int o = owner_of(want[k][0], morton_key(static_cast<uint32_t>(want[k][1]), static_cast<uint32_t>(want[k][2])));
-        if (o == me || R == 1) throw std::logic_error("CellParallel::fetch_states: a leaf of this rank is missing");
-        slot[static_cast<size_t>(o)].push_back(k);
-        for (const int v : want[k]) req[static_cast<size_t>(o)].push_back(static_cast<double>(v));
-    }
-    if (R == 1) return;
-    std::vector<std::vector<double>> cnt_send(static_cast<size_t>(R)), cnt_recv(static_cast<size_t>(R));
-    for (int r = 0; r < R; ++r)
-        if (r != me) {
-            cnt_send[static_cast<size_t>(r)].assign(1, static_cast<double>(req[static_cast<size_t>(r)].size()));
-            cnt_recv[static_cast<size_t>(r)].assign(1, 0.0);
-        }
-    comm_.exchange(cnt_send, cnt_recv);
-    std::vector<std::vector<double>> asked(static_cast<size_t>(R)), reply(static_cast<size_t>(R)), back(static_cast<size_t>(R));
-    for (int r = 0; r < R; ++r)
-        if (r != me) {
-            asked[static_cast<size_t>(r)].resize(static_cast<size_t>(cnt_recv[static_cast<size_t>(r)][0]));
-            back[static_cast<size_t>(r)].resize(slot[static_cast<size_t>(r)].size() * kNVar);
-        }
-    comm_.exchange(req, asked);
-    for (int r = 0; r < R; ++r) {
-        const std::vector<double>& q = asked[static_cast<size_t>(r)];
-        for (size_t k = 0; k + 2 < q.size(); k += 3) {
-            const int c = mesh_.find(static_cast<int>(q[k]), static_cast<int>(q[k + 1]), static_cast<int>(q[k + 2]));
-            if (c < 0) throw std::logic_error("CellParallel::fetch_states: a request for a leaf this rank does not hold");
-            reply[static_cast<size_t>(r)].insert(reply[static_cast<size_t>(r)].end(), mesh_.U[static_cast<size_t>(c)].begin(),
-                                                 mesh_.U[static_cast<size_t>(c)].end());
-        }
-    }
-    comm_.exchange(reply, back);
-    for (int r = 0; r < R; ++r)
-        for (size_t k = 0; k < slot[static_cast<size_t>(r)].size(); ++k)
-            for (int q = 0; q < kNVar; ++q)
-                out[slot[static_cast<size_t>(r)][k]][static_cast<size_t>(q)] = back[static_cast<size_t>(r)][k * kNVar + static_cast<size_t>(q)];
-}
-
 bool CellParallel::same_lists(const CellParallel& o) const {
     const auto same = [](const std::vector<Lists>& a, const std::vector<Lists>& b) {
         if (a.size() != b.size()) return false;

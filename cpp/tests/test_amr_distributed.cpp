@@ -128,7 +128,7 @@ struct DistEnv {
 // Run the case for `steps` steps on `ranks` ranks (0: the serial path without CellParallel); returns the final state as every
 // rank sees it after gather_state (all identical, checked), and the held / halo counts of the last rank.
 Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>* counts = nullptr, bool local = false,
-                      bool dist_remesh = false, bool no_topo = false) {
+                      bool dist_remesh = false) {
     CellMesh base = random_adapted_mesh(sp.px, sp.py, sp.seed, 6);
     const int Nranks = std::max(ranks, 1);
     FakeHub hub(Nranks);
@@ -163,7 +163,7 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
                 par = std::make_unique<CellParallel>(m, eng, hub.comm(rank));
                 par->poison = true;
                 par->first_extra = dist_remesh ? -5 : 1;   // the first reach is too small: the retry runs at every remesh
-                par->shadow = dist_remesh && !no_topo;   // the directly built share against the extracted one, at every remesh
+                par->shadow = dist_remesh;   // the share built directly against the one cut from the whole new mesh, at every remesh
             }
             CellAdvance adv(m, eng, *ts);
             adv.par = par.get();
@@ -175,12 +175,6 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
                 const double s = eng.wave_speed(m, m.U);
                 return par ? par->reduce_max(s) : s;
             };
-            std::unique_ptr<CellMesh> topo;   // the whole mesh's topology, kept by every rank for the distributed remesh
-            if (dist_remesh && !no_topo) {
-                topo = std::make_unique<CellMesh>(m);
-                topo->U.clear();
-                topo->set_faceless(true);
-            }
             if (par) par->partition();
             if (par && local) par->localize();
             for (int k = 0; k < steps; ++k) {
@@ -191,10 +185,8 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
                     eng.solid_reset(m, m.U);
                     if (par) par->exchange_solid();
                 }
-                if (sp.remesh && (k + 1) % 2 == 0 && no_topo) {
+                if (sp.remesh && (k + 1) % 2 == 0 && dist_remesh) {
                     if (par->remesh(ad)) S = wave_speed();
-                } else if (sp.remesh && (k + 1) % 2 == 0 && dist_remesh) {
-                    if (par->remesh(*topo, ad)) S = wave_speed();
                 } else if (sp.remesh && (k + 1) % 2 == 0) {
                     if (par && local) par->globalize();
                     else if (par) par->gather_state();
@@ -291,32 +283,6 @@ TEST(cellparallel_localized_run_equals_serial_bitwise_and_keeps_only_its_halo) {
     // make that level's collective calls (CellParallel::level_present). The test must reach it, or it proves nothing.
     std::printf("    ranks with an empty local level (rank x level, summed over the runs): %d\n", empty_levels);
     CHECK(empty_levels > 0);
-}
-
-TEST(cellparallel_distributed_remesh_equals_serial_bitwise) {
-    // Phase 3 of docs/design/amr-distributed.md: the remesh of a localized run takes the indicator of the owned leaves from a
-    // region of the mesh, gathers the flags, adapts the topology on every rank and builds the state of the new owned leaves
-    // from the old ones (CellParallel::remesh): no gather of the mesh or of its state. The final state is the serial one bit for
-    // bit, with every physics of the other tests, on 1-16 emulated ranks.
-    const BCType per = BCType::Periodic;
-    const DistSpec specs[] = {
-        {"euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 11u, true},
-        {"viscous + force + source periodic", true, true, {per, per, per, per}, true, true, true, false, false, 12u, true},
-        {"walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 14u, true},
-        {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true},
-        {"immersed body (ghost cells)", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 26u, true},
-        {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, true},
-        {"unsteady source, mixed", true, false, {per, per, BCType::NoSlip, BCType::MovingWall}, true, false, true, true, false, 13u, true},
-    };
-    for (const DistSpec& sp : specs) {
-        const Field serial = run_distributed(sp, 0, 8);
-        for (const int ranks : {1, 2, 3, 5, 7, 16}) {
-            const Field dist = run_distributed(sp, ranks, 8, nullptr, true, true);
-            const bool same = bits_equal(serial, dist);
-            CHECK(same);
-            if (!same) std::printf("    %s on %d ranks (distributed remesh) differs from the serial run\n", sp.name, ranks);
-        }
-    }
 }
 
 TEST(cellparallel_distributed_init_equals_serial_init_bitwise) {
@@ -764,7 +730,7 @@ TEST(cellparallel_topology_free_remesh_equals_serial_bitwise) {
     for (const DistSpec& sp : specs) {
         const Field serial = run_distributed(sp, 0, 8);
         for (const int ranks : {1, 2, 3, 5, 7, 16}) {
-            const Field dist = run_distributed(sp, ranks, 8, nullptr, true, true, true);
+            const Field dist = run_distributed(sp, ranks, 8, nullptr, true, true);
             const bool same = bits_equal(serial, dist);
             CHECK(same);
             if (!same) std::printf("    %s on %d ranks (topology-free remesh) differs from the serial run\n", sp.name, ranks);

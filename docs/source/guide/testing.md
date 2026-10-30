@@ -13,9 +13,9 @@ python cpp\tests\regression.py --mpi 4          # regression against the referen
 Run both after any change to the solver, or all the checks of CI in one command:
 
 ```powershell
-python casesalidation\check_all.py            # unit tests, regression (serial, 4 ranks), AMR on 1-7 ranks, ghost-cell IBM, MMS, switch table
-python casesalidation\check_all.py --full     # + the unit tests without SIMD, the replicated-storage and replicated-topology variants
-python casesalidation\check_all.py --golden OLD   # + golden dumps of this build compared bit for bit with the dump OLD
+python cases\validation\check_all.py            # unit tests, regression (serial, 4 ranks), AMR on 1-7 ranks, ghost-cell IBM, MMS, switch table
+python cases\validation\check_all.py --full     # + the unit tests without SIMD, the replicated-storage variant of the AMR check
+python cases\validation\check_all.py --golden OLD   # + golden dumps of this build compared bit for bit with the dump OLD
 ```
 
 Each step is judged by its exit code and logs to `results/validation/check_all/`; the run stops at the first failure

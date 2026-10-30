@@ -42,13 +42,11 @@ def steps(args):
         ("regression serial", [PY, "cpp/tests/regression.py"], {}, "quick"),
         ("regression 4 ranks", [PY, "cpp/tests/regression.py", "--mpi", "4"], {}, "quick"),
         ("amr_mpi", [PY, "cases/validation/amr/amr_mpi.py", "--check"], {}, "quick"),
-        ("amr_mpi replicated topology", [PY, "cases/validation/amr/amr_mpi.py", "--check"], {"FENICE_REPLICATED_TOPOLOGY": "1"}, "quick"),
         ("ibm_ghost", [PY, "cases/validation/features/ibm_ghost.py", "--check"], {}, "quick"),
         ("mms quick", [PY, "cases/validation/verification/mms.py"], {}, "quick"),
         ("switch table", [PY, "cases/validation/check_switches.py"], {}, "quick"),
         ("unit tests no simd", [t], {"FENICE_NO_SIMD": "1"}, "full"),
         ("amr_mpi replicated storage", [PY, "cases/validation/amr/amr_mpi.py", "--check"], {"FENICE_REPLICATED_REMESH": "1"}, "full"),
-        ("ibm_ghost replicated topology", [PY, "cases/validation/features/ibm_ghost.py", "--check"], {"FENICE_REPLICATED_TOPOLOGY": "1"}, "full"),
     ]
     if args.golden:
         new = Path(args.golden_new).resolve()

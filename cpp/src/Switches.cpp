@@ -17,9 +17,6 @@ const std::vector<EnvSwitch>& env_switches() {
         {"FENICE_REPLICATED_REMESH", "flag", "solver",
          "AMR on MPI: every rank keeps the whole AMR mesh instead of its share of the leaves (the storage before the distributed "
          "one; for A/B comparison)."},
-        {"FENICE_REPLICATED_TOPOLOGY", "flag", "solver",
-         "AMR on MPI: every rank holds and adapts the topology of the whole mesh at a remesh. Faster than the default, in which no "
-         "rank does, and it uses more memory per rank; the results are identical bit for bit."},
         {"FENICE_MEM_TRACE", "flag", "solver",
          "Print the resident and the peak memory of the process at the steps of the setup (standard error)."},
         {"FENICE_PROFILE", "flag", "solver",
