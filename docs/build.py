@@ -23,6 +23,8 @@ Directives inside a page:
 * ``{{root}}``         relative path to the docs root (for images and links)
 * ``{{defaults:CASE}}`` table of a test case's default parameters, read from the
                        built solver (``fenice --case CASE --print-case-defaults``)
+* ``{{switches}}``     table of the FENICE_* environment switches, read from the
+                       built solver (``fenice --print-switches``)
 
 Math is written as ``$...$`` / ``$$...$$`` and rendered by MathJax.  The API
 reference is parsed from the ``//`` comments above each declaration in
@@ -449,6 +451,18 @@ def case_defaults_md(case: str) -> str:
     return "| Parameter | Default |\n|---|---|\n" + "\n".join(f"| `{k}` | `{v}` |" for k, v in rows)
 
 
+def switches_md() -> str:
+    """Markdown table of the FENICE_* environment switches, straight from the solver (``fenice --print-switches``)."""
+    try:
+        solver = fenice.exe()
+    except FileNotFoundError:
+        return "*(Build the solver to list the switches: `.\\cpp\\build.ps1`)*"
+    out = subprocess.run([solver, "--print-switches"], capture_output=True, text=True, check=True).stdout
+    rows = re.findall(r"^  (FENICE_\w+)  \((\w+), read by the (\w+)\)\n      (.+)$", out, re.M)
+    return "| Switch | Value | Read by | Effect |\n|---|---|---|---|\n" + "\n".join(
+        f"| `{n}` | {kind} | {who} | {effect} |" for n, kind, who, effect in rows)
+
+
 def build(open_browser: bool = False) -> None:
     base_css = (TEMPLATES / "pdoc_base.css").read_text(encoding="utf-8")
     custom_css = (TEMPLATES / "custom.css").read_text(encoding="utf-8")
@@ -459,6 +473,8 @@ def build(open_browser: bool = False) -> None:
         body = p.body.replace("{{root}}", p.rel_root)
         for case in re.findall(r"\{\{defaults:([^}]+)\}\}", body):
             body = body.replace(f"{{{{defaults:{case}}}}}", case_defaults_md(case.strip()))
+        if "{{switches}}" in body:
+            body = body.replace("{{switches}}", switches_md())
         widgets = re.findall(r"\{\{widget:(\w+)\}\}", body)
         for k, w in enumerate(widgets):   # injected after Markdown (raw HTML/JS must not be touched)
             body = body.replace(f"{{{{widget:{w}}}}}", f"\n\n\x00WIDGET{k}\x00\n\n", 1)

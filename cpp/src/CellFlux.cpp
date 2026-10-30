@@ -1,3 +1,4 @@
+#include "fv/Switches.hpp"
 #include "fv/CellFlux.hpp"
 
 #include <algorithm>
@@ -313,7 +314,7 @@ bool CellFluxEngine::same_tables(const CellFluxEngine& o, const CellMesh* edge_m
     bool ok = true;
     for (const auto& c : checks)
         if (!c.second) {
-            if (std::getenv("FENICE_DEBUG_TABLES")) std::fprintf(stderr, "same_tables: %s differs\n", c.first);
+            if (switch_on("FENICE_DEBUG_TABLES")) std::fprintf(stderr, "same_tables: %s differs\n", c.first);
             ok = false;
         }
     for (size_t k = 0; ok && k < interp_.size(); ++k) {

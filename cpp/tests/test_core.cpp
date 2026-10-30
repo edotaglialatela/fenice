@@ -889,3 +889,57 @@ TEST(solution_mapping_properties) {
     CHECK(std::abs(m1 - m0) / m0 < 1e-2);
 }
 
+// ---------------------------------------------------------------------------
+// Environment switches
+// ---------------------------------------------------------------------------
+
+namespace {
+void set_env(const char* key, const char* value) {   // value == nullptr: unset
+#ifdef _WIN32
+    _putenv_s(key, value ? value : "");   // an empty value removes the variable on Windows
+#else
+    if (value) setenv(key, value, 1);
+    else unsetenv(key);
+#endif
+}
+}   // namespace
+
+TEST(env_switches_are_a_closed_table) {
+    std::set<std::string> seen;
+    for (const EnvSwitch& s : env_switches()) {
+        CHECK(std::string(s.name).rfind("FENICE_", 0) == 0);
+        CHECK(seen.insert(s.name).second);   // no name twice
+        CHECK(std::string(s.kind) == "flag" || std::string(s.kind) == "path");
+        CHECK(std::string(s.reader) == "solver" || std::string(s.reader) == "python");
+        CHECK(std::strlen(s.effect) > 20);
+    }
+    bool threw = false;
+    try {
+        switch_on("FENICE_NO_SUCH_SWITCH");
+    } catch (const std::logic_error&) {
+        threw = true;
+    }
+    CHECK(threw);   // a name that is not in the table cannot be read
+    threw = false;
+    try {
+        switch_on("FENICE_CASES");   // a path, not a flag
+    } catch (const std::logic_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+    const char* f = "FENICE_DEBUG_TABLES";
+    set_env(f, nullptr);
+    CHECK(!switch_on(f));
+    set_env(f, "0");
+    CHECK(!switch_on(f));
+    set_env(f, "1");
+    CHECK(switch_on(f));
+    set_env(f, "yes");
+    CHECK(switch_on(f));
+    set_env(f, nullptr);
+    CHECK(!switch_on(f));
+    set_env("FENICE_CASES", "some_folder");
+    CHECK(switch_value("FENICE_CASES") == "some_folder");
+    set_env("FENICE_CASES", nullptr);
+    CHECK(switch_value("FENICE_CASES").empty());
+}

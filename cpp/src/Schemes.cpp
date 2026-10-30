@@ -1,3 +1,4 @@
+#include "fv/Switches.hpp"
 #include "fv/Schemes.hpp"
 
 #include "SchemesSimd.hpp"
@@ -22,7 +23,7 @@ namespace detail {
 // Here, not in SchemesAvx2.cpp: that file is compiled for AVX2, and the check must run on CPUs without it.
 bool avx2_available() {
     static const bool ok = []() {
-        if (std::getenv("FENICE_NO_SIMD")) return false;
+        if (switch_on("FENICE_NO_SIMD")) return false;
 #if defined(_MSC_VER)
         int r[4];
         __cpuid(r, 0);

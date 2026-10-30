@@ -1,3 +1,4 @@
+#include "fv/Switches.hpp"
 #include "fv/CellMesh.hpp"
 
 #include <algorithm>
@@ -161,7 +162,7 @@ void CellMesh::rebuild(bool incremental) {
     const int N = num_leaves();
     ++version;
     partial = false;
-    static const bool force_full = std::getenv("FENICE_FULL_REBUILD") != nullptr;
+    static const bool force_full = switch_on("FENICE_FULL_REBUILD");
     if (!incremental || force_full) prev_leaf.clear();
     topo_dirty.clear();
     prev_face.clear();

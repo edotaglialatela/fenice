@@ -1,3 +1,4 @@
+#include "fv/Switches.hpp"
 #include "fv/Simulation.hpp"
 
 #include <chrono>
@@ -465,7 +466,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
 
 // FENICE_MEM_TRACE=1: the resident and peak memory of the process at a step of the setup (stderr)
 static void mem_trace(const char* where) {
-    if (!std::getenv("FENICE_MEM_TRACE")) return;
+    if (!switch_on("FENICE_MEM_TRACE")) return;
     const MemoryUsage m = memory_usage();
     std::fprintf(stderr, "MEMTRACE %s: resident %.0f MB, peak %.0f MB\n", where, m.current * 1e-6, m.peak * 1e-6);
 }
@@ -514,8 +515,7 @@ void Simulation::initialize_field() {
         }
         mem_trace("init_adapt done");
         cell_par->reset_timers();   // the report of the remesh counts the time loop only
-        const char* reach = std::getenv("FENICE_HALO_REACH");
-        if (reach && std::string(reach) == "1" && cell_comm.rank == 0)
+        if (switch_on("FENICE_HALO_REACH") && cell_comm.rank == 0)
             std::printf("[AMR] FENICE_HALO_REACH needs the whole mesh: use a serial run or FENICE_REPLICATED_REMESH=1\n");
     } else if (start_step == 0) {
         // The initial condition is evaluated at each leaf's own resolution, so refined leaves see the exact initial
@@ -557,18 +557,15 @@ void Simulation::initialize_field() {
 }
 
 bool Simulation::replicated_topology() {
-    const char* env = std::getenv("FENICE_REPLICATED_TOPOLOGY");
-    return env && std::string(env) == "1";
+    return switch_on("FENICE_REPLICATED_TOPOLOGY");
 }
 
 bool Simulation::replicated_storage() {
-    const char* env = std::getenv("FENICE_REPLICATED_REMESH");
-    return env && std::string(env) == "1";
+    return switch_on("FENICE_REPLICATED_REMESH");
 }
 
 void Simulation::print_halo_reach(const char* when) const {
-    const char* env = std::getenv("FENICE_HALO_REACH");
-    if (!env || std::string(env) != "1" || cell_comm.rank != 0) return;
+    if (!switch_on("FENICE_HALO_REACH") || cell_comm.rank != 0) return;
     const CellParallel::HaloReach hr = CellParallel::halo_reach(*cells, *cell_engine);
     // per kind: the largest ring, and per level difference (level of the driver - level of the leaf read: ring)
     std::printf("[AMR] halo reach (%s), rings of the driver's level [level difference driver - read: ring]:", when);

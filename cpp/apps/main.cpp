@@ -35,6 +35,7 @@
 #endif
 
 #include "fv/Simulation.hpp"
+#include "fv/Switches.hpp"
 
 namespace {
 
@@ -50,6 +51,7 @@ void usage() {
                 "  --set KEY=VALUE    override one parameter (repeatable)\n"
                 "  --threads N        OpenMP threads (default: all cores; 1 per rank under MPI)\n"
                 "  --list-cases       list the built-in test cases\n"
+                "  --print-switches   list the FENICE_* environment switches and exit\n"
                 "  --print-config     print the resolved parameters and exit\n"
                 "  --print-case-defaults  print only the test case's own defaults and exit\n"
                 "  --no-logo          do not print the banner\n"
@@ -132,7 +134,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> raw(argv + 1, argv + argc);
     std::string case_name, config_file, save_target, save_name, from_case;
     std::vector<std::string> sets;
-    bool list_cases = false, print_config = false, print_case_defaults = false, logo = true, mpi_child = false;
+    bool list_cases = false, print_switches = false, print_config = false, print_case_defaults = false, logo = true, mpi_child = false;
     int threads = 0;
 
     for (size_t k = 0; k < raw.size(); ++k) {
@@ -154,6 +156,8 @@ int main(int argc, char** argv) {
             threads = std::atoi(next().c_str());
         else if (a == "--list-cases")
             list_cases = true;
+        else if (a == "--print-switches")
+            print_switches = true;
         else if (a == "--print-config")
             print_config = true;
         else if (a == "--print-case-defaults")
@@ -183,6 +187,10 @@ int main(int argc, char** argv) {
     for (const auto& a : raw)
         if (a != "--mpi-child") forward.push_back(a);
 
+    if (print_switches) {
+        fv::print_env_switches(stdout);
+        return 0;
+    }
     if (list_cases) {
         for (const auto& tc : fv::test_registry()) std::printf("%s\n", tc.key.c_str());
         return 0;

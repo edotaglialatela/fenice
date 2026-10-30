@@ -1,3 +1,4 @@
+#include "fv/Switches.hpp"
 #include "fv/TestCases.hpp"
 
 #include <algorithm>
@@ -118,8 +119,8 @@ std::vector<TestCase> load_registry() {
 }   // namespace
 
 std::string cases_directory() {
-    if (const char* env = std::getenv("FENICE_CASES"))
-        if (*env) return env;
+    const std::string env = switch_value("FENICE_CASES");
+    if (!env.empty()) return env;
     return std::string(FV_PROJECT_ROOT) + "/cases";
 }
 

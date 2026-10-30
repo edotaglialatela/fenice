@@ -2,7 +2,9 @@
 #pragma once
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <stdexcept>
 #include <filesystem>
 #include <fstream>
 #include <functional>
@@ -29,6 +31,7 @@
 #include "fv/ParallelScan.hpp"
 #include "fv/Simulation.hpp"
 #include "fv/SolutionMapping.hpp"
+#include "fv/Switches.hpp"
 #include "../src/SchemesSimd.hpp"   // detail::avx2_available: which path the bit-for-bit tests exercised
 
 using namespace fv;
