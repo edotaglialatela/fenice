@@ -11,8 +11,10 @@ from __future__ import annotations
 
 import argparse
 import copy
+import functools
 import os
 import sys
+import traceback
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
@@ -38,6 +40,22 @@ _AXIS_LABELS = {"z": ("x", "y"), "y": ("x", "z"), "x": ("y", "z")}
 
 def _style(fig: Figure) -> None:
     fig.set_facecolor(COLORS["bg_window"])
+
+
+def _guarded(method):
+    """A slot called by a timer or a signal must not raise: PyQt6 aborts the application on an exception in a slot. A snapshot that
+    cannot be read yet (a file being replaced, a piece not on disk) is retried on the next tick; the last picture stays."""
+    @functools.wraps(method)
+    def run(self, *args, **kwargs):
+        try:
+            return method(self, *args, **kwargs)
+        except Exception as exc:   # noqa: BLE001 - the whole point is to keep the viewer alive
+            message = f"{type(exc).__name__}: {exc}"
+            if message != getattr(self, "_last_error", None):   # a retry every second would repeat the same traceback
+                traceback.print_exc()
+            self._last_error = message
+            self._failed(message)
+    return run
 
 
 class FieldView(QWidget):
@@ -161,11 +179,16 @@ class FieldView(QWidget):
         if not self._busy and self.frame is not None and self.frame.kind == "amr":
             self._timer.start()
 
+    def _failed(self, message: str) -> None:
+        self.readout.setText(message)
+
+    @_guarded
     def _resample(self) -> None:
         if self.frame is not None and self.frame.kind == "amr":
             self._render()
 
     # ---- pointer readout
+    @_guarded
     def _hover(self, event) -> None:
         f = self.frame
         if f is None or event.inaxes is not self.ax or event.xdata is None:
@@ -241,6 +264,7 @@ class ViewerPanel(QWidget):
     def __init__(self, folder: str | None = None, step: int | None = None, parent=None):
         super().__init__(parent)
         self.series: Series | None = None
+        self._retry = False
         self.field = FieldView()
         self.monitor = MonitorView()
 
@@ -327,8 +351,14 @@ class ViewerPanel(QWidget):
         self.field._im = None
         self._show()
 
+    def _failed(self, message: str) -> None:
+        self._retry = True   # the next tick of the live timer shows the snapshot again
+        self.lbl_step.setText(f"cannot read the snapshot yet ({message})")
+
     # ---- state -> picture
+    @_guarded
     def _show(self) -> None:
+        self._retry = False
         s = self.series
         if s is None or not s.snapshots:
             self.lbl_step.setText("no snapshots in this folder" if s is not None else "no snapshots")
@@ -371,6 +401,7 @@ class ViewerPanel(QWidget):
         else:
             self._play.stop()
 
+    @_guarded
     def _advance(self) -> None:
         v = self.sl_step.value()
         if v >= self.sl_step.maximum():
@@ -378,6 +409,7 @@ class ViewerPanel(QWidget):
         else:
             self.sl_step.setValue(v + 1)
 
+    @_guarded
     def _refresh(self) -> None:
         if self.series is None:
             return
@@ -389,7 +421,7 @@ class ViewerPanel(QWidget):
                 self.sl_step.setValue(max(last, 0))
             self.sl_step.blockSignals(False)
             self._show()
-        elif self.tabs.currentWidget() is self.monitor:
+        elif self._retry or self.tabs.currentWidget() is self.monitor:
             self._show()
 
     def shutdown(self) -> None:

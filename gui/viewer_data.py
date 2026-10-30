@@ -27,25 +27,40 @@ class Snapshot:
     step: int
     path: Path
     time: float | None   # from the .pvd if there is one, else from the monitor at that step, else unknown
+    stamp: tuple = ()    # (modification time, size) of the file: a snapshot a rerun overwrote is another snapshot
 
 
-def _newest_prefix_files(folder: Path) -> list[tuple[int, Path]]:
-    """(step, file) of the snapshots of the case written last in `folder`; a .pvtu wins over a .vtu of the same step."""
-    by_prefix: dict[str, dict[int, Path]] = {}
-    newest: dict[str, float] = {}
-    for p in folder.iterdir():
+def _newest_prefix_files(folder: Path) -> list[tuple[int, Path, tuple]]:
+    """(step, file, stamp) of the snapshots of the case written last in `folder`; a .pvtu wins over a .vtu of the same step.
+    The snapshots a previous run left beyond the point the current one has reached (older than a lower step) are not listed."""
+    by_prefix: dict[str, dict[int, tuple[Path, tuple]]] = {}
+    newest: dict[str, int] = {}
+    try:
+        entries = list(folder.iterdir())
+    except OSError:
+        return []
+    for p in entries:
         m = _SNAPSHOT.match(p.name)
-        if not m or not p.is_file():
+        if not m:
             continue
+        try:
+            st = p.stat()
+        except OSError:
+            continue   # renamed or removed since the listing
         pre, step = m["prefix"], int(m["step"])
         slot = by_prefix.setdefault(pre, {})
-        if step not in slot or (m["ext"] == "pvtu" and slot[step].suffix != ".pvtu"):
-            slot[step] = p
-        newest[pre] = max(newest.get(pre, 0.0), p.stat().st_mtime)
+        if step not in slot or (m["ext"] == "pvtu" and slot[step][0].suffix != ".pvtu"):
+            slot[step] = (p, (st.st_mtime_ns, st.st_size))
+        newest[pre] = max(newest.get(pre, 0), st.st_mtime_ns)
     if not by_prefix:
         return []
     best = max(newest, key=newest.get)
-    return sorted(by_prefix[best].items())
+    out, latest = [], 0
+    for step, (p, stamp) in sorted(by_prefix[best].items()):
+        if stamp[0] >= latest:   # else a lower step is newer: this one belongs to an earlier run
+            out.append((step, p, stamp))
+        latest = max(latest, stamp[0])
+    return out
 
 
 class Series:
@@ -55,16 +70,18 @@ class Series:
         self.folder = Path(folder)
         self.snapshots: list[Snapshot] = []
         self._monitor = None
-        self._cache: OrderedDict[Path, Frame] = OrderedDict()
+        self._cache: OrderedDict[tuple, Frame] = OrderedDict()
+        self._pvd_stamp: tuple | None = None
+        self._pvd_times: dict[str, float] = {}
         self.refresh()
 
     def refresh(self) -> bool:
         """Rescan the folder; True if the list of snapshots changed."""
         files = _newest_prefix_files(self.folder)
-        pvd = {Path(f).name: t for t, f in self._pvd()}
+        pvd = self._pvd()
         self._monitor = self._read_monitor()
-        snaps = [Snapshot(step, p, self._time_of(step, p.name, pvd)) for step, p in files]
-        changed = [(s.step, s.path) for s in snaps] != [(s.step, s.path) for s in self.snapshots]
+        snaps = [Snapshot(step, p, self._time_of(step, p.name, pvd), stamp) for step, p, stamp in files]
+        changed = [(s.step, s.path, s.stamp, s.time) for s in snaps] != [(s.step, s.path, s.stamp, s.time) for s in self.snapshots]
         self.snapshots = snaps
         return changed
 
@@ -84,11 +101,22 @@ class Series:
         except (StopIteration, OSError, ValueError, IndexError):
             return None
 
-    def _pvd(self):
+    def _pvd(self) -> dict[str, float]:
+        """The times of the .pvd index, read again only when the file changed (a file another process has open cannot be
+        replaced on Windows, so it is not opened every second)."""
         try:
-            return fenice.read_pvd(self.folder)
-        except (StopIteration, OSError, ValueError):
-            return []
+            path = next(self.folder.glob("*.pvd"))
+            st = path.stat()
+        except (StopIteration, OSError):
+            self._pvd_stamp, self._pvd_times = None, {}
+            return self._pvd_times
+        if (st.st_mtime_ns, st.st_size) != self._pvd_stamp:
+            try:
+                self._pvd_times = {Path(f).name: t for t, f in fenice.read_pvd(path)}
+                self._pvd_stamp = (st.st_mtime_ns, st.st_size)
+            except (OSError, ValueError):
+                pass
+        return self._pvd_times
 
     def _time_of(self, step: int, name: str, pvd: dict) -> float | None:
         if name in pvd:
@@ -103,13 +131,14 @@ class Series:
         return self._monitor
 
     def frame(self, index: int) -> "Frame":
-        path = self.snapshots[index].path
-        if path not in self._cache:
-            self._cache[path] = Frame(path)
+        snap = self.snapshots[index]
+        key = (snap.path, snap.stamp)
+        if key not in self._cache:
+            self._cache[key] = Frame(snap.path)
             while len(self._cache) > 3:
                 self._cache.popitem(last=False)
-        self._cache.move_to_end(path)
-        return self._cache[path]
+        self._cache.move_to_end(key)
+        return self._cache[key]
 
 
 class Frame:

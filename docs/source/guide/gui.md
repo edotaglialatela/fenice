@@ -14,7 +14,7 @@ temporary config file and runs `fenice --config <file>` in the same terminal. Th
 solver output streams there. Ctrl+C reaches the solver, which writes its checkpoint and
 `.pvd` before exiting.
 
-**Requirements:** Python 3.9+, `PyQt6` and `numpy` (`python prerequisites.py`), plus a
+**Requirements:** Python 3.9+, `PyQt6`, `numpy` and, for the result viewer, `matplotlib` (`python prerequisites.py`), plus a
 built solver (`.\cpp\build.ps1`). Set `FENICE_EXE` to use an executable other than
 `build\release\fenice.exe`.
 
