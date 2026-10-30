@@ -13,7 +13,8 @@ Each rank stores its owned leaves and their halo (FENICE_REPLICATED_REMESH=1: th
 
 --check runs four cases that adapt during the run (dynamic Sod, the airfoil with the immersed body and the
 non-reflecting outlet, a periodic viscous manufactured solution, and one with a time-dependent source)
-serially and on 1 to 7 MPI ranks and compares the final states bit for bit; CI runs it on every platform.
+serially and on 1 to 7 MPI ranks and compares the final states bit for bit, then a run stopped halfway and resumed on another
+number of ranks (1->3, 3->5, 4->2, 2->7) against the uninterrupted serial run; CI runs it on every platform.
 """
 import json
 
@@ -70,8 +71,33 @@ def check(ranks):
             ok = ok and same
             line += f" | np{n} {'==' if same else 'DIFFERS'}"
         print(line)
+    ok = check_restart() and ok
     print("ALL MATCH (bitwise)" if ok else "MISMATCH")
     return 0 if ok else 1
+
+
+RESTARTS = [(1, 3), (3, 5), (4, 2), (2, 7)]   # (ranks before, ranks after)
+
+
+def check_restart():
+    """A run stopped halfway and resumed on another number of ranks must end in the state of the uninterrupted serial run."""
+    case = "Sod Shock Tube"
+    sets = ["use_amr=true", "Lx=2.0", "nx=128", "ny=16", "Ly=0.25", "amr_max_level=3", "amr_refine_every=2"]
+    out = study.study_dir(STUDY) / "check" / "restart"
+    out.mkdir(parents=True, exist_ok=True)
+    fenice.run(case, *sets, "max_steps=24", "save_interval=1000000000", out_root=out / "serial", dump=out / "serial.npz")
+    ref = fenice.read_dump(out / "serial.npz")
+    ok, line = True, f"restart       serial ({len(ref['U'])} leaves)"
+    for a, b in RESTARTS:
+        d = out / f"np{a}_{b}"
+        fenice.run(case, *sets, "max_steps=12", "save_interval=12", out_root=d, mpi=a)
+        fenice.run(case, *sets, "max_steps=12", "save_interval=1000000000", "resume=true", out_root=d, mpi=b, dump=out / f"np{a}_{b}.npz")
+        got = fenice.read_dump(out / f"np{a}_{b}.npz")
+        same = np.array_equal(got["U"], ref["U"]) and np.array_equal(got["leaf_meta"], ref["leaf_meta"])
+        ok = ok and same
+        line += f" | {a}->{b} {'==' if same else 'DIFFERS'}"
+    print(line)
+    return ok
 
 
 def main():
