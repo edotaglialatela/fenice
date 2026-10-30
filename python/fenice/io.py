@@ -53,16 +53,20 @@ def read_vtr(path):
     return out
 
 
-def read_vtu(path):
+def read_vtu(path, ranks=False):
     """A fenice adaptive-mesh snapshot (.vtu, or the .pvtu that lists the .vtu pieces of the MPI
     ranks) as a dict with one entry per leaf cell: the cell bounds x0, x1, y0, y1, the refinement
     ``level`` and every cell field by name (Density, Pressure, Temperature_nondim, Mach, shape
-    [n]; Velocity, shape [n, 3])."""
+    [n]; Velocity, shape [n, 3]). With ``ranks=True`` a .pvtu also gives ``rank``: the MPI rank
+    (the position of the piece) that wrote each leaf; a single .vtu has none."""
     p = Path(path)
     root = ET.parse(p).getroot()
     if root.get("type") == "PUnstructuredGrid":
         parts = [read_vtu(p.parent / piece.get("Source")) for piece in root.iter("Piece")]
-        return {k: np.concatenate([q[k] for q in parts]) for k in parts[0]}
+        out = {k: np.concatenate([q[k] for q in parts]) for k in parts[0]}
+        if ranks:
+            out["rank"] = np.concatenate([np.full(len(q["x0"]), i) for i, q in enumerate(parts)])
+        return out
     pts = vtk_array(root.find(".//Points/DataArray")).reshape(-1, 4, 3)   # a quad per leaf, counter-clockwise from (x0, y0)
     out = {"x0": pts[:, 0, 0], "x1": pts[:, 1, 0], "y0": pts[:, 0, 1], "y1": pts[:, 2, 1]}
     for node in root.find(".//CellData"):

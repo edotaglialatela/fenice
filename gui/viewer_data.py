@@ -18,7 +18,7 @@ import fenice
 
 _SNAPSHOT = re.compile(r"^(?P<prefix>.+)_(?P<step>\d+)\.(?P<ext>vtr|vtu|pvtu)$")
 _FIELD_ORDER = ("Density", "Pressure", "Temperature_nondim", "Mach", "|Velocity|", "Velocity_x", "Velocity_y", "Velocity_z",
-                "AMR_Level")
+                "AMR_Level", "MPI_Rank")
 _KEY_SHIFT = 32   # leaf (i, j) at a level is packed as i << 32 | j
 
 
@@ -147,7 +147,7 @@ class Frame:
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.kind = "grid" if self.path.suffix == ".vtr" else "amr"
-        raw = fenice.read_vtr(self.path) if self.kind == "grid" else fenice.read_vtu(self.path)
+        raw = fenice.read_vtr(self.path) if self.kind == "grid" else fenice.read_vtu(self.path, ranks=True)
         self.fields: dict[str, np.ndarray] = {}
         for k, v in raw.items():
             if k in ("Velocity",):
@@ -155,6 +155,8 @@ class Frame:
                 self.fields["|Velocity|"] = np.sqrt(np.sum(v * v, axis=-1))
             elif k == "level":
                 self.fields["AMR_Level"] = v.astype(float)
+            elif k == "rank":
+                self.fields["MPI_Rank"] = v.astype(float)   # only a .pvtu (an MPI run) has it
             elif k in ("Density", "Pressure", "Temperature_nondim", "Mach"):
                 self.fields[k] = v
         if self.kind == "grid":
