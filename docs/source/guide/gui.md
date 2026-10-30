@@ -32,6 +32,29 @@ built solver (`.\cpp\build.ps1`). Set `FENICE_EXE` to use an executable other th
   refine and join thresholds, smoothing iterations, remesh interval and initial levels. AMR can run on MPI ranks
   (the leaves are distributed over them; on one node OpenMP threads are usually faster), and it requires Nz = 1.
 
+## Result viewer
+
+```powershell
+python guiiewer.py results\<case>          # a results folder, or one of its snapshot files
+python guiiewer.py results\<case> --screenshot view.png --field Mach --step 100 --zoom 2.5,4.2,2.6,3.5 --leaves
+```
+
+The viewer shows the fields of a run snapshot by snapshot, and its monitor curves. It reads the `.vtr` snapshots of a uniform mesh and
+the `.vtu` / `.pvtu` snapshots of an adaptive one (also from an MPI run) through `fenice.io`, with no physics of its own.
+
+* **Field tab.** Density, pressure, temperature, Mach number, the speed and the velocity components, and for an adaptive mesh the
+  refinement level; the colour map, an optional locked colour range, pan and zoom (matplotlib's toolbar), and the value under the
+  pointer (with the leaf level). A 3-D snapshot is shown as a slice normal to z, y or x, picked with a slider. An adaptive mesh is
+  sampled on the pixels of the view, so zooming shows the finest leaves in sight; *Leaf outlines* draws them when fewer than 4000
+  are in the view.
+* **Monitor tab.** Any column of the monitor CSV against time, with the time of the snapshot on show marked.
+* **Snapshots.** A slider and *Play*. The folder is rescanned every second, so a run in progress can be followed (*Follow latest*): the
+  snapshots are found from the files, since the `.pvd` index is only written when a run ends. The time of a snapshot comes from the
+  `.pvd` if there is one, else from the monitor CSV at that step.
+
+The viewer is a widget (`gui.viewer.ViewerPanel`), so it can sit in its own window, as here, or in a larger front end
+(`docs/proposals/gui-workbench.md`).
+
 ## Saving a case
 
 **Save as case…** (next to *Run Simulation*) saves the configured run as a new test case.
@@ -51,6 +74,7 @@ automatically.
 |---|---|
 | `gui/run.py` | Entry point: dialog, config file, solver launch |
 | `gui/setup_dialog.py` | `SetupDialog` (four tabs, validation, `sim_params`) |
+| `gui/viewer.py`, `gui/viewer_data.py` | The result viewer (`ViewerPanel`; the data side has no Qt) |
 | `gui/solver.py` | Bridge to the executable (`available_cases`, `case_defaults`, `write_config`, `save_case`) |
 | `gui/theme.py` | Qt stylesheet and palette shared with the documentation theme |
 
