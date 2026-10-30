@@ -23,9 +23,11 @@
 #include <io.h>
 #include <windows.h>
 #define FV_ISATTY_STDOUT() _isatty(_fileno(stdout))
+#define FV_NULL_DEVICE "NUL"
 #else
 #include <unistd.h>
 #define FV_ISATTY_STDOUT() isatty(fileno(stdout))
+#define FV_NULL_DEVICE "/dev/null"
 #endif
 #ifdef _OPENMP
 #include <omp.h>
@@ -273,6 +275,7 @@ int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
+    if (rank > 0) std::freopen(FV_NULL_DEVICE, "w", stdout);   // only rank 0 writes to the console (errors still go to stderr)
 #endif
 #ifdef _OPENMP
     if (threads > 0)

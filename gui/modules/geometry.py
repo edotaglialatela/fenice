@@ -7,6 +7,8 @@ _MAX_CELLS = 40_000_000   # the largest level whose solid cells are computed
 
 
 def _make(project):
+    import logging
+
     import numpy as np
     from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolbar2QT
     from matplotlib.collections import LineCollection
@@ -18,6 +20,8 @@ def _make(project):
     from fenice import geometry
     from gui.solver import case_defaults
     from gui.theme import COLORS
+
+    logging.getLogger("matplotlib.axes._base").setLevel(logging.ERROR)   # "ignoring fixed limits" with the equal aspect
 
     def flag(p: dict, key: str, default: str = "false") -> bool:
         return str(p.get(key, default)).strip().lower() in ("1", "true", "yes", "on")
@@ -102,9 +106,14 @@ def _make(project):
             self.cb_level.currentIndexChanged.connect(lambda _: self._draw())
             self.chk_grid.toggled.connect(lambda _: self._draw())
             self.chk_solid.toggled.connect(lambda _: self._draw())
-            self.ax.callbacks.connect("xlim_changed", self._view_changed)
-            self.ax.callbacks.connect("ylim_changed", self._view_changed)
+            self._grid_view = None
+            self.canvas.mpl_connect("draw_event", self._view_changed)   # the limits can also change while drawing (equal aspect)
             self.canvas.mpl_connect("resize_event", lambda e: self._timer.start())
+            self._drag = None
+            self.canvas.mpl_connect("scroll_event", self._on_scroll)
+            self.canvas.mpl_connect("button_press_event", self._on_press)
+            self.canvas.mpl_connect("motion_notify_event", self._on_motion)
+            self.canvas.mpl_connect("button_release_event", self._on_release)
 
         def showEvent(self, event):
             super().showEvent(event)
@@ -219,7 +228,7 @@ def _make(project):
                 ax.clear()
                 self._grid = None
                 self._bc_texts = []
-                ax.set_aspect("equal")
+                ax.set_aspect("equal", adjustable="datalim")   # a zoomed region fills the plot, with square cells
                 ax.fill([0, Lx, Lx, 0], [0, 0, Ly, Ly], facecolor=COLORS["bg_surface"], edgecolor=COLORS["ink"], lw=1.2, zorder=0)
                 if self.body is not None:
                     if (nx << level) * (ny << level) <= _MAX_CELLS:
@@ -246,11 +255,13 @@ def _make(project):
             self._describe(level, solid)
             self._draw_grid()
             self.toolbar.update()
+            self.toolbar.push_current()   # the toolbar's Home returns to this view
 
         def _draw_grid(self) -> None:
             if self._busy or self.p is None:
                 return
             p, ax = self.p, self.ax
+            self._grid_view = self._view_key()
             if self._grid is not None:
                 self._grid.remove()
                 self._grid = None
@@ -284,9 +295,53 @@ def _make(project):
                     self._bc_texts.append(ax.text(x, y, p.get(f"bc_{side}", ""), rotation=rot, ha=ha, va=va, fontsize=9,
                                                   color=COLORS["ink_soft"], zorder=4))
 
-        def _view_changed(self, ax) -> None:
-            if not self._busy:
+        # ---- the view: wheel zooms about the pointer, a drag pans (when the toolbar has no tool on), a double click shows the domain
+        def _on_scroll(self, event) -> None:
+            if event.inaxes is not self.ax or event.xdata is None:
+                return
+            k = 1 / 1.3 if event.step > 0 else 1.3
+            (x0, x1), (y0, y1) = self.ax.get_xlim(), self.ax.get_ylim()
+            self.ax.set_xlim(event.xdata - (event.xdata - x0) * k, event.xdata + (x1 - event.xdata) * k)
+            self.ax.set_ylim(event.ydata - (event.ydata - y0) * k, event.ydata + (y1 - event.ydata) * k)
+            self.canvas.draw_idle()
+
+        def _on_press(self, event) -> None:
+            if event.inaxes is not self.ax or self.toolbar.mode:
+                return
+            if event.dblclick:
+                self._show_domain()
+            elif event.button == 1:
+                self._drag = (event.x, event.y, self.ax.get_xlim(), self.ax.get_ylim())
+
+        def _on_motion(self, event) -> None:
+            if self._drag is None or event.x is None:
+                return
+            x, y, (x0, x1), (y0, y1) = self._drag
+            bb = self.ax.bbox
+            dx = (event.x - x) * (x1 - x0) / bb.width
+            dy = (event.y - y) * (y1 - y0) / bb.height
+            self.ax.set_xlim(x0 - dx, x1 - dx)
+            self.ax.set_ylim(y0 - dy, y1 - dy)
+            self.canvas.draw_idle()
+
+        def _on_release(self, event) -> None:
+            self._drag = None
+
+        def _show_domain(self) -> None:
+            if self.p is None:
+                return
+            Lx, Ly = float(self.p["Lx"]), float(self.p["Ly"])
+            pad = 0.02 * max(Lx, Ly)
+            self.ax.set_xlim(-pad, Lx + pad)
+            self.ax.set_ylim(-pad, Ly + pad)
+            self.canvas.draw_idle()
+
+        def _view_changed(self, event=None) -> None:
+            if not self._busy and self._grid_view != self._view_key():
                 self._timer.start()
+
+        def _view_key(self):
+            return (self.ax.get_xlim(), self.ax.get_ylim(), self.ax.bbox.bounds)
 
         def _zoom_to_body(self) -> None:
             if self.body is None:
@@ -295,6 +350,7 @@ def _make(project):
             m = 0.25 * max(xs.max() - xs.min(), ys.max() - ys.min(), 1e-9)
             self.ax.set_xlim(xs.min() - m, xs.max() + m)
             self.ax.set_ylim(ys.min() - m, ys.max() + m)
+            self.canvas.draw_idle()
 
         def _describe(self, level: int, solid: str) -> None:
             p = self.p

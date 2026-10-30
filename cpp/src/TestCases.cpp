@@ -79,7 +79,11 @@ TestCase make_test_case(const CaseFile& cf) {
     const std::string name = cf.name;
     const InitialSpec spec = cf.initial;
     tc.initialize = [name, spec, prof](const Mesh& m, const EOS& eos, const Params& run) {
-        std::printf("[TEST CASE] Initialising %s...\n", name.c_str());
+        static std::string announced;   // an adaptive run initialises once per adaptation round: say it once
+        if (announced != name) {
+            std::printf("[TEST CASE] Initialising %s...\n", name.c_str());
+            announced = name;
+        }
         if (!prof) return evaluate_initial(spec, m, eos, run);
         const Field base = (*prof)(m, eos, run);
         return spec.regions.empty() ? base : evaluate_initial(spec, m, eos, run, &base);

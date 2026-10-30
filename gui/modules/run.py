@@ -1,7 +1,7 @@
 """Run module: statistics of the run above, the solver's console below, Stop and Kill.
 
 The curves come from what the solver already writes: the progress lines (every `save_interval` steps: time step, wave speed, number of
-leaves of an AMR run) and the monitor CSV (every `monitor_interval` steps, when the case sets one). They are not residuals.
+leaves of an AMR run) and the monitor CSV (every N steps, N set in the panel: residual norms, averages, loads).
 """
 from __future__ import annotations
 
@@ -12,7 +12,8 @@ import numpy as np
 
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QSpinBox, QSplitter, QVBoxLayout,
+                             QWidget)
 
 from gui import ansi
 from gui.modules import ModuleSpec
@@ -40,7 +41,14 @@ class RunPanel(QWidget):
         self.status = QLabel("idle")
         self.status.setObjectName("note")
         self.cb_quantity = QComboBox()
-        self.cb_quantity.setToolTip("The quantity of the lower plot: a column of the monitor file, or the number of leaves of an AMR run")
+        self.cb_quantity.setToolTip("The quantity of the lowest plot: a column of the monitor file, or the number of leaves of an AMR run")
+        self.spin_every = QSpinBox()
+        self.spin_every.setRange(0, 1_000_000)
+        self.spin_every.setValue(10)
+        self.spin_every.setSpecialValueText("case")
+        self.spin_every.setToolTip("Write the monitor file (residuals, averages, loads) every N steps, for the next run: 'case' keeps the "
+                                   "case's own monitor_interval. Each record costs one extra residual evaluation.")
+        project.monitor_every = self.spin_every.value()
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         self.text.setMaximumBlockCount(_MAX_LINES)
@@ -57,8 +65,8 @@ class RunPanel(QWidget):
         self.fig = Figure(figsize=(8, 4))
         self.fig.set_facecolor(COLORS["bg_window"])
         self.canvas = FigureCanvasQTAgg(self.fig)
-        self.ax_dt, self.ax_s, self.ax_q = self.fig.subplots(3, 1, sharex=True)
-        self.fig.subplots_adjust(left=0.12, right=0.98, top=0.97, bottom=0.1, hspace=0.12)
+        self.ax_dt, self.ax_s, self.ax_r, self.ax_q = self.fig.subplots(4, 1, sharex=True)
+        self.fig.subplots_adjust(left=0.12, right=0.98, top=0.98, bottom=0.09, hspace=0.14)
 
         split = QSplitter(Qt.Orientation.Vertical)
         split.addWidget(self.canvas)
@@ -69,7 +77,9 @@ class RunPanel(QWidget):
         row = QHBoxLayout()
         for w in (self.btn_run, self.btn_stop, self.btn_kill):
             row.addWidget(w)
-        row.addWidget(QLabel("Lower plot"))
+        row.addWidget(QLabel("Record every"))
+        row.addWidget(self.spin_every)
+        row.addWidget(QLabel("steps; lowest plot"))
         row.addWidget(self.cb_quantity)
         row.addWidget(self.status, 1)
         lay = QVBoxLayout(self)
@@ -85,6 +95,7 @@ class RunPanel(QWidget):
         self.btn_stop.clicked.connect(project.stop)
         self.btn_kill.clicked.connect(project.kill)
         self.cb_quantity.currentIndexChanged.connect(lambda _: self._redraw())
+        self.spin_every.valueChanged.connect(lambda v: setattr(project, "monitor_every", v))
         project.started.connect(self._started)
         project.log.connect(self._append)
         project.progress.connect(self._progress)
@@ -140,6 +151,8 @@ class RunPanel(QWidget):
         self.cb_quantity.clear()
         self.cb_quantity.blockSignals(False)
         self._redraw()
+        if self.project.monitor_every > 0:
+            self._note(f"monitor file (residuals, averages) every {self.project.monitor_every} steps")
         self._timer.start()
 
     def _note(self, text: str) -> None:
@@ -256,7 +269,7 @@ class RunPanel(QWidget):
 
     def _redraw(self) -> None:
         c = self._colors
-        for ax in (self.ax_dt, self.ax_s, self.ax_q):
+        for ax in (self.ax_dt, self.ax_s, self.ax_r, self.ax_q):
             ax.clear()
             ax.set_facecolor(c["bg_surface"])
             ax.grid(True, color=c["border_strong"], lw=0.4)
@@ -265,6 +278,7 @@ class RunPanel(QWidget):
             self.ax_dt.plot(self.t_hist, self.dt_hist, color=c["primary"], lw=1.2, marker="." if len(self.t_hist) < 60 else None)
             self.ax_dt.set_yscale("log")
             self.ax_s.plot(self.t_hist, self.s_hist, color=c["primary"], lw=1.2, marker="." if len(self.t_hist) < 60 else None)
+        self._draw_residuals()
         self.ax_dt.set_ylabel("dt [s]", fontsize=8)
         self.ax_s.set_ylabel("S_max [m/s]", fontsize=8)
         q = self.cb_quantity.currentText()
@@ -283,11 +297,30 @@ class RunPanel(QWidget):
         self.ax_q.set_xlabel("t [s]", fontsize=8)
         if self.t_end > 0:
             self.ax_q.set_xlim(0, self.t_end)
-        if not self.t_hist and self.monitor is None:
-            self.ax_s.text(0.5, 0.5, "the plots fill as the run writes its progress lines (every save_interval steps)\nand the monitor file",
-                           transform=self.ax_s.transAxes, ha="center", va="center", fontsize=9, color=c["ink_soft"])
+        if not self.t_hist:
+            self.ax_s.text(0.5, 0.5, "dt and S_max come from the progress lines (every save_interval steps)",
+                           transform=self.ax_s.transAxes, ha="center", va="center", fontsize=8, color=c["ink_soft"])
         self._dirty = False
         self.canvas.draw_idle()
+
+    def _draw_residuals(self) -> None:
+        """The three residual norms of the monitor file, each relative to its first non-zero value, on one log axis."""
+        ax, c, m = self.ax_r, self._colors, self.monitor
+        drawn = False
+        if m is not None and "res_rho" in m.dtype.names:
+            for name, colour in (("res_rho", c["primary"]), ("res_mom", c["ink"]), ("res_E", c["ink_soft"])):
+                y = np.asarray(m[name], dtype=float)
+                ref = next((v for v in y if v > 0), 0.0)
+                if ref > 0:
+                    ax.plot(m["t"], np.where(y > 0, y / ref, np.nan), color=colour, lw=1.2, label=name.replace("res_", ""))
+                    drawn = True
+        if drawn:
+            ax.set_yscale("log")
+            ax.legend(loc="upper right", fontsize=7, ncol=3, frameon=False)
+        else:
+            ax.text(0.5, 0.5, "residuals appear once the monitor file has rows (set 'Record every' above)", transform=ax.transAxes,
+                    ha="center", va="center", fontsize=8, color=c["ink_soft"])
+        ax.set_ylabel("residual / first", fontsize=8)
 
     # ---- states
     def _state(self, state: str) -> None:

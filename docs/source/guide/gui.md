@@ -32,7 +32,7 @@ is below; the modules share one project (the parameters of the run, its results 
 * **Geometry.** The domain, the immersed body, the Cartesian mesh and the solid cells it makes, as the Setup page holds them now (it
   refreshes when the page comes up). A cylinder, a sphere (cut through its centre in 3-D), a `NACA dddd` section or an airfoil file,
   placed and rotated as the solver does; the cells whose centre is inside the body are drawn solid, the grid appears when a cell is a few
-  pixels wide, and the *Mesh level* box shows the same body on the finer levels of an AMR run (cells across the chord or diameter, solid
+  pixels wide (the wheel zooms about the pointer, a drag pans, a double click shows the whole domain), and the *Mesh level* box shows the same body on the finer levels of an AMR run (cells across the chord or diameter, solid
   cells, the finest cell). The boundary condition of each side is written beside it. The shapes come from `fenice.geometry`, which follows
   the solver's rules; `cases/validation/check_geometry.py` checks that the number of solid cells equals the solver's on every case with a
   body, on three meshes each. The base mesh (`nx`, `ny`) and the boundary condition of every side can be edited here, with the buttons
@@ -45,8 +45,10 @@ is below; the modules share one project (the parameters of the run, its results 
   states the total physical time and notes each time the run passes a multiple of 10 % of it; the status line gives the percentage and
   an estimate of the time left. Every run starts with an empty console and empty plots; *Run again* runs what the Setup page holds now.
   The buttons are *Stop*, *Kill* and *Run again*. *Stop* creates a `STOP` file in the output folder: the solver saves its
-  checkpoint and the `.pvd` index, then exits, serial or under MPI. The residual norms of the monitor file (`res_rho`, `res_mom`,
-  `res_E`) are offered in the lower plot relative to their first row, on a log axis. *Kill* ends the solver and
+  checkpoint and the `.pvd` index, then exits, serial or under MPI. The *Record every* box sets `monitor_interval` for the next run
+  (*case* keeps the case's own value; the default is 10): each record costs one extra residual evaluation. The residual norms of the
+  monitor file (`res_rho`, `res_mom`, `res_E`) have a plot of their own, relative to their first row, on a log axis; the time step and
+  the wave speed still come from the progress lines. Only rank 0 writes to the console under MPI. *Kill* ends the solver and
   every process it started at once. Closing the window with a run going asks which of the two to do; if the workbench itself is ended (on
   Windows) the solver and its MPI processes end with it.
 * **Results.** The result viewer, below, opened on the folder the solver reports and following it while the run goes on.

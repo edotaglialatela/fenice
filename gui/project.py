@@ -40,6 +40,7 @@ class Project(QObject):
         self.results_dir: Path | None = None
         self.state = IDLE
         self.editor = None     # the module that can take mesh and boundary edits from another page (Setup): apply_geometry(dict), bc_choices()
+        self.monitor_every = 0   # >0: the monitor file (residuals, loads, averages) is written every this many steps, whatever the case says
         self.provider = None   # a module that holds the live parameters (Setup) registers a function returning them, or None
         self._run: SolverRun | None = None
         self._stop_asked = False
@@ -73,7 +74,10 @@ class Project(QObject):
             raise RuntimeError("no parameters to run")
         fd, cfg = tempfile.mkstemp(prefix="fenice_", suffix=".cfg")
         os.close(fd)
-        write_config(self.params, cfg)
+        run_params = dict(self.params)
+        if self.monitor_every > 0:
+            run_params["monitor_interval"] = self.monitor_every
+        write_config(run_params, cfg)
         self.results_dir = None
         self._stop_asked = False
         self.started.emit()
