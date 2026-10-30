@@ -39,7 +39,8 @@ is below; the modules share one project (the parameters of the run, its results 
 * **Run.** The solver's output as it arrives, the last step, time, time step and wave speed, and the buttons *Stop*, *Kill* and *Run
   again*. *Stop* does what Ctrl+C does in a terminal: the solver saves its checkpoint and the `.pvd` index, then exits. Under MPI,
   `mpiexec` aborts the job on Ctrl+C (also in a terminal), so the last periodic checkpoint is the one kept. *Kill* ends the solver and
-  every process it started at once. Closing the window with a run going asks which of the two to do.
+  every process it started at once. Closing the window with a run going asks which of the two to do; if the workbench itself is ended (on
+  Windows) the solver and its MPI processes end with it.
 * **Results.** The result viewer, below, opened on the folder the solver reports and following it while the run goes on.
 
 Modules are files in `gui/modules/`, each defining a `MODULE` record (name, title, a factory that takes the project, the Python packages

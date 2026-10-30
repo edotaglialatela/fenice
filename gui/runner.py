@@ -18,6 +18,47 @@ import threading
 IS_WINDOWS = os.name == "nt"
 
 
+def _job_for(proc: "subprocess.Popen"):
+    """Windows: put the (suspended) process in a job object that kills everything in it when the job handle closes, so that the solver
+    and the processes it starts (mpiexec, the ranks) do not outlive the GUI if it dies. Returns the job handle, or None."""
+    import ctypes
+    from ctypes import wintypes
+
+    class Basic(ctypes.Structure):
+        _fields_ = [("PerProcessUserTimeLimit", ctypes.c_int64), ("PerJobUserTimeLimit", ctypes.c_int64), ("LimitFlags", wintypes.DWORD),
+                    ("MinimumWorkingSetSize", ctypes.c_size_t), ("MaximumWorkingSetSize", ctypes.c_size_t),
+                    ("ActiveProcessLimit", wintypes.DWORD), ("Affinity", ctypes.c_size_t), ("PriorityClass", wintypes.DWORD),
+                    ("SchedulingClass", wintypes.DWORD)]
+
+    class Counters(ctypes.Structure):
+        _fields_ = [(n, ctypes.c_uint64) for n in ("ReadOps", "WriteOps", "OtherOps", "ReadBytes", "WriteBytes", "OtherBytes")]
+
+    class Extended(ctypes.Structure):
+        _fields_ = [("Basic", Basic), ("Io", Counters), ("ProcessMemoryLimit", ctypes.c_size_t), ("JobMemoryLimit", ctypes.c_size_t),
+                    ("PeakProcessMemoryUsed", ctypes.c_size_t), ("PeakJobMemoryUsed", ctypes.c_size_t)]
+
+    k = ctypes.windll.kernel32
+    k.CreateJobObjectW.restype = ctypes.c_void_p
+    k.CreateJobObjectW.argtypes = [ctypes.c_void_p, ctypes.c_wchar_p]
+    k.SetInformationJobObject.argtypes = [ctypes.c_void_p, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
+    k.AssignProcessToJobObject.argtypes = [ctypes.c_void_p, ctypes.c_void_p]
+    job = k.CreateJobObjectW(None, None)
+    if not job:
+        return None
+    info = Extended()
+    info.Basic.LimitFlags = 0x2000   # JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE
+    ok = k.SetInformationJobObject(job, 9, ctypes.byref(info), ctypes.sizeof(info)) and k.AssignProcessToJobObject(job, int(proc._handle))
+    if not ok:
+        k.CloseHandle(ctypes.c_void_p(job))
+        return None
+    return job
+
+
+def _close_job(job) -> None:
+    import ctypes
+    ctypes.windll.kernel32.CloseHandle(ctypes.c_void_p(job))   # kills whatever is still in the job
+
+
 class SolverRun:
     """One run of `argv`. Output lines are collected by a reader thread; call `drain()` from the GUI thread to get them."""
 
@@ -29,6 +70,7 @@ class SolverRun:
         self.proc: subprocess.Popen | None = None
         self._lines: queue.Queue = queue.Queue()
         self._reader: threading.Thread | None = None
+        self._job = None
 
     def start(self) -> None:
         kw: dict = {}
@@ -39,10 +81,16 @@ class SolverRun:
             si = subprocess.STARTUPINFO()
             si.dwFlags |= subprocess.STARTF_USESHOWWINDOW
             si.wShowWindow = subprocess.SW_HIDE
-            kw = {"creationflags": subprocess.CREATE_NEW_CONSOLE, "startupinfo": si}
+            kw = {"creationflags": subprocess.CREATE_NEW_CONSOLE | 0x4, "startupinfo": si}   # 0x4: suspended until it is in the job
         else:
             kw = {"start_new_session": True}
         self.proc = subprocess.Popen(self.argv, cwd=self.cwd, env=self.env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, **kw)
+        if IS_WINDOWS:
+            import ctypes
+            try:
+                self._job = _job_for(self.proc)
+            finally:   # whatever happened, the solver must run
+                ctypes.windll.ntdll.NtResumeProcess(ctypes.c_void_p(int(self.proc._handle)))
         self._reader = threading.Thread(target=self._read, daemon=True)
         self._reader.start()
 
@@ -60,6 +108,9 @@ class SolverRun:
         if pending:
             self._lines.put(pending)
         self.proc.wait()
+        if self._job:
+            _close_job(self._job)   # the solver is over: anything it left behind goes with the job
+            self._job = None
         for path in self.cleanup:
             try:
                 os.remove(path)
