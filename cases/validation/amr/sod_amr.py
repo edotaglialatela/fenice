@@ -83,22 +83,19 @@ def main():
     axl.set_xlabel("$x$")
     axl.set_ylabel("AMR level")
 
-    pos = np.arange(len(runs))
-    bars = axb.bar(pos, [r[3] for _, r, _, _ in runs], 0.55, color=[c for *_, c, _ in runs], alpha=0.75,
-                   edgecolor="black")
-    for b, (_, r, _, _) in zip(bars, runs):
-        axb.text(b.get_x() + b.get_width() / 2, b.get_height(), f"{r[3]}", ha="center", va="bottom", fontweight="bold")
-    axb.set_xticks(pos, [f"Uniform\nlevel {LEVELS - 1}", f"Uniform\nlevel {LEVELS}", "AMR"])
-    axb.set_ylabel("Cells at $t$ = 0.2")
-    axb.grid(False)
-    ae = axb.twinx()
-    ae.plot(pos, errs, "D--", color="#8e44ad", ms=9, mec="white", lw=1.8)
-    for p, e in zip(pos, errs):
-        ae.annotate(f"{e:.1e}", (p, e), textcoords="offset points", xytext=(8, 6), color="#8e44ad", fontsize=10)
-    ae.set_ylabel(r"$L_1$ density error", color="#8e44ad")
-    ae.set_ylim(0, 1.25 * max(errs))
-    ae.tick_params(axis="y", labelcolor="#8e44ad")
-    axb.set_title("Cells and error")
+    # error against cost: the two uniform meshes define the line a uniform refinement follows
+    cells = [r[3] for _, r, _, _ in runs]
+    axb.loglog(cells[:2], errs[:2], "--", color="0.45", lw=1.2, zorder=1)
+    for (label, r, c, m), n, e in zip(runs, cells, errs):
+        axb.plot(n, e, marker=m, ms=9, mfc=c, mec="black", ls="none", zorder=3)
+        axb.annotate(f"{n} cells\n$L_1$ = {e:.2e}", (n, e), textcoords="offset points", xytext=(10, 6), fontsize=9)
+    axb.annotate(f"AMR: {cells[2] / cells[1]:.0%} of the cells of the finer mesh,\n{errs[2] / errs[1]:.2f} times its error",
+                 (cells[2], errs[2]), textcoords="offset points", xytext=(22, -46), fontsize=8.5, ha="center", color="#c0392b")
+    axb.set_xlim(min(cells) / 1.6, max(cells) * 2.6)
+    axb.set_ylim(min(errs) / 1.5, max(errs) * 1.5)
+    axb.set_xlabel("cells at $t$ = 0.2")
+    axb.set_ylabel(r"$L_1$ density error")
+    axb.set_title("Error against cells")
     study.save(fig, STUDY, "sod_amr.png", args.docs)
 
 
