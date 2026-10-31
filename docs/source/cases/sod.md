@@ -54,7 +54,7 @@ finest levels.
 <img src="{{root}}img/sod_amr.png" style="width:100%">
 <figcaption>AMR vs uniform 80×16 and 160×32 meshes at t = 0.2. AMR keeps level 4 around
 the contact and the shock and reaches the error of the 160×32 mesh (L1 1.5e-2 vs 1.4e-2) with
-45% of its cells.</figcaption>
+45% of its cells (a cell count; the run time of this tiny case is not measured, so no time saving is claimed).</figcaption>
 </figure>
 
 The refinement follows the waves. `cases/validation/amr/sod_amr_animation.py` runs a 40×4 base mesh with

@@ -7,8 +7,10 @@
 Runs "IBM Airfoil" on the 192 x 96 base mesh and on 768 x 384 (the resolution AMR keeps at
 the body), and "IBM Airfoil AMR" (192 x 96, two levels, body at the finest level), all on
 OpenMP threads to t = 6. Prints the cells, the wall time and the rms difference of Cd(t) and
-Cl(t) from the 768 x 384 run (the loads the solver writes to the monitor). Figure:
-airfoil_amr.png (vorticity with the refinement levels, load histories, cost).
+Cl(t) from the 768 x 384 run (the loads the solver writes to the monitor), also for a uniform
+384 x 192 run. Figure: airfoil_amr.png (vorticity with the refinement levels, load histories, and
+the work-precision plot: wall time against load error, since runs are compared at equal accuracy,
+not at equal mesh).
 """
 import time
 
@@ -91,6 +93,7 @@ def main():
     plt = study.use_style()
     coarse, w_c = timed(args, "uniform_coarse", CASE, f"nx={BASE[0]}", f"ny={BASE[1]}")
     fine, w_f = timed(args, "uniform_fine", CASE, f"nx={BASE[0] * 2 ** LEVELS}", f"ny={BASE[1] * 2 ** LEVELS}")
+    mid, w_m = timed(args, "uniform_mid", CASE, "nx=384", "ny=192")
     amr, w_a = timed(args, "amr", CASE_AMR)
     cells_c, cells_f = BASE[0] * BASE[1], BASE[0] * BASE[1] * 4 ** LEVELS
     u, v, h, meta = fine_velocity(amr)
@@ -99,7 +102,7 @@ def main():
             ("Uniform 768$\\times$384", fine, "#2980b9", cells_f, w_f),
             ("AMR, 192$\\times$96 + 2 levels", amr, "#e74c3c", cells_a, w_a)]
 
-    for label, run, _, cells, wall in runs:
+    for label, run, _, cells, wall in runs + [("Uniform 384$\\times$192", mid, "", 384 * 192, w_m)]:
         e_d, e_l = load_errors(run, fine)
         print(f"{label.replace('$', '').replace(chr(92) + 'times', 'x'):32s} {cells:7d} cells {wall:7.1f} s   "
               f"rms vs 768x384, t >= 1: Cd {e_d:.4f}  Cl {e_l:.4f}")
@@ -132,17 +135,21 @@ def main():
     a1.legend(loc="upper right", fontsize=8)
     a2.set_xlabel("$t$")
     a2.set_ylabel("$C_l$")
-    a3 = fig.add_axes([0.76, 0.07, 0.2, 0.32])
-    xs = np.arange(3)
-    a3.bar(xs, [r[4] for r in runs], color=[r[2] for r in runs], width=0.6)
+    # work-precision: wall time against the load error (the right comparison is at equal accuracy)
+    a3 = fig.add_axes([0.78, 0.07, 0.19, 0.32])
+    for label, run, c, cells, wall in runs + [("Uniform 384$\\times$192", mid, "#27ae60", 384 * 192, w_m)]:
+        if run is fine:
+            continue
+        e_d, e_l = load_errors(run, fine)
+        a3.plot(wall, e_l, "o", color=c, ms=9, mec="white", label=label)
+        a3.plot(wall, e_d, "s", color=c, ms=7, mec="white")
+    a3.axvline(w_f, color="#2980b9", ls=":", lw=1.2)
+    a3.text(w_f, 1.0, r" 768$\times$384 ref.", color="#2980b9", fontsize=7, va="top", ha="right", transform=a3.get_xaxis_transform())
+    a3.legend(loc="upper right", fontsize=6, frameon=False, bbox_to_anchor=(1, 0.9))
+    a3.set_xscale("log")
     a3.set_yscale("log")
-    a3.set_ylabel("wall time [s]")
-    a3.set_xticks(xs)
-    a3.set_xticklabels([f"{r[3]:,} cells".replace(",", " ") for r in runs], fontsize=8)
-    a3.grid(False, axis="x")
-    for x, r in zip(xs, runs):
-        a3.text(x, r[4] * 1.15, f"{r[4]:.0f} s", ha="center", fontsize=9)
-    a3.set_ylim(top=max(r[4] for r in runs) * 3)
+    a3.set_xlabel("wall time [s]")
+    a3.set_ylabel(r"rms error vs 768$\times$384 (circle $C_l$, square $C_d$)", fontsize=8)
     study.save(fig, STUDY, "airfoil_amr.png", args.docs)
     if args.table:
         table(args, fine, w_f)

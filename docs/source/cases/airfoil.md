@@ -59,19 +59,28 @@ python cases\validation\amr\airfoil_amr.py --docs                  # AMR against
 <img src="{{root}}img/airfoil_amr.png" style="width:100%">
 <figcaption>NACA 0012 at 10°, Re = 1000, up to $t = 6$ (<code>cases/validation/amr/airfoil_amr.py</code>).
 Top: vorticity with the refined leaves of the AMR run, which follow the airfoil and the wake. Bottom: drag and lift of the AMR run and of
-uniform 192×96 and 768×384 meshes, and the cost of the three runs on 16 OpenMP threads.</figcaption>
+uniform 192×96, 384×192 and 768×384 meshes. Bottom right: work and precision, the wall time of each run (16 OpenMP threads) against its
+rms load error with respect to the 768×384 run (circles $C_l$, squares $C_d$).</figcaption>
 </figure>
 
 | run | cells | wall time | rms error of $C_d$ | rms error of $C_l$ |
 |---|---:|---:|---:|---:|
-| uniform 192×96 | 18 432 | 2.5 s | 0.034 | 0.36 |
-| uniform 768×384 | 294 912 | 244 s | (reference) | (reference) |
-| AMR, 192×96 + 2 levels | 23 526 | 8 s | 0.011 | 0.054 |
+| uniform 192×96 | 18 432 | 1.7 s | 0.034 | 0.36 |
+| uniform 384×192 | 73 728 | 13.8 s | 0.015 | 0.087 |
+| uniform 768×384 | 294 912 | 190 s | (reference) | (reference) |
+| AMR, 192×96 + 2 levels | 23 526 | 7.0 s | 0.011 | 0.054 |
 
 The errors are rms differences of $C_d(t)$ and $C_l(t)$ from the 768×384 run over
 $1 \le t \le 6$ (this is the impulsive start of the flow, not a statistically steady state).
-AMR reproduces the loads of the fine mesh with 8 % of its cells and 3 % of its time. The
-base mesh alone misses most of the lift.
+The comparison that matters is the time to a given error. AMR reaches the loads of the fine mesh (8 % of its cells)
+in 7 s against 190 s, about 27× faster, and it is both faster and more accurate than the uniform 384×192 run
+(7 s against 14 s, lift error 0.054 against 0.087). The cheap uniform 192×96 run takes 1.7 s, but its lift error
+is about 7× larger: "AMR is slower than the coarse mesh" compares two runs of different accuracy. The wall times
+are one run each on 16 OpenMP threads.
+
+Caveats. The window is an impulsive start, not a statistically steady flow, so these figures are not a converged
+work-precision study. With more cores the advantage shrinks slightly because AMR parallelises worse than the uniform
+solver (see [AMR]({{root}}modules/AMR.html)), but the cell reduction is much larger than that efficiency gap.
 
 ## Using your own airfoil
 

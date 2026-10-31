@@ -159,6 +159,13 @@ the peak: minimum / maximum over the ranks) and the size of the tables of a rank
 (`cases/validation/amr/amr_memory.py` measures it on 1 to 16 ranks; `docs/design/amr-distributed.md` is the plan to distribute
 the remesh as well).
 
+The table below compares AMR with itself on 1 to 16 cores; it says nothing about AMR against a uniform mesh (that comparison is
+at equal accuracy, time to a given error, see the [airfoil]({{root}}cases/airfoil.html) page). It does show that AMR parallelises
+worse than the uniform solver (about 2.9× on 16 threads, against 4 to 5× for the uniform cases): the remesh scales poorly, the
+small levels fall below the OpenMP threshold of 4096 items per loop, and 50 steps are short (about 1 s of the 5.9 s serial run is
+the remesh and set-up, a share that a long run amortises, so the table probably understates the efficiency of AMR). More cores
+therefore shrink the AMR advantage slightly, by that efficiency gap, but the cell reduction is much larger and wins at 16 threads too.
+
 | run (720×360, 2 levels, 50 steps, 268 362 leaves) | wall time | of which remesh |
 |---|---:|---:|
 | serial, 1 thread | 5.9 s | 1.0 s |
