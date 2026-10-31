@@ -102,6 +102,58 @@ page.combo_testcase.setCurrentText("IBM Flow over Cylinder")
 pump(0.5)
 ok(geo.chk_body.isChecked() and geo.fields["Lx"].text() != "2.5", "a new case on the solver reloads the geometry node")
 ok(not page.group_domain.isVisibleTo(page) and not page.bc_left.isVisibleTo(page), "the solver page shows no domain or side fields")
+
+# ---- keys typed in a node's own widget are that widget's: Backspace in the face's spin box must not delete the selected node
+from PyQt6.QtWidgets import QSpinBox  # noqa: E402
+
+w.scene.clearSelection()
+w.items[1].setSelected(True)
+spin = w.items[2].face.widget().findChild(QSpinBox)
+w.items[2].face.setFocus()
+spin.setFocus()
+pump(0.1)
+n_nodes, before = len(w.graph.nodes), spin.value()
+QTest.keyClick(spin, Qt.Key.Key_Backspace)
+pump(0.1)
+ok(len(w.graph.nodes) == n_nodes and 1 in w.items, "Backspace in the face's box does not delete the selected node")
+
+# ---- a drop from the palette (the drag and drop events, as QDrag.exec cannot run offscreen)
+from PyQt6.QtCore import QMimeData  # noqa: E402
+from PyQt6.QtGui import QDragEnterEvent, QDropEvent  # noqa: E402
+from gui.canvas import MIME  # noqa: E402
+
+mime = QMimeData()
+mime.setData(MIME, b"monitor")
+at = QPoint(300, 200)
+n_nodes = len(w.graph.nodes)
+enter = QDragEnterEvent(at, Qt.DropAction.CopyAction, mime, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+QApplication.sendEvent(w.view.viewport(), enter)
+drop = QDropEvent(QPointF(at), Qt.DropAction.CopyAction, mime, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier)
+QApplication.sendEvent(w.view.viewport(), drop)
+pump(0.2)
+new = [i for nid, i in w.items.items() if w.graph.nodes[nid].spec.name == "monitor" and nid not in (3,)]
+near = bool(new) and (w.view.mapFromScene(new[-1].scenePos()) - at).manhattanLength() < 5
+ok(len(w.graph.nodes) == n_nodes + 1 and near, "a module dropped from the palette appears where it was dropped")
+
+# ---- two solvers on the same case into the same folder: the second run is refused
+g2, s2 = w.add_node("geometry"), w.add_node("solver")
+w.connect_nodes(g2.node_id, "geometry", s2.node_id, "geometry")
+w.editors[s2.node_id].combo_testcase.setCurrentText("Sod Shock Tube")
+page.combo_testcase.setCurrentText("Sod Shock Tube")
+pump(0.3)
+a = page.peek_params()
+a.update({"nx": "20000", "t_end": "0.2", "output_root": str(Path(__file__).resolve().parents[2] / "results" / "check_workbench")})
+w.projects[2].start_run(a)
+pump(0.3)
+try:
+    w.projects[s2.node_id].start_run(dict(a))
+    ok(False, "the same case into the same folder is refused")
+except RuntimeError as exc:
+    ok("same results folder" in str(exc), "the same case into the same folder is refused")
+w.projects[2].kill()
+t0 = time.time()
+while w.projects[2].running and time.time() - t0 < 30:
+    pump(0.2)
 w.close()
 print("ALL PASSED" if not failures else f"{len(failures)} FAILED")
 sys.exit(1 if failures else 0)

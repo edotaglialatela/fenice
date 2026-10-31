@@ -48,7 +48,7 @@ class Project(QObject):
         self.editor = None     # the setup page, which takes mesh, boundary and body edits from the geometry node: apply_geometry(dict), ...
         self.monitor_every = 10  # >0: the monitor file (residuals, loads, averages) is written every this many steps, whatever the case says
         self.provider = None   # the setup page registers a function returning the live parameters (None if invalid)
-        self.run_gate = None   # a function returning the reason why a run cannot start (a message), or None
+        self.run_gate = None   # a function of the parameters to run returning the reason why a run cannot start (a message), or None
         # what the run has shown so far
         self.log_history: deque[str] = deque(maxlen=_MAX_LOG)
         self.progress_history: list[tuple] = []   # (step, t, dt, S_max, leaves, wall text)
@@ -101,7 +101,7 @@ class Project(QObject):
         if self.running:
             raise RuntimeError("a run is already going")
         if self.run_gate is not None:
-            reason = self.run_gate()
+            reason = self.run_gate(params if params is not None else self.params)
             if reason:
                 raise RuntimeError(reason)
         if params is not None:

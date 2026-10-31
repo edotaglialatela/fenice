@@ -143,7 +143,7 @@ class Workbench(QMainWindow):
         self.items[node.id] = item
         if spec.owns_project:
             project = Project(self)
-            project.run_gate = lambda nid=node.id: self._gate(nid)
+            project.run_gate = lambda params, nid=node.id: self._gate(nid, params)
             self.projects[node.id] = project
             editor = spec.factory(project)
             self.editors[node.id] = editor
@@ -288,9 +288,16 @@ class Workbench(QMainWindow):
         return self.editors.get(nid)
 
     # ---- the run
-    def _gate(self, solver_id: int) -> str | None:
+    def _gate(self, solver_id: int, params: dict | None = None) -> str | None:
         if not any(l.dst == solver_id and l.dst_port == "geometry" for l in self.graph.links):
             return "Link a Geometry node to the solver first: the geometry is not part of the solver's setup."
+        mine = params if params is not None else (self.projects[solver_id].current_params() or {})
+        key = (mine.get("test_case"), str(mine.get("use_amr")), str(mine.get("output_root", "")))
+        for other_id, other in self.projects.items():
+            if other_id != solver_id and other.running and (other.params.get("test_case"), str(other.params.get("use_amr")),
+                                                              str(other.params.get("output_root", ""))) == key:
+                return (f"{self.graph.nodes[other_id].title} is running the same case into the same results folder: "
+                        "stop it, or run another case.")
         return None
 
     def _started(self, solver_id: int) -> None:

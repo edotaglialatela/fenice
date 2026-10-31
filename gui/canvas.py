@@ -266,8 +266,8 @@ class GraphScene(QGraphicsScene):
 
     # ---- keys and drops
     def keyPressEvent(self, event) -> None:
-        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
-            sel = self.selectedItems()
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace) and not isinstance(self.focusItem(), QGraphicsProxyWidget):
+            sel = self.selectedItems()   # (a key typed in a node's own widget is that widget's)
             self.on_delete([i for i in sel if isinstance(i, NodeItem)], [i for i in sel if isinstance(i, LinkItem)])
             event.accept()
             return
