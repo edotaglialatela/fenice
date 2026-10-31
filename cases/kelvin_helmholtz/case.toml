@@ -1,0 +1,39 @@
+# Kelvin-Helmholtz instability of a smooth shear layer u = U tanh((y - 8) / delta), U = 0.2, delta = 1, sound speed 1, periodic in x,
+# slip walls at y = 0 and 16 (eight layer thicknesses from the layer). The box is one wavelength of the most unstable mode of the
+# tanh layer, alpha delta = 0.4446, so Lx = 2 pi delta / 0.4446. A small v(x, y) of that wavelength seeds the growth.
+[case]
+name = "Kelvin-Helmholtz"
+description = "Smooth shear layer, linear growth rate of the most unstable mode"
+order = 56
+
+[mesh]
+Lx = 14.1319
+Ly = 16.0
+nx = 96
+ny = 109
+
+[thermo]
+gamma = 1.4
+
+[physics]
+use_viscous = false
+
+[boundaries]
+bc_left = "periodic"
+bc_right = "periodic"
+bc_bottom = "wall"
+bc_top = "wall"
+
+[numerics]
+riemann_solver = "HLLC"
+use_muscl = true
+muscl_limiter = "MC"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.4
+
+[run]
+t_end = 90.0
+save_interval = 70
+
+[initial]
+state = { rho = 1.0, u = "0.2*tanh(y - 8)", v = "0.0002*sin(2*3.141592653589793*x/Lx)*exp(-(y - 8)*(y - 8))", p = 0.7142857142857143 }
