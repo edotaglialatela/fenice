@@ -100,8 +100,8 @@ def main():
     def body(ax):
         ax.add_patch(plt.Circle(BODY[:2], BODY[2], facecolor="0.35", edgecolor="k", lw=0.8, zorder=5))
 
-    fig = plt.figure(figsize=(11.5, 12.6))
-    gs = fig.add_gridspec(4, 2, height_ratios=(1, 1.15, 1, 1.15), hspace=0.42)
+    fig = plt.figure(figsize=(11.5, 9.8))
+    gs = fig.add_gridspec(3, 2, height_ratios=(1, 1.15, 1.1), hspace=0.5)
     ext = WINDOW
     a0 = fig.add_subplot(gs[0, :])
     im = a0.imshow(w_z, origin="lower", extent=ext, cmap="RdBu_r", vmin=-4, vmax=4, aspect="equal")
@@ -121,40 +121,31 @@ def main():
     al.set_title("Near the body: AMR level", fontsize=10)
     fig.colorbar(im, cax=al.inset_axes([1.02, 0, 0.03, 1]), ticks=range(int(lev.max()) + 1))
     al.set_xlabel("$x$")
-    a1 = fig.add_subplot(gs[2, :])
-    im = a1.imshow(lev, origin="lower", extent=ext, cmap="viridis", aspect="equal")
-    body(a1)
-    a1.set_title(f"AMR level ({n_leaf:,} leaves in the whole $16\\times12$ box)")
-    fig.colorbar(im, cax=a1.inset_axes([1.012, 0, 0.014, 1]), label="level", ticks=range(int(lev.max()) + 1))
-    for a in (a0, a1):
-        a.set_ylabel("$y$")
-    a1.set_xlabel("$x$")
-    a2 = fig.add_subplot(gs[3, 0])
+    a0.set_ylabel("$y$")
+    a0.set_xlabel("$x$")
+    a2 = fig.add_subplot(gs[2, 0])
     a2.plot(t3[t3 >= 40], d3["Cl"][t3 >= 40], color="#2980b9", lw=1.2, label="3 levels (20 cells/D)")
     a2.plot(t4[t4 >= 40], d4["Cl"][t4 >= 40], color="#c0392b", lw=1.2, label="4 levels (40 cells/D)")
     a2.set_xlabel("$t$")
     a2.set_ylabel("$C_l$")
     a2.set_ylim(-0.45, 0.62)
     a2.legend(loc="upper center", ncol=2, fontsize=8)
-    a3 = fig.add_subplot(gs[3, 1])
-    a3.semilogy(res["l3"][0], res["l3"][1], color="#2980b9", lw=1.4, label="20 cells/D")
-    a3.semilogy(st_f, a_f, color="#c0392b", lw=1.4, label="40 cells/D")
-    a3.axvspan(*REF, color="#27ae60", alpha=0.35, lw=0, label="literature St (0.164-0.166)")
-    a3.axvline(st_spec, color="#c0392b", ls="--", lw=1.2, label=f"peak (40 cells/D) {st_spec:.3f}")
-    # the literature band (0.002 wide) is invisible on the full axis: a zoom on the peak shows it
-    ins = a3.inset_axes([0.52, 0.10, 0.45, 0.32])
-    for name, color in (("l3", "#2980b9"), ("l4", "#c0392b")):
-        ins.plot(res[name][0], res[name][1], color=color, lw=1.4)
-    ins.axvspan(*REF, color="#27ae60", alpha=0.45, lw=0)
-    ins.set_xlim(0.155, 0.177)
-    ins.set_ylim(0, max(res["l3"][1].max(), a_f.max()) * 1.1)
-    ins.set_facecolor("white")
-    ins.tick_params(labelsize=7)
-    ins.grid(True, ls="--", alpha=0.4)
-    a3.set_xlim(0, 0.6)
-    a3.set_ylim(a_f.max() * 1e-4, a_f.max() * 3)
+    a3 = fig.add_subplot(gs[2, 1])
+    a3.axvspan(*REF, color="#27ae60", alpha=0.35, lw=0)
+    a3.axvline(REF[0], color="#1e8449", lw=1.0)
+    a3.axvline(REF[1], color="#1e8449", lw=1.0)
+    for name, color, lab in (("l3", "#2980b9", "20 cells/D"), ("l4", "#c0392b", "40 cells/D")):
+        f_, a_ = res[name][0], res[name][1]
+        a3.plot(f_, a_, color=color, lw=1.6, label=f"{lab}: peak {res[name][2]:.4f}")
+        a3.plot(res[name][2], a_[np.argmin(np.abs(f_ - res[name][2]))], "o", color=color, ms=4)
+    ymax = max(res["l3"][1].max(), a_f.max()) * 1.18
+    a3.annotate(f"literature\n{REF[0]}-{REF[1]}", xy=(sum(REF) / 2, ymax * 0.55), xytext=(0.1515, ymax * 0.82),
+                fontsize=8, color="#1e8449", arrowprops=dict(arrowstyle="->", color="#1e8449", lw=0.9))
+    a3.set_xlim(0.150, 0.182)
+    a3.set_ylim(0, ymax)
     a3.set_xlabel(r"$\mathrm{St}=fD/u_\infty$")
     a3.set_ylabel(r"amplitude of $C_l$ ($t\geq25$)")
+    a3.set_title("lift spectrum around the peak", fontsize=10)
     a3.legend(loc="upper right", fontsize=8)
     for a in (a2, a3):
         a.grid(True, ls="--", alpha=0.5)
