@@ -20,7 +20,7 @@ if ROOT_DIR not in sys.path:
 
 from PyQt6.QtCore import QPointF, Qt, QTimer  # noqa: E402
 from PyQt6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QListWidgetItem, QMainWindow, QMenu, QMessageBox,  # noqa: E402
-                             QSizePolicy, QSplitter, QTabWidget, QVBoxLayout, QWidget)
+                             QSizePolicy, QSplitter, QStackedWidget, QTabWidget, QVBoxLayout, QWidget)
 
 from gui.canvas import GraphScene, GraphView, LinkItem, NodeItem, Palette  # noqa: E402
 from gui.graph import Graph, Link  # noqa: E402
@@ -39,6 +39,23 @@ def _placeholder(text: str) -> QWidget:
     label.setWordWrap(True)
     lay.addWidget(label)
     return w
+
+
+class _SubWindow(QWidget):
+    """The window of a node's editor: closing it only hides it; the editor can be swapped when the node is linked to another solver."""
+
+    def __init__(self, title: str, parent: QWidget) -> None:
+        super().__init__(parent, Qt.WindowType.Window)
+        self.setWindowTitle(title)
+        self.resize(980, 700)
+        self._lay = QVBoxLayout(self)
+        self._lay.setContentsMargins(4, 4, 4, 4)
+
+    def set_editor(self, editor: QWidget) -> None:
+        self._lay.addWidget(editor)
+
+    def take_editor(self, editor: QWidget) -> None:
+        self._lay.removeWidget(editor)
 
 
 class Workbench(QMainWindow):
@@ -77,13 +94,18 @@ class Workbench(QMainWindow):
         self.view = GraphView(self.scene)
         self.view.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
         self.view.customContextMenuRequested.connect(self._context_menu)
-        self.tabs = QTabWidget()
+        self.windows: dict[int, QWidget] = {}   # node id -> its subwindow (every editor but the monitors')
+        self.tabs = QTabWidget()   # the bottom half: the monitors
         self.tabs.setSizePolicy(QSizePolicy.Policy.Expanding, QSizePolicy.Policy.Ignored)   # an editor's own minimum height must not squeeze the canvas
-        self.tabs.setTabsClosable(True)
-        self.tabs.tabCloseRequested.connect(lambda i: self.tabs.removeTab(i))
+        self.empty = QLabel("Link a Monitor to a solver to watch a run here.\nThe other modules open in windows of their own (double-click a node).")
+        self.empty.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.empty.setObjectName("note")
+        self.bottom = QStackedWidget()
+        self.bottom.addWidget(self.empty)
+        self.bottom.addWidget(self.tabs)
         self.split = QSplitter(Qt.Orientation.Vertical)
         self.split.addWidget(self.view)
-        self.split.addWidget(self.tabs)
+        self.split.addWidget(self.bottom)
         self.split.setStretchFactor(1, 1)
         self.split.setSizes([300, 560])
 
@@ -107,9 +129,6 @@ class Workbench(QMainWindow):
             geo = self.add_node("geometry", QPointF(-330, -60))
             sol = self.add_node("solver", QPointF(-40, -90))
             self.connect_nodes(geo.node_id, "geometry", sol.node_id, "geometry")
-            self.open_editor(geo.node_id)
-            self.open_editor(sol.node_id)
-            self.tabs.setCurrentIndex(0)
 
     def showEvent(self, event) -> None:
         super().showEvent(event)
@@ -119,7 +138,7 @@ class Workbench(QMainWindow):
 
     def _layout_once(self) -> None:
         h = self.split.height()
-        self.split.setSizes([min(340, h // 2), h - min(340, h // 2)])
+        self.split.setSizes([h // 2, h - h // 2])   # the canvas on top, the monitors below
         self.fit_graph()
 
     def fit_graph(self) -> None:
@@ -148,6 +167,7 @@ class Workbench(QMainWindow):
             editor = spec.factory(project)
             self.editors[node.id] = editor
             self._bound[node.id] = node.id
+            self._place(node.id)
             if spec.face is not None:
                 item.set_face(spec.face(project, editor))
             project.started.connect(lambda nid=node.id: self._started(nid))
@@ -155,6 +175,7 @@ class Workbench(QMainWindow):
         elif spec.standalone:
             self.editors[node.id] = spec.factory(None)
             self._bound[node.id] = -1
+            self._place(node.id)
             self._bind(node.id)
         else:
             self._bind(node.id)
@@ -227,6 +248,10 @@ class Workbench(QMainWindow):
             for link in [l for l in self.graph.links if item.node_id in (l.src, l.dst)]:
                 self._remove_link(link)
             self._drop_editor(item.node_id)
+            win = self.windows.pop(item.node_id, None)
+            if win is not None:
+                win.close()
+                win.deleteLater()
             if item.node_id in self.projects:
                 self.projects.pop(item.node_id).shutdown()
             self.graph.remove(item.node_id)
@@ -247,12 +272,12 @@ class Workbench(QMainWindow):
         want = solver.id if solver is not None else None
         if nid in self._bound and self._bound[nid] == want and nid in self.editors:
             return
-        node, was_open = self.graph.nodes[nid], self._tab_of(nid) >= 0
+        node = self.graph.nodes[nid]
         if node.spec.standalone:   # its editor stays; it is told which solver it feeds
             self.editors[nid].attach(self.projects.get(want) if want is not None else None)
             self._bound[nid] = want
             return
-        self._drop_editor(nid, keep_tab=was_open)
+        self._drop_editor(nid)
         if want is None:
             editor = _placeholder(f"{node.title} is not linked to a solver.\nDrag from its port to a Solver node to link it.")
             self._placeholders.add(nid)
@@ -265,11 +290,26 @@ class Workbench(QMainWindow):
                 self._placeholders.add(nid)
         self.editors[nid] = editor
         self._bound[nid] = want
-        if was_open:
-            self.tabs.addTab(editor, node.title)
-            self.tabs.setCurrentWidget(editor)
+        self._place(nid)
 
-    def _drop_editor(self, nid: int, keep_tab: bool = False) -> None:
+    def _place(self, nid: int) -> None:
+        """Put the editor of a node where it belongs: the monitors in the bottom half, every other editor in a subwindow of its node."""
+        editor, node = self.editors[nid], self.graph.nodes[nid]
+        if node.spec.name == "monitor":
+            if nid not in self._placeholders:
+                self.tabs.addTab(editor, node.title)
+                self.tabs.setCurrentWidget(editor)
+            self._sync_bottom()
+            return
+        win = self.windows.get(nid)
+        if win is None:
+            win = self.windows[nid] = _SubWindow(node.title, self)
+        win.set_editor(editor)
+
+    def _sync_bottom(self) -> None:
+        self.bottom.setCurrentWidget(self.tabs if self.tabs.count() else self.empty)
+
+    def _drop_editor(self, nid: int) -> None:
         editor = self.editors.pop(nid, None)
         self._bound.pop(nid, None)
         if editor is None:
@@ -277,20 +317,29 @@ class Workbench(QMainWindow):
         i = self.tabs.indexOf(editor)
         if i >= 0:
             self.tabs.removeTab(i)
+        win = self.windows.get(nid)
+        if win is not None:
+            win.take_editor(editor)
         if hasattr(editor, "shutdown"):
             editor.shutdown()
         editor.setParent(None)
         editor.deleteLater()
-
-    def _tab_of(self, nid: int) -> int:
-        editor = self.editors.get(nid)
-        return self.tabs.indexOf(editor) if editor is not None else -1
+        self._sync_bottom()
 
     def open_editor(self, nid: int) -> None:
+        """A monitor: show its tab in the bottom half. Any other node: show its subwindow."""
         editor = self.editors[nid]
-        if self.tabs.indexOf(editor) < 0:
-            self.tabs.addTab(editor, self.graph.nodes[nid].title)
-        self.tabs.setCurrentWidget(editor)
+        node = self.graph.nodes[nid]
+        if node.spec.name == "monitor":
+            if self.tabs.indexOf(editor) >= 0:
+                self.tabs.setCurrentWidget(editor)
+            else:
+                self.statusBar().showMessage(f"{node.title} is not linked to a solver: link its run port to watch a run.", 6000)
+            return
+        win = self.windows[nid]
+        win.show()
+        win.raise_()
+        win.activateWindow()
 
     def editor_of(self, nid: int):
         return self.editors.get(nid)
@@ -367,6 +416,8 @@ class Workbench(QMainWindow):
                 editor.shutdown()
         for p in self.projects.values():
             p.shutdown()
+        for win in self.windows.values():
+            win.close()
         super().closeEvent(event)
 
 

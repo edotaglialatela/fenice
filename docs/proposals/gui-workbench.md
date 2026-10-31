@@ -27,14 +27,14 @@ solver's own.
   an editor factory, an optional face for the node, the Python packages it needs). The workbench imports whatever it finds; a module
   whose packages are missing is listed as unavailable with the reason, so that an install without the optional pieces still runs.
   Modules from outside the repository can be added later through the same record.
-* **Editors.** Double-click a node: its editor opens in a tab under the canvas; several can stay open.
+* **Editors.** Double-click a node: its editor opens in a window of its own; the monitors fill the bottom half of the workbench, with the console as a column on the right of the plots.
 
 ## Modules
 
 | Module | What it does | State |
 | --- | --- | --- |
 | Geometry | the domain, the mesh, the immersed body (cylinder, sphere, NACA section, airfoil file), the side conditions, the grid and the solid cells at the chosen resolution, the finer AMR levels; all edited here (an airfoil generator, the values of the conditions: velocity, pressure, mass flow, are not done: they are on the solver) | exists |
-| Solver | the setup dialog without the geometry, Run and Stop, the Low-Mach switch, the monitor interval; one project per solver node | exists |
+| Solver | the setup dialog without the geometry, Run and Stop, the Low-Mach slider, the monitor interval; one project per solver node | exists |
 | Monitor | live plots (time step, wave speed, residual norms, monitor columns) and the console, linked to a solver, also in the middle of a run | exists |
 | Postprocessing | the viewer: fields, slices, adaptive meshes, monitor curves, following a run | exists |
 | Studies | the validation studies and the regression, with their pass or fail | proposed |

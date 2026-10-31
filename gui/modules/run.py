@@ -58,9 +58,11 @@ class RunPanel(QWidget):
         self.ax_dt, self.ax_s, self.ax_r, self.ax_q = self.fig.subplots(4, 1, sharex=True)
         self.fig.subplots_adjust(left=0.12, right=0.98, top=0.98, bottom=0.09, hspace=0.14)
 
-        split = QSplitter(Qt.Orientation.Vertical)
+        split = QSplitter(Qt.Orientation.Horizontal)   # the plots, and the console as a column on the right
         split.addWidget(self.canvas)
         split.addWidget(self.text)
+        split.setStretchFactor(0, 3)
+        split.setStretchFactor(1, 2)
         split.setChildrenCollapsible(False)
         self.split = split
 

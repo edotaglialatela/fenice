@@ -13,9 +13,10 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
 
 from PyQt6.QtCore import QPoint, QPointF, Qt  # noqa: E402
 from PyQt6.QtTest import QTest  # noqa: E402
-from PyQt6.QtWidgets import QApplication, QCheckBox  # noqa: E402
+from PyQt6.QtWidgets import QApplication  # noqa: E402
 
 from gui.theme import apply_theme  # noqa: E402
+from gui.modules.setup import Switch  # noqa: E402
 from gui.workbench import Workbench  # noqa: E402
 
 app = QApplication([])
@@ -49,8 +50,8 @@ def drag(a, b, steps=6):
     QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, b); pump(0.15)
 geo, sol = w.items[1], w.items[2]
 # 1 drag a node by its header
-before=geo.scenePos(); h=vpos(geo.mapToScene(QPointF(60,10)))
-drag(h, h+QPoint(0,60)); ok(abs(geo.scenePos().y()-before.y())>20, f'node dragged ({before.y():.0f} -> {geo.scenePos().y():.0f})')
+before=geo.scenePos(); before_v=vpos(geo.scenePos()); h=vpos(geo.mapToScene(QPointF(60,10)))
+drag(h, h+QPoint(0,60)); ok(abs(geo.scenePos().y()-before.y())>20 or abs(vpos(geo.scenePos()).y()-before_v.y())>20, f'node dragged ({before.y():.0f} -> {geo.scenePos().y():.0f})')
 # link line follows
 ok(w.items[1].out_ports['geometry'].links[0].path().boundingRect().height()>0, 'link follows')
 # 2 add a monitor from the palette (double click) and a post node
@@ -83,7 +84,7 @@ print('links', [(l.src,l.src_port,l.dst,l.dst_port) for l in w.graph.links])
 # ---- the Low-Mach switch and the geometry edits (the solver page is node 2, a geometry node 1)
 page, geo = w.editors[2], w.editors[1]
 face = w.items[2].face.widget()
-low = face.findChild(QCheckBox)
+low = face.findChild(Switch)
 for case, want in (("Sod Shock Tube", False), ("IBM Airfoil AMR", True)):
     page.combo_testcase.setCurrentText(case)
     pump(0.3)
@@ -93,8 +94,19 @@ ok(page.combo_riemann.currentText() == "HLLC", "the switch sets the Riemann solv
 page.combo_riemann.setCurrentText("HLLC (Preconditioned)")
 low.setChecked(True)
 ok(not low.isEnabled() and page.combo_riemann.currentText() == "HLLC (Preconditioned)", "another Riemann solver is left alone")
+ok(w.tabs.count() == 1 and w.tabs.widget(0) is w.editors[3], "the bottom half holds the monitors only")
+mon_panel = w.editors[3]
+ok(mon_panel.text.mapTo(mon_panel, QPoint(0, 0)).x() > mon_panel.canvas.mapTo(mon_panel, QPoint(0, 0)).x(), "the console is a column on the right of the plots")
+ok(not w.windows[1].isVisible(), "an editor is not open until its node is opened")
 w.open_editor(1)
+ok(w.windows[1].isVisible() and w.windows[1].isWindow() and w.editors[1].window() is w.windows[1], "a module opens in a subwindow of its own")
 pump(0.5)
+page.combo_riemann.setCurrentText("HLLC")
+pump(0.1)
+QTest.mouseClick(low, Qt.MouseButton.LeftButton)
+ok(low.isChecked() and page.combo_riemann.currentText() == "HLLC (Low-Mach Thornber)", "a click on the Low-Mach slider moves it to active")
+QTest.mouseClick(low, Qt.MouseButton.LeftButton)
+ok(not low.isChecked() and page.combo_riemann.currentText() == "HLLC", "and back to inactive")
 geo.fields["Lx"].setText("2.5")
 geo.fields["Lx"].editingFinished.emit()
 ok(page.input_Lx.text() == "2.5", "a domain edit reaches the solver's field")

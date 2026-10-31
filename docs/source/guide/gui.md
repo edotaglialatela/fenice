@@ -27,8 +27,9 @@ python gui\workbench.py
 An empty space on which modules are dropped and linked. The palette on the left lists the modules; drag one onto the canvas (or
 double-click it, or use the right-click menu). Each module is a node with typed ports: drag from a port to a port of the same type to
 link them (the ports that fit light up; a link that does not fit is refused). *Delete* removes the selected nodes or links, the wheel
-zooms the canvas and the middle button pans it. Double-click a node to open its editor in a tab under the canvas; several tabs can stay
-open. The default is a **Geometry** node linked to a **Solver** node.
+zooms the canvas and the middle button pans it. Double-click a node to open its editor: every module opens in a window of its own (closing it only hides it), except the
+Monitors, which fill the bottom half of the workbench (one tab each, the plots on the left and the console as a column on the right).
+The default is a **Geometry** node linked to a **Solver** node.
 
 * **Geometry** (output: geometry). The domain, the Cartesian mesh, the immersed body and the boundary condition of each side, with the
   solid cells they make, as a picture. A cylinder, a sphere (cut through its centre in 3-D), a `NACA dddd` section or an airfoil file,
@@ -44,7 +45,7 @@ open. The default is a **Geometry** node linked to a **Solver** node.
   `cases/validation/check_geometry.py` checks that the number of solid cells equals the solver's on every case with a body.
 * **Solver** (input: geometry; outputs: run, results). The setup dialog described below, without the geometry: case, thermodynamics,
   physics, numerical scheme, output, MPI, hot start and AMR. It does not run without a linked geometry. The node itself carries
-  *Run* and *Stop*, the **Low-Mach correction** switch (the Riemann solver of the dialog: `HLLC` or `HLLC (Low-Mach Thornber)`; it is
+  *Run* and *Stop*, the **Low-Mach** slider (inactive / active; a click moves it) (the Riemann solver of the dialog: `HLLC` or `HLLC (Low-Mach Thornber)`; it is
   disabled when another Riemann solver is chosen in the dialog, and leaves that choice alone) and **Record every** *N* steps (the
   `monitor_interval` of the next run; *case* keeps the case's own value; each record costs one extra residual evaluation). *Stop*
   creates a `STOP` file in the output folder: the solver saves its checkpoint and the `.pvd` index, then exits, serial or under MPI. A

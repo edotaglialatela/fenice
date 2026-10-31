@@ -6,14 +6,55 @@ node's face carries Run / Stop, the Low-Mach switch and the monitor interval.
 """
 from __future__ import annotations
 
-from PyQt6.QtCore import Qt
-from PyQt6.QtWidgets import (QCheckBox, QDialogButtonBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSpinBox, QVBoxLayout,
+from PyQt6.QtCore import Qt, pyqtSignal
+from PyQt6.QtWidgets import (QDialogButtonBox, QHBoxLayout, QLabel, QMessageBox, QPushButton, QSlider, QSpinBox, QVBoxLayout,
                              QWidget)
 
 from gui.modules import ModuleSpec, Port
 from gui.project import IDLE, RUNNING
 
 LOW_MACH, PLAIN = "HLLC (Low-Mach Thornber)", "HLLC"
+
+
+class Switch(QSlider):
+    """A two-position slider (inactive / active): a click anywhere, or the space bar, moves it to the other end."""
+
+    toggled = pyqtSignal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(Qt.Orientation.Horizontal, parent)
+        self.setRange(0, 1)
+        self.setFixedSize(40, 22)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.setStyleSheet("QSlider::groove:horizontal { height: 10px; border-radius: 5px; background: #b8bfcc; }"
+                           "QSlider::sub-page:horizontal { border-radius: 5px; background: #9b2d3a; }"
+                           "QSlider::handle:horizontal { width: 18px; margin: -5px 0; border-radius: 9px; background: #ffffff;"
+                           " border: 1px solid #7a8190; }"
+                           "QSlider:disabled::sub-page:horizontal { background: #c9ced8; }")
+        self.valueChanged.connect(lambda v: self.toggled.emit(bool(v)))
+
+    def isChecked(self) -> bool:
+        return self.value() == 1
+
+    def setChecked(self, on: bool) -> None:
+        self.setValue(1 if on else 0)
+
+    def mousePressEvent(self, event) -> None:
+        if self.isEnabled() and event.button() == Qt.MouseButton.LeftButton:
+            self.setChecked(not self.isChecked())
+        event.accept()
+
+    def mouseMoveEvent(self, event) -> None:
+        event.accept()
+
+    def mouseReleaseEvent(self, event) -> None:
+        event.accept()
+
+    def keyPressEvent(self, event) -> None:
+        if event.key() in (Qt.Key.Key_Space, Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            self.setChecked(not self.isChecked())
+        else:
+            super().keyPressEvent(event)
 
 
 def _make(project):
@@ -94,18 +135,26 @@ def _face(project, page):
     row.addWidget(run)
     row.addWidget(stop)
     lay.addLayout(row)
-    low = QCheckBox("Low-Mach correction")
-    lay.addWidget(low)
+    low = Switch()
+    low_text = QLabel("inactive")
+    lowrow = QHBoxLayout()
+    lowrow.addWidget(QLabel("Low-Mach"))
+    lowrow.addStretch(1)
+    lowrow.addWidget(low_text)
+    lowrow.addWidget(low)
+    lay.addLayout(lowrow)
     rec = QHBoxLayout()
     rec.addWidget(QLabel("Record every"))
     spin = QSpinBox()
     spin.setRange(0, 1_000_000)
     spin.setValue(project.monitor_every)
     spin.setSpecialValueText("case")
+    spin.setFixedWidth(78)
     spin.setToolTip("Write the monitor file (residuals, averages, loads) every N steps in the next run; 'case' keeps the case's own "
                     "monitor_interval. Each record costs one extra residual evaluation.")
     rec.addWidget(spin)
     rec.addWidget(QLabel("steps"))
+    rec.addStretch(1)
     lay.addLayout(rec)
 
     combo = page.combo_riemann
@@ -115,6 +164,7 @@ def _face(project, page):
         text = combo.currentText()
         syncing[0] = True
         low.setChecked(text == LOW_MACH)
+        low_text.setText("active" if text == LOW_MACH else "inactive")
         low.setEnabled(text in (PLAIN, LOW_MACH) and project.state == IDLE)
         low.setToolTip("Scales the numerical dissipation of the HLLC solver at low Mach number (Thornber)." if text in (PLAIN, LOW_MACH)
                        else f"The Riemann solver is '{text}', set in the Setup editor: the switch leaves it alone.")
@@ -138,6 +188,7 @@ def _face(project, page):
 
     combo.currentTextChanged.connect(from_combo)
     low.toggled.connect(to_combo)
+    low.toggled.connect(lambda on: low_text.setText("active" if on else "inactive"))
     spin.valueChanged.connect(lambda v: setattr(project, "monitor_every", v))
     run.clicked.connect(page.validate_and_accept)
     stop.clicked.connect(project.stop)
