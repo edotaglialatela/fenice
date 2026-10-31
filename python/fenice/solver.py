@@ -26,11 +26,20 @@ def exe():
                             "cmake --preset release && cmake --build --preset release (Linux / macOS)")
 
 
-def run(case, *sets, out_root=None, mpi=0, dump=None, threads=None, check=True, capture=True):
+def study_threads():
+    """OpenMP threads of a study run: $FENICE_STUDY_THREADS, default 2 (the machine stays usable)."""
+    try:
+        return max(1, int(os.environ.get("FENICE_STUDY_THREADS", "2")))
+    except ValueError:
+        return 2
+
+
+def run(case, *sets, out_root=None, mpi=0, dump=None, threads=None, check=True, capture=True, polite=False):
     """Run `case` (name, folder or case.toml) with `--set` overrides ("nx=200", ...).
 
     out_root: output_root (results go to out_root/<case>/); mpi: number of MPI ranks
-    (> 1: under mpiexec); dump: write the final state to this .npz; threads: OpenMP threads.
+    (> 1: under mpiexec); dump: write the final state to this .npz; threads: OpenMP threads;
+    polite: start the solver at below-normal priority (Windows; elsewhere a no-op).
     Returns the CompletedProcess (stdout / stderr captured unless capture=False)."""
     cmd = [exe(), "--case", str(case), "--no-logo"]
     if out_root is not None:
@@ -45,4 +54,5 @@ def run(case, *sets, out_root=None, mpi=0, dump=None, threads=None, check=True, 
         cmd = ["mpiexec", "-n", str(mpi)] + cmd + ["--set", "use_mpi=true", "--set", f"n_cpus={mpi}", "--mpi-child"]
     else:
         cmd += ["--set", "use_mpi=false"]
-    return subprocess.run(cmd, check=check, capture_output=capture, text=True)
+    flags = subprocess.BELOW_NORMAL_PRIORITY_CLASS if polite and os.name == "nt" else 0
+    return subprocess.run(cmd, check=check, capture_output=capture, text=True, creationflags=flags)

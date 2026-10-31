@@ -11,7 +11,7 @@ tools and the regression check (``python prerequisites.py`` installs it in edita
 from .io import primitive, read_dump, read_monitor, read_pvd, read_vtr, read_vtu, vtk_array
 from .solver import RESULTS, ROOT, exe, run
 from . import geometry, summary
-from .summary import parse_summary
+from .summary import parse_summary, write_summary
 
 __all__ = ["ROOT", "RESULTS", "exe", "run", "vtk_array", "read_pvd", "read_vtr", "read_vtu", "read_monitor", "read_dump",
-           "primitive", "parse_summary"]
+           "primitive", "parse_summary", "write_summary"]

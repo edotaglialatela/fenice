@@ -1,5 +1,7 @@
 """The numbers of the end-of-run report of a solver run, read from its standard output."""
+import json
 import re
+from pathlib import Path
 
 NUM = r"([0-9.]+)"
 _WALL = re.compile(rf"time loop {NUM} s, (\d+) steps")
@@ -56,3 +58,17 @@ def parse_summary(out, require=()):
     if missing:
         raise RuntimeError(f"not in the solver output: {', '.join(missing)}")
     return res
+
+
+def write_summary(study, data, folder=None):
+    """Write results/validation/<study>/summary.json: `data` is a dict of plain numbers / strings / lists (the study's
+    checks, bands and measured values; "passed": bool by convention). Returns the path. Summaries are results, not sources:
+    the folder is gitignored."""
+    from .solver import RESULTS
+    d = Path(folder) if folder is not None else RESULTS / "validation" / study
+    d.mkdir(parents=True, exist_ok=True)
+    path = d / "summary.json"
+    tmp = d / "summary.json.tmp"
+    tmp.write_text(json.dumps({"study": study, **data}, indent=2, sort_keys=True, default=float) + "\n")
+    tmp.replace(path)
+    return path

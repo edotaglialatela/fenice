@@ -2,10 +2,17 @@
 results/validation/<study>/, cached runs (re-run only with --force), one figure style, and
 figures saved there and, with --docs, copied into docs/img/."""
 import argparse
+import os
 import shutil
+import sys
+import time
 from pathlib import Path
 
-from .solver import RESULTS, ROOT, run
+from .budget import run_budgeted
+from .solver import RESULTS, ROOT, run, study_threads
+
+PARTIAL = 75   # exit code of a study stopped by its budget (the next call continues it); EX_TEMPFAIL
+_deadline = None
 
 DOCS_IMG = ROOT / "docs" / "img"
 
@@ -26,17 +33,43 @@ def study_dir(study):
     return d
 
 
-def run_cached(study, tag, case, *sets, mpi=0, threads=None, force=False, done="final.npz"):
+def budget_left():
+    """Minutes left of the study's wall-time budget ($FENICE_STUDY_BUDGET, counted from the first run), or None."""
+    global _deadline
+    env = os.environ.get("FENICE_STUDY_BUDGET")
+    if not env:
+        return None
+    if _deadline is None:
+        _deadline = time.time() + float(env) * 60.0
+    return max(0.0, (_deadline - time.time()) / 60.0)
+
+
+def run_cached(study, tag, case, *sets, mpi=0, threads=None, force=False, done="final.npz", chunk_steps=200):
     """Run `case` with the `--set` overrides into results/validation/<study>/<tag>/, unless
     that run already finished and force is False: a file matching the glob `done` (default:
     the final state final.npz) exists in the run folder.
+    The solver runs at below-normal priority on `threads` OpenMP threads ($FENICE_STUDY_THREADS, default 2).
+    With a budget ($FENICE_STUDY_BUDGET, minutes) the run goes in chunks of `chunk_steps` steps and, when the budget is
+    spent, the process exits with code PARTIAL: the next call resumes from the checkpoint.
     Returns the run folder: final.npz plus the case's output folder (snapshots, monitor)."""
     d = study_dir(study) / tag
     dump = d / "final.npz"
     if force or not any(d.glob(done)):
+        if force and d.exists():   # a forced run starts over, not from an old checkpoint
+            shutil.rmtree(d)
         d.mkdir(parents=True, exist_ok=True)
         print(f"[RUN] {study}/{tag}: {case} {' '.join(sets)}", flush=True)
-        run(case, *sets, out_root=d, mpi=mpi, dump=dump, threads=threads)
+        threads = threads or study_threads()
+        left = budget_left()
+        if left is None:
+            run(case, *sets, out_root=d, mpi=mpi, dump=dump, threads=threads, polite=True)
+        else:
+            res = run_budgeted(case, *sets, out_root=d, budget_minutes=left, chunk_steps=chunk_steps, dump=dump,
+                               threads=threads, mpi=mpi)
+            if res["state"] == "partial":
+                print(f"[PARTIAL] {study}/{tag}: budget spent after {res['steps']} steps; call again to continue",
+                      flush=True)
+                sys.exit(PARTIAL)
     return d
 
 
