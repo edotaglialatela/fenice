@@ -153,7 +153,8 @@ def main():
 
     # spectral analysis of the shedding from the two runs: lift, drag (at 2 f) and St from a sliding window
     WIN = 12.0
-    fig2, axs = plt.subplots(1, 3, figsize=(12.5, 3.6))
+    fig2, grid = plt.subplots(2, 2, figsize=(11.5, 7.6))
+    axs, zoom = [grid[0, 0], grid[1, 0], grid[1, 1]], grid[0, 1]
     for (name, d, color, lab) in (("l3", d3, "#2980b9", "20 cells/D"), ("l4", d4, "#c0392b", "40 cells/D")):
         t, cl, cd = d["t"], d["Cl"], d["Cd"]
         late = t >= T_ST
@@ -181,16 +182,27 @@ def main():
         axs[2].plot(cs, ss, color=color, lw=1.3, label=lab)
     axs[0].axvspan(*REF, color="#27ae60", alpha=0.5, lw=0, label="literature St")
     axs[2].axhspan(*REF, color="#27ae60", alpha=0.5, lw=0, label="literature St")
-    ins = axs[0].inset_axes([0.50, 0.03, 0.47, 0.30])
-    for name, d, color in (("l3", d3, "#2980b9"), ("l4", d4, "#c0392b")):
+    # the detail: the lift peak on a linear scale, with the literature band at its true width
+    zoom.axvspan(*REF, color="#27ae60", alpha=0.35, lw=0)
+    zoom.axvline(REF[0], color="#1e8449", lw=1.0)
+    zoom.axvline(REF[1], color="#1e8449", lw=1.0)
+    ymax = 0
+    for name, d, color, lab in (("l3", d3, "#2980b9", "20 cells/D"), ("l4", d4, "#c0392b", "40 cells/D")):
         s_, a_ = spectrum(d["t"][d["t"] >= T_ST], d["Cl"][d["t"] >= T_ST])
-        ins.plot(s_, a_, color=color, lw=1.3)
-    ins.axvspan(*REF, color="#27ae60", alpha=0.5, lw=0)
-    ins.set_xlim(0.155, 0.177)
-    ins.set_ylim(0, 0.45)
-    ins.set_facecolor("white")
-    ins.tick_params(labelsize=7)
-    ins.grid(True, ls="--", alpha=0.4)
+        i_ = np.argmax(np.where((s_ > 0.05) & (s_ < 0.4), a_, 0))
+        zoom.plot(s_, a_, color=color, lw=1.6, label=f"{lab}: peak {s_[i_]:.4f}")
+        zoom.plot(s_[i_], a_[i_], "o", color=color, ms=4)
+        ymax = max(ymax, a_[i_])
+    ymax *= 1.18
+    zoom.annotate(f"literature\n{REF[0]}-{REF[1]}", xy=(sum(REF) / 2, ymax * 0.55), xytext=(0.1515, ymax * 0.82),
+                  fontsize=8, color="#1e8449", arrowprops=dict(arrowstyle="->", color="#1e8449", lw=0.9))
+    zoom.set_xlim(0.150, 0.182)
+    zoom.set_ylim(0, ymax)
+    zoom.set_xlabel(r"$\mathrm{St}=fD/u_\infty$")
+    zoom.set_ylabel("amplitude of $C_l$")
+    zoom.set_title("lift, detail of the peak", fontsize=10)
+    zoom.grid(True, ls="--", alpha=0.5)
+    zoom.legend(fontsize=8, loc="upper right")
     axs[0].set_xlim(0, 0.7)
     axs[1].set_xlim(0, 0.7)
     for a in axs[:2]:

@@ -90,8 +90,8 @@ Hann window and zero padding.
 
 <figure>
 <img src="{{root}}img/cylinder_low_blockage_spectra.png" style="width:100%">
-<figcaption>Lift spectrum (with a zoom on the peak, where the literature band $0.164$-$0.166$ is visible), drag spectrum and the
-Strouhal number from a sliding window of 12 time units, at 20 and 40 cells per diameter.</figcaption>
+<figcaption>Top: lift spectrum and a detail of its peak on a linear scale, where the literature band $0.164$-$0.166$ is visible.
+Bottom: drag spectrum and the Strouhal number from a sliding window of 12 time units, at 20 and 40 cells per diameter.</figcaption>
 </figure>
 
 The lift peaks at $\mathrm{St} = 0.1657$ (20 cells per diameter, amplitude 0.39) and $0.1659$ (40, amplitude 0.33) with a third
