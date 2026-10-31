@@ -21,6 +21,30 @@ $3200\times2400 = 7.7$ million cells, so the case uses the [cell-based AMR]({{ro
 * a small transverse kick behind the cylinder (`[[initial.region]]`) that starts the shedding at once; a symmetric start takes
   about 25 time units.
 
+## The mesh
+
+The $200\times150$ base mesh (level 0) has cells of size $h_0 = 16/200 = 0.08$, 2.5 per diameter. Every level halves the cell
+size, $h_\ell = 0.08/2^\ell$:
+
+| level | cell size | cells per diameter | where it is used |
+|---|---:|---:|---|
+| 0 | 0.08 | 2.5 | far field, inlet side, above and below the wake (29 506 of 42 126 leaves at the end of the 4-level run) |
+| 1 | 0.04 | 5 | the vortex street downstream of $x \approx 5$ |
+| 2 | 0.02 | 10 | transition between the body and the wake |
+| 3 | 0.01 | 20 | the body of the 3-level run (`amr_max_level = 3`); a transition level in the 4-level run |
+| 4 | 0.005 | 40 | the body of the 4-level run (8 412 leaves, around the body and the first part of the wake) |
+
+* The cells touching the body, and a band of 6 finest-level cells around it (what the ghost-cell wall reads), are on the
+  finest level from $t = 0$ and are never joined (`amr_refine_ibm`).
+* Elsewhere a leaf is refined when the relative variation of the **speed** across its faces reaches
+  `amr_refine_threshold` (0.15); the indicator is smoothed `amr_diffusion = 2` times, which widens the band, and four siblings are joined
+  when the indicator of their parent is below `amr_derefine_threshold` (0.1). The mesh is adapted every
+  `amr_refine_every = 5` coarse steps, so the fine regions follow the vortices.
+* Each level advances with its own time step $\Delta t_0/2^\ell$ (subcycling), finer levels first, and the fluxes through the faces
+  between levels are replaced through flux registers, so the scheme stays conservative.
+* In the picture below the AMR-level panel shows this: the finest level only around the body, a step down through the near wake,
+  and level 1 for the rest of the street.
+
 ```powershell
 build\release\fenice.exe --case "IBM Cylinder Low Blockage AMR"                    # 20 cells per diameter, t = 60
 build\release\fenice.exe --case "IBM Cylinder Low Blockage AMR" --set amr_max_level=4   # 40 cells per diameter
