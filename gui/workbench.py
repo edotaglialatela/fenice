@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
@@ -62,7 +63,8 @@ class Workbench(QMainWindow):
     def __init__(self, default_graph: bool = True):
         super().__init__()
         self.setWindowTitle("Fenice")
-        self.resize(1560, 980)
+        screen = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() is not None else None
+        self.resize(min(1800, screen.width() - 40) if screen else 1800, min(1020, screen.height() - 40) if screen else 1020)
         self.graph = Graph()
         self.specs = {s.name: s for s in discover()}
         self.items: dict[int, NodeItem] = {}
@@ -105,7 +107,7 @@ class Workbench(QMainWindow):
         self.bottom.addWidget(self.tabs)
         self.tabs.currentChanged.connect(self._show_console)
         self.console_stack = QStackedWidget()   # the console of the monitor on show: a column on the right, the full height of the window
-        self.console_stack.setMinimumWidth(440)
+        self.console_stack.setMinimumWidth(440)   # widened to the banner of the solver when a console comes in (_place)
         hint = QLabel("The console of a linked Monitor shows here.")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setStyleSheet("background: #1b1d23; color: #8a8f9c;")
@@ -147,7 +149,9 @@ class Workbench(QMainWindow):
 
     def _layout_once(self) -> None:
         h = self.split.height()
-        self.split.setSizes([h // 2, h - h // 2])   # the canvas on top, the monitors below
+        tall = max((i.boundingRect().height() for i in self.items.values()), default=200)
+        top = min(int(1.75 * tall), h // 2)   # the canvas only a little taller than the tallest node: the monitors get the rest
+        self.split.setSizes([top, h - top])
         self.fit_graph()
 
     def fit_graph(self) -> None:
@@ -307,6 +311,7 @@ class Workbench(QMainWindow):
         if node.spec.name == "monitor":
             if nid not in self._placeholders:
                 self.console_stack.addWidget(editor.console)
+                self._fit_console_width(editor.console)
                 self.tabs.addTab(editor, node.title)
                 self.tabs.setCurrentWidget(editor)
             self._sync_bottom()
@@ -315,6 +320,18 @@ class Workbench(QMainWindow):
         if win is None:
             win = self.windows[nid] = _SubWindow(node.title, self)
         win.set_editor(editor)
+
+    def _fit_console_width(self, console) -> None:
+        """The console column is at least as wide as the ASCII logo the solver prints, so that the banner is not cut."""
+        from PyQt6.QtGui import QFontMetrics
+
+        import fenice
+        try:
+            cols = max(len(line.rstrip("\r\n")) for line in (Path(fenice.ROOT) / "cpp" / "logo.txt").read_text(encoding="utf-8").splitlines())
+        except (OSError, ValueError):
+            cols = 100
+        width = QFontMetrics(console.font()).horizontalAdvance("M") * cols + 2 * console.frameWidth() + console.verticalScrollBar().sizeHint().width() + 12
+        self.console_stack.setMinimumWidth(max(self.console_stack.minimumWidth(), width))
 
     def _sync_bottom(self) -> None:
         self.bottom.setCurrentWidget(self.tabs if self.tabs.count() else self.empty)

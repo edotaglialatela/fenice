@@ -230,7 +230,7 @@ class RunPanel(QWidget):
                 self.cb_quantity.setCurrentText(keep)
             self.cb_quantity.blockSignals(False)
 
-    def _prepare(self, ax, label: str, last=None, bottom: bool = False) -> None:
+    def _prepare(self, ax, label: str, last=None, bottom: bool = False, nbins: int = 3) -> None:
         """A clean panel: the name inside the top-left corner, the latest value inside the top-right one, few ticks, no frame on two sides."""
         from matplotlib.ticker import MaxNLocator, NullFormatter
         c = self._colors
@@ -240,7 +240,7 @@ class RunPanel(QWidget):
         for side in ("top", "right"):
             ax.spines[side].set_visible(False)
         ax.tick_params(labelsize=7, length=2.5, pad=2, labelbottom=bottom)
-        ax.yaxis.set_major_locator(MaxNLocator(nbins=3, min_n_ticks=2))
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=nbins, min_n_ticks=2))
         ax.yaxis.set_major_formatter(_tick_format)
         ax.yaxis.set_minor_formatter(NullFormatter())
         ax.text(0.008, 0.94, label, transform=ax.transAxes, ha="left", va="top", fontsize=9, color=c["ink"], zorder=5)
@@ -265,17 +265,29 @@ class RunPanel(QWidget):
         hist = pr.progress_history
         t = np.array([r[1] for r in hist], dtype=float)
         dt = np.array([r[2] for r in hist], dtype=float)
+        t_dt = t   # the times of the dt curve: those of the progress lines, or of the monitor file when it is there
+        m = self.monitor
+        if m is not None and len(m) > 2 and "step" in m.dtype.names:   # the mean time step between two rows of the monitor file: live at its pace
+            steps, times = np.asarray(m["step"], dtype=float), np.asarray(m["t"], dtype=float)
+            ds = np.diff(steps)
+            ok = ds > 0
+            if ok.any():
+                t_dt, dt = times[1:][ok], (np.diff(times)[ok] / ds[ok])
         smax = np.array([r[3] for r in hist], dtype=float)
         mark = "." if len(t) < 60 else None
-        self._prepare(self.ax_dt, r"$\Delta t$  [s]", dt[-1] if len(dt) else None)
-        self._prepare(self.ax_s, r"$S_{\max}$  [m/s]", smax[-1] if len(smax) else None)
-        if len(t):
-            self.ax_dt.plot(t, dt, color=c["primary"], lw=1.2, marker=mark, ms=3)
-            self.ax_s.plot(t, smax, color=c["primary"], lw=1.2, marker=mark, ms=3)
+        mark_dt = "." if len(t_dt) < 60 else None
+        self._prepare(self.ax_dt, r"$\Delta t$  [s]", dt[-1] if len(dt) else None, nbins=2)
+        self._prepare(self.ax_s, r"$S_{\max}$  [m/s]", smax[-1] if len(smax) else None, nbins=2)
+        if len(t_dt):
+            self.ax_dt.plot(t_dt, dt, color=c["primary"], lw=1.2, marker=mark_dt, ms=3)
             self._fit(self.ax_dt, dt)
+        else:
+            self._note(self.ax_dt, "the time step comes from the monitor file or the progress lines")
+        if len(t):
+            self.ax_s.plot(t, smax, color=c["primary"], lw=1.2, marker=mark, ms=3)
             self._fit(self.ax_s, smax)
         else:
-            self._note(self.ax_dt, "the time step and the wave speed come from the progress lines (every save_interval steps)")
+            self._note(self.ax_s, "the wave speed comes from the progress lines (every save_interval steps)")
         self._draw_residuals()
         q = self.cb_quantity.currentText()
         label, y, tq, log = q or "monitor", None, None, False
@@ -325,7 +337,11 @@ class RunPanel(QWidget):
         if finite.size:
             lo, hi = float(finite.min()), float(finite.max())
             ax.set_ylim(10 ** np.floor(np.log10(lo) - 0.05), 10 ** (np.ceil(np.log10(hi)) + 0.45))   # whole decades, room for the corner text
-        ax.legend(loc="upper center", fontsize=8, ncol=3, frameon=False, handlelength=1.4, columnspacing=1.2, borderaxespad=0.2)
+        leg = ax.legend(loc="upper center", fontsize=10, ncol=3, frameon=True, handlelength=1.6, columnspacing=1.4, borderaxespad=0.25,
+                        borderpad=0.3, handletextpad=0.5)
+        leg.get_frame().set_facecolor("white")
+        leg.get_frame().set_alpha(0.65)   # a translucent white behind the text only, so that the curves below stay visible
+        leg.get_frame().set_edgecolor("none")
 
     # ---- states
     def _state(self, state: str) -> None:

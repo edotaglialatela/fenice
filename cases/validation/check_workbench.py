@@ -186,6 +186,18 @@ link = next(l for l in w.graph.links if l.src == g3.node_id)
 w._remove_link(link)
 pump(0.2)
 ok(w.editors[g3.node_id] is geo3 and geo3.project is None and geo3.p["nx"] == "123", "unlinking keeps the geometry")
+# ---- the plots redraw when the monitor file is denser than the progress lines (an exception in a slot would end the program)
+import numpy as np  # noqa: E402
+
+panel = w.editors[3]
+panel.project.progress_history = [(500, 0.5, 4.6e-3, 6.7, 0, "1.0s")]
+panel.monitor = np.array([(i * 10, i * 0.046, 0.0039, 1.0, 1.0, 1.0, 1.0, 1.0) for i in range(1, 30)],
+                         dtype=[("step", "f8"), ("t", "f8"), ("mass", "f8"), ("kinetic_energy", "f8"), ("total_energy", "f8"),
+                                ("res_rho", "f8"), ("res_mom", "f8"), ("res_E", "f8")])
+panel._fill_choices()
+panel._redraw()
+ok(len(panel.ax_dt.lines) == 1 and len(panel.ax_dt.lines[0].get_xdata()) == 28 and len(panel.ax_s.lines) == 1, "dt is drawn at the pace of the monitor file, S_max from the progress lines")
+
 # ---- colour of the plain console lines
 from gui import ansi  # noqa: E402
 

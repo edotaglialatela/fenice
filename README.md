@@ -151,6 +151,17 @@ python prerequisites.py      # one-time: PyQt6, numpy, matplotlib, markdown2 (py
 python gui/run.py
 ```
 
+The **workbench** is an empty canvas of modules to drag and link: a *Geometry* node (domain, mesh,
+immersed body, side conditions, with a picture of the solid cells) linked to a *Solver* node (the setup
+above, Run / Stop, a Low-Mach slider and the monitor interval); a *Monitor* node linked to the solver
+shows its live plots (time step, wave speed, residuals, monitor columns) in the bottom half and its
+console as a column on the right; a *Postprocessing* node linked to the solver opens the result viewer.
+Several solvers can run at once, each with its own monitor. Other modules open in windows of their own.
+
+```bash
+python gui/workbench.py
+```
+
 ## Test cases
 
 Every test case is a folder under [`cases/`](cases/) holding one `case.toml`. That file

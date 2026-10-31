@@ -53,13 +53,14 @@ The default is a **Geometry** node linked to a **Solver** node.
   have its geometry unlinked.
 * **Monitor** (input: run). Four panels share the time axis, the residuals being the largest: the time step $\Delta t$ and the wave
   speed $S_{\max}$ (small), the residual norms of the density, momentum and energy equations relative to their first value, $R/R_0$
-  (`res_rho`, `res_mom`, `res_E`, log axis with whole decades only), and one more quantity of your choice (a column of the monitor file, or
-  the number of leaves of an AMR run). The name of each panel is written inside its top-left corner and its latest value inside the
-  top-right one, a panel has at most three ticks, and the vertical range follows the data (a nearly constant quantity is not
+  (`res_rho`, `res_mom`, `res_E`, log axis with whole decades only, the legend on a translucent white background behind the text only), and one more quantity of your choice (a column of the monitor file, or
+  the number of leaves of an AMR run). The workbench opens with the canvas only about 1.75 times as high as a node, the rest of the height going to the monitors. The name of each panel is written inside its top-left corner and its latest value inside the
+  top-right one, a panel has at most three ticks (two for the small ones), and the vertical range follows the data (a nearly constant quantity is not
   magnified). The labels are typeset with mathtext (Computer Modern), which needs no TeX installation. The curves are filled from the
-  progress lines (every `save_interval` steps) and the monitor file. Above the plots, a bar and a line give the percentage of the
+  progress lines (every `save_interval` steps) and the monitor file: $\Delta t$ is the mean time step between two rows of the monitor
+  file, so it is live at that pace, and $S_{\max}$ comes from the progress lines. Above the plots, a bar and a line give the percentage of the
   physical time, the step, $t$, $\Delta t$, $S_{\max}$ and an estimate of the time left. The solver's console is a column on the
-  right of the workbench, the full height of the window, showing the console of the monitor on show: the solver's own colours, and
+  right of the workbench, the full height of the window and at least as wide as the solver's ASCII banner (100 columns), showing the console of the monitor on show: the solver's own colours, and
   colours for its plain lines (step lines with $t$, $\Delta t$, $S_{\max}$ and the leaves in their own colours, section tags, errors in
   red, warnings in amber, checkpoints and the end of the run in green); only rank 0 writes under MPI. The console states the total
   physical time and notes each time the run passes a multiple of 10 % of it. A monitor linked in the middle of a run shows it from its
