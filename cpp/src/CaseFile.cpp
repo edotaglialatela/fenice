@@ -40,7 +40,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& section_tab
           "nrbc_beta"}},
         {"numerics",
          {"riemann_solver", "use_muscl", "muscl_limiter", "time_scheme", "cfl", "dt_phys", "max_inner_iter",
-          "inner_tol_rel"}},
+          "inner_tol_rel", "shock_blend"}},
         {"run",
          {"t_end", "save_interval", "monitor_interval", "max_steps", "resume", "output_root", "dump_state",
           "vtk_format"}},

@@ -31,6 +31,7 @@ inline V dv(V a, V b) { return _mm256_div_pd(a, b); }
 inline V vsqrt(V a) { return _mm256_sqrt_pd(a); }
 inline V lt(V a, V b) { return _mm256_cmp_pd(a, b, _CMP_LT_OQ); }
 inline V ge(V a, V b) { return _mm256_cmp_pd(a, b, _CMP_GE_OQ); }
+inline V le(V a, V b) { return _mm256_cmp_pd(a, b, _CMP_LE_OQ); }
 inline V band(V a, V b) { return _mm256_and_pd(a, b); }
 inline V bor(V a, V b) { return _mm256_or_pd(a, b); }
 // mask ? b : a, lane by lane
@@ -102,7 +103,7 @@ struct AxisMasks {
 };
 
 // RiemannSolver::hllc for four faces
-void hllc4(const VEos& E, RiemannType type, double ma_cut, const AxisMasks& ax, const Vec5& UL, const Vec5& UR, Vec5& F, V& smax) {
+void hllc4(const VEos& E, RiemannType type, double ma_cut, double sb, const AxisMasks& ax, const Vec5& UL, const Vec5& UR, Vec5& F, V& smax) {
     const Vec5 WL = E.cons_to_prim(UL), WR = E.cons_to_prim(UR);
     const V rho_L = WL.q[0], p_L = WL.q[3], rho_R = WR.q[0], p_R = WR.q[3];
     const V velL[3] = {WL.q[1], WL.q[2], WL.q[4]}, velR[3] = {WR.q[1], WR.q[2], WR.q[4]};
@@ -180,6 +181,22 @@ void hllc4(const VEos& E, RiemannType type, double ma_cut, const AxisMasks& ax, 
         f = blend(f, FR.q[q], c4);
         F.q[q] = f;
     }
+    // Shock-face dissipation, as in RiemannSolver::hllc (same operations, same order)
+    if (sb > 0.0) {
+        const V vsb = set1(sb), one = set1(1.0);
+        const V s = dv(vabs(sub(p_R, p_L)), vmin(p_L, p_R));
+        const V on = lt(vsb, s);
+        const V phi = vmin(dv(sub(s, vsb), vsb), one);
+        const V inv = dv(one, sub(S_R, S_L));
+        const V hl = ge(S_L, zero), hr = le(S_R, zero);
+        const V SLR = mul(S_L, S_R);
+        for (int q = 0; q < 5; ++q) {
+            const V hll = mul(add(sub(mul(S_R, FL.q[q]), mul(S_L, FR.q[q])), mul(SLR, sub(UR.q[q], UL.q[q]))), inv);
+            const V Fh = blend(blend(hll, FR.q[q], hr), FL.q[q], hl);
+            const V Fn = add(mul(sub(one, phi), F.q[q]), mul(phi, Fh));
+            F.q[q] = blend(F.q[q], Fn, on);
+        }
+    }
     smax = vmax(vabs(S_L), vabs(S_R));
 }
 
@@ -212,7 +229,7 @@ AxisMasks axis_masks(const int* axis) {
 }
 
 // RiemannSolver::face_flux for four faces given their left / right conservative states
-void flux4(const VEos& E, RiemannType type, double ma_cut, const AxisMasks& ax, Vec5 L, Vec5 R, Vec5& Fk, V& sm) {
+void flux4(const VEos& E, RiemannType type, double ma_cut, double sb, const AxisMasks& ax, Vec5 L, Vec5 R, Vec5& Fk, V& sm) {
     if (type == RiemannType::LowMachHLLC) {
         // Thornber low-Mach scaling of the velocity jump, then standard HLLC
         Vec5 WL = E.cons_to_prim(L), WR = E.cons_to_prim(R);
@@ -231,7 +248,7 @@ void flux4(const VEos& E, RiemannType type, double ma_cut, const AxisMasks& ax, 
         L = E.prim_to_cons(WL);
         R = E.prim_to_cons(WR);
     }
-    hllc4(E, type, ma_cut, ax, L, R, Fk, sm);
+    hllc4(E, type, ma_cut, sb, ax, L, R, Fk, sm);
 }
 
 void store_results(State* F, double* smax, int k, const Vec5& Fk, V sm) {
@@ -277,19 +294,19 @@ inline V gather_q(const State* W, const int* st, int k, int point, int q) {
 
 }   // namespace
 
-void riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, const State* UL, const State* UR, const int* axis, int n,
+void riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, double sb, const State* UL, const State* UR, const int* axis, int n,
                         State* F, double* smax) {
     const VEos E(eos);
     for (int k = 0; k < n; k += 4) {
         Vec5 Fk;
         V sm;
-        flux4(E, type, ma_cut, axis_masks(axis + k), load4(UL + k), load4(UR + k), Fk, sm);
+        flux4(E, type, ma_cut, sb, axis_masks(axis + k), load4(UL + k), load4(UR + k), Fk, sm);
         store_results(F, smax, k, Fk, sm);
     }
     _mm256_zeroupper();
 }
 
-void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, Limiter lim, const State* W, const int* st,
+void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, double sb, Limiter lim, const State* W, const int* st,
                               const int* axis, int n, State* F, double* smax) {
     const VEos E(eos);
     const V half = set1(0.5);
@@ -305,7 +322,7 @@ void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, L
         }
         Vec5 Fk;
         V sm;
-        flux4(E, type, ma_cut, axis_masks(axis + k), E.prim_to_cons(wl), E.prim_to_cons(wr), Fk, sm);
+        flux4(E, type, ma_cut, sb, axis_masks(axis + k), E.prim_to_cons(wl), E.prim_to_cons(wr), Fk, sm);
         store_results(F, smax, k, Fk, sm);
     }
     _mm256_zeroupper();

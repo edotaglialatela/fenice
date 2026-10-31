@@ -174,6 +174,27 @@ State RiemannSolver::hllc(const State& UL, const State& UR, int axis, double& sm
         for (int q = 0; q < kNVar; ++q) F[q] = FR[q] + S_R * (UsR[q] - UR[q]);
     if (S_R < 0) F = FR;
 
+    // Shock-face dissipation (carbuncle / odd-even cure): on a face with a strong pressure jump the contact and shear
+    // restoration of HLLC is blended out toward HLL, which has no middle wave. The sensor reads this face's two states only
+    // (no neighbour faces), so the flux stays a function of (UL, UR): no new halo, same stencil in the AMR face list.
+    if (shock_blend_ > 0.0) {
+        const double s = std::abs(p_R - p_L) / std::min(p_L, p_R);
+        if (s > shock_blend_) {
+            const double phi = std::min((s - shock_blend_) / shock_blend_, 1.0);
+            State Fh;
+            if (S_L >= 0) {
+                Fh = FL;
+            } else if (S_R <= 0) {
+                Fh = FR;
+            } else {
+                const double inv = 1.0 / (S_R - S_L);
+                for (int q = 0; q < kNVar; ++q)
+                    Fh[q] = (S_R * FL[q] - S_L * FR[q] + S_L * S_R * (UR[q] - UL[q])) * inv;
+            }
+            for (int q = 0; q < kNVar; ++q) F[q] = (1.0 - phi) * F[q] + phi * Fh[q];
+        }
+    }
+
     smax = std::max(std::abs(S_L), std::abs(S_R));
     return F;
 }
@@ -205,7 +226,7 @@ void RiemannSolver::face_flux_batch(const State* UL, const State* UR, const int*
 #ifdef FV_SIMD_AVX2
     if (detail::avx2_available()) {
         done = n & ~3;
-        if (done > 0) detail::riemann_batch_avx2(eos_, type_, ma_cut_, UL, UR, axis, done, F, smax);
+        if (done > 0) detail::riemann_batch_avx2(eos_, type_, ma_cut_, shock_blend_, UL, UR, axis, done, F, smax);
     }
 #endif
     for (int k = done; k < n; ++k) F[k] = face_flux(UL[k], UR[k], axis[k], smax[k]);
@@ -217,7 +238,7 @@ void RiemannSolver::muscl_face_flux_batch(Limiter lim, const State* W, const int
 #ifdef FV_SIMD_AVX2
     if (detail::avx2_available()) {
         done = n & ~3;
-        if (done > 0) detail::muscl_riemann_batch_avx2(eos_, type_, ma_cut_, lim, W, st, axis, done, F, smax);
+        if (done > 0) detail::muscl_riemann_batch_avx2(eos_, type_, ma_cut_, shock_blend_, lim, W, st, axis, done, F, smax);
     }
 #endif
     for (int k = done; k < n; ++k) {

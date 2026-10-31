@@ -87,6 +87,7 @@ override them. See the [BC formulas]({{root}}modules/Boundaries.html).
 | `dt_phys` | `0.1` | BDF2 physical time step [s] |
 | `max_inner_iter` | `50` | BDF2 pseudo-time iterations per step |
 | `inner_tol_rel` | `1e-3` | BDF2 relative convergence tolerance |
+| `shock_blend` | `0` | Shock-face dissipation: a face whose pressure jump `abs(pR - pL) / min(pL, pR)` exceeds this blends its HLLC flux toward HLL (fully at twice the value). The sensor reads the face's own two states, so there is no extra stencil. 0 switches it off |
 
 ## Run control and output
 

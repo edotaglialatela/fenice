@@ -143,8 +143,9 @@ TEST(riemann_batch_equals_scalar_bit_for_bit) {
                 put(eos.prim_to_cons(Wr), eos.prim_to_cons(W), ax);
             }
         }
-        for (const RiemannType type : {RiemannType::HLLC, RiemannType::LowMachHLLC, RiemannType::PreconditionedHLLC}) {
-            const RiemannSolver rs(eos, type, 0.1);
+        for (const RiemannType type : {RiemannType::HLLC, RiemannType::LowMachHLLC, RiemannType::PreconditionedHLLC})
+          for (const double blend : {0.0, 0.2, 1.0}) {   // shock-face dissipation off, and on (strong-jump faces fire it)
+            const RiemannSolver rs(eos, type, 0.1, blend);
             std::vector<State> Fb(n);
             std::vector<double> sb(n);
             rs.face_flux_batch(UL.data(), UR.data(), axis.data(), n, Fb.data(), sb.data());
@@ -157,7 +158,8 @@ TEST(riemann_batch_equals_scalar_bit_for_bit) {
                 bad += ok ? 0 : 1;
             }
             CHECK(bad == 0);
-            if (bad) std::printf("    eos %d solver %d: %d of %d faces differ\n", kind, static_cast<int>(type), bad, n);
+            if (bad)
+                std::printf("    eos %d solver %d blend %g: %d of %d faces differ\n", kind, static_cast<int>(type), blend, bad, n);
         }
     }
 }

@@ -331,7 +331,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     boundaries.set_params(bc_params(p));
 
     const RiemannType rt = parse_riemann(p.riemann_solver);
-    riemann = RiemannSolver(fluid, rt, 0.1);
+    riemann = RiemannSolver(fluid, rt, 0.1, p.shock_blend);
     if (verbose && rt == RiemannType::LowMachHLLC) std::printf("[SOLVER] Low-Mach correction active (Thornber 2008)\n");
     if (verbose && rt == RiemannType::PreconditionedHLLC)
         std::printf("[SOLVER] Preconditioned HLLC active (Weiss-Smith 1995, Ma_cut=0.1)\n");

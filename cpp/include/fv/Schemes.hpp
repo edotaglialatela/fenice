@@ -22,7 +22,9 @@ class RiemannSolver {
 public:
     RiemannSolver() = default;
     // Solver of the given type; `ma_cut` is the cut-off Mach number of the preconditioned variant.
-    RiemannSolver(const EOS& eos, RiemannType type, double ma_cut = 0.1) : eos_(eos), type_(type), ma_cut_(ma_cut) {}
+    // `shock_blend` > 0 switches on the shock-face dissipation (see face_flux).
+    RiemannSolver(const EOS& eos, RiemannType type, double ma_cut = 0.1, double shock_blend = 0.0)
+        : eos_(eos), type_(type), ma_cut_(ma_cut), shock_blend_(shock_blend) {}
 
     // Numerical flux at every face of `mesh`; returns the maximum wave speed.
     double compute_flux(const Field& UL, const Field& UR, const Mesh& mesh, Field& F) const;
@@ -48,6 +50,7 @@ private:
     EOS eos_;
     RiemannType type_ = RiemannType::HLLC;
     double ma_cut_ = 0.1;
+    double shock_blend_ = 0.0;
 };
 
 // ---------------------------------------------------------------------------
