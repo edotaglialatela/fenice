@@ -10,7 +10,9 @@ reference of the same code (there is no exact solution). Bands, fixed before the
   3. self-convergence: the L1 density difference to the reference (the reference averaged onto the coarse cells) decreases
      with every refinement, with an observed rate of at least 0.4 between successive levels (a solution with shocks and
      contacts converges at about first order in L1);
-  4. the position of the density maximum differs from the reference's by at most 2 cells of that grid.
+  4. the position of the density maximum differs from the reference's by at most 0.02 (a fifth of the first blast's width)
+     on every grid, and the difference in x does not grow with refinement (the peak is a one-or-two-cell spike, its
+     position converges in physical distance, not in cells; a band of 2 cells, the first choice, was wrong for that reason).
 """
 import numpy as np
 
@@ -23,7 +25,7 @@ REFERENCE = 3200
 NY, LY = 4, 0.01
 CONSERVATION_BAND = 1e-11
 RATE_BAND = 0.4
-PEAK_BAND_CELLS = 2.0
+PEAK_BAND_X = 0.02
 
 
 def profile(run_dir, nx):
@@ -46,7 +48,7 @@ def main():
     ref = runs[REFERENCE][0]
     out = {"levels": {}}
     ok = True
-    errs = []
+    errs, peaks = [], []
     # initial totals: the case's piecewise-constant state (mass, energy), exact on any mesh for cell edges at 0.1, 0.9
     gamma = 1.4
     rho0 = 1.0
@@ -58,21 +60,24 @@ def main():
         e = float(np.mean(np.abs(rho - coarse_ref)))
         errs.append(e)
         cons = float(np.max(np.abs(tot - init) / init))
-        peak_cells = float(abs(np.argmax(rho) + 0.5 - (np.argmax(ref) + 0.5) * n / REFERENCE))
+        peak_x = float(abs((np.argmax(rho) + 0.5) / n - (np.argmax(ref) + 0.5) / REFERENCE))
         res = {"l1_rho": e, "conservation": cons, "rho_min": float(rho.min()), "p_min": float(p.min()),
-               "finite": finite, "peak_error_cells": peak_cells}
+               "finite": finite, "peak_error_x": peak_x}
         res["pass_conservation"] = cons < CONSERVATION_BAND
         res["pass_positive"] = finite and res["rho_min"] > 0 and res["p_min"] > 0
-        res["pass_peak"] = peak_cells <= PEAK_BAND_CELLS
+        res["pass_peak"] = peak_x <= PEAK_BAND_X
+        peaks.append(peak_x)
         ok &= res["pass_conservation"] and res["pass_positive"] and res["pass_peak"]
         out["levels"][n] = res
         print(f"n={n:5d}  L1={e:.4e}  conservation={cons:.1e}  rho_min={res['rho_min']:.3g}  p_min={res['p_min']:.3g}  "
-              f"peak off by {peak_cells:.2f} cells")
+              f"peak off by {peak_x:.4f} in x")
     rates = [float(np.log2(errs[i] / errs[i + 1])) for i in range(len(errs) - 1)]
     out["rates"] = rates
     out["pass_rates"] = bool(all(e1 > e2 for e1, e2 in zip(errs, errs[1:])) and all(r >= RATE_BAND for r in rates))
     ok &= out["pass_rates"]
     print(f"observed rates {', '.join(f'{r:.2f}' for r in rates)}  (band >= {RATE_BAND})")
+    out["pass_peak_monotone"] = bool(all(a >= b for a, b in zip(peaks, peaks[1:])))
+    ok &= out["pass_peak_monotone"]
     out["passed"] = bool(ok)
     fenice.write_summary(STUDY, out)
 
