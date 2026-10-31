@@ -59,9 +59,11 @@ def run_cached(study, tag, case, *sets, mpi=0, threads=None, force=False, done="
             shutil.rmtree(d)
         d.mkdir(parents=True, exist_ok=True)
         print(f"[RUN] {study}/{tag}: {case} {' '.join(sets)}", flush=True)
-        threads = threads or study_threads()
+        if not (mpi and mpi > 1):   # an MPI rank keeps its usual single thread
+            threads = threads or study_threads()
         left = budget_left()
-        if left is None:
+        resumable = any(d.glob("*/*_restart.npz")) and not force   # a partial run, stopped by an earlier budget
+        if left is None and not resumable:
             run(case, *sets, out_root=d, mpi=mpi, dump=dump, threads=threads, polite=True)
         else:
             res = run_budgeted(case, *sets, out_root=d, budget_minutes=left, chunk_steps=chunk_steps, dump=dump,

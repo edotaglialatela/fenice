@@ -79,6 +79,44 @@ def test_real_resume():
         shutil.rmtree(tmp, ignore_errors=True)
 
 
+def test_resume_paths():
+    import os
+    from fenice import study
+    sets = ("nx=100", "ny=4", "t_end=0.03", "save_interval=3")
+    tmp = Path(tempfile.mkdtemp(prefix="fenice_budget2_"))
+    try:
+        a, b, c = tmp / "straight", tmp / "chunked", tmp / "exact"
+        for d in (a, b, c):
+            d.mkdir()
+        ra = budget.run_budgeted("Sod Shock Tube", *sets, out_root=a, chunk_steps=10_000, dump=a / "final.npz")
+        budget.run_budgeted("Sod Shock Tube", *sets, out_root=b, budget_minutes=0.0, chunk_steps=4, dump=b / "final.npz")   # 4 -> 6 (save_interval 3)
+        budget.run_budgeted("Sod Shock Tube", *sets, out_root=b, chunk_steps=4, dump=b / "final.npz")
+        sa = [t for t, _ in fenice.read_pvd(study.case_output(a))]
+        sb = [t for t, _ in fenice.read_pvd(study.case_output(b))]
+        check(sa == sb and len(sa) > 3, f"chunked run keeps the whole snapshot series ({len(sb)} snapshots, same times)")
+        n = ra["steps"]   # a chunk that divides the step count: the loop calls the solver once more at t_end
+        rc = budget.run_budgeted("Sod Shock Tube", *sets, out_root=c, chunk_steps=n, dump=c / "final.npz")
+        check(rc["state"] == "done" and rc["steps"] == n and (c / "final.npz").exists(),
+              f"step count an exact multiple of the chunk ({n}): finishes with a 0-step call")
+        # a study stopped by its budget, continued by a call without one: resumes, does not start over
+        os.environ["FENICE_STUDY_BUDGET"] = "0"
+        study._deadline = None
+        try:
+            study.run_cached("check_budget_tmp", "r", "Sod Shock Tube", *sets, force=True, chunk_steps=4)
+            stopped = False
+        except SystemExit as e:
+            stopped = e.code == study.PARTIAL
+        del os.environ["FENICE_STUDY_BUDGET"]
+        study._deadline = None
+        d = study.run_cached("check_budget_tmp", "r", "Sod Shock Tube", *sets, chunk_steps=4)
+        U1 = fenice.read_dump(a / "final.npz")["U"]
+        U2 = fenice.read_dump(d / "final.npz")["U"]
+        check(stopped and np.array_equal(U1, U2), "run_cached: partial run continued without a budget ends bit for bit equal")
+        shutil.rmtree(study.study_dir("check_budget_tmp"), ignore_errors=True)
+    finally:
+        shutil.rmtree(tmp, ignore_errors=True)
+
+
 def test_queue():
     order = study_queue.order(list(study_queue.STUDIES))
     tiers = [study_queue.STUDIES[n][2] for n in order]
@@ -104,6 +142,7 @@ def test_misc():
 if __name__ == "__main__":
     test_fake()
     test_real_resume()
+    test_resume_paths()
     test_queue()
     test_misc()
     print("ALL PASSED" if not failures else f"FAILED: {failures}")

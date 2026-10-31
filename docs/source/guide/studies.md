@@ -29,9 +29,11 @@ Every validation study declares a tier in `cases/validation/run_all.py`: `quick`
 vacuum, shock tubes at Mach 10, 20 and 100), Mach 10 flow past the immersed cylinder and Quirk's odd-even test (a Mach 6 shock whose
 centre row starts one cell ahead), each with 1st-order Godunov and with MUSCL (MC) + SSP-RK2, HLLC. The criterion is robustness:
 the run finishes, every cell is finite with $\rho, p > 0$, and for the tubes the change of mass, momentum and energy equals the
-time integral of the far-field boundary fluxes to $10^{-10}$. **All 16 runs pass** (conservation errors $10^{-14}$ to
-$10^{-15}$; the smallest pressure in the vacuum run is $10^{-4}$ with MUSCL). The odd-even test is reported, not judged: the
-shock position differs between rows by 10 cells with Godunov and by 1 cell with MUSCL.
+time integral of the far-field boundary fluxes to $10^{-10}$. Every run finishes with positive density and pressure and
+conserves to $10^{-13}$ or better (the smallest pressure in the vacuum run is $10^{-4}$ with MUSCL): the solver needs no
+positivity protection at these settings. The odd-even test is the one finding: with first-order HLLC the shock front is kinked,
+its position differing between rows by 9.6 cells (not only in the perturbed row), while with MUSCL the rows agree to 0.2 cells.
+The 16 runs meet the robustness criterion; the odd-even spread is reported, not judged.
 
 ## Analysis layer (Python, no solver change)
 

@@ -12,7 +12,7 @@ from .solver import run, study_threads
 
 TIERS = ("quick", "medium", "long")
 
-# Measured cost of one cell update (one stage-free explicit step, 2-D Euler, one core): a deliberately rough constant;
+# Assumed cost of one cell update (one explicit residual evaluation, 2-D Euler, one core), NOT measured: a deliberately rough constant;
 # a study that needs a better one passes its own to `estimate`.
 DEFAULT_CELLS_PER_S = 1.0e6
 
@@ -48,7 +48,7 @@ def run_budgeted(case, *sets, out_root, budget_minutes=None, chunk_steps=200, du
                  state_file=None, runner=run):
     """Run `case` to its end time in chunks, within a wall-time budget.
 
-    Each chunk is `chunk_steps` steps (`max_steps`, counted from the resume); the first starts fresh unless a checkpoint
+    Each chunk is `chunk_steps` steps (rounded up to a multiple of a `save_interval=` override, so that the snapshots stay on their schedule) (`max_steps`, counted from the resume); the first starts fresh unless a checkpoint
     exists in out_root (then it resumes), the others resume. The loop ends when a chunk does fewer steps than asked (the
     case reached t_end: the final state goes to `dump`) or when the budget is spent after a chunk: then it returns with
     state "partial". `runner` replaces `fenice.run` (tests use it to simulate a slow solver).
@@ -56,7 +56,14 @@ def run_budgeted(case, *sets, out_root, budget_minutes=None, chunk_steps=200, du
     Returns {"state": "done" | "partial", "steps": steps run by THIS call, "minutes": wall minutes used}.
     state_file (optional): the step count so far is written there after every chunk."""
     t0 = time.time()
-    threads = threads or study_threads()
+    # a run writes a snapshot where it stops: chunks that end on the snapshot schedule keep the series uniform
+    for item in sets:
+        if str(item).startswith("save_interval="):
+            si = int(float(str(item).split("=")[1]))
+            if 0 < si < 10 ** 8 and chunk_steps % si:
+                chunk_steps = (chunk_steps // si + 1) * si
+    if not (mpi and mpi > 1):
+        threads = threads or study_threads()
     out_root = Path(out_root)
     resume = any(out_root.glob("*/*_restart.npz"))
     partial = None if dump is None else Path(dump).with_name(Path(dump).stem + "_partial.npz")
