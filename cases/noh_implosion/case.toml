@@ -1,0 +1,39 @@
+# Noh implosion (Noh 1987), 2-D cylindrical: cold gas (gamma = 5/3) flows radially inward at unit speed; a shock moves out at 1/3.
+# Exact: density 16 and pressure 16/3 behind the shock (r < t/3), density 1 + t/r ahead of it. One quarter of the plane with
+# symmetry walls on x = 0 and y = 0; the cold inflow carries no signal (sound speed ~ 1e-3), so the transmissive far sides are exact.
+[case]
+name = "Noh Implosion"
+description = "Cold radial inflow, exact shock; wall heating at the centre"
+order = 54
+
+[mesh]
+Lx = 1.0
+Ly = 1.0
+nx = 200
+ny = 200
+
+[thermo]
+gamma = 1.6666666666666667
+
+[physics]
+use_viscous = false
+
+[boundaries]
+bc_left = "wall"
+bc_bottom = "wall"
+bc_right = "transmissive"
+bc_top = "transmissive"
+
+[numerics]
+riemann_solver = "HLLC"
+use_muscl = true
+muscl_limiter = "MC"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.4
+
+[run]
+t_end = 0.6
+save_interval = 100000
+
+[initial]
+state = { rho = 1.0, u = "-x/sqrt(x*x + y*y)", v = "-y/sqrt(x*x + y*y)", p = 1e-6 }
