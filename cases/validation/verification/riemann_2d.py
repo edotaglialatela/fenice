@@ -10,7 +10,7 @@ SSP-RK2, HLLC. There is no exact solution and the repository holds no published 
 by hand and are NOT checked against the papers, so these checks make no claim about published shock positions. What they do
 establish, with bands fixed before the first run:
   1. every run is finite with rho > 0 and p > 0;
-  2. configurations 3, 4 and 12 are symmetric under x <-> y (u <-> v): |rho - rho^T| and |u - v^T| below 1e-9 of the
+  2. configurations 3 and 4 are symmetric under x <-> y (u <-> v): |rho - rho^T| and |u - v^T| below 1e-9 of the
      largest density / speed, to roundoff, on every grid;
   3. (--full) self-convergence: the mean absolute density difference to the 400 x 400 run (averaged onto the coarse grid)
      decreases with refinement, at an observed rate of at least 0.3 from 100 to 200;
@@ -31,7 +31,7 @@ CONFIGS = {
     6: (0.3, (1.0, 0.75, -0.5, 1.0), (2.0, 0.75, 0.5, 1.0), (1.0, -0.75, 0.5, 1.0), (3.0, -0.75, -0.5, 1.0)),
     12: (0.25, (1.0, 0.0, 0.0, 1.0), (0.5313, 0.0, 0.7276, 0.4), (0.8, 0.0, 0.0, 1.0), (1.0, 0.7276, 0.0, 0.4)),
 }
-SYMMETRIC = (3, 4, 12)
+SYMMETRIC = (3, 4)   # 12 is not: its NW and SE densities differ (0.5313, 1.0)
 BAND_SYMMETRY, BAND_RATE, BAND_AMR = 1e-9, 0.3, 0.75
 MUSCL = ("use_muscl=true", "muscl_limiter=MC", "time_scheme=SSP Runge-Kutta 2")
 
