@@ -39,6 +39,7 @@ GROUPS = {
         "taylor_green": (["verification/taylor_green.py"], "quick", None),
         "taylor_green_animation": (["verification/taylor_green_animation.py"], "quick", None),
         "poiseuille": (["verification/poiseuille.py"], "quick", None),
+        "stress_shocks": (["verification/stress_shocks.py"], "quick", 0.02),   # B0: strong shocks, vacuum, Mach 10-100, odd-even
         "mms_time": (["verification/mms_time.py"], "quick", None),   # time order, unsteady manufactured solution (2 minutes)
         "mms": (["verification/mms.py"], "quick", None),   # manufactured solutions, 2-D and 3-D, up to 64^2 / 48^3
         "mms_full": (["verification/mms.py", "--full"], "long", None),   # up to 128^2 / 96^3 (about 20 minutes), as in the docs
