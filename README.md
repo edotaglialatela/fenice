@@ -263,4 +263,4 @@ a validation page per test case. To build it locally from `docs/source/`:
 
 ## License
 
-[MIT](LICENSE) © 2026 Edoardo Taglialatela
+[MIT](LICENSE) © 2026 Felice Edoardo Taglialatela
