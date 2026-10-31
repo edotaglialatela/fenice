@@ -1,0 +1,50 @@
+# Woodward-Colella interacting blast waves (1984): two strong shocks (pressure 1000 and 100 against 0.01) in a tube closed by
+# reflecting walls; they collide and the contacts interact. No exact solution: the study compares against a fine run of the same code.
+[case]
+name = "Woodward-Colella Blast Waves"
+description = "Strong shocks between walls, shock-contact interaction"
+order = 52
+
+[mesh]
+Lx = 1.0
+Ly = 0.01
+nx = 400
+ny = 4
+
+[thermo]
+gamma = 1.4
+
+[physics]
+use_viscous = false
+
+[boundaries]
+bc_left = "wall"
+bc_right = "wall"
+bc_bottom = "wall"
+bc_top = "wall"
+
+[numerics]
+riemann_solver = "HLLC"
+use_muscl = true
+muscl_limiter = "MC"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.4
+
+[run]
+t_end = 0.038
+save_interval = 100000
+
+[initial]
+state = { rho = 1.0, u = 0.0, v = 0.0, p = 0.01 }   # the middle
+
+[[initial.region]]   # left blast, x < 0.1
+shape = "halfspace"
+point = [0.1, 0.0]
+normal = [-1.0, 0.0]
+state = { p = 1000.0 }
+
+[[initial.region]]   # right blast, x > 0.9
+shape = "halfspace"
+point = [0.9, 0.0]
+normal = [1.0, 0.0]
+state = { p = 100.0 }
