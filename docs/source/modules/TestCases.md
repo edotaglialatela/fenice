@@ -22,6 +22,9 @@ overrides those (see [Parameters]({{root}}guide/parameters.html)).
 | `IBM Cylinder Low Blockage AMR` | Re = 100 in a box with 1.7 % blockage: AMR, ghost-cell wall, Strouhal number | [Cylinder, low blockage]({{root}}cases/cylinder-low-blockage.html) |
 | `Shu-Osher Test` | Shock / entropy-wave interaction, MUSCL accuracy | [Shu-Osher]({{root}}cases/shu-osher.html) |
 | `IBM Supersonic Flow over Cylinder` | IBM fringe treatment at Mach 2, bow shock | [Supersonic cylinder]({{root}}cases/supersonic-cylinder.html) |
+| `Woodward-Colella Blast Waves` | Strong shocks between walls, conservation, self-convergence | [Blast waves]({{root}}cases/blast-waves.html) |
+| `Noh Implosion` | Cold radial inflow, exact shock, wall heating | [Noh and Sedov]({{root}}cases/implosions.html) |
+| `Kelvin-Helmholtz` | Smooth shear layer, linear growth rate | [Kelvin-Helmholtz]({{root}}cases/kelvin-helmholtz.html) |
 | `Taylor-Green Vortex` | Viscous decay vs exact solution, periodic BCs | [Taylor-Green]({{root}}cases/taylor-green.html) |
 | `Isentropic Vortex` | 2nd-order accuracy on smooth advection, periodic BCs | [Isentropic vortex]({{root}}cases/isentropic-vortex.html) |
 | `Taylor-Green Vortex 3D` | 3-D solver: vortex stretching, transition, dissipation peak (Re = 1600) | [Taylor-Green 3-D]({{root}}cases/taylor-green-3d.html) |

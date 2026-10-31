@@ -172,6 +172,11 @@ accuracy are measured, not estimated.
 | `poiseuille.py` | Poiseuille parabola, grid convergence; serial vs 4 MPI ranks |
 | `mms_time.py` | time accuracy: unsteady manufactured solution, Euler / SSP-RK2 / RK4 / BDF2 against a small-step reference ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms.py` | manufactured solutions (Euler, Navier-Stokes, 2-D and 3-D, periodic and with walls / outflow): source transcription, truncation error, observed orders ([page]({{root}}cases/manufactured-solution.html)) |
+| `blast_waves.py` | Woodward-Colella blast waves: conservation, positivity, self-convergence against a 3200-cell run ([page]({{root}}cases/blast-waves.html)) |
+| `implosions.py` | Noh implosion against its exact solution, Sedov blast scaling laws ([page]({{root}}cases/implosions.html)) |
+| `kelvin_helmholtz.py` | linear growth rate of a smooth shear layer against the analytic value ([page]({{root}}cases/kelvin-helmholtz.html)) |
+| `riemann_2d.py` | four 2-D Riemann configurations: positivity, symmetry, self-convergence, AMR against uniform ([page]({{root}}cases/riemann-2d.html)) |
+| `stress_shocks.py` | strong-shock robustness: pressure ratio 1000, vacuum, Mach 10-100, Mach 10 cylinder, odd-even test ([page]({{root}}guide/studies.html)) |
 
 **`benchmarks/`: is the answer right?** The reference is a literature table, a much finer
 solution or a physical quantity without a closed form, so the comparison carries the

@@ -14,7 +14,7 @@ the caller can judge). `psd` removes a linear (default) or constant trend from e
 averages the periodograms of segments of `nperseg` points overlapping by `overlap`, and returns the one-sided density
 (units^2 / frequency) so that  sum(P) df  equals the windowed mean square of the detrended segments, sum((w y)^2) / sum(w^2),
 to roundoff for one segment (the Parseval identity of the module's check). The frequency resolution is df = 1 / (nperseg dt);
-`peaks` interpolates a peak with a parabola through the three bins around it.
+`peaks` interpolates a peak with a parabola through the log power of the three bins around it.
 Fields (D2): a field is a periodic array on a uniform grid, axes ordered (z, y, x) in 3-D or (y, x) in 2-D, one array per
 velocity component, domain lengths `lengths` ordered like the axes' reverse (Lx, Ly[, Lz]). The mean kinetic energy per unit
 mass is 1/2 <|u|^2>. `energy_spectrum` assigns every Fourier mode to the shell n = round(|k| / k0), k0 = 2 pi / L_min is the
@@ -80,10 +80,13 @@ def peaks(f, P, count=3):
     idx.sort(key=lambda i: -P[i])
     out = []
     for i in idx[:count]:
-        a, b, c = P[i - 1], P[i], P[i + 1]
+        if min(P[i - 1], P[i], P[i + 1]) <= 0:
+            out.append((float(f[i]), float(P[i])))
+            continue
+        a, b, c = np.log(P[i - 1]), np.log(P[i]), np.log(P[i + 1])   # a Hann-windowed peak is close to a Gaussian in log power
         den = a - 2 * b + c
         d = 0.0 if den == 0 else 0.5 * (a - c) / den
-        out.append((float(f[i] + d * (f[1] - f[0])), float(b - 0.25 * (a - c) * d)))
+        out.append((float(f[i] + d * (f[1] - f[0])), float(np.exp(b - 0.25 * (a - c) * d))))
     return out
 
 

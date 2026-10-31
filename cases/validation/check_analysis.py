@@ -6,7 +6,7 @@ Every check compares with an exact or analytic answer; the bands are fixed here,
   uq        Ishigami function: first-order and total Sobol indices against the analytic values (|error| <= 0.05 with 20000
             random points, <= 0.03 with 8192 Sobol points when SciPy is installed); Latin hypercube strata; a real sweep of
             four Sod runs, repeated: the second call runs nothing (the cache) and returns the same numbers.
-  modal     DMD of a travelling wave and of a decaying standing wave: eigenvalues exact to 1e-10; POD of two weighted
+  modal     DMD of a travelling wave and of a damped oscillation (two spatial structures in quadrature): eigenvalues exact to 1e-10; POD of two weighted
             orthogonal modes: energies exact to 1e-12 relative, modes weight-orthonormal to 1e-12; a mode written as .vtr
             and read back (float32 text) to 1e-6.
   spectra   a sine wave: one PSD peak at its frequency (error < df / 20) with power sum(P) df = A^2 / 2 to 1e-3; Parseval
@@ -106,11 +106,14 @@ def test_modal():
     check(err < 1e-10 and np.abs(np.abs(d["eigenvalues"]) - 1).max() < 1e-10,
           f"DMD, travelling wave: omega error {err:.1e}, |lambda| = 1 to {np.abs(np.abs(d['eigenvalues']) - 1).max():.1e}")
     sigma, om2 = 0.3, 5.0
-    X = np.exp(-sigma * t)[None, :] * np.cos(om2 * t)[None, :] * np.sin(2 * x)[:, None]
+    # a damped oscillation needs two spatial structures in quadrature (one shape times cos(om t) has rank 1: DMD cannot see
+    # its two exponents without delay embedding)
+    X = np.exp(-sigma * t)[None, :] * (np.sin(2 * x)[:, None] * np.cos(om2 * t)[None, :]
+                                       + np.sin(3 * x)[:, None] * np.sin(om2 * t)[None, :])
     d = modal.dmd(X, dt, rank=2)
     want = np.sort_complex(np.array([-sigma - 1j * om2, -sigma + 1j * om2]))
     err = np.abs(np.sort_complex(d["omega"]) - want).max()
-    check(err < 1e-10, f"DMD, decaying standing wave: omega error {err:.1e}; growth {d['growth'][0]:.6f} vs {-sigma}")
+    check(err < 1e-10, f"DMD, damped oscillation: omega error {err:.1e}; growth {d['growth'][0]:.6f} vs {-sigma}")
     # POD of two weighted-orthogonal modes with orthogonal temporal coefficients
     rng = np.random.default_rng(0)
     npts = 200
