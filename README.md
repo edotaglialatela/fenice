@@ -132,34 +132,39 @@ run cleanly and saves the checkpoint.
 ## GUI
 
 <p align="center">
-  <img src="docs/img/gui_setup.png" width="85%" alt="The Fenice setup dialog">
+  <img src="docs/img/gui_workbench.png" width="95%" alt="The Fenice workbench: modules linked on a canvas, live monitor below, the console on the right">
 </p>
 
-The PyQt6 setup dialog configures a run and launches the solver. Its tabs:
+The PyQt6 **workbench** is an empty canvas of modules that you drag from the palette and link port to port
+(a link that does not fit is refused; *Delete* removes the selection). A new workbench holds a *Geometry*
+node linked to a *Solver* node; double-click a node to open its editor in a window of its own.
 
-- **Configuration:** test case, mesh (setting Nz > 1 makes the run 3-D), thermodynamics,
-  viscosity, body forces, boundary conditions, numerical schemes, output and MPI ranks.
-- **Immersed Boundaries:** obstacle shape, radius and position.
-- **Solution Mapping:** hot start from a saved checkpoint.
-- **AMR:** refinement levels, indicator variables and thresholds.
+- **Geometry:** the domain, base mesh (with *2×* / *½×* for a grid study), immersed body (cylinder, sphere,
+  NACA section, airfoil file), the boundary condition of each side, and a picture of the solid cells on every
+  AMR level. It owns its geometry and can be edited before it is linked; a solver does not run without one.
+- **Solver:** the setup (test case, thermodynamics, viscosity, body forces, numerical schemes, output, MPI
+  ranks, hot start, AMR) without the geometry, plus *Run* / *Stop* (a clean stop that saves the checkpoint),
+  a **Low-Mach** slider and the monitor interval on the node itself. Several solvers can run at once.
+- **Monitor** (link a solver's *run* port): live panels for the time step, the wave speed, the residuals
+  (log axis) and one monitor quantity, with the name and latest value written inside each panel, and a
+  progress bar. The solver's console, coloured, is a column on the right of the window. A monitor linked in
+  the middle of a run shows it from its start.
+- **Postprocessing** (link a solver's *results* port): the result viewer, following the run while it goes on.
 
-The list of test cases and their defaults come from the solver itself, so new cases appear
-in the GUI automatically. Build the solver first, then:
+The list of test cases and their defaults come from the solver itself, so new cases appear in the GUI
+automatically. Build the solver first, then:
 
 ```bash
 python prerequisites.py      # one-time: PyQt6, numpy, matplotlib, markdown2 (python3 on Linux / macOS)
-python gui/run.py
+python gui/workbench.py
 ```
 
-The **workbench** is an empty canvas of modules to drag and link: a *Geometry* node (domain, mesh,
-immersed body, side conditions, with a picture of the solid cells) linked to a *Solver* node (the setup
-above, Run / Stop, a Low-Mach slider and the monitor interval); a *Monitor* node linked to the solver
-shows its live plots (time step, wave speed, residuals, monitor columns) in the bottom half and its
-console as a column on the right; a *Postprocessing* node linked to the solver opens the result viewer.
-Several solvers can run at once, each with its own monitor. Other modules open in windows of their own.
+The original single-window **setup dialog** is still there and launches the solver in the terminal; it
+holds the geometry too (mesh, boundaries, immersed body) in its tabs: *Configuration*, *Immersed
+Boundaries*, *Solution Mapping* (hot start) and *AMR*.
 
 ```bash
-python gui/workbench.py
+python gui/run.py
 ```
 
 ## Test cases
