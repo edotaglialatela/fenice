@@ -1,9 +1,9 @@
-# Compressible benchmarks, strong-shock robustness, UQ and modal analysis: one plan
+# Compressible benchmarks, strong-shock robustness, UQ, modal and spectral analysis: one plan
 
-Status: proposal, nothing implemented. Three independent tracks that can run in parallel; the order inside each track is fixed here,
+Status: proposal, nothing implemented. Four independent tracks that can run in parallel; the order inside each track is fixed here,
 the choices that are the user's (which limiter, which UQ back-end) are listed as open points and not decided.
 
-Tracks:
+Tracks (D, spectral post-processing, is added at the end of the track C section):
 
 * **A. Benchmark suite** (new compressible test cases, cost-tiered so that nothing big has to run while the workstation is busy).
 * **B. Robustness at strong shocks** (opt-in positivity and carbuncle protection).
@@ -56,7 +56,7 @@ one needs no code unless a profile is missing.
 | A6 | Rayleigh-Taylor | linear growth rate, bubble front vs time | medium | needs a body force (exists) |
 | A7 | Noh implosion and Sedov blast | exact self-similar solutions (`fenice.exact`) | quick (2-D Sedov on 200^2) | exposes wall heating and loss of symmetry; Sedov also tests AMR |
 | A8 | 3-D compressible Taylor-Green at M = 0.3-0.5 | the incompressible TG DNS already in `taylor_green_3d.py` (dissipation rate curve), plus the compressibility drift | long (96^3, MPI) | the DNS reference exists in the repo; no new external data |
-| A9 | Decaying compressible turbulence (box, M_t about 0.1-0.5) | kinetic-energy decay and spectrum slope; public DNS (JHTDB) only if the licence and size allow, otherwise self-convergence | long | first benchmark that needs the higher-order scheme to be fair; may become a reason for it (see Not in this plan) |
+| A9 | Decaying compressible turbulence (box, M_t about 0.1-0.5) | kinetic-energy decay and spectrum slope; public DNS data only if the licence and size allow, otherwise self-convergence | long | first benchmark that needs the higher-order scheme to be fair; may become a reason for it (see Not in this plan) |
 
 Order: A2, A7, A5, A1 (quick tiers first, they also feed track B), then A3/A6, A4 only once the boundary question is answered, A8 and
 A9 last and only when the machine is free (queue script). Each step ends with: case file, study script in `verification/` or
@@ -99,11 +99,11 @@ Both parts live in `python/fenice/` and use only `fenice.run()` and the readers;
     (same polite rules as above, same cached-result hash) -> one table (`summary.json` per run, quantities of interest from the
     monitor CSV or the final state).
   * C1b: sampling and indices with no extra dependency (Latin hypercube, Sobol sequence via `scipy.stats.qmc` if present, Saltelli
-    estimator for first-order/total Sobol indices) and an optional adapter for UQpy / Dakota left as a thin function.
+    estimator for first-order/total Sobol indices) and a thin function through which an external sampler can be plugged in.
   * C1c: one worked study in `cases/validation/features/`: sensitivity of the cylinder Cd at Re 40 to inlet speed, resolution and
     limiter; a second, cheap one on Sod (L1 error vs CFL, limiter, resolution). Quick tier on small meshes, the larger sweep
     medium.
-  * Optimisation (OpenMDAO) is deliberately out: it needs gradients or many runs; revisit after C1.
+  * Optimisation is deliberately out: it needs gradients or many runs; revisit after C1.
 * **C2. Modal analysis** (`fenice.modal`).
   * C2a: a snapshot reader over a directory of `.vtr` / `.vtu` / `.npz` (uniform meshes first; AMR snapshots are resampled to the
     finest level, with the cost stated), returning a matrix (points x snapshots) of a chosen field, with cell-volume weights.
@@ -114,14 +114,46 @@ Both parts live in `python/fenice/` and use only `fenice.run()` and the readers;
     (Strouhal from the DMD frequency vs from the lift signal; agreement within the bands set beforehand).
   * Needs a shedding run: medium tier, produced by the queue script, snapshots written with the existing output interval.
 
+## Track D: spectral post-processing (Python, no solver change)
+
+Why: C2 gives modes, but the first questions asked of a turbulent or unsteady run are spectral: how is the energy spread over
+wavenumbers (is the inertial range there, where does the numerical dissipation bite), and at which frequencies does a signal
+oscillate. A9 and A8 cannot be judged without it. `fenice.spectra`, NumPy FFT only, same readers and the same cost rules as C.
+
+* **D1. Signals in time.** Power spectral density of probe, monitor and load series (lift, a probe velocity): detrend, window
+  (Hann), averaged segments with overlap, peak finder with a frequency resolution stated; Strouhal number as a one-line helper.
+  Series sampled at a variable step are first resampled onto a uniform time grid (the resampling and its error stated).
+* **D2. Fields in space, uniform periodic meshes.** Shell-averaged energy spectrum E(k) of the velocity (2-D and 3-D), spectra of
+  density and pressure, and for compressible flow the solenoidal / dilatational split (Helmholtz decomposition in Fourier space).
+  Conventions fixed in the module docstring: wavenumber binning, normalisation so that the sum of E(k) over shells equals the mean
+  kinetic energy (Parseval), the Nyquist cut, the density-weighted velocity option.
+* **D3. Non-periodic and AMR data.** A window or an even extension before the transform on non-periodic directions, a line or a
+  sub-box sample instead of the whole domain; AMR fields resampled to the finest level over the region asked for (cost printed
+  first, same budget rules). Spectra of such data carry a warning in their output about leakage.
+* **D4. Derived quantities.** Dissipation spectrum (k^2 E(k) for the incompressible part), transfer-free diagnostics only
+  (no closure): enstrophy, Taylor micro-scale, integral scale, the numerical-dissipation estimate from the departure of E(k) from
+  the exact initial spectrum of a Taylor-Green run.
+* **D5. Verification before use** (answers known beforehand, bands fixed): a single sine wave gives one peak at the exact
+  frequency / wavenumber and the exact amplitude; Parseval holds to roundoff for D1 and D2; the Taylor-Green initial field has the
+  analytic spectrum (energy only in the lowest shell); the solenoidal part of a pure gradient field is zero and the dilatational
+  part of a divergence-free field is zero to roundoff; serial and MPI snapshots give identical spectra. Application: the 3-D
+  Taylor-Green run of `taylor_green_3d.py` (spectrum at the time of peak dissipation) and the cylinder lift series at Re 100
+  (Strouhal against C2's DMD frequency).
+* **D6. In-solver spectra (not planned).** A spectrum written during the run needs a distributed transform on the strips (halo and
+  transposes) that must give the same bits for any rank count; the cost is large and nothing needs it. Offline from snapshots
+  and from the probe files of `postprocessing-and-species.md` A.1 is enough; revisit only if snapshot I/O becomes the limit.
+
+Order: D1 and D5 for D1 (needs only a CSV), then D2 on a periodic snapshot, then D4, D3 last. Tier: all quick except the
+3-D application (medium, on the existing 96^3 data if the cache holds it).
+
 ## Parallel schedule
 
-The three tracks share only the tier machinery (rules 1-8 above), which therefore comes first and is small:
+The four tracks share only the tier machinery (rules 1-8 above), which therefore comes first and is small:
 
 1. **Week 0 (infrastructure, both A and C use it):** tier field and `--list` columns in `run_all.py`, `--budget` / `--threads`
    on the study helper, `queue.py`, summary.json writer, cost estimate. Test: a fake slow study is stopped by the budget and resumed.
 2. **Then in parallel, each on its own branch** (`benchmarks`, `robustness`, `analysis`): A2/A7/A5/A1 and B0 share the same quick
-   cases (build B0 and A2/A7 once); C1a-b and C2a-c need no solver build at all and can proceed while the workstation is busy
+   cases (build B0 and A2/A7 once); C1a-b, C2a-c and D1-D2 need no solver build at all and can proceed while the workstation is busy
    (only C2's application run and C1c's larger sweep go to the queue).
 3. **Gates before any merge:** `.\cpp\build.ps1 -Test`, `python cpp\tests\regression.py --mpi 4` ALL MATCH, `python
    cases\validation\check_all.py`. Track B additionally the golden hashes. Nothing in A or C changes a solver byte.
@@ -129,11 +161,11 @@ The three tracks share only the tier machinery (rules 1-8 above), which therefor
 ## Open points (the user's)
 
 * B2: which of the three protections, and whether any default may ever be turned on (it would regenerate references).
-* A4 (double Mach reflection) needs a boundary value that depends on x and t (moving shock at the top boundary). The solver has time
-  `t` only in source terms; adding it to boundary expressions is a small feature of its own, to be decided.
+* A4 (double Mach reflection) needs a boundary value that depends on x and t (moving shock at the top boundary).
+  `postprocessing-and-species.md` A.4 already proposes expressions of `t` for boundary values; A4 additionally needs x.
 * A9 would be the natural argument for a low-dissipation / higher-order reconstruction; that is a separate proposal if A9 shows
   MUSCL is too dissipative. Not decided here.
-* C1b: dependency policy (NumPy/SciPy only, or also UQpy).
+* C1b: dependency policy (NumPy/SciPy only, or also an external UQ package).
 * Whether the medium tier may use the GitHub nightly runner (cost/minutes), or stays local.
 
 ## Not in this plan
