@@ -144,17 +144,19 @@ def main():
             # BDF2 on the dt_phys axis, the explicit schemes on the CFL axis: both are proportional to the step
             x = steps / steps[0]
             o = observed_orders(steps, errs)[-1]
-            ax.loglog(x, errs, "o-" if "defaults" not in name else "s--", color=colors[name], label=f"{name}: {o:.2f}")
+            ax.loglog(x, errs, "o-" if "defaults" not in name else "s--", color=colors[name],
+                      label=name.replace("Explicit Euler", "Euler").replace(" (defaults)", " def."))   # orders: mms_time_table.md
         for p_, ls in ((1, ":"), (2, "-."), (4, "--")):
             ax.loglog([1, 1 / 8], [3e-3, 3e-3 / 8 ** p_], color="gray", ls=ls, lw=0.9)
             ax.annotate(f"slope {p_}", (1 / 8, 3e-3 / 8 ** p_), fontsize=8, color="gray", xytext=(3, 0), textcoords="offset points")
         ax.set_title(f"space: {space}")
         ax.set_xlabel("time step relative to the coarsest (CFL 0.4 / $\\Delta t_{phys}$ 0.04)")
         ax.grid(True, which="both", alpha=0.3)
-        ax.legend(fontsize=8, title="observed order, finest pair")
     axs[0].set_ylabel("$L_2$ difference to the RK4 reference at $t = 0.2$")
     fig.suptitle("Order of accuracy in time: unsteady manufactured solution", fontsize=12)
-    fig.tight_layout()
+    handles, labels = axs[0].get_legend_handles_labels()
+    fig.tight_layout(rect=(0, 0, 0.89, 1))
+    fig.legend(handles, labels, loc="center right", fontsize=11, ncol=1, frameon=True, borderaxespad=0.2)
     study.save(fig, STUDY, "mms_time.png", args.docs)
     print("\nresult: " + ("FAILED (see above)" if failed else "all checks passed"))
     sys.exit(1 if failed else 0)

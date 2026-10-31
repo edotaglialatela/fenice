@@ -241,13 +241,17 @@ def main():
     colors = {"Manufactured Solution": "C0", "Manufactured Solution Euler": "C1", "Manufactured Solution 3D": "C2",
               "Manufactured Solution Walls": "C3", "Manufactured Solution Outflow": "C4"}
     marks = {"MUSCL": "o-", "1st order": "s--"}
+    short = {"Manufactured Solution": "NS 2-D", "Manufactured Solution Euler": "Euler 2-D", "Manufactured Solution 3D": "NS 3-D",
+             "Manufactured Solution Walls": "Walls", "Manufactured Solution Outflow": "Outflow"}
+    short_scheme = {"MUSCL": "MUSCL", "1st order": "1st"}
     for sol in sols:
         h = [1.0 / n for n in GRIDS[sol.dim]]
         for scheme in SCHEMES:
-            ax[0].loglog(h, resid[sol.name(), scheme], marks[scheme], color=colors[sol.name()], label=f"{sol.name()}, {scheme}")
+            lab = f"{short[sol.name()]} {short_scheme[scheme]}"
+            ax[0].loglog(h, resid[sol.name(), scheme], marks[scheme], color=colors[sol.name()], label=lab)
             for k, norm in enumerate(("L2", "Linf")):
                 hh, e, p = curves[sol.name(), scheme, norm]
-                ax[k + 1].loglog(hh, e, marks[scheme], color=colors[sol.name()], label=f"{sol.name()}, {scheme}: {p:.2f}")
+                ax[k + 1].loglog(hh, e, marks[scheme], color=colors[sol.name()])   # the observed orders are in mms_table.md
     for a, title, ylab in ((ax[0], "Truncation error from the exact state", "rms of $(U_1 - U_0)/\\Delta t$"),
                            (ax[1], f"$L_2$ error at $t = {T_END}$ (worst variable)", "$L_2$ error"),
                            (ax[2], f"$L_\\infty$ error at $t = {T_END}$ (worst variable)", "$L_\\infty$ error")):
@@ -258,11 +262,10 @@ def main():
         a.set_title(title, fontsize=11)
         a.set_xlabel("$h$")
         a.set_ylabel(ylab)
-        a.legend(fontsize=6, ncol=2, loc="lower right")
-    fig.suptitle("Manufactured solutions: periodic (Euler, Navier-Stokes, 2-D, 3-D) and with walls / outflow "
-                 "(legend: observed order, finest pair)",
-                 fontsize=12, y=1.02)
-    fig.tight_layout()
+    handles, labels = ax[0].get_legend_handles_labels()   # one legend for the three panels: a column on the right
+    fig.suptitle("Manufactured solutions: periodic (Euler, Navier-Stokes, 2-D, 3-D) and with walls / outflow", fontsize=12, y=1.02)
+    fig.tight_layout(rect=(0, 0, 0.88, 1))
+    fig.legend(handles, labels, loc="center right", fontsize=11, ncol=1, frameon=True, borderaxespad=0.2)
     study.save(fig, STUDY, "mms.png", args.docs)
     print("\nresult: " + ("FAILED (see above)" if failed else "all checks passed"))
     sys.exit(1 if failed else 0)

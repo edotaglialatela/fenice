@@ -112,7 +112,8 @@ figure and the table of this page come from it.
 <figure>
 <img src="{{root}}img/mms.png" style="width:100%">
 <figcaption>Left: truncation error from the exact state. Middle and right: $L_2$ and $L_\infty$ error at
-$t = 0.5$ of the worst variable; the legend gives the observed order of the finest pair of grids.</figcaption>
+$t = 0.5$ of the worst variable. One legend serves the three panels (NS: Navier-Stokes; MUSCL and 1st: the scheme); the
+observed orders of the finest pair of grids are in the table below.</figcaption>
 </figure>
 
 Observed orders (finest pair), from `results/validation/mms/mms_table.md`:
@@ -240,7 +241,8 @@ first run.
 <figure>
 <img src="{{root}}img/mms_time.png" style="width:100%">
 <figcaption>Difference to the small-step reference against the time step (CFL 0.4 to 0.05 for the explicit schemes,
-$\Delta t_{phys}$ 0.04 to 0.005 for BDF2); the legend gives the observed order of the finest pair.</figcaption>
+$\Delta t_{phys}$ 0.04 to 0.005 for BDF2; "def." is BDF2 with the solver's default inner iterations); the observed orders
+of the finest pair are in the table below.</figcaption>
 </figure>
 
 | time scheme | space | 0.4 | 0.2 | 0.1 | 0.05 | order (finest pair) | expected | |
