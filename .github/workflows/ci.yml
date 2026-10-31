@@ -3,9 +3,21 @@
 # Every platform must reproduce the reference states in cpp/tests/reference/ (tolerance 1e-8).
 name: CI
 
+# A change that cannot move the numerics (documentation, figures, README, licence) does not start CI: the paths below are
+# ignored. Any other commit can opt out by putting [skip ci] in its message (GitHub's own switch; [ci skip] works too).
 on:
   push:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "LICENSE"
+      - ".gitignore"
   pull_request:
+    paths-ignore:
+      - "docs/**"
+      - "**.md"
+      - "LICENSE"
+      - ".gitignore"
   workflow_dispatch:
 
 concurrency:

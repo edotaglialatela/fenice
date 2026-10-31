@@ -122,7 +122,10 @@ physically (`cases/validation/`) before regenerating the references.
 
 ## Continuous integration
 
-`.github/workflows/ci.yml` runs on every push and pull request on GitHub Actions. On Linux
+`.github/workflows/ci.yml` runs on every push and pull request on GitHub Actions, except for changes that cannot move
+the numerics: a push or pull request that touches only `docs/`, Markdown files, `LICENSE` or `.gitignore` does not start it.
+Any other commit can skip it by putting `[skip ci]` (or `[ci skip]`) in the commit message. Use it for changes to figures,
+plotting code, comments and the like; never for a change to the solver, the schemes, the case files or the references. On Linux
 x64 (GCC), Linux ARM64 (GCC), macOS on Apple Silicon (Apple clang with Homebrew `libomp`)
 and Windows (MSVC through `build.ps1`, MS-MPI), it builds the solver with OpenMP and MPI,
 runs `fenice_tests` and the regression suite serially and on 4 MPI ranks. Every platform
