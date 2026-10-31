@@ -33,6 +33,9 @@ PARTIAL = 75   # exit code of a study stopped by its budget (fenice.study.PARTIA
 # tier: "quick" (under 2 min, one core), "medium" (under 30 min, 4 cores), "long" (hours or MPI)
 GROUPS = {
     "verification": {
+        "riemann_2d": (["verification/riemann_2d.py"], "quick", 0.01),   # A1: 2-D Riemann problems, 100/200 and AMR
+        "riemann_2d_full": (["verification/riemann_2d.py\"], "\--full", medium),   # 0.1
+        "kelvin_helmholtz": (["verification/kelvin_helmholtz.py"], "quick", 0.01),   # A5: Kelvin-Helmholtz linear growth rate
         "implosions": (["verification/implosions.py"], "medium", 0.11),   # A7: Noh (exact) and Sedov (scaling), 2-D
         "blast_waves": (["verification/blast_waves.py"], "quick", 0.02),   # A2: Woodward-Colella blast waves, self-convergence
         "sod": (["verification/sod.py"], "quick", None),
