@@ -1,0 +1,69 @@
+# Flow past a circular cylinder at Re = 100 in a box with 1.7 % blockage (D / Ly), on an AMR mesh.
+# The 16 x 12 box is 80 x 60 diameters; a 200 x 150 base mesh with three levels reaches 20 cells per diameter at the body
+# (the ghost-cell wall needs about that), and the wake is followed by the speed indicator. The small transverse kick behind the
+# cylinder starts the shedding (a symmetric start takes far longer). The loads are in the monitor, as in the uniform cylinder case.
+
+[case]
+name = "IBM Cylinder Low Blockage AMR"
+description = "IBM cylinder at Re = 100 in a large box (1.7 % blockage) with AMR, ghost-cell wall"
+order = 95
+requires_viscous = true
+
+[mesh]
+Lx = 16.0
+Ly = 12.0
+nx = 200
+ny = 150
+
+[physics]
+use_viscous = true
+mu = 2e-3
+use_bodyforce = false
+
+[boundaries]
+bc_left = "vel_inlet"
+bc_right = "transmissive"
+bc_bottom = "wall"
+bc_top = "wall"
+u_in = 1.0
+rho_in = 1.0
+p_out = 100.0
+
+[numerics]
+riemann_solver = "HLLC (Low-Mach Thornber)"
+use_muscl = true
+muscl_limiter = "Van Leer"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.5
+
+[run]
+t_end = 60.0
+save_interval = 1500
+monitor_interval = 5
+
+[parallel]
+use_mpi = false
+
+[amr]
+use_amr = true
+amr_max_level = 3
+amr_refine_every = 5
+amr_refine_ibm = true
+amr_indicator = "velocity"
+
+[ibm]
+use_ibm = true
+ibm_method = "ghost"
+ibm_shape = "Cylinder"
+ibm_radius = 0.1
+ibm_cx = 3.0
+ibm_cy = 6.0
+
+[initial]
+state = { rho = 1.0, u = 1.0, v = 0.0, p = 100.0 }
+
+[[initial.region]]   # symmetry-breaking kick, decays once shedding starts
+shape = "box"
+min = [3.1, 6.0]
+max = [3.5, 6.3]
+state = { v = 0.3 }

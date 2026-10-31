@@ -1,5 +1,7 @@
 """Shu-Osher shock / entropy-wave interaction: limiters and grid convergence against a fine reference.
 
+The figure shows the density of the 400- and 800-cell runs; the grid-convergence errors are printed.
+
     python cases/validation/benchmarks/shu_osher.py            # results/validation/shu_osher/
     python cases/validation/benchmarks/shu_osher.py --docs     # also docs/img/shu_osher.png
 
@@ -39,44 +41,30 @@ def main():
         print(f"{lim:7s} L1 error " + ", ".join(f"{n}: {v:.3e}" for n, v in zip(GRIDS, e)) +
               "; orders " + " ".join(f"{o:.2f}" for o in np.log2(e[:-1] / e[1:])))
 
-    n_show = 400
-    fig, (a1, a2) = plt.subplots(1, 2, figsize=(15, 5.6), gridspec_kw={"width_ratios": (1.8, 1)})
+    shown = (400, 800)   # grids drawn on the profile; the errors of all grids are printed above
+    fig, a1 = plt.subplots(figsize=(11, 5.6))
     fig.suptitle(f"Shu-Osher shock / entropy-wave interaction ($t = {t:g}$, MUSCL + SSP-RK2)", fontsize=15,
                  fontweight="bold")
-    xc = (np.arange(n_show) + 0.5) * L / n_show
     a1.plot(xr, ref, "k-", lw=1.1, label=f"Reference (MC, {N_REF} cells)", zorder=5)
     for lim, (c, m) in LIMITERS.items():
-        a1.plot(xc, rho[lim, n_show], ls="none", marker=m, ms=3.2, mfc="none", mec=c, mew=0.8,
-                label=f"{lim}, {n_show} cells")
+        for n, ms in zip(shown, (4.0, 2.6)):
+            xc = (np.arange(n) + 0.5) * L / n
+            a1.plot(xc, rho[lim, n], ls="none", marker=m, ms=ms, mfc="none" if n == shown[0] else c, mec=c,
+                    mew=0.8, label=f"{lim}, {n} cells")
     a1.set_xlim(0, L)
     a1.set_xlabel("$x$")
     a1.set_ylabel(r"Density $\rho$")
-    a1.set_title("Density profile")
     a1.legend(loc="center right")
     ins = a1.inset_axes([0.05, 0.08, 0.38, 0.44])   # zoom on the post-shock entropy waves
     ins.plot(xr, ref, "k-", lw=1.0)
     for lim, (c, m) in LIMITERS.items():
-        ins.plot(xc, rho[lim, n_show], ls="none", marker=m, ms=2.6, mfc="none", mec=c, mew=0.7)
+        for n, ms in zip(shown, (3.0, 2.0)):
+            xc = (np.arange(n) + 0.5) * L / n
+            ins.plot(xc, rho[lim, n], ls="none", marker=m, ms=ms, mfc="none" if n == shown[0] else c, mec=c, mew=0.7)
     ins.set_xlim(4.6, 7.4)
     ins.set_ylim(2.9, 4.8)
     ins.tick_params(labelsize=8)
     a1.indicate_inset_zoom(ins, edgecolor="#7f8c8d")
-
-    g = np.array(GRIDS, dtype=float)
-    for lim, (c, m) in LIMITERS.items():
-        e = np.array([err[lim, n] for n in GRIDS])
-        p = np.polyfit(np.log(g), np.log(e), 1)[0]
-        a2.loglog(g, e, m + "-", color=c, lw=2, ms=7, mec="white", label=f"{lim} (slope {p:.2f})")
-    e0 = err["MC", GRIDS[0]]
-    a2.loglog(g, e0 * (g[0] / g), ":", color="gray", label="1st order")
-    a2.loglog(g, e0 * (g[0] / g) ** 2, "-.", color="gray", label="2nd order")
-    a2.set_xticks(g, [str(n) for n in GRIDS])
-    a2.minorticks_off()
-    a2.set_xlabel("Cells, $n_x$")
-    a2.set_ylabel(r"$L_1$ density error vs reference")
-    a2.set_title("Grid convergence")
-    a2.grid(True, which="both", ls="--", alpha=0.5)
-    a2.legend()
     plt.tight_layout()
     study.save(fig, STUDY, "shu_osher.png", args.docs)
 

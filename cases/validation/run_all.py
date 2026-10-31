@@ -45,6 +45,7 @@ GROUPS = {
         "vv20": (["benchmarks/vv20.py"], True),   # validation uncertainty (needs the runs of gci.py)
         "gci": (["benchmarks/gci.py"], True),   # grid convergence index of the cavity, airfoil and 3-D TG results
         "cylinder_loads": (["benchmarks/ibm_loads.py", "cylinder"], True),
+        "cylinder_spectrum": (["benchmarks/cylinder_spectrum.py"], True),   # spectra of the cylinder_loads run
         "airfoil_loads": (["benchmarks/ibm_loads.py", "airfoil"], True),
     },
     "amr": {

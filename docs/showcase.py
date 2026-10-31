@@ -15,7 +15,7 @@ Runs (fenice under MPI, one rank per core, binary VTK):
 
 The force histories of the cylinder page come from the validation studies
 (cases/validation/benchmarks/ibm_loads.py, cases/validation/features/cylinder_mesh_transition.py).
-* IBM Supersonic Flow over Cylinder (Mach 2): 1600 x 1600 from t = 0 to 5.
+* IBM Supersonic Flow over Cylinder (Mach 2): 1600 x 2400 on the 8 x 12 box of the case (100 cells per diameter), t = 0 to 5.
 
 Every frame is the simulated field only (no axes, legend or background), box-averaged
 from the mesh to the GIF width; the solid cylinder is drawn in a flat colour. Each GIF
@@ -101,7 +101,7 @@ def run_all():
     if last_time("cylinder", CYL[1]) < 8:
         run_case(CYL[0], cyl, "nx=1200", "ny=600", "t_end=8", "resume=true", "save_interval=192")
     if last_time("supersonic", SUP[1]) < 5:
-        run_case(SUP[0], os.path.join(OUT, "supersonic"), "nx=1600", "ny=1600", "save_interval=250")
+        run_case(SUP[0], os.path.join(OUT, "supersonic"), "nx=1600", "ny=2400", "save_interval=250")
 
 
 # ---------------------------------------------------------------------------
@@ -149,7 +149,8 @@ def schlieren(f, gref, k=12.0):
     return np.exp(-k * np.hypot(gx, gy) / gref)
 
 
-WIDTH = {"cylinder": 1000, "supersonic": 700}   # GIF widths [px]; box-averaged from the mesh
+WIDTH = {"cylinder": 1000, "supersonic": 840}   # GIF widths [px]; box-averaged from the mesh
+SUP_VIEW = (1.0, 8.0, 3.0, 9.0)   # supersonic GIFs: x0, x1, y0, y1 of the part of the 8 x 12 box that is drawn
 
 
 def frame(field, solid, vmin, vmax, width, fill=0.0):
@@ -219,12 +220,21 @@ def render_supersonic(n_frames):
     gy, gx = np.gradient(fields[-1]["rho"], fields[-1]["h"])
     gref = np.percentile(np.hypot(gx, gy)[~solid], 99.9)
     width = WIDTH["supersonic"]
+    # Only the region of interest is drawn: the body, the bow shock and the wake (the box is much larger so that the
+    # transmissive sides do not reflect the shock; the fields are computed on the whole mesh, then cut)
+    ny, nx = solid.shape
+    x0, x1, y0, y1 = SUP_VIEW
+    with open(os.path.join(ROOT, "cases", SUP[1], "case.toml"), "rb") as fh:
+        mesh = tomllib.load(fh)["mesh"]
+    cut = (slice(int(round(y0 / mesh["Ly"] * ny)), int(round(y1 / mesh["Ly"] * ny))),
+           slice(int(round(x0 / mesh["Lx"] * nx)), int(round(x1 / mesh["Lx"] * nx))))
+    solid_v = solid[cut]
     write_gif(os.path.join(IMG, "supersonic_cylinder_schlieren.gif"),
-              [frame(schlieren(f, gref), solid, 0, 1, width, 1.0) for f in fields], "gray", "#56677a", 80, 1500)
-    s = [speed(f) for f in fields]
-    smax = max(np.percentile(x[~solid], 99.9) for x in s)
+              [frame(schlieren(f, gref)[cut], solid_v, 0, 1, width, 1.0) for f in fields], "gray", "#56677a", 80, 1500)
+    s = [speed(f)[cut] for f in fields]
+    smax = max(np.percentile(x[~solid_v], 99.9) for x in s)
     write_gif(os.path.join(IMG, "supersonic_cylinder_velocity.gif"),
-              [frame(x, solid, 0, smax, width) for x in s], "magma", "#9aa0a6", 80, 1500)
+              [frame(x, solid_v, 0, smax, width) for x in s], "magma", "#9aa0a6", 80, 1500)
 
 
 def main():

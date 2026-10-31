@@ -16,7 +16,7 @@ GUI, validation scripts and full documentation.
 <p align="center">
   <em>Left: von Kármán vortex street behind a cylinder at Re = 100 (vorticity, 1200 × 600
   cells, one shedding period). Right: Mach 2 flow over a cylinder forming its bow shock
-  (numerical schlieren, 1200 × 1200 cells). Both use the immersed boundary method.</em>
+  (numerical schlieren, 1600 × 2400 cells over an 8 × 12 box, so that the bow shock leaves the domain without reflecting). Both use the immersed boundary method.</em>
 </p>
 
 ## Features
@@ -180,6 +180,7 @@ conditions, so adding a case needs no C++ and no recompilation. The shipped case
 | Poiseuille Flow | Viscous fluxes, inlet / outlet BCs, BDF2 |
 | Lid Driven Cavity | 2-D Navier-Stokes at Re = 400 vs Ghia et al. (1982) |
 | IBM Flow over Cylinder | IBM, vortex shedding at Re = 100, hot start |
+| IBM Cylinder Low Blockage AMR | Re = 100 in a 1.7 % blockage box with AMR and the ghost-cell wall: St = 0.166 |
 | IBM Airfoil | NACA 4-digit or any coordinate file, Re = 1000, lift / drag / moment |
 | Shu-Osher Test | Shock / entropy-wave interaction |
 | IBM Supersonic Flow over Cylinder | IBM at Mach 2, bow shock |

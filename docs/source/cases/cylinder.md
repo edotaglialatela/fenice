@@ -76,6 +76,16 @@ Re = 100 (unbounded domain; the 4×2 box with slip walls blocks 10 % of the chan
 C<sub>d</sub> and St). The run is <code>benchmarks/ibm_loads.py cylinder</code>.</figcaption>
 </figure>
 <figure>
+<img src="{{root}}img/cylinder_spectrum.png" style="width:100%">
+<figcaption>Spectral analysis of the shedding on the 400×200 run, $t \ge 50$ (30 time units, 26 periods; Hann window, zero
+padded). The lift peaks at St = 0.1746 with amplitude 0.23; the drag peaks at 0.350, 2.006 times the lift frequency
+(each vortex of either sign adds a drag pulse), and the lift has a third harmonic at 0.525. The resolution of the record is
+$D/T = 0.0067$ in St. A window of 12 time units slid along the record gives St = 0.173-0.178: it drifts
+down as the lift amplitude decays towards its limit cycle, so the record is not stationary and the value is
+quoted to two digits, 0.17-0.18, 5-7 % above the literature band 0.164-0.166 (green), the direction expected from the 10 % blockage, which the [low-blockage run]({{root}}cases/cylinder-low-blockage.html) confirms (St = 0.166 in a box with 1.7 % blockage)
+(<code>cases/validation/benchmarks/cylinder_spectrum.py</code>).</figcaption>
+</figure>
+<figure>
 <img src="{{root}}img/cylinder_mesh_transition.gif" style="width:100%">
 <figcaption>Loads across a hot start: the 400×200 run of the loads study ($t \le 80$, developed street), then 800×400 mapped
 from its checkpoint for three more time units. Shedding carries on without a new start-up transient. After a short

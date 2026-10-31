@@ -54,7 +54,7 @@ CASES = {
     "poiseuille_bdf2":     ("Poiseuille Flow", dict(nx=30, ny=10, t_end=2.0, time_scheme="BDF2 Dual Time")),
     "poiseuille_euler":    ("Poiseuille Flow", dict(nx=30, ny=10, t_end=1.0)),
     "cylinder_ibm_visc":   ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False)),
-    "supersonic_ibm":      ("IBM Supersonic Flow over Cylinder", dict(nx=60, ny=60, t_end=0.1, use_mpi=False)),
+    "supersonic_ibm":      ("IBM Supersonic Flow over Cylinder", dict(nx=60, ny=60, Lx=4.0, Ly=4.0, ibm_cx=1.0, ibm_cy=2.0, t_end=0.1, use_mpi=False)),   # the geometry of the reference (the case is 8 x 8 now)
     "hot_start_mapping":   ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.03, use_hot_start=True,
                                                    hot_start_file="{REF}/hot_source.npz", use_muscl=True)),
     "amr_sod_1st":         ("Sod Shock Tube", dict(Lx=2.0, nx=128, ny=16, Ly=0.25, t_end=0.2, use_amr=True,

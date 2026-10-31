@@ -1,14 +1,15 @@
 # Mach 2 flow past a cylinder (immersed boundary): detached bow shock and wake.
+# The 8 x 12 box is tall enough that the bow shock leaves through the top and bottom corners, so the transmissive sides do not reflect it into the flow
 [case]
 name = "IBM Supersonic Flow over Cylinder"
 description = "IBM fringe treatment at Mach 2, bow shock"
 order = 60
 
 [mesh]
-Lx = 4.0
-Ly = 4.0
-nx = 400
-ny = 400
+Lx = 8.0
+Ly = 12.0
+nx = 800
+ny = 1200
 
 [physics]
 use_viscous = false
@@ -42,8 +43,8 @@ n_cpus = 16
 use_ibm = true
 ibm_shape = "Cylinder"
 ibm_radius = 0.25
-ibm_cx = 1.0
-ibm_cy = 2.0
+ibm_cx = 2.0
+ibm_cy = 6.0
 
 [initial]
 state = { rho = 1.0, u = 2.0, v = 0.0, p = 0.7142857142857143 }
