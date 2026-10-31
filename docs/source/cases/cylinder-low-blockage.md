@@ -70,8 +70,9 @@ Over $25 \le t \le 60$ (28 shedding periods), 3 levels (20 cells per diameter) a
 <figure>
 <img src="{{root}}img/cylinder_low_blockage.png" style="width:100%">
 <figcaption>Re = 100 in the $16\times12$ box, 40 cells per diameter at the body: vorticity at $t = 60$ (the velocity of the
-leaves is smoothed over one coarse wake cell before the derivative), the AMR level of the same window, the lift of both
-resolutions and its spectrum. The final mesh has 42 126 leaves in place of 7.7 million cells;
+leaves is smoothed over one coarse wake cell before the derivative; the body is drawn), a zoom on the body at the finest
+cell size (smoothing 2.5 cells, so the boundary layer is not widened; vorticity saturated at $\pm 20$) with the AMR level
+there, the AMR level of the whole window, the lift of both resolutions and its spectrum. The final mesh has 42 126 leaves in place of 7.7 million cells;
 the run takes about 6 minutes on 16 OpenMP threads at 20 cells per diameter and about 13 minutes on 8 MPI ranks at 40
 (Ryzen 7 7800X3D).</figcaption>
 </figure>

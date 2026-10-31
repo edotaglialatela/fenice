@@ -20,6 +20,8 @@ CASE = "IBM Cylinder Low Blockage AMR"
 D, T_ST = 0.2, 25.0
 REF = (0.164, 0.166)   # Re = 100 (Williamson 1996; Park et al. 1998); Cd = 1.33-1.35 there
 WINDOW = (2.4, 11.0, 4.6, 7.4)   # x0, x1, y0, y1 of the pictures
+ZOOM = (2.6, 4.6, 5.4, 6.6)      # the body and the first part of the wake, at the finest cell size
+BODY = (3.0, 6.0, 0.1)           # cylinder centre and radius (case.toml)
 
 
 def spectrum(t, y, pad=32):
@@ -89,29 +91,52 @@ def main():
     # the leaves are piecewise constant: smooth the velocity over about one coarse-wake cell before differentiating
     u, v = gaussian_filter(u, 4.0), gaussian_filter(v, 4.0)
     w_z = np.gradient(v, h, axis=1) - np.gradient(u, h, axis=0)
+    # near the body: finest cell size, 2.5 cells of smoothing, so the boundary layer is not widened
+    hz = 0.005
+    levz, uz, vz = raster(snap, ZOOM, hz)
+    uz, vz = gaussian_filter(uz, 2.5), gaussian_filter(vz, 2.5)
+    wz = np.gradient(vz, hz, axis=1) - np.gradient(uz, hz, axis=0)
 
-    fig = plt.figure(figsize=(11.5, 9.6))
-    gs = fig.add_gridspec(3, 2, height_ratios=(1, 1, 1.15), hspace=0.38)
+    def body(ax):
+        ax.add_patch(plt.Circle(BODY[:2], BODY[2], facecolor="0.35", edgecolor="k", lw=0.8, zorder=5))
+
+    fig = plt.figure(figsize=(11.5, 12.6))
+    gs = fig.add_gridspec(4, 2, height_ratios=(1, 1.15, 1, 1.15), hspace=0.42)
     ext = WINDOW
     a0 = fig.add_subplot(gs[0, :])
     im = a0.imshow(w_z, origin="lower", extent=ext, cmap="RdBu_r", vmin=-4, vmax=4, aspect="equal")
+    body(a0)
     a0.set_title(f"Vorticity at $t = {t4[-1]:.0f}$ (four levels, 40 cells per diameter at the body)")
     fig.colorbar(im, cax=a0.inset_axes([1.012, 0, 0.014, 1]), label=r"$\omega$")
-    a1 = fig.add_subplot(gs[1, :])
+    az = fig.add_subplot(gs[1, 0])
+    im = az.imshow(wz, origin="lower", extent=ZOOM, cmap="RdBu_r", vmin=-20, vmax=20, aspect="equal")
+    body(az)
+    az.set_title(r"Near the body: vorticity ($\omega$ saturated at $\pm20$)", fontsize=10)
+    fig.colorbar(im, cax=az.inset_axes([1.02, 0, 0.03, 1]))
+    az.set_xlabel("$x$")
+    az.set_ylabel("$y$")
+    al = fig.add_subplot(gs[1, 1])
+    im = al.imshow(levz, origin="lower", extent=ZOOM, cmap="viridis", vmin=0, vmax=int(lev.max()), aspect="equal")
+    body(al)
+    al.set_title("Near the body: AMR level", fontsize=10)
+    fig.colorbar(im, cax=al.inset_axes([1.02, 0, 0.03, 1]), ticks=range(int(lev.max()) + 1))
+    al.set_xlabel("$x$")
+    a1 = fig.add_subplot(gs[2, :])
     im = a1.imshow(lev, origin="lower", extent=ext, cmap="viridis", aspect="equal")
+    body(a1)
     a1.set_title(f"AMR level ({n_leaf:,} leaves in the whole $16\\times12$ box)")
     fig.colorbar(im, cax=a1.inset_axes([1.012, 0, 0.014, 1]), label="level", ticks=range(int(lev.max()) + 1))
     for a in (a0, a1):
         a.set_ylabel("$y$")
     a1.set_xlabel("$x$")
-    a2 = fig.add_subplot(gs[2, 0])
+    a2 = fig.add_subplot(gs[3, 0])
     a2.plot(t3[t3 >= 40], d3["Cl"][t3 >= 40], color="#2980b9", lw=1.2, label="3 levels (20 cells/D)")
     a2.plot(t4[t4 >= 40], d4["Cl"][t4 >= 40], color="#c0392b", lw=1.2, label="4 levels (40 cells/D)")
     a2.set_xlabel("$t$")
     a2.set_ylabel("$C_l$")
     a2.set_ylim(-0.45, 0.62)
     a2.legend(loc="upper center", ncol=2, fontsize=8)
-    a3 = fig.add_subplot(gs[2, 1])
+    a3 = fig.add_subplot(gs[3, 1])
     a3.semilogy(res["l3"][0], res["l3"][1], color="#2980b9", lw=1.4, label="20 cells/D")
     a3.semilogy(st_f, a_f, color="#c0392b", lw=1.4, label="40 cells/D")
     a3.axvspan(*REF, color="#27ae60", alpha=0.35, lw=0, label="literature St")
