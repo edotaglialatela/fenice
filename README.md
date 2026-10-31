@@ -8,9 +8,9 @@ in C++17 with OpenMP threading and MPI domain decomposition, and comes with a Py
 GUI, validation scripts and full documentation.
 
 <p align="center">
-  <img src="docs/img/cylinder_vortices.gif" width="64%"
+  <img src="docs/img/cylinder_vortices.gif" height="260"
        alt="Vorticity of the von Karman vortex street behind a cylinder at Re = 100">
-  <img src="docs/img/supersonic_cylinder_schlieren.gif" width="32%"
+  <img src="docs/img/supersonic_cylinder_schlieren.gif" height="260"
        alt="Numerical schlieren of Mach 2 flow over a cylinder, showing the bow shock">
 </p>
 <p align="center">
