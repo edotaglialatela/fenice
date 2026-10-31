@@ -83,6 +83,23 @@ not a resolution one. The drag and the lift amplitude are more sensitive to the 
 1.37 and the lift amplitude from 0.43 to 0.36 when the cells are halved, towards the literature values (1.33-1.35 and
 about 0.33); the two runs do not allow an extrapolation (two grids give no observed order), so no further digit is claimed.
 
+## Spectra of the loads
+
+The record $25 \le t \le 60$ (35 time units, 29 shedding periods; frequency resolution $D/T = 0.0057$ in St) is analysed with a
+Hann window and zero padding.
+
+<figure>
+<img src="{{root}}img/cylinder_low_blockage_spectra.png" style="width:100%">
+<figcaption>Lift spectrum (with a zoom on the peak, where the literature band $0.164$-$0.166$ is visible), drag spectrum and the
+Strouhal number from a sliding window of 12 time units, at 20 and 40 cells per diameter.</figcaption>
+</figure>
+
+The lift peaks at $\mathrm{St} = 0.1657$ (20 cells per diameter, amplitude 0.39) and $0.1659$ (40, amplitude 0.33) with a third
+harmonic at $0.495$ and $0.497$. The drag peaks at $2.000$ and $2.001$ times the shedding frequency, and has no component at
+the shedding frequency itself, as the symmetry of the street requires. A window of 12 time units gives $0.1656$-$0.1658$ and
+$0.1658$-$0.1662$ along the record: the signal is stationary, unlike that of the confined case, where the lift amplitude was
+still decaying.
+
 The wake is carried on level 1 of the mesh (a vortex is about 7 of its cells across) and the vortices lose strength faster than at the
 body resolution; the loads depend on the near body, where the finest level is kept.
 

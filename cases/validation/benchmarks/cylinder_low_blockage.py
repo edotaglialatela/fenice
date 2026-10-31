@@ -160,6 +160,65 @@ def main():
         a.grid(True, ls="--", alpha=0.5)
     study.save(fig, "cylinder_low_blockage", "cylinder_low_blockage.png", args.docs)
 
+    # spectral analysis of the shedding from the two runs: lift, drag (at 2 f) and St from a sliding window
+    WIN = 12.0
+    fig2, axs = plt.subplots(1, 3, figsize=(12.5, 3.6))
+    for (name, d, color, lab) in (("l3", d3, "#2980b9", "20 cells/D"), ("l4", d4, "#c0392b", "40 cells/D")):
+        t, cl, cd = d["t"], d["Cl"], d["Cd"]
+        late = t >= T_ST
+        sl, al_ = spectrum(t[late], cl[late])
+        span = t[late][-1] - t[late][0]
+        sd, ad = spectrum(t[late], cd[late])
+        m = (sl > 0.05) & (sl < 0.4)
+        f1, a1_ = sl[m][np.argmax(al_[m])], al_[m].max()
+        md = (sd > 0.2) & (sd < 0.7)
+        f2, a2_ = sd[md][np.argmax(ad[md])], ad[md].max()
+        m3 = (sl > 0.4) & (sl < 0.7)
+        f3 = sl[m3][np.argmax(al_[m3])]
+        cs, ss = [], []
+        for t0 in np.arange(T_ST, t[-1] - WIN + 1e-9, 1.0):
+            w = (t >= t0) & (t <= t0 + WIN)
+            s, a = spectrum(t[w], cl[w])
+            mm = (s > 0.05) & (s < 0.4)
+            cs.append(t0 + WIN / 2)
+            ss.append(s[mm][np.argmax(a[mm])])
+        print(f"{name}: record {span:.1f} time units, {span * f1 / D:.1f} periods, dSt = {D / span:.4f}; lift St = {f1:.4f} "
+              f"(amp {a1_:.3f}), third harmonic at {f3:.3f}; drag peak {f2:.4f} = {f2 / f1:.3f} f, amp {a2_:.4f}; "
+              f"sliding {WIN:g}: St {min(ss):.4f}-{max(ss):.4f}")
+        axs[0].semilogy(sl, al_, color=color, lw=1.3, label=lab)
+        axs[1].semilogy(sd, ad, color=color, lw=1.3, label=lab)
+        axs[2].plot(cs, ss, color=color, lw=1.3, label=lab)
+    axs[0].axvspan(*REF, color="#27ae60", alpha=0.5, lw=0, label="literature St")
+    axs[2].axhspan(*REF, color="#27ae60", alpha=0.5, lw=0, label="literature St")
+    ins = axs[0].inset_axes([0.50, 0.03, 0.47, 0.30])
+    for name, d, color in (("l3", d3, "#2980b9"), ("l4", d4, "#c0392b")):
+        s_, a_ = spectrum(d["t"][d["t"] >= T_ST], d["Cl"][d["t"] >= T_ST])
+        ins.plot(s_, a_, color=color, lw=1.3)
+    ins.axvspan(*REF, color="#27ae60", alpha=0.5, lw=0)
+    ins.set_xlim(0.155, 0.177)
+    ins.set_ylim(0, 0.45)
+    ins.set_facecolor("white")
+    ins.tick_params(labelsize=7)
+    ins.grid(True, ls="--", alpha=0.4)
+    axs[0].set_xlim(0, 0.7)
+    axs[1].set_xlim(0, 0.7)
+    for a in axs[:2]:
+        a.set_ylim(1e-6, 1)
+        a.set_xlabel(r"$\mathrm{St}=fD/u_\infty$")
+    axs[0].set_ylabel("amplitude of $C_l$")
+    axs[1].set_ylabel("amplitude of $C_d$")
+    axs[2].set_xlabel("centre of the window")
+    axs[2].set_ylabel(r"St (window of 12 time units)")
+    axs[2].set_ylim(0.15, 0.19)
+    axs[0].set_title("lift", fontsize=10)
+    axs[1].set_title("drag", fontsize=10)
+    axs[2].set_title("sliding window", fontsize=10)
+    for a in axs:
+        a.grid(True, ls="--", alpha=0.5)
+        a.legend(fontsize=8, loc="upper right")
+    fig2.tight_layout()
+    study.save(fig2, "cylinder_low_blockage", "cylinder_low_blockage_spectra.png", args.docs)
+
 
 if __name__ == "__main__":
     main()
