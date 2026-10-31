@@ -3,7 +3,7 @@
 [case]
 name = "Woodward-Colella Blast Waves"
 description = "Strong shocks between walls, shock-contact interaction"
-order = 52
+order = 150
 
 [mesh]
 Lx = 1.0

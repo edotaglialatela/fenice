@@ -4,7 +4,7 @@
 [case]
 name = "Kelvin-Helmholtz"
 description = "Smooth shear layer, linear growth rate of the most unstable mode"
-order = 56
+order = 152
 
 [mesh]
 Lx = 14.1319
