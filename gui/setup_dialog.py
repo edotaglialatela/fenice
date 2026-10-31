@@ -252,6 +252,7 @@ class SetupDialog(QDialog):
         f1.addRow(self.label_Lz, self.input_Lz)
         g1.setLayout(f1)
         scroll_layout.addWidget(g1)
+        self.group_domain = g1   # the workbench hides it: the geometry node edits the domain
 
         # 2. Thermodynamics
         g2 = QGroupBox("2. Thermodynamics")
@@ -321,6 +322,7 @@ class SetupDialog(QDialog):
         f3.addRow(self.label_p_out, self.input_p_out)
         g3.setLayout(f3)
         scroll_layout.addWidget(g3)
+        self.form_bc = f3   # rows of the sides: the workbench hides them (the geometry node sets the sides)
 
         # 6. Numerical Schemes
         g4 = QGroupBox("6. Numerical Schemes")
@@ -711,9 +713,17 @@ class SetupDialog(QDialog):
         """Set the mesh size and the boundary conditions from another page: keys nx, ny, bc_left / right / bottom / top / front / back
         (solver names, e.g. 'wall'); the fields are the only copy, so what is set here is what the run uses."""
         labels = {v: k for k, v in self._BC_LABELS.items()}
-        for key, edit in (("nx", self.input_nx), ("ny", self.input_ny)):
+        for key, edit in (("nx", self.input_nx), ("ny", self.input_ny), ("nz", self.input_nz)):
             if key in values:
                 edit.setText(str(int(values[key])))
+        for key, edit in (("Lx", self.input_Lx), ("Ly", self.input_Ly), ("Lz", self.input_Lz), ("ibm_radius", self.input_radius),
+                          ("ibm_cx", self.input_cx), ("ibm_cy", self.input_cy), ("ibm_cz", self.input_cz)):
+            if key in values:
+                edit.setText(str(values[key]))
+        if "use_ibm" in values:
+            self.check_ibm.setChecked(bool(values["use_ibm"]))
+        if "ibm_shape" in values:
+            self.combo_shape.setCurrentText(str(values["ibm_shape"]))
         for side in ("left", "right", "bottom", "top", "front", "back"):
             if f"bc_{side}" in values:
                 combo = getattr(self, f"bc_{side}")
@@ -724,6 +734,15 @@ class SetupDialog(QDialog):
     def bc_values(self) -> dict:
         """The boundary conditions as the fields hold them now (solver names), valid or not."""
         return {f"bc_{s}": self._BC_LABELS[getattr(self, f"bc_{s}").currentText()] for s in ("left", "right", "bottom", "top", "front", "back")}
+
+    def geometry_values(self) -> dict:
+        """The geometry fields as strings, as they stand (valid or not): domain, mesh, body and the sides."""
+        v = {"Lx": self.input_Lx.text(), "Ly": self.input_Ly.text(), "Lz": self.input_Lz.text(), "nx": self.input_nx.text(),
+             "ny": self.input_ny.text(), "nz": self.input_nz.text(), "use_ibm": str(self.check_ibm.isChecked()).lower(),
+             "ibm_shape": self.combo_shape.currentText(), "ibm_radius": self.input_radius.text(), "ibm_cx": self.input_cx.text(),
+             "ibm_cy": self.input_cy.text(), "ibm_cz": self.input_cz.text()}
+        v.update(self.bc_values())
+        return v
 
     def bc_choices(self) -> dict:
         """{label shown: solver name} of the boundary conditions."""

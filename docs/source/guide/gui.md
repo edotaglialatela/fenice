@@ -24,38 +24,45 @@ built solver (`.\cpp\build.ps1`). Set `FENICE_EXE` to use an executable other th
 python gui\workbench.py
 ```
 
-One window for the steps of a study. A list on the left holds the modules, the module on show is in the middle, and the state of the run
-is below; the modules share one project (the parameters of the run, its results folder and its state).
+An empty space on which modules are dropped and linked. The palette on the left lists the modules; drag one onto the canvas (or
+double-click it, or use the right-click menu). Each module is a node with typed ports: drag from a port to a port of the same type to
+link them (the ports that fit light up; a link that does not fit is refused). *Delete* removes the selected nodes or links, the wheel
+zooms the canvas and the middle button pans it. Double-click a node to open its editor in a tab under the canvas; several tabs can stay
+open. The default is a **Geometry** node linked to a **Solver** node.
 
-* **Setup.** The dialog described below. *Run Simulation* hands the validated parameters to the project and starts the solver as a
-  child process (`fenice --config <file>`); the window switches to Run.
-* **Geometry.** The domain, the immersed body, the Cartesian mesh and the solid cells it makes, as the Setup page holds them now (it
-  refreshes when the page comes up). A cylinder, a sphere (cut through its centre in 3-D), a `NACA dddd` section or an airfoil file,
+* **Geometry** (output: geometry). The domain, the Cartesian mesh, the immersed body and the boundary condition of each side, with the
+  solid cells they make, as a picture. A cylinder, a sphere (cut through its centre in 3-D), a `NACA dddd` section or an airfoil file,
   placed and rotated as the solver does; the cells whose centre is inside the body are drawn solid, the grid appears when a cell is a few
-  pixels wide (the wheel zooms about the pointer, a drag pans, a double click shows the whole domain), and the *Mesh level* box shows the same body on the finer levels of an AMR run (cells across the chord or diameter, solid
-  cells, the finest cell). The boundary condition of each side is written beside it. The shapes come from `fenice.geometry`, which follows
-  the solver's rules; `cases/validation/check_geometry.py` checks that the number of solid cells equals the solver's on every case with a
-  body, on three meshes each. The base mesh (`nx`, `ny`) and the boundary condition of every side can be edited here, with the buttons
-  *Apply mesh*, *2×* and *½×* (each doubles or halves `nx` and `ny`: four times or a quarter of the cells in 2-D); the edits are written
-  into the Setup page, which keeps the only copy. Choosing *Periodic* on a side sets the opposite side too; for a case with AMR the page
-  opens on the finest mesh level.
-* **Run.** The upper half shows the time step, the wave speed and one more quantity of your choice (a column of the monitor file, or the
-  number of leaves of an AMR run) against time; the lower half is the solver's console in colour. They are filled from the progress lines
-  (every `save_interval` steps) and the monitor file (every `monitor_interval` steps): the residual norms are the `res_*` columns of the monitor file. The console
-  states the total physical time and notes each time the run passes a multiple of 10 % of it; the status line gives the percentage and
-  an estimate of the time left. Every run starts with an empty console and empty plots; *Run again* runs what the Setup page holds now.
-  The buttons are *Stop*, *Kill* and *Run again*. *Stop* creates a `STOP` file in the output folder: the solver saves its
-  checkpoint and the `.pvd` index, then exits, serial or under MPI. The *Record every* box sets `monitor_interval` for the next run
-  (*case* keeps the case's own value; the default is 10): each record costs one extra residual evaluation. The residual norms of the
-  monitor file (`res_rho`, `res_mom`, `res_E`) have a plot of their own, relative to their first row, on a log axis; the time step and
-  the wave speed still come from the progress lines. Only rank 0 writes to the console under MPI. *Kill* ends the solver and
-  every process it started at once. Closing the window with a run going asks which of the two to do; if the workbench itself is ended (on
-  Windows) the solver and its MPI processes end with it.
-* **Results.** The result viewer, below, opened on the folder the solver reports and following it while the run goes on.
+  pixels wide (the wheel zooms about the pointer, a drag pans, a double click shows the whole domain), and the *Mesh level* box shows
+  the same body on the finer levels of an AMR run (cells across the chord or diameter, solid cells, the finest cell). The domain
+  (`Lx`, `Ly`, `nz`, `Lz`), the base mesh (`nx`, `ny`, with *Apply mesh*, *2×* and *½×*: each doubles or halves `nx` and `ny`, four times
+  or a quarter of the cells in 2-D), the body (shape, radius, centre) and the side conditions are edited here; they are written into the
+  fields of the linked solver, which are the only copy. Choosing *Periodic* on a side sets the opposite side too. Loading another case on
+  the solver reloads the geometry. The shapes come from `fenice.geometry`, which follows the solver's rules;
+  `cases/validation/check_geometry.py` checks that the number of solid cells equals the solver's on every case with a body.
+* **Solver** (input: geometry; outputs: run, results). The setup dialog described below, without the geometry: case, thermodynamics,
+  physics, numerical scheme, output, MPI, hot start and AMR. It does not run without a linked geometry. The node itself carries
+  *Run* and *Stop*, the **Low-Mach correction** switch (the Riemann solver of the dialog: `HLLC` or `HLLC (Low-Mach Thornber)`; it is
+  disabled when another Riemann solver is chosen in the dialog, and leaves that choice alone) and **Record every** *N* steps (the
+  `monitor_interval` of the next run; *case* keeps the case's own value; each record costs one extra residual evaluation). *Stop*
+  creates a `STOP` file in the output folder: the solver saves its checkpoint and the `.pvd` index, then exits, serial or under MPI. A
+  solver is its own project, so several solvers can sit on the canvas and run at the same time; a running solver cannot be deleted or
+  have its geometry unlinked.
+* **Monitor** (input: run). The upper half shows the time step, the wave speed, the residual norms (`res_rho`, `res_mom`, `res_E`
+  relative to their first row, on a log axis) and one more quantity of your choice (a column of the monitor file, or the number of leaves
+  of an AMR run) against time; the lower half is the solver's console in colour, from rank 0 only under MPI. The curves are filled from
+  the progress lines (every `save_interval` steps) and the monitor file. The console states the total physical time and notes each time
+  the run passes a multiple of 10 % of it; the status line gives the percentage and an estimate of the time left. A monitor linked in
+  the middle of a run shows it from its start (the project keeps the history), and every run starts with an empty console and empty
+  plots. *Stop* and *Kill* are here too; *Kill* ends the solver and every process it started at once.
+* **Postprocessing** (input: results). The result viewer, below, opened on the folder the solver reports and following it while the
+  run goes on; linked after a run, it opens that run's results.
 
-Modules are files in `gui/modules/`, each defining a `MODULE` record (name, title, a factory that takes the project, the Python packages
-it needs); a module whose packages are missing is listed as unavailable. The project (`gui/project.py`) lives in memory: nothing is
-saved or loaded yet. `gui/run.py`, described next, is unchanged.
+Closing the window with runs going asks whether to stop them (checkpoints saved) or kill them; if the workbench itself is ended (on
+Windows) the solvers and their MPI processes end with it. Modules are files in `gui/modules/`, each defining a `MODULE` record (name,
+title, ports, whether it owns a project, an editor factory, the Python packages it needs); a module whose packages are missing is
+listed as unavailable. The graph and the projects live in memory: nothing is saved or loaded yet. `gui/run.py`, described next, is
+unchanged.
 
 ## Tabs
 
@@ -114,7 +121,7 @@ automatically.
 |---|---|
 | `gui/run.py` | Entry point: dialog, config file, solver launch |
 | `gui/setup_dialog.py` | `SetupDialog` (four tabs, validation, `sim_params`) |
-| `gui/workbench.py`, `gui/project.py`, `gui/runner.py`, `gui/modules/` | The workbench window, the shared project, the solver as a child process, the modules |
+| `gui/workbench.py`, `gui/canvas.py`, `gui/graph.py`, `gui/project.py`, `gui/runner.py`, `gui/modules/` | The workbench window, the shared project, the solver as a child process, the modules |
 | `python/fenice/geometry.py` | The immersed body for previews (outline, solid cells), shared with the validation scripts |
 | `gui/viewer.py`, `gui/viewer_data.py` | The result viewer (`ViewerPanel`; the data side has no Qt) |
 | `gui/solver.py` | Bridge to the executable (`available_cases`, `case_defaults`, `write_config`, `save_case`) |

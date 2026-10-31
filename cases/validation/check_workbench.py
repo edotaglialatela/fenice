@@ -1,0 +1,107 @@
+"""Checks of the workbench canvas, driven with the mouse (QTest, offscreen): dragging a node, linking ports, refused links, the Delete key,
+the editors bound to a solver, the Low-Mach switch and the geometry edits reaching the solver's fields. No solver is run.
+
+    python cases/validation/check_workbench.py        # exit 0 if every check passes; needs PyQt6, matplotlib and a built solver
+"""
+import os
+import sys
+import time
+from pathlib import Path
+
+os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+sys.path.insert(0, str(Path(__file__).resolve().parents[2]))
+
+from PyQt6.QtCore import QPoint, QPointF, Qt  # noqa: E402
+from PyQt6.QtTest import QTest  # noqa: E402
+from PyQt6.QtWidgets import QApplication, QCheckBox  # noqa: E402
+
+from gui.theme import apply_theme  # noqa: E402
+from gui.workbench import Workbench  # noqa: E402
+
+app = QApplication([])
+apply_theme(app)
+w = Workbench()
+w.resize(1360, 900)
+w.show()
+failures = []
+
+
+def pump(s):
+    t = time.time()
+    while time.time() - t < s:
+        app.processEvents()
+        time.sleep(0.02)
+
+
+def ok(cond, msg):
+    print(("PASS " if cond else "FAIL ") + msg)
+    if not cond:
+        failures.append(msg)
+
+
+vp=w.view.viewport()
+def vpos(scene_pt): return w.view.mapFromScene(scene_pt)
+def drag(a, b, steps=6):
+    QTest.mousePress(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, a); pump(0.05)
+    for i in range(1,steps+1):
+        p=QPoint(a.x()+(b.x()-a.x())*i//steps, a.y()+(b.y()-a.y())*i//steps)
+        QTest.mouseMove(vp, p); pump(0.02)
+    QTest.mouseRelease(vp, Qt.MouseButton.LeftButton, Qt.KeyboardModifier.NoModifier, b); pump(0.15)
+geo, sol = w.items[1], w.items[2]
+# 1 drag a node by its header
+before=geo.scenePos(); h=vpos(geo.mapToScene(QPointF(60,10)))
+drag(h, h+QPoint(0,60)); ok(abs(geo.scenePos().y()-before.y())>20, f'node dragged ({before.y():.0f} -> {geo.scenePos().y():.0f})')
+# link line follows
+ok(w.items[1].out_ports['geometry'].links[0].path().boundingRect().height()>0, 'link follows')
+# 2 add a monitor from the palette (double click) and a post node
+pal={w.palette.item(i).text():w.palette.item(i) for i in range(w.palette.count())}
+w._palette_add(pal['Monitor']); w._palette_add(pal['Postprocessing']); pump(0.3)
+mon=w.items[3]; post=w.items[4]
+mon.setPos(sol.scenePos()+QPointF(330,-60)); post.setPos(sol.scenePos()+QPointF(330,120)); w.fit_graph(); pump(0.3)
+# incompatible: geometry output -> monitor run input
+a=vpos(geo.out_ports['geometry'].scene_pos()); b=vpos(mon.in_ports['run'].scene_pos())
+n=len(w.graph.links); drag(a,b); ok(len(w.graph.links)==n, 'incompatible link (geometry -> monitor) refused')
+# run -> monitor, results -> post
+drag(vpos(sol.out_ports['run'].scene_pos()), vpos(mon.in_ports['run'].scene_pos())); ok(len(w.graph.links)==n+1, 'solver run -> monitor linked by mouse')
+drag(vpos(sol.out_ports['results'].scene_pos()), vpos(post.in_ports['results'].scene_pos())); ok(len(w.graph.links)==n+2, 'solver results -> postprocessing linked')
+# a second link into the same input is refused
+w._palette_add(pal['Solver']); pump(0.3); sol2=w.items[5]; sol2.setPos(sol.scenePos()+QPointF(0,260)); w.fit_graph(); pump(0.3)
+drag(vpos(sol2.out_ports['run'].scene_pos()), vpos(mon.in_ports['run'].scene_pos())); ok(len(w.graph.links)==n+2, 'second link into a taken input refused')
+# solver 2 without geometry cannot run
+try: w.projects[5].start_run({'x':1}); ok(False,'run without geometry refused')
+except RuntimeError as e: ok('Geometry' in str(e), 'run without a geometry refused: '+str(e)[:50])
+w.fit_graph(); pump(0.3); w.grab().save('C:/fgold/shots/wb1.png')
+# delete a link with the Delete key
+w.scene.clearSelection(); li=sol.out_ports['results'].links[0]; li.setSelected(True); w.scene.setFocus(); QTest.keyClick(vp, Qt.Key.Key_Delete); pump(0.2)
+ok(len(w.graph.links)==n+1 and not sol.out_ports['results'].links, 'link deleted with the Delete key')
+ok(w.editors[4].findChild(object) is not None and 4 in w._placeholders, 'postprocessing back to a placeholder when unlinked')
+drag(vpos(sol.out_ports['results'].scene_pos()), vpos(post.in_ports['results'].scene_pos())); ok(4 not in w._placeholders, 'relinked: viewer rebuilt')
+# delete node solver 2 and the post node via selection
+sol2.setSelected(True); QTest.keyClick(vp, Qt.Key.Key_Delete); pump(0.2); ok(5 not in w.items and 5 not in w.projects, 'solver node deleted')
+print('links', [(l.src,l.src_port,l.dst,l.dst_port) for l in w.graph.links])
+
+# ---- the Low-Mach switch and the geometry edits (the solver page is node 2, a geometry node 1)
+page, geo = w.editors[2], w.editors[1]
+face = w.items[2].face.widget()
+low = face.findChild(QCheckBox)
+for case, want in (("Sod Shock Tube", False), ("IBM Airfoil AMR", True)):
+    page.combo_testcase.setCurrentText(case)
+    pump(0.3)
+    ok(low.isChecked() == want and low.isEnabled(), f"{case}: Low-Mach switch follows the case ({page.combo_riemann.currentText()})")
+low.setChecked(False)
+ok(page.combo_riemann.currentText() == "HLLC", "the switch sets the Riemann solver")
+page.combo_riemann.setCurrentText("HLLC (Preconditioned)")
+low.setChecked(True)
+ok(not low.isEnabled() and page.combo_riemann.currentText() == "HLLC (Preconditioned)", "another Riemann solver is left alone")
+w.open_editor(1)
+pump(0.5)
+geo.fields["Lx"].setText("2.5")
+geo.fields["Lx"].editingFinished.emit()
+ok(page.input_Lx.text() == "2.5", "a domain edit reaches the solver's field")
+page.combo_testcase.setCurrentText("IBM Flow over Cylinder")
+pump(0.5)
+ok(geo.chk_body.isChecked() and geo.fields["Lx"].text() != "2.5", "a new case on the solver reloads the geometry node")
+ok(not page.group_domain.isVisibleTo(page) and not page.bc_left.isVisibleTo(page), "the solver page shows no domain or side fields")
+w.close()
+print("ALL PASSED" if not failures else f"{len(failures)} FAILED")
+sys.exit(1 if failures else 0)

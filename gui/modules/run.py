@@ -1,7 +1,8 @@
-"""Run module: statistics of the run above, the solver's console below, Stop and Kill.
+"""Monitor module: statistics of the run of the solver it is linked to above, the solver's console below, Stop and Kill.
 
-The curves come from what the solver already writes: the progress lines (every `save_interval` steps: time step, wave speed, number of
-leaves of an AMR run) and the monitor CSV (every N steps, N set in the panel: residual norms, averages, loads).
+The curves come from what the solver writes: the progress lines (every `save_interval` steps: time step, wave speed, number of leaves of
+an AMR run) and the monitor CSV (every N steps, N set on the solver node: residual norms, averages, loads). The run's history lives in the
+project, so a monitor linked in the middle of a run shows it from its start.
 """
 from __future__ import annotations
 
@@ -9,14 +10,12 @@ import time
 from pathlib import Path
 
 import numpy as np
-
 from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
-from PyQt6.QtWidgets import (QComboBox, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QSpinBox, QSplitter, QVBoxLayout,
-                             QWidget)
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget
 
 from gui import ansi
-from gui.modules import ModuleSpec
+from gui.modules import ModuleSpec, Port
 from gui.project import IDLE, RUNNING, STOPPING
 
 _MAX_LINES = 20000
@@ -32,8 +31,6 @@ class RunPanel(QWidget):
     def __init__(self, project, parent=None):
         super().__init__(parent)
         self.project = project
-        self.btn_run = QPushButton("Run again")
-        self.btn_run.setToolTip("Run the solver with what the Setup page holds now")
         self.btn_stop = QPushButton("Stop")
         self.btn_stop.setToolTip("Stop cleanly: the solver saves its checkpoint and index, then exits (serial or MPI)")
         self.btn_kill = QPushButton("Kill")
@@ -42,13 +39,6 @@ class RunPanel(QWidget):
         self.status.setObjectName("note")
         self.cb_quantity = QComboBox()
         self.cb_quantity.setToolTip("The quantity of the lowest plot: a column of the monitor file, or the number of leaves of an AMR run")
-        self.spin_every = QSpinBox()
-        self.spin_every.setRange(0, 1_000_000)
-        self.spin_every.setValue(10)
-        self.spin_every.setSpecialValueText("case")
-        self.spin_every.setToolTip("Write the monitor file (residuals, averages, loads) every N steps, for the next run: 'case' keeps the "
-                                   "case's own monitor_interval. Each record costs one extra residual evaluation.")
-        project.monitor_every = self.spin_every.value()
         self.text = QPlainTextEdit()
         self.text.setReadOnly(True)
         self.text.setMaximumBlockCount(_MAX_LINES)
@@ -75,34 +65,31 @@ class RunPanel(QWidget):
         self.split = split
 
         row = QHBoxLayout()
-        for w in (self.btn_run, self.btn_stop, self.btn_kill):
+        for w in (self.btn_stop, self.btn_kill):
             row.addWidget(w)
-        row.addWidget(QLabel("Record every"))
-        row.addWidget(self.spin_every)
-        row.addWidget(QLabel("steps; lowest plot"))
+        row.addWidget(QLabel("Lowest plot"))
         row.addWidget(self.cb_quantity)
         row.addWidget(self.status, 1)
         lay = QVBoxLayout(self)
         lay.addLayout(row)
         lay.addWidget(split, 1)
 
-        self._reset_data()
-        self._dirty = False
+        self.monitor = None
+        self._series = None
+        self._shown = 0   # lines of project.log_history already in the console
         self._timer = QTimer(self)   # the plots are redrawn about once a second, not on every line
         self._timer.setInterval(1000)
         self._timer.timeout.connect(self._tick)
-        self.btn_run.clicked.connect(self._run_again)
         self.btn_stop.clicked.connect(project.stop)
         self.btn_kill.clicked.connect(project.kill)
         self.cb_quantity.currentIndexChanged.connect(lambda _: self._redraw())
-        self.spin_every.valueChanged.connect(lambda v: setattr(project, "monitor_every", v))
         project.started.connect(self._started)
-        project.log.connect(self._append)
-        project.progress.connect(self._progress)
-        project.progress_extra.connect(self._progress_extra)
+        project.log.connect(self._on_line)
+        project.progress.connect(self._on_progress)
         project.state_changed.connect(self._state)
         project.finished.connect(self._finished)
-        self._state(IDLE)
+        self._state(project.state)
+        self._replay()
 
     def showEvent(self, event):
         super().showEvent(event)
@@ -111,54 +98,38 @@ class RunPanel(QWidget):
             h = self.split.height()
             self.split.setSizes([h // 2, h - h // 2])
 
-    # ---- the run
-    def _reset_data(self) -> None:
-        self.t_hist: list[float] = []
-        self.dt_hist: list[float] = []
-        self.s_hist: list[float] = []
-        self.leaf_t: list[float] = []
-        self.leaf_hist: list[int] = []
-        self.monitor = None
-        self.t_end = 0.0
-        self.t_now = 0.0
-        self.next_mark = 10
-        self.t0 = time.monotonic()
-        self.wall = ""
-
-    def _run_again(self) -> None:
-        params = self.project.current_params()
-        if params is None:
-            self.status.setText("the setup has an input that is not valid: correct it in Setup first")
-            return
-        try:
-            self.project.start_run(params)
-        except RuntimeError as exc:
-            self.status.setText(str(exc))
+    # ---- from the history of the project: also what a monitor linked in the middle of a run missed
+    def _replay(self) -> None:
+        """Fill the console and the plots with what the run has shown so far."""
+        self.text.clear()
+        self._shown = 0
+        for line in list(self.project.log_history):
+            self._append(line)
+            self._shown += 1
+        self._read_monitor()
+        self._fill_choices()
+        self._status()
+        self._redraw()
+        if self.project.running:
+            self._timer.start()
 
     def _started(self) -> None:
-        """A fresh run, however it was started: the console and the plots begin empty."""
+        """A fresh run: the console and the plots begin empty."""
         self.text.clear()
-        self._reset_data()
-        try:
-            self.t_end = float(self.project.params.get("t_end", 0) or 0)
-        except (TypeError, ValueError):
-            self.t_end = 0.0
-        if self.t_end > 0:
-            self._note(f"total physical time: {self.t_end:g} s")
-        else:
-            self._note("no end time set: the run ends at its step limit")
+        self._shown = 0
+        self.monitor = None
+        self._series = None
         self.cb_quantity.blockSignals(True)
         self.cb_quantity.clear()
         self.cb_quantity.blockSignals(False)
         self._redraw()
-        if self.project.monitor_every > 0:
-            self._note(f"monitor file (residuals, averages) every {self.project.monitor_every} steps")
         self._timer.start()
 
-    def _note(self, text: str) -> None:
-        self._append(f"[GUI] {text}")
-
     # ---- the console
+    def _on_line(self, line: str) -> None:
+        self._shown += 1
+        self._append(line)
+
     def _append(self, line: str) -> None:
         bar = self.text.verticalScrollBar()
         follow = bar.value() >= bar.maximum() - 4
@@ -176,49 +147,29 @@ class RunPanel(QWidget):
             self.text.moveCursor(QTextCursor.MoveOperation.End)
 
     # ---- progress
-    def _progress(self, step: int, t: float, dt: float, smax: float) -> None:
-        self.t_now = max(self.t_now, t)
-        self.t_hist.append(t)
-        self.dt_hist.append(dt)
-        self.s_hist.append(smax)
-        self._dirty = True
-        self._marks()
-        self._status(step)
+    def _on_progress(self, *_) -> None:
+        self._status()
 
-    def _progress_extra(self, leaves: int, wall: str) -> None:
-        self.wall = wall
-        if leaves and self.t_hist:
-            self.leaf_t.append(self.t_hist[-1])
-            self.leaf_hist.append(leaves)
-
-    def _marks(self) -> None:
-        """A note in the console each time the run passes a multiple of 10 % of the physical time."""
-        if self.t_end <= 0:
-            return
-        pct = 100.0 * self.t_now / self.t_end
-        reached = min(int(pct // 10) * 10, 100)
-        if reached >= self.next_mark:
-            self._note(f"{reached} % of the physical time (t = {self.t_now:.5g} of {self.t_end:g} s)")
-            self.next_mark = reached + 10
-
-    def _status(self, step: int | None = None) -> None:
+    def _status(self) -> None:
+        pr = self.project
         bits = []
-        if step is not None:
+        if pr.progress_history:
+            step, _, dt, smax, leaves, wall = pr.progress_history[-1]
             bits.append(f"step {step}")
-        bits.append(f"t = {self.t_now:.6g}" + (f" / {self.t_end:g} s" if self.t_end > 0 else ""))
-        if self.t_end > 0 and self.t_now > 0:
-            f = min(self.t_now / self.t_end, 1.0)
+        bits.append(f"t = {pr.t_now:.6g}" + (f" / {pr.t_end:g} s" if pr.t_end > 0 else ""))
+        if pr.t_end > 0 and pr.t_now > 0:
+            f = min(pr.t_now / pr.t_end, 1.0)
             bits.append(f"{100 * f:.0f} %")
-            elapsed = time.monotonic() - self.t0
-            if 0 < f < 1:
+            elapsed = time.monotonic() - pr.t_started
+            if 0 < f < 1 and pr.running:
                 bits.append(f"about {_clock(elapsed * (1 - f) / f)} left")
-        if self.t_hist:
-            bits.append(f"dt = {self.dt_hist[-1]:.3g}   S_max = {self.s_hist[-1]:.4g}")
-        if self.leaf_hist:
-            bits.append(f"{self.leaf_hist[-1]:,} leaves")
-        if self.wall:
-            bits.append(f"wall {self.wall}")
-        self.status.setText("   ".join(bits))
+        if pr.progress_history:
+            bits.append(f"dt = {dt:.3g}   S_max = {smax:.4g}")
+            if leaves:
+                bits.append(f"{leaves:,} leaves")
+            if wall:
+                bits.append(f"wall {wall}")
+        self.status.setText("   ".join(bits) if pr.progress_history or pr.t_now else self.project.state)
 
     # ---- the plots
     def _read_monitor(self) -> None:
@@ -227,7 +178,7 @@ class RunPanel(QWidget):
             return
         try:
             from gui.viewer_data import Series
-            ser = getattr(self, "_series", None)
+            ser = self._series
             if ser is None or Path(ser.folder) != Path(d):
                 self._series = ser = Series(Path(d))
             ser._monitor = ser._read_monitor()
@@ -236,8 +187,7 @@ class RunPanel(QWidget):
             return
         if m is not None and m.size > 1 and "t" in m.dtype.names:
             self.monitor = m
-            self.t_now = max(self.t_now, float(m["t"][-1]))
-            self._marks()
+            self.project.advance_time(float(m["t"][-1]))
 
     def _tick(self) -> None:
         if self.project.running:
@@ -245,9 +195,6 @@ class RunPanel(QWidget):
             self._fill_choices()
             self._status()
             self._redraw()
-        elif self._dirty:
-            self._redraw()
-            self._timer.stop()
         else:
             self._timer.stop()
 
@@ -255,7 +202,7 @@ class RunPanel(QWidget):
         names = []
         if self.monitor is not None:
             names += [n for n in self.monitor.dtype.names if n not in ("step", "t")]
-        if self.leaf_hist:
+        if any(row[4] for row in self.project.progress_history):
             names.append("leaves")
         have = [self.cb_quantity.itemText(i) for i in range(self.cb_quantity.count())]
         if names != have:
@@ -268,22 +215,25 @@ class RunPanel(QWidget):
             self.cb_quantity.blockSignals(False)
 
     def _redraw(self) -> None:
-        c = self._colors
+        c, pr = self._colors, self.project
+        hist = pr.progress_history
         for ax in (self.ax_dt, self.ax_s, self.ax_r, self.ax_q):
             ax.clear()
             ax.set_facecolor(c["bg_surface"])
             ax.grid(True, color=c["border_strong"], lw=0.4)
             ax.tick_params(labelsize=8)
-        if self.t_hist:
-            self.ax_dt.plot(self.t_hist, self.dt_hist, color=c["primary"], lw=1.2, marker="." if len(self.t_hist) < 60 else None)
+        if hist:
+            t = [r[1] for r in hist]
+            mark = "." if len(t) < 60 else None
+            self.ax_dt.plot(t, [r[2] for r in hist], color=c["primary"], lw=1.2, marker=mark)
             self.ax_dt.set_yscale("log")
-            self.ax_s.plot(self.t_hist, self.s_hist, color=c["primary"], lw=1.2, marker="." if len(self.t_hist) < 60 else None)
+            self.ax_s.plot(t, [r[3] for r in hist], color=c["primary"], lw=1.2, marker=mark)
         self._draw_residuals()
         self.ax_dt.set_ylabel("dt [s]", fontsize=8)
         self.ax_s.set_ylabel("S_max [m/s]", fontsize=8)
         q = self.cb_quantity.currentText()
-        if q == "leaves" and self.leaf_hist:
-            self.ax_q.plot(self.leaf_t, self.leaf_hist, color=c["primary"], lw=1.2, marker=".")
+        if q == "leaves":
+            self.ax_q.plot([r[1] for r in hist if r[4]], [r[4] for r in hist if r[4]], color=c["primary"], lw=1.2, marker=".")
         elif q and self.monitor is not None and q in self.monitor.dtype.names:
             y = np.asarray(self.monitor[q], dtype=float)
             if q.startswith("res_"):   # residual norms: relative to the first row that is not zero, on a log axis
@@ -295,12 +245,11 @@ class RunPanel(QWidget):
             self.ax_q.plot(self.monitor["t"], y, color=c["primary"], lw=1.2)
         self.ax_q.set_ylabel(q or "monitor", fontsize=8)
         self.ax_q.set_xlabel("t [s]", fontsize=8)
-        if self.t_end > 0:
-            self.ax_q.set_xlim(0, self.t_end)
-        if not self.t_hist:
+        if pr.t_end > 0:
+            self.ax_q.set_xlim(0, pr.t_end)
+        if not hist:
             self.ax_s.text(0.5, 0.5, "dt and S_max come from the progress lines (every save_interval steps)",
                            transform=self.ax_s.transAxes, ha="center", va="center", fontsize=8, color=c["ink_soft"])
-        self._dirty = False
         self.canvas.draw_idle()
 
     def _draw_residuals(self) -> None:
@@ -318,13 +267,12 @@ class RunPanel(QWidget):
             ax.set_yscale("log")
             ax.legend(loc="upper right", fontsize=7, ncol=3, frameon=False)
         else:
-            ax.text(0.5, 0.5, "residuals appear once the monitor file has rows (set 'Record every' above)", transform=ax.transAxes,
+            ax.text(0.5, 0.5, "residuals appear once the monitor file has rows (set 'Record every' on the solver)", transform=ax.transAxes,
                     ha="center", va="center", fontsize=8, color=c["ink_soft"])
         ax.set_ylabel("residual / first", fontsize=8)
 
     # ---- states
     def _state(self, state: str) -> None:
-        self.btn_run.setEnabled(state == IDLE and (bool(self.project.params) or self.project.provider is not None))
         self.btn_stop.setEnabled(state == RUNNING)
         self.btn_kill.setEnabled(state != IDLE)
         if state == STOPPING:
@@ -337,9 +285,12 @@ class RunPanel(QWidget):
         self._fill_choices()
         self._redraw()
         self.status.setText(f"{how} (exit code {code}){note}")
-        self.btn_run.setEnabled(True)
+        self._timer.stop()
+
+    def shutdown(self) -> None:
         self._timer.stop()
 
 
-MODULE = ModuleSpec("run", "Run", RunPanel, order=20, requires=("PyQt6", "matplotlib"),
-                    description="Plots of the run (time step, wave speed, monitor quantities), the solver's console, Stop and Kill.")
+MODULE = ModuleSpec("monitor", "Monitor", RunPanel, order=30, requires=("PyQt6", "matplotlib", "numpy"),
+                    inputs=(Port("run", "run"),),
+                    description="Live plots of the run (time step, wave speed, residuals, monitor quantities) and the solver's console.")

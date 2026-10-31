@@ -1,7 +1,7 @@
 """Geometry module: the domain, the immersed body, the Cartesian mesh and the solid cells it makes, as set up (before any run)."""
 from __future__ import annotations
 
-from gui.modules import ModuleSpec
+from gui.modules import ModuleSpec, Port
 
 _MAX_CELLS = 40_000_000   # the largest level whose solid cells are computed
 
@@ -58,6 +58,34 @@ def _make(project):
             self.btn_half.setToolTip("Halve nx and ny: a quarter of the cells in 2-D, an eighth in 3-D")
             self.btn_double = QPushButton("2\u00d7")
             self.btn_double.setToolTip("Double nx and ny: four times the cells in 2-D, eight times in 3-D (the usual step of a grid study)")
+            self.fields: dict[str, QLineEdit] = {}   # solver key -> edit: the domain and the body
+            for key in ("Lx", "Ly", "Lz", "nz", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz"):
+                self.fields[key] = e = QLineEdit()
+                e.setMaximumWidth(70)
+                e.editingFinished.connect(lambda k=key: self._push({k: self.fields[k].text()}))
+            self.chk_body = QCheckBox("Immersed body")
+            self.cb_shape = QComboBox()
+            self.cb_shape.setEditable(True)   # any "NACA dddd"; Airfoil reads the case's ibm_file
+            self.cb_shape.addItems(["Cylinder", "Sphere", "NACA 0012", "Airfoil"])
+            self.cb_shape.setMaximumWidth(130)
+            self.chk_body.toggled.connect(lambda on: self._push({"use_ibm": on}))
+            self.cb_shape.activated.connect(lambda _: self._push({"ibm_shape": self.cb_shape.currentText()}))
+            self.cb_shape.lineEdit().editingFinished.connect(lambda: self._push({"ibm_shape": self.cb_shape.currentText()}))
+            self.domain_labels: dict[str, QLabel] = {}
+            domain_row = QHBoxLayout()
+            for key, text in (("Lx", "Domain Lx"), ("Ly", "Ly"), ("Lz", "Lz"), ("nz", "nz")):
+                self.domain_labels[key] = QLabel(text)
+                domain_row.addWidget(self.domain_labels[key])
+                domain_row.addWidget(self.fields[key])
+            domain_row.addStretch(1)
+            body_row = QHBoxLayout()
+            body_row.addWidget(self.chk_body)
+            body_row.addWidget(self.cb_shape)
+            for key, text in (("ibm_radius", "radius"), ("ibm_cx", "cx"), ("ibm_cy", "cy"), ("ibm_cz", "cz")):
+                self.domain_labels[key] = QLabel(text)
+                body_row.addWidget(self.domain_labels[key])
+                body_row.addWidget(self.fields[key])
+            body_row.addStretch(1)
             self.bc_combos: dict[str, QComboBox] = {}
             bc_row = QHBoxLayout()
             for side in ("left", "right", "bottom", "top", "front", "back"):
@@ -78,7 +106,9 @@ def _make(project):
             row.addStretch(1)
             lay = QVBoxLayout(self)
             lay.addLayout(row)
+            lay.addLayout(domain_row)
             lay.addLayout(mesh_row)
+            lay.addLayout(body_row)
             lay.addLayout(bc_row)
             lay.addWidget(self.warn)
             lay.addWidget(self.toolbar)
@@ -95,6 +125,7 @@ def _make(project):
             self._timer.setInterval(90)
             self._timer.timeout.connect(self._draw_grid)
             self.btn_refresh.clicked.connect(self.refresh)
+            project.setup_changed.connect(self._on_setup_changed)   # another case loaded on the solver
             self.btn_zoom.clicked.connect(self._zoom_to_body)
             self.btn_apply.clicked.connect(lambda: self._set_mesh(self.edit_nx.text(), self.edit_ny.text()))
             self.btn_half.clicked.connect(lambda: self._scale_mesh(0.5))
@@ -115,23 +146,34 @@ def _make(project):
             self.canvas.mpl_connect("motion_notify_event", self._on_motion)
             self.canvas.mpl_connect("button_release_event", self._on_release)
 
+        def _on_setup_changed(self) -> None:
+            self.refresh(reset_view=True)
+
         def showEvent(self, event):
             super().showEvent(event)
             self.refresh()   # the page shows what Setup holds when it comes up
 
         # ---- the parameters
         def refresh(self, reset_view: bool = True) -> None:
-            cur = project.current_params()
-            if cur is None:
-                self.info.setText("The setup has an input that is not valid yet: correct it in Setup, then refresh.")
-                if self.p is not None and project.editor is not None:   # the boundary conditions can still be shown and corrected here
-                    self._fill_controls({**self.p, **project.editor.bc_values()})
+            ed = project.editor
+            if ed is None:
+                self.info.setText("This geometry is not linked to a solver.")
                 return
+            case = ed.combo_testcase.currentText()
             try:
-                p = dict(case_defaults(cur["test_case"])) if "test_case" in cur else {}
+                p = dict(case_defaults(case))   # what the case sets besides the geometry fields: chord, angle, file, AMR
             except Exception:   # noqa: BLE001 - the solver is not built or the case is unknown: the live values alone will do
                 p = {}
-            p.update({k: str(v) for k, v in cur.items()})
+            cur = project.current_params()
+            if cur is not None:
+                p.update({k: str(v) for k, v in cur.items()})
+            p.update({k: str(v) for k, v in ed.geometry_values().items()})   # the geometry fields as they stand, valid or not
+            p["test_case"] = case
+            try:
+                float(p["Lx"]), float(p["Ly"]), int(p["nx"]), int(p["ny"]), int(p["nz"])
+            except (KeyError, ValueError):
+                self.info.setText("A domain or mesh field is not a valid number: correct it above.")
+                return
             self.p = p
             try:
                 self.body = geometry.body_from_params(p, fenice.ROOT)
@@ -160,6 +202,23 @@ def _make(project):
             enabled = ed is not None
             for e, key in ((self.edit_nx, "nx"), (self.edit_ny, "ny")):
                 e.setText(str(int(p[key])))
+            for key, e in self.fields.items():
+                if not e.hasFocus():
+                    e.setText(str(p.get(key, "")))
+            for key in ("Lz", "ibm_cz"):
+                self.fields[key].setVisible(nz > 1 and (key == "Lz" or flag(p, "use_ibm")))
+                self.domain_labels[key].setVisible(self.fields[key].isVisible())
+            self.chk_body.blockSignals(True)
+            self.chk_body.setChecked(flag(p, "use_ibm"))
+            self.chk_body.blockSignals(False)
+            self.cb_shape.blockSignals(True)
+            self.cb_shape.setCurrentText(p.get("ibm_shape", ""))
+            self.cb_shape.blockSignals(False)
+            for key in ("ibm_radius", "ibm_cx", "ibm_cy"):
+                self.fields[key].setEnabled(flag(p, "use_ibm") and enabled)
+            self.cb_shape.setEnabled(flag(p, "use_ibm") and enabled)
+            for w in (self.fields["Lx"], self.fields["Ly"], self.fields["Lz"], self.fields["nz"], self.chk_body):
+                w.setEnabled(enabled)
             for w in (self.edit_nx, self.edit_ny, self.btn_apply, self.btn_half, self.btn_double):
                 w.setEnabled(enabled)
             for side, cb in self.bc_combos.items():
@@ -180,7 +239,11 @@ def _make(project):
         def _push(self, values: dict) -> None:
             if project.editor is None:
                 return
-            project.editor.apply_geometry(values)
+            try:
+                project.editor.apply_geometry(values)
+            except ValueError:
+                self.warn.setText("A value is not a valid number.")
+                return
             self.refresh(reset_view=False)
 
         def _set_mesh(self, nx_text: str, ny_text: str) -> None:
@@ -379,5 +442,6 @@ def _make(project):
     return GeometryPanel()
 
 
-MODULE = ModuleSpec("geometry", "Geometry", _make, order=15, requires=("PyQt6", "matplotlib", "numpy"),
+MODULE = ModuleSpec("geometry", "Geometry", _make, order=10, requires=("PyQt6", "matplotlib", "numpy"),
+                    outputs=(Port("geometry", "geometry", label="geometry"),),
                     description="The domain, the immersed body, the Cartesian mesh and the solid cells it makes, as set up.")

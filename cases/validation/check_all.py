@@ -47,6 +47,7 @@ def steps(args):
         ("switch table", [PY, "cases/validation/check_switches.py"], {}, "quick"),
         ("geometry preview", [PY, "cases/validation/check_geometry.py"], {}, "quick"),
         ("unit tests no simd", [t], {"FENICE_NO_SIMD": "1"}, "full"),
+        ("workbench canvas", [PY, "cases/validation/check_workbench.py"], {}, "full"),
         ("amr_mpi replicated storage", [PY, "cases/validation/amr/amr_mpi.py", "--check"], {"FENICE_REPLICATED_REMESH": "1"}, "full"),
     ]
     if args.golden:
