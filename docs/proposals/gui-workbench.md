@@ -33,7 +33,7 @@ solver's own.
 
 | Module | What it does | State |
 | --- | --- | --- |
-| Geometry | the domain, the mesh, the immersed body (cylinder, sphere, NACA section, airfoil file), the side conditions, the grid and the solid cells at the chosen resolution, the finer AMR levels; all edited here (an airfoil generator, the values of the conditions: velocity, pressure, mass flow, are not done: they are on the solver) | exists |
+| Geometry | the domain, the mesh, the immersed body (cylinder, sphere, NACA section, airfoil file), the adaptive mesh, the side conditions, the grid and the solid cells at the chosen resolution, the finer AMR levels; all edited here (an airfoil generator, the values of the conditions: velocity, pressure, mass flow, are not done: they are on the solver) | exists |
 | Solver | the setup dialog without the geometry, Run and Stop, the Low-Mach slider, the monitor interval; one project per solver node | exists |
 | Monitor | live plots (time step, wave speed, residual norms, monitor columns) and the console, linked to a solver, also in the middle of a run | exists |
 | Postprocessing | the viewer: fields, slices, adaptive meshes, monitor curves, following a run | exists |

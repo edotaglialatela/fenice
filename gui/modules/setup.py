@@ -78,6 +78,7 @@ def _make(project):
             """The domain, the body and the sides are the geometry node's: hidden here, but still the fields that hold the values."""
             self.group_domain.hide()
             self.tabs.setTabVisible(self.tabs.indexOf(self.ibm_tab), False)
+            self.tabs.setTabVisible(self.tabs.indexOf(self.amr_tab), False)   # the refinement is the geometry node's too
             self._side_widgets = [self.bc_left, self.bc_right, self.bc_bottom, self.bc_top, self.bc_front, self.bc_back]
             for w in self._side_widgets:
                 w.hide()
@@ -95,7 +96,9 @@ def _make(project):
             """The first geometry field (held here, edited in the geometry node) that is not a number, as a message."""
             v = self.geometry_values()
             for key, kind in (("Lx", float), ("Ly", float), ("Lz", float), ("ibm_radius", float), ("ibm_cx", float), ("ibm_cy", float),
-                              ("ibm_cz", float), ("nx", int), ("ny", int), ("nz", int)):
+                              ("ibm_cz", float), ("nx", int), ("ny", int), ("nz", int),
+                              ("amr_max_level", int), ("amr_init_levels", int), ("amr_diffusion", int), ("amr_refine_every", int),
+                              ("amr_criterion", float), ("amr_refine_threshold", float), ("amr_derefine_threshold", float)):
                 try:
                     kind(v[key])
                 except ValueError:

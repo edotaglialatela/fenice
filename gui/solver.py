@@ -48,6 +48,28 @@ def case_defaults(name: str) -> dict[str, str]:
     return dict(line.split(" = ", 1) for line in out.splitlines() if " = " in line)
 
 
+@functools.lru_cache(maxsize=None)
+def case_explicit(name: str) -> frozenset:
+    """The keys the case file itself sets (the rest are the solver's baseline)."""
+    out = _run("--case", name, "--print-case-defaults")
+    return frozenset(line.split(" = ", 1)[0].strip() for line in out.splitlines() if " = " in line)
+
+
+# What the GUI starts the AMR fields at (a case that sets one of them keeps its own value): all three indicator variables, the refine and
+# join thresholds at 0.11, a remesh at every step.
+AMR_GUI_DEFAULTS = {"amr_indicator": "density+velocity+pressure", "amr_refine_threshold": "0.11", "amr_derefine_threshold": "0.11",
+                    "amr_refine_every": "1"}
+
+
+def amr_gui_defaults(name: str) -> dict[str, str]:
+    """AMR_GUI_DEFAULTS without the keys the case sets itself."""
+    try:
+        explicit = case_explicit(name)
+    except Exception:   # noqa: BLE001 - the solver is not available: the plain defaults
+        explicit = frozenset()
+    return {k: v for k, v in AMR_GUI_DEFAULTS.items() if k not in explicit}
+
+
 def write_config(params: dict, path: str) -> None:
     """Write ``key = value`` lines (the solver's --config format)."""
     with open(path, "w", encoding="utf-8") as f:

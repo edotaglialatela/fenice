@@ -22,7 +22,7 @@ def _make(project=None):
     import fenice
     from fenice import geometry
     from gui.setup_dialog import SetupDialog
-    from gui.solver import available_cases, case_defaults
+    from gui.solver import amr_gui_defaults, available_cases, case_defaults
     from gui.theme import COLORS
 
     logging.getLogger("matplotlib.axes._base").setLevel(logging.ERROR)   # "ignoring fixed limits" with the equal aspect
@@ -67,6 +67,46 @@ def _make(project=None):
                 self.fields[key] = e = QLineEdit()
                 e.setMaximumWidth(70)
                 e.editingFinished.connect(lambda k=key: self._push({k: self.fields[k].text()}))
+            self.amr_fields: dict[str, QLineEdit] = {}   # solver key -> edit: the adaptive mesh
+            for key in ("amr_max_level", "amr_init_levels", "amr_criterion", "amr_refine_threshold", "amr_derefine_threshold",
+                        "amr_diffusion", "amr_refine_every"):
+                self.amr_fields[key] = e = QLineEdit()
+                e.setMaximumWidth(54)
+                e.editingFinished.connect(lambda k=key: self._push({k: self.amr_fields[k].text()}))
+            self.chk_amr = QCheckBox("AMR")
+            self.chk_amr.setToolTip("Adaptive mesh refinement (2-D only): leaves are refined where a chosen variable jumps across a face")
+            self.chk_amr.toggled.connect(lambda on: self._push({"use_amr": on}))
+            self.amr_ind: dict[str, QCheckBox] = {}
+            for key, text in (("density", "\u03c1"), ("velocity", "|u|"), ("pressure", "p")):
+                self.amr_ind[key] = b = QCheckBox(text)
+                b.setToolTip(f"Refine where the {key} varies across a face by more than the criterion")
+                b.toggled.connect(lambda _on: self._push({"amr_indicator": self._indicator_text()}))
+            amr_tips = {"amr_max_level": "Finest refinement level", "amr_init_levels": "Uniform levels at the start, before the indicator acts",
+                        "amr_criterion": "Relative variation across a face that counts as 1 in the indicator",
+                        "amr_refine_threshold": "Refine a leaf where the indicator reaches this value",
+                        "amr_derefine_threshold": "Join four siblings when their parent's indicator is below this value (not above the refine threshold)",
+                        "amr_diffusion": "Smoothing iterations of the refinement flags",
+                        "amr_refine_every": "Remesh every N steps"}
+            for key, tip in amr_tips.items():
+                self.amr_fields[key].setToolTip(tip)
+            amr_row = QHBoxLayout()
+            amr_row.addWidget(self.chk_amr)
+            self.domain_labels_amr: dict[str, QLabel] = {}
+            for key, text in (("amr_max_level", "levels"), ("amr_init_levels", "initial")):
+                self.domain_labels_amr[key] = QLabel(text)
+                amr_row.addWidget(self.domain_labels_amr[key])
+                amr_row.addWidget(self.amr_fields[key])
+            self.domain_labels_amr["indicator"] = QLabel("indicator")
+            amr_row.addWidget(self.domain_labels_amr["indicator"])
+            for b in self.amr_ind.values():
+                amr_row.addWidget(b)
+            for key, text in (("amr_criterion", "criterion"), ("amr_refine_threshold", "refine \u2265"), ("amr_derefine_threshold", "join <"),
+                              ("amr_diffusion", "smooth"), ("amr_refine_every", "every")):
+                self.domain_labels_amr[key] = QLabel(text)
+                amr_row.addWidget(self.domain_labels_amr[key])
+                amr_row.addWidget(self.amr_fields[key])
+            amr_row.addWidget(QLabel("steps"))
+            amr_row.addStretch(1)
             self.chk_body = QCheckBox("Immersed body")
             self.cb_shape = QComboBox()
             self.cb_shape.setEditable(True)   # any "NACA dddd"; Airfoil reads the case's ibm_file
@@ -113,6 +153,7 @@ def _make(project=None):
             lay.addLayout(domain_row)
             lay.addLayout(mesh_row)
             lay.addLayout(body_row)
+            lay.addLayout(amr_row)
             lay.addLayout(bc_row)
             lay.addWidget(self.warn)
             lay.addWidget(self.toolbar)
@@ -172,6 +213,9 @@ def _make(project=None):
                         pass
             self.refresh(reset_view=True)
 
+        def _indicator_text(self) -> str:
+            return "+".join(k for k, b in self.amr_ind.items() if b.isChecked())
+
         def _choices(self) -> dict:
             ed = self.project.editor if self.project is not None else None
             return ed.bc_choices() if ed is not None else dict(SetupDialog._BC_LABELS)
@@ -180,7 +224,7 @@ def _make(project=None):
             try:
                 cases = available_cases()
                 name = "Sod Shock Tube" if "Sod Shock Tube" in cases else cases[0]
-                p = dict(case_defaults(name))
+                p = {**case_defaults(name), **amr_gui_defaults(name)}
                 p["test_case"] = name
             except Exception:   # noqa: BLE001 - the solver is not built: an empty domain is shown
                 p = {"Lx": "1.0", "Ly": "1.0", "nx": "100", "ny": "100", "nz": "1", "Lz": "1.0"}
@@ -256,6 +300,21 @@ def _make(project=None):
             for key in ("Lz", "ibm_cz"):
                 self.fields[key].setVisible(nz > 1 and (key == "Lz" or flag(p, "use_ibm")))
                 self.domain_labels[key].setVisible(self.fields[key].isVisible())
+            amr = flag(p, "use_amr")
+            self.chk_amr.blockSignals(True)
+            self.chk_amr.setChecked(amr)
+            self.chk_amr.blockSignals(False)
+            self.chk_amr.setEnabled(enabled)
+            for key, e in self.amr_fields.items():
+                if not e.hasFocus():
+                    e.setText(str(p.get(key, "")))
+                e.setEnabled(amr)
+            tokens = [t.strip() for t in str(p.get("amr_indicator", "")).split("+")]
+            for key, b in self.amr_ind.items():
+                b.blockSignals(True)
+                b.setChecked(key in tokens)
+                b.blockSignals(False)
+                b.setEnabled(amr)
             self.chk_body.blockSignals(True)
             self.chk_body.setChecked(flag(p, "use_ibm"))
             self.chk_body.blockSignals(False)
@@ -282,7 +341,18 @@ def _make(project=None):
                 cb.blockSignals(False)
             pairs = [("left", "right"), ("bottom", "top")] + ([("front", "back")] if nz > 1 else [])
             bad = [f"{a} / {b}" for a, b in pairs if (str(p.get(f"bc_{a}")) == "periodic") != (str(p.get(f"bc_{b}")) == "periodic")]
-            self.warn.setText("Periodic must be set on both sides of a pair (" + ", ".join(bad) + "): Setup will refuse the run until it is." if bad else "")
+            msgs = ["Periodic must be set on both sides of a pair (" + ", ".join(bad) + "): the solver will refuse the run until it is."] if bad else []
+            if flag(p, "use_amr"):
+                if nz > 1:
+                    msgs.append("AMR is 2-D only (nz must be 1).")
+                if not any(t in self.amr_ind for t in tokens):
+                    msgs.append("Tick at least one AMR indicator variable.")
+                try:
+                    if float(p["amr_derefine_threshold"]) > float(p["amr_refine_threshold"]):
+                        msgs.append("The join threshold must not exceed the refine threshold.")
+                except (KeyError, ValueError):
+                    pass
+            self.warn.setText("  ".join(msgs))
 
         def _push(self, values: dict) -> None:
             self._touched = True
@@ -295,9 +365,12 @@ def _make(project=None):
                     for key in ("Lx", "Ly", "Lz", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz"):
                         if key in new:
                             float(new[key])
-                    for key in ("nx", "ny", "nz"):
+                    for key in ("nx", "ny", "nz", "amr_max_level", "amr_init_levels", "amr_diffusion", "amr_refine_every"):
                         if key in new:
                             new[key] = str(int(new[key]))
+                    for key in ("amr_criterion", "amr_refine_threshold", "amr_derefine_threshold"):
+                        if key in new:
+                            float(new[key])
                     self.p.update(new)
             except ValueError:
                 self.warn.setText("A value is not a valid number.")
@@ -501,7 +574,8 @@ def _make(project=None):
 
 
 _GEOMETRY_KEYS = ("Lx", "Ly", "Lz", "nx", "ny", "nz", "use_ibm", "ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz",
-                  "bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back")
+                  "bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back", "use_amr", "amr_indicator", "amr_max_level",
+                  "amr_init_levels", "amr_criterion", "amr_refine_threshold", "amr_derefine_threshold", "amr_diffusion", "amr_refine_every")
 
 MODULE = ModuleSpec("geometry", "Geometry", _make, order=10, standalone=True, requires=("PyQt6", "matplotlib", "numpy"),
                     outputs=(Port("geometry", "geometry", label="geometry"),),

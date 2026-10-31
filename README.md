@@ -140,10 +140,11 @@ The PyQt6 **workbench** is an empty canvas of modules that you drag from the pal
 node linked to a *Solver* node; double-click a node to open its editor in a window of its own.
 
 - **Geometry:** the domain, base mesh (with *2×* / *½×* for a grid study), immersed body (cylinder, sphere,
-  NACA section, airfoil file), the boundary condition of each side, and a picture of the solid cells on every
-  AMR level. It owns its geometry and can be edited before it is linked; a solver does not run without one.
+  NACA section, airfoil file), the boundary condition of each side, the adaptive mesh (levels, indicator
+  variables, thresholds, remesh interval; starts with all three variables, thresholds 0.11, every step) and a
+  picture of the solid cells on every AMR level. It owns its geometry and can be edited before it is linked; a solver does not run without one.
 - **Solver:** the setup (test case, thermodynamics, viscosity, body forces, numerical schemes, output, MPI
-  ranks, hot start, AMR) without the geometry, plus *Run* / *Stop* (a clean stop that saves the checkpoint),
+  ranks, hot start) without the geometry, plus *Run* / *Stop* (a clean stop that saves the checkpoint),
   a **Low-Mach** slider and the monitor interval on the node itself. Several solvers can run at once.
 - **Monitor** (link a solver's *run* port): live panels for the time step, the wave speed, the residuals
   (log axis) and one monitor quantity, with the name and latest value written inside each panel, and a
@@ -161,7 +162,7 @@ python gui/workbench.py
 
 The original single-window **setup dialog** is still there and launches the solver in the terminal; it
 holds the geometry too (mesh, boundaries, immersed body) in its tabs: *Configuration*, *Immersed
-Boundaries*, *Solution Mapping* (hot start) and *AMR*.
+Boundaries*, *Solution Mapping* (hot start) and *AMR*; its AMR fields start at the same values.
 
 ```bash
 python gui/run.py

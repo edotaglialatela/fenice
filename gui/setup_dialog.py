@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QF
                              QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
                              QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
-from gui.solver import ROOT_DIR, available_cases, case_defaults, save_case
+from gui.solver import ROOT_DIR, amr_gui_defaults, available_cases, case_defaults, save_case
 from gui.theme import COLORS
 
 _BOOL_KEYS = {"use_viscous", "use_bodyforce", "resume", "use_mpi", "use_ibm", "use_muscl", "use_hot_start", "use_amr"}
@@ -477,12 +477,12 @@ class SetupDialog(QDialog):
 
         self.input_amr_max_level     = QLineEdit("2")
         self.input_amr_indicator     = IndicatorBox()
-        self.input_amr_indicator.setText("density+velocity")
+        self.input_amr_indicator.setText("density+velocity+pressure")
         self.input_amr_criterion     = QLineEdit("0.1")
-        self.input_amr_refine_thr    = QLineEdit("0.15")
-        self.input_amr_derefine_thr  = QLineEdit("0.1")
+        self.input_amr_refine_thr    = QLineEdit("0.11")
+        self.input_amr_derefine_thr  = QLineEdit("0.11")
         self.input_amr_diffusion     = QLineEdit("2")
-        self.input_amr_refine_every  = QLineEdit("10")
+        self.input_amr_refine_every  = QLineEdit("1")
         self.input_amr_init_levels   = QLineEdit("0")
         self.input_amr_indicator.setToolTip("Refine where the variation across a face of any ticked variable exceeds the criterion")
 
@@ -686,6 +686,7 @@ class SetupDialog(QDialog):
             'amr_init_levels':        lambda v: self.input_amr_init_levels.setText(str(v)),
             'amr_diffusion':          lambda v: self.input_amr_diffusion.setText(str(v)),
         }
+        defaults = {**defaults, **amr_gui_defaults(name)}   # the AMR starting values, unless the case sets its own
         for key, value in defaults.items():
             if key in setters: setters[key](value)
 
@@ -717,9 +718,13 @@ class SetupDialog(QDialog):
             if key in values:
                 edit.setText(str(int(values[key])))
         for key, edit in (("Lx", self.input_Lx), ("Ly", self.input_Ly), ("Lz", self.input_Lz), ("ibm_radius", self.input_radius),
-                          ("ibm_cx", self.input_cx), ("ibm_cy", self.input_cy), ("ibm_cz", self.input_cz)):
+                          ("ibm_cx", self.input_cx), ("ibm_cy", self.input_cy), ("ibm_cz", self.input_cz)) + self._amr_edits():
             if key in values:
                 edit.setText(str(values[key]))
+        if "use_amr" in values:
+            self.check_amr.setChecked(str(values["use_amr"]).lower() in ("1", "true", "yes", "on"))
+        if "amr_indicator" in values:
+            self.input_amr_indicator.setText(str(values["amr_indicator"]))
         if "use_ibm" in values:
             self.check_ibm.setChecked(bool(values["use_ibm"]))
         if "ibm_shape" in values:
@@ -730,6 +735,12 @@ class SetupDialog(QDialog):
                 i = combo.findText(labels.get(values[f"bc_{side}"], values[f"bc_{side}"]))
                 if i >= 0:
                     combo.setCurrentIndex(i)
+
+    def _amr_edits(self) -> tuple:
+        return (("amr_max_level", self.input_amr_max_level), ("amr_init_levels", self.input_amr_init_levels),
+                ("amr_criterion", self.input_amr_criterion), ("amr_refine_threshold", self.input_amr_refine_thr),
+                ("amr_derefine_threshold", self.input_amr_derefine_thr), ("amr_diffusion", self.input_amr_diffusion),
+                ("amr_refine_every", self.input_amr_refine_every))
 
     def bc_values(self) -> dict:
         """The boundary conditions as the fields hold them now (solver names), valid or not."""
@@ -742,6 +753,9 @@ class SetupDialog(QDialog):
              "ibm_shape": self.combo_shape.currentText(), "ibm_radius": self.input_radius.text(), "ibm_cx": self.input_cx.text(),
              "ibm_cy": self.input_cy.text(), "ibm_cz": self.input_cz.text()}
         v.update(self.bc_values())
+        v["use_amr"] = str(self.check_amr.isChecked()).lower()
+        v["amr_indicator"] = self.input_amr_indicator.text()
+        v.update({key: edit.text() for key, edit in self._amr_edits()})
         return v
 
     def bc_choices(self) -> dict:

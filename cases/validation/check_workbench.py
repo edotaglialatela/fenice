@@ -186,6 +186,27 @@ link = next(l for l in w.graph.links if l.src == g3.node_id)
 w._remove_link(link)
 pump(0.2)
 ok(w.editors[g3.node_id] is geo3 and geo3.project is None and geo3.p["nx"] == "123", "unlinking keeps the geometry")
+# ---- the adaptive mesh belongs to the geometry node: its starting values, and its edits reaching the solver
+ok(all(b.isChecked() for b in geo3.amr_ind.values()) and geo3.amr_fields["amr_refine_threshold"].text() == "0.11"
+   and geo3.amr_fields["amr_derefine_threshold"].text() == "0.11" and geo3.amr_fields["amr_refine_every"].text() == "1",
+   "AMR starts with all three indicator variables, thresholds 0.11 and a remesh every step")
+w.connect_nodes(g3.node_id, "geometry", s3.node_id, "geometry")
+pump(0.3)
+geo3.chk_amr.setChecked(True)
+geo3.amr_fields["amr_max_level"].setText("3")
+geo3.amr_fields["amr_max_level"].editingFinished.emit()
+geo3.amr_ind["pressure"].setChecked(False)
+pump(0.2)
+ok(page3.check_amr.isChecked() and page3.input_amr_max_level.text() == "3" and page3.input_amr_indicator.text() == "density+velocity",
+   "the AMR edits of the geometry node reach the solver's fields")
+ok(not page3.tabs.isTabVisible(page3.tabs.indexOf(page3.amr_tab)), "the solver page has no AMR tab")
+page3.combo_testcase.setCurrentText("Lid Driven Cavity")
+pump(0.3)
+ok(page3.input_amr_indicator.text() == "density+velocity+pressure" and page3.input_amr_refine_every.text() == "1", "a case that sets no AMR value gets the starting ones")
+page3.combo_testcase.setCurrentText("IBM Airfoil AMR")
+pump(0.3)
+ok(page3.input_amr_refine_every.text() == "5" and geo3.amr_fields["amr_refine_every"].text() == "5", "a case that sets its own AMR value keeps it")
+
 # ---- the plots redraw when the monitor file is denser than the progress lines (an exception in a slot would end the program)
 import numpy as np  # noqa: E402
 
