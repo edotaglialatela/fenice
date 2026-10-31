@@ -107,7 +107,7 @@ class Workbench(QMainWindow):
         self.bottom.addWidget(self.tabs)
         self.tabs.currentChanged.connect(self._show_console)
         self.console_stack = QStackedWidget()   # the console of the monitor on show: a column on the right, the full height of the window
-        self.console_stack.setMinimumWidth(440)   # widened to the banner of the solver when a console comes in (_place)
+        self.console_stack.setMinimumWidth(300)
         hint = QLabel("The console of a linked Monitor shows here.")
         hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
         hint.setStyleSheet("background: #1b1d23; color: #8a8f9c;")
@@ -118,12 +118,19 @@ class Workbench(QMainWindow):
         self.split.setStretchFactor(1, 1)
         self.split.setSizes([300, 560])
 
-        body = QWidget()
-        lay = QHBoxLayout(body)
+        left = QWidget()
+        lay = QHBoxLayout(left)
+        lay.setContentsMargins(0, 0, 0, 0)
         lay.addWidget(self.palette)
         lay.addWidget(self.split, 1)
-        lay.addWidget(self.console_stack)
-        lay.setStretch(2, 0)
+        self.main_split = QSplitter(Qt.Orientation.Horizontal)   # the console column can be dragged wider or narrower
+        self.main_split.addWidget(left)
+        self.main_split.addWidget(self.console_stack)
+        self.main_split.setStretchFactor(0, 1)
+        self.main_split.setStretchFactor(1, 0)
+        self.main_split.setChildrenCollapsible(False)
+        body = self.main_split
+        self._console_want = 0
         self.state_label = QLabel("")
         self.state_label.setObjectName("note")
         outer = QWidget()
@@ -152,6 +159,7 @@ class Workbench(QMainWindow):
         tall = max((i.boundingRect().height() for i in self.items.values()), default=200)
         top = min(int(1.75 * tall), h // 2)   # the canvas only a little taller than the tallest node: the monitors get the rest
         self.split.setSizes([top, h - top])
+        self._set_main_sizes()
         self.fit_graph()
 
     def fit_graph(self) -> None:
@@ -330,8 +338,22 @@ class Workbench(QMainWindow):
             cols = max(len(line.rstrip("\r\n")) for line in (Path(fenice.ROOT) / "cpp" / "logo.txt").read_text(encoding="utf-8").splitlines())
         except (OSError, ValueError):
             cols = 100
-        width = QFontMetrics(console.font()).horizontalAdvance("M") * cols + 2 * console.frameWidth() + console.verticalScrollBar().sizeHint().width() + 12
-        self.console_stack.setMinimumWidth(max(self.console_stack.minimumWidth(), width))
+        cap = int(0.34 * self.width())   # the banner's width, unless that is more than about a third of the window: then the font gets smaller
+        font = console.font()
+        for _ in range(6):
+            width = QFontMetrics(font).horizontalAdvance("M") * cols + 2 * console.frameWidth() + console.verticalScrollBar().sizeHint().width() + 12
+            if width <= cap or font.pointSizeF() <= 6.5:
+                break
+            font.setPointSizeF(max(6.5, font.pointSizeF() - 0.5))
+        console.setFont(font)
+        self._console_want = min(width, max(cap, 320))
+        self.console_stack.resize(self._console_want, self.console_stack.height())
+        self._set_main_sizes()
+
+    def _set_main_sizes(self) -> None:
+        if self._console_want:
+            total = self.main_split.width() or self.width()
+            self.main_split.setSizes([max(total - self._console_want, 100), self._console_want])
 
     def _sync_bottom(self) -> None:
         self.bottom.setCurrentWidget(self.tabs if self.tabs.count() else self.empty)

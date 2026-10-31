@@ -60,7 +60,7 @@ The default is a **Geometry** node linked to a **Solver** node.
   progress lines (every `save_interval` steps) and the monitor file: $\Delta t$ is the mean time step between two rows of the monitor
   file, so it is live at that pace, and $S_{\max}$ comes from the progress lines. Above the plots, a bar and a line give the percentage of the
   physical time, the step, $t$, $\Delta t$, $S_{\max}$ and an estimate of the time left. The solver's console is a column on the
-  right of the workbench, the full height of the window and at least as wide as the solver's ASCII banner (100 columns), showing the console of the monitor on show: the solver's own colours, and
+  right of the workbench, the full height of the window; it is as wide as the solver's ASCII banner (100 columns) unless that is more than a third of the window, in which case the console font gets smaller (down to 6.5 pt), and the divider can be dragged, showing the console of the monitor on show: the solver's own colours, and
   colours for its plain lines (step lines with $t$, $\Delta t$, $S_{\max}$ and the leaves in their own colours, section tags, errors in
   red, warnings in amber, checkpoints and the end of the run in green); only rank 0 writes under MPI. The console states the total
   physical time and notes each time the run passes a multiple of 10 % of it. A monitor linked in the middle of a run shows it from its
@@ -68,6 +68,12 @@ The default is a **Geometry** node linked to a **Solver** node.
   *Kill* ends the solver and every process it started at once.
 * **Postprocessing** (input: results). The result viewer, below, opened on the folder the solver reports and following it while the
   run goes on; linked after a run, it opens that run's results.
+
+The monitor is light on the machine. The monitor file is read incrementally (only the bytes added since the last tick are parsed, so a run of
+hundreds of thousands of rows costs about the same per tick as a short one), a curve of more than about 1500 points is drawn thinned to the
+smallest and largest value of each bucket (no spike is lost), a panel on a tab that is not on show is redrawn only when it comes back, the
+redraw interval grows with its cost (at least one second; the plots take at most about 7 % of a core), and the console writes a burst of
+lines with one repaint. The plots are drawn by the CPU (matplotlib).
 
 Closing the window with runs going asks whether to stop them (checkpoints saved) or kill them; if the workbench itself is ended (on
 Windows) the solvers and their MPI processes end with it. Modules are files in `gui/modules/`, each defining a `MODULE` record (name,

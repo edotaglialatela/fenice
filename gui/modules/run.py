@@ -26,6 +26,77 @@ _MAX_LINES = 20000
 _CONSOLE_BG, _CONSOLE_FG, _CONSOLE_DIM = "#1b1d23", "#d8dae0", "#8a8f9c"   # the banner colours are made for a dark terminal
 
 
+class _MonitorTail:
+    """The monitor CSV, read incrementally: each call parses only the bytes the solver has added since the previous one."""
+
+    def __init__(self, path: Path) -> None:
+        self.path = Path(path)
+        self.reset()
+
+    def reset(self) -> None:
+        self.pos, self.rest, self.names, self.data = 0, b"", None, None
+
+    def update(self) -> bool:
+        """True if rows were added."""
+        try:
+            size = self.path.stat().st_size
+            if size < self.pos:   # the file was rewritten: start again
+                self.reset()
+            if size == self.pos:
+                return False
+            with open(self.path, "rb") as f:
+                f.seek(self.pos)
+                chunk = f.read()
+        except OSError:
+            return False
+        self.pos += len(chunk)
+        chunk = self.rest + chunk
+        end = chunk.rfind(b"\n")
+        if end < 0:   # not a whole line yet
+            self.rest = chunk
+            return False
+        lines, self.rest = chunk[:end + 1].decode(errors="replace").splitlines(), chunk[end + 1:]
+        if self.names is None:
+            self.names = [n.strip() for n in lines.pop(0).split(",")]
+        rows = []
+        for line in lines:
+            try:
+                row = [float(x) for x in line.split(",")]
+            except ValueError:
+                continue
+            if len(row) == len(self.names):
+                rows.append(row)
+        if not rows:
+            return False
+        new = np.array(rows)
+        self.data = new if self.data is None else np.vstack((self.data, new))
+        return True
+
+    def table(self):
+        """The rows as a structured array (None below two rows); the last row repeats the final time once, which is dropped."""
+        d = self.data
+        if d is None or len(d) < 2 or "t" not in self.names:
+            return None
+        if d[-1, self.names.index("t")] == d[-2, self.names.index("t")]:
+            d = d[:-1]
+        return np.rec.fromarrays(list(d.T), names=self.names)
+
+
+def _thin(x, y, n: int = 1500):
+    """At most about n points of a curve for drawing: from each bucket its smallest and largest value, in order, so no spike is lost."""
+    x, y = np.asarray(x), np.asarray(y)
+    if len(x) <= n:
+        return x, y
+    k = len(x) // (n // 2)
+    m = (len(x) // k) * k
+    yy = np.where(np.isfinite(y[:m]), y[:m], np.inf).reshape(-1, k)
+    lo = yy.argmin(axis=1) + np.arange(0, m, k)
+    yy = np.where(np.isfinite(y[:m]), y[:m], -np.inf).reshape(-1, k)
+    hi = yy.argmax(axis=1) + np.arange(0, m, k)
+    idx = np.unique(np.concatenate((lo, hi, [0, len(x) - 1])))
+    return x[idx], y[idx]
+
+
 def _tick_format(v, _pos=None) -> str:
     """A number for an axis or a corner: three significant figures, and a power of ten as mathtext when it is far from 1."""
     if not np.isfinite(v):
@@ -96,6 +167,12 @@ class RunPanel(QWidget):
 
         self.monitor = None
         self._series = None
+        self._dirty = True
+        self._pending: list[str] = []
+        self._flush_timer = QTimer(self)
+        self._flush_timer.setSingleShot(True)
+        self._flush_timer.setInterval(60)
+        self._flush_timer.timeout.connect(self._flush)
         self._shown = 0   # lines of project.log_history already in the console
         self._timer = QTimer(self)   # the plots are redrawn about once a second, not on every line
         self._timer.setInterval(1000)
@@ -115,6 +192,7 @@ class RunPanel(QWidget):
     def _replay(self) -> None:
         """Fill the console and the plots with what the run has shown so far."""
         self.text.clear()
+        self._pending = []
         self._shown = 0
         for line in list(self.project.log_history):
             self._append(line)
@@ -129,6 +207,7 @@ class RunPanel(QWidget):
     def _started(self) -> None:
         """A fresh run: the console and the plots begin empty."""
         self.text.clear()
+        self._pending = []
         self._shown = 0
         self.monitor = None
         self._series = None
@@ -140,8 +219,22 @@ class RunPanel(QWidget):
 
     # ---- the console
     def _on_line(self, line: str) -> None:
+        """A line from the solver: kept, and written to the console with the others that come within a few ms (one repaint for a burst)."""
         self._shown += 1
-        self._append(line)
+        self._pending.append(line)
+        if not self._flush_timer.isActive():
+            self._flush_timer.start()
+
+    def _flush(self) -> None:
+        pending, self._pending = self._pending, []
+        if not pending:
+            return
+        self.text.setUpdatesEnabled(False)
+        try:
+            for line in pending:
+                self._append(line)
+        finally:
+            self.text.setUpdatesEnabled(True)
 
     def _append(self, line: str) -> None:
         bar = self.text.verticalScrollBar()
@@ -193,16 +286,20 @@ class RunPanel(QWidget):
         if d is None:
             return
         try:
-            from gui.viewer_data import Series
-            ser = self._series
-            if ser is None or Path(ser.folder) != Path(d):
-                self._series = ser = Series(Path(d))
-            ser._monitor = ser._read_monitor()
-            m = ser.monitor()
+            tail = self._series
+            if tail is None or tail.path.parent != Path(d):
+                path = next(Path(d).glob("*_monitor.csv"), None)
+                if path is None:
+                    return
+                self._series = tail = _MonitorTail(path)
+            if not tail.update() and self.monitor is not None:
+                return   # nothing new
+            m = tail.table()
         except Exception:   # noqa: BLE001 - a half-written file: the next tick reads it again
             return
-        if m is not None and m.size > 1 and "t" in m.dtype.names:
+        if m is not None and m.size > 1:
             self.monitor = m
+            self._dirty = True
             self.project.advance_time(float(m["t"][-1]))
 
     def _tick(self) -> None:
@@ -210,9 +307,17 @@ class RunPanel(QWidget):
             self._read_monitor()
             self._fill_choices()
             self._status()
-            self._redraw()
+            if self._dirty and self.isVisible():   # a panel on a hidden tab is redrawn when it comes back
+                t0 = time.perf_counter()
+                self._redraw()
+                self._timer.setInterval(int(min(5000, max(1000, 15 * 1000 * (time.perf_counter() - t0)))))   # the plots cost at most ~7 % of a core
         else:
             self._timer.stop()
+
+    def showEvent(self, event) -> None:
+        super().showEvent(event)
+        if self._dirty:
+            self._redraw()
 
     def _fill_choices(self) -> None:
         names = []
@@ -261,6 +366,7 @@ class RunPanel(QWidget):
         ax.set_ylim(mid - 0.5 * span - 0.12 * span, mid + 0.5 * span + 0.30 * span)
 
     def _redraw(self) -> None:
+        self._dirty = False
         c, pr = self._colors, self.project
         hist = pr.progress_history
         t = np.array([r[1] for r in hist], dtype=float)
@@ -279,7 +385,7 @@ class RunPanel(QWidget):
         self._prepare(self.ax_dt, r"$\Delta t$  [s]", dt[-1] if len(dt) else None, nbins=2)
         self._prepare(self.ax_s, r"$S_{\max}$  [m/s]", smax[-1] if len(smax) else None, nbins=2)
         if len(t_dt):
-            self.ax_dt.plot(t_dt, dt, color=c["primary"], lw=1.2, marker=mark_dt, ms=3)
+            self.ax_dt.plot(*_thin(t_dt, dt), color=c["primary"], lw=1.2, marker=mark_dt, ms=3)
             self._fit(self.ax_dt, dt)
         else:
             self._note(self.ax_dt, "the time step comes from the monitor file or the progress lines")
@@ -299,7 +405,7 @@ class RunPanel(QWidget):
             tq, y = np.asarray(self.monitor["t"], dtype=float), np.asarray(self.monitor[q], dtype=float)
         self._prepare(self.ax_q, label, y[-1] if y is not None and len(y) else None, bottom=True)
         if y is not None and len(y):
-            self.ax_q.plot(tq, y, color=c["primary"], lw=1.2)
+            self.ax_q.plot(*_thin(tq, y), color=c["primary"], lw=1.2)
             self._fit(self.ax_q, y)
         self.ax_q.set_xlabel(r"$t$  [s]", fontsize=8, labelpad=1)
         if pr.t_end > 0:
@@ -328,7 +434,7 @@ class RunPanel(QWidget):
             self._note(ax, "residuals appear once the monitor file has rows (set 'Record every' on the solver)")
             return
         for y, colour, label in curves:
-            ax.plot(m["t"], y, color=colour, lw=1.3, label=label)
+            ax.plot(*_thin(m["t"], y), color=colour, lw=1.3, label=label)
         ax.set_yscale("log")
         ax.yaxis.set_major_locator(LogLocator(base=10, numticks=5))
         ax.yaxis.set_minor_locator(LogLocator(base=10, subs=(), numticks=5))
@@ -351,6 +457,7 @@ class RunPanel(QWidget):
             self.status.setText("stopping: the solver is saving its checkpoint")
 
     def _finished(self, code: int, stopped: bool) -> None:
+        self._flush()
         how = "stopped" if stopped else "finished"
         note = "   (the solver did not exit cleanly: the last periodic checkpoint is the one kept)" if stopped and code else ""
         self._read_monitor()
