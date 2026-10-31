@@ -152,7 +152,7 @@ Params baseline_defaults() {
         {"dt_phys", "0.1"},
         {"max_inner_iter", "50"},
         {"inner_tol_rel", "1e-3"},
-        {"shock_blend", "0"},
+        {"shock_blend", "0.2"},
         {"use_hot_start", "false"},
         {"hot_start_file", ""},
         {"hot_start_src_nx", "0"},
@@ -255,7 +255,7 @@ SimParams SimParams::from(const Params& p) {
     s.dt_phys = p.num("dt_phys", s.t_end / 100.0);
     s.max_inner_iter = p.integer("max_inner_iter", 50);
     s.inner_tol_rel = p.num("inner_tol_rel", 1e-3);
-    s.shock_blend = p.num("shock_blend", 0.0);
+    s.shock_blend = p.num("shock_blend", 0.2);
     s.use_hot_start = p.flag("use_hot_start");
     s.hot_start_file = p.str("hot_start_file");
     s.hot_start_src_nx = p.integer("hot_start_src_nx", 0);

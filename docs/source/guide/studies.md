@@ -35,6 +35,21 @@ positivity protection at these settings. The odd-even test is the one finding: w
 its position differing between rows by 9.6 cells (not only in the perturbed row), while with MUSCL the rows agree to 0.2 cells.
 The 16 runs meet the robustness criterion; the odd-even spread is reported, not judged.
 
+**Positivity.** MUSCL reconstructs the primitive variables with a TVD limiter, so each reconstructed density and pressure lies
+between the two neighbouring cell values: with positive cells the reconstructed face states are positive by construction, and a
+fallback to first order at those faces could never act. What remains is the update itself, which B0 did not break.
+
+**Shock-face dissipation (`shock_blend`).** A face whose pressure jump `abs(pR - pL) / min(pL, pR)` exceeds `shock_blend`
+(default 0.2) blends its HLLC flux toward HLL, fully at twice the value; HLL has no contact or shear wave to restore, which
+is what lets row-to-row differences along a shock grow. The sensor reads the face's own two states, so the flux is still a
+function of (UL, UR): no halo, no extra stencil, the same code in the uniform, adaptive and MPI paths and in the AVX2 twin
+(bit-identical to the scalar one). `verification/shock_blend.py` gates it: the odd-even spread falls from 9.6 to 0.5 cells
+(first order) and from 0.2 to 0.05 (MUSCL), the Sod L1 error grows by 1.0 % and 2.1 %, and all 12 strong-shock tube runs still
+pass. A sweep over 0.2 to 5 showed that only 0.2 brought the first-order spread under one cell; larger thresholds leave the
+shock-face smear partly undissipated. The price: on meshes so coarse that a smooth flow changes pressure by 20 % per cell the
+sensor fires there too (the tiny regression meshes of the vortex and manufactured solutions moved by 1e-3 to 1e-1); on the
+validation meshes the observed orders are unchanged.
+
 ## Analysis layer (Python, no solver change)
 
 NumPy only; SciPy is optional (Sobol sequences). Each module is verified against exact answers in

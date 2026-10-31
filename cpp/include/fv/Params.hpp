@@ -78,7 +78,7 @@ struct SimParams {
     double dt_phys;
     int max_inner_iter;
     double inner_tol_rel;
-    double shock_blend = 0.0;   // > 0: faces whose pressure jump |pR - pL| / min(pL, pR) exceeds it blend HLLC toward HLL (0: off)
+    double shock_blend = 0.2;   // > 0: faces whose pressure jump |pR - pL| / min(pL, pR) exceeds it blend HLLC toward HLL (0: off)
     bool use_hot_start;
     std::string hot_start_file;
     int hot_start_src_nx, hot_start_src_ny;
