@@ -34,6 +34,7 @@ class ModuleSpec:
     inputs: tuple[Port, ...] = field(default_factory=tuple)
     outputs: tuple[Port, ...] = field(default_factory=tuple)
     owns_project: bool = False      # the solver: makes its own Project; the other nodes use the one of the solver they are linked to
+    standalone: bool = False        # the editor is made once with the node and holds its own state (factory(None)); attach(project) links it
     face: Callable | None = None    # face(project, editor) -> QWidget shown on the node itself (the solver's Run button and switches)
 
     def missing(self) -> list[str]:

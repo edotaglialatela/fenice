@@ -152,6 +152,10 @@ class Workbench(QMainWindow):
                 item.set_face(spec.face(project, editor))
             project.started.connect(lambda nid=node.id: self._started(nid))
             project.finished.connect(lambda *_: self._refresh_status())
+        elif spec.standalone:
+            self.editors[node.id] = spec.factory(None)
+            self._bound[node.id] = -1
+            self._bind(node.id)
         else:
             self._bind(node.id)
         self._refresh_status()
@@ -244,6 +248,10 @@ class Workbench(QMainWindow):
         if nid in self._bound and self._bound[nid] == want and nid in self.editors:
             return
         node, was_open = self.graph.nodes[nid], self._tab_of(nid) >= 0
+        if node.spec.standalone:   # its editor stays; it is told which solver it feeds
+            self.editors[nid].attach(self.projects.get(want) if want is not None else None)
+            self._bound[nid] = want
+            return
         self._drop_editor(nid, keep_tab=was_open)
         if want is None:
             editor = _placeholder(f"{node.title} is not linked to a solver.\nDrag from its port to a Solver node to link it.")

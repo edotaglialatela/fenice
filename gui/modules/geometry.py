@@ -1,4 +1,7 @@
-"""Geometry module: the domain, the immersed body, the Cartesian mesh and the solid cells it makes, as set up (before any run)."""
+"""Geometry module: the domain, the immersed body, the Cartesian mesh, the side conditions and the solid cells they make.
+
+The node owns its geometry (a parameter set of its own, from a case's defaults at first); linked to a solver it writes them into the
+solver's setup fields, which the run reads."""
 from __future__ import annotations
 
 from gui.modules import ModuleSpec, Port
@@ -6,7 +9,7 @@ from gui.modules import ModuleSpec, Port
 _MAX_CELLS = 40_000_000   # the largest level whose solid cells are computed
 
 
-def _make(project):
+def _make(project=None):
     import logging
 
     import numpy as np
@@ -18,7 +21,8 @@ def _make(project):
 
     import fenice
     from fenice import geometry
-    from gui.solver import case_defaults
+    from gui.setup_dialog import SetupDialog
+    from gui.solver import available_cases, case_defaults
     from gui.theme import COLORS
 
     logging.getLogger("matplotlib.axes._base").setLevel(logging.ERROR)   # "ignoring fixed limits" with the equal aspect
@@ -125,7 +129,8 @@ def _make(project):
             self._timer.setInterval(90)
             self._timer.timeout.connect(self._draw_grid)
             self.btn_refresh.clicked.connect(self.refresh)
-            project.setup_changed.connect(self._on_setup_changed)   # another case loaded on the solver
+            self.project = None
+            self._touched = False   # the user has edited this geometry: it wins over the solver's when they are linked
             self.btn_zoom.clicked.connect(self._zoom_to_body)
             self.btn_apply.clicked.connect(lambda: self._set_mesh(self.edit_nx.text(), self.edit_ny.text()))
             self.btn_half.clicked.connect(lambda: self._scale_mesh(0.5))
@@ -149,16 +154,58 @@ def _make(project):
         def _on_setup_changed(self) -> None:
             self.refresh(reset_view=True)
 
+        def attach(self, new) -> None:
+            """Link to the project of a solver (None: unlinked). An edited geometry is written into the solver's fields, an untouched one
+            adopts the solver's."""
+            if self.project is not None:
+                try:
+                    self.project.setup_changed.disconnect(self._on_setup_changed)
+                except (TypeError, RuntimeError):
+                    pass
+            self.project = new
+            if new is not None:
+                new.setup_changed.connect(self._on_setup_changed)   # another case loaded on the solver
+                if self._touched and self.p is not None and new.editor is not None:
+                    try:
+                        new.editor.apply_geometry({k: v for k, v in self.p.items() if k in _GEOMETRY_KEYS})
+                    except ValueError:
+                        pass
+            self.refresh(reset_view=True)
+
+        def _choices(self) -> dict:
+            ed = self.project.editor if self.project is not None else None
+            return ed.bc_choices() if ed is not None else dict(SetupDialog._BC_LABELS)
+
+        def _load_defaults(self) -> None:
+            try:
+                cases = available_cases()
+                name = "Sod Shock Tube" if "Sod Shock Tube" in cases else cases[0]
+                p = dict(case_defaults(name))
+                p["test_case"] = name
+            except Exception:   # noqa: BLE001 - the solver is not built: an empty domain is shown
+                p = {"Lx": "1.0", "Ly": "1.0", "nx": "100", "ny": "100", "nz": "1", "Lz": "1.0"}
+            self.p = p
+
         def showEvent(self, event):
             super().showEvent(event)
             self.refresh()   # the page shows what Setup holds when it comes up
 
         # ---- the parameters
         def refresh(self, reset_view: bool = True) -> None:
-            ed = project.editor
-            if ed is None:
-                self.info.setText("This geometry is not linked to a solver.")
-                return
+            ed = self.project.editor if self.project is not None else None
+            if ed is None:   # not linked: the geometry of its own
+                if self.p is None:
+                    self._load_defaults()
+                p = self.p
+            else:
+                p = self._from_solver(ed)
+                if p is None:
+                    return
+                self.p = p
+            self._after_load(p, reset_view)
+
+        def _from_solver(self, ed):
+            project = self.project
             case = ed.combo_testcase.currentText()
             try:
                 p = dict(case_defaults(case))   # what the case sets besides the geometry fields: chord, angle, file, AMR
@@ -173,8 +220,10 @@ def _make(project):
                 float(p["Lx"]), float(p["Ly"]), int(p["nx"]), int(p["ny"]), int(p["nz"])
             except (KeyError, ValueError):
                 self.info.setText("A domain or mesh field is not a valid number: correct it above.")
-                return
-            self.p = p
+                return None
+            return p
+
+        def _after_load(self, p: dict, reset_view: bool) -> None:
             try:
                 self.body = geometry.body_from_params(p, fenice.ROOT)
             except (ValueError, OSError) as exc:
@@ -195,11 +244,10 @@ def _make(project):
 
         # ---- editing: the changes go to the Setup page, which keeps the only copy
         def _fill_controls(self, p: dict) -> None:
-            ed = project.editor
-            choices = ed.bc_choices() if ed is not None else {}
+            choices = self._choices()
             by_name = {v: k for k, v in choices.items()}
             nz = int(p.get("nz", "1"))
-            enabled = ed is not None
+            enabled = True
             for e, key in ((self.edit_nx, "nx"), (self.edit_ny, "ny")):
                 e.setText(str(int(p[key])))
             for key, e in self.fields.items():
@@ -237,10 +285,20 @@ def _make(project):
             self.warn.setText("Periodic must be set on both sides of a pair (" + ", ".join(bad) + "): Setup will refuse the run until it is." if bad else "")
 
         def _push(self, values: dict) -> None:
-            if project.editor is None:
-                return
+            self._touched = True
+            ed = self.project.editor if self.project is not None else None
             try:
-                project.editor.apply_geometry(values)
+                if ed is not None:
+                    ed.apply_geometry(values)
+                else:
+                    new = {k: ("true" if v is True else "false" if v is False else str(v)) for k, v in values.items()}
+                    for key in ("Lx", "Ly", "Lz", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz"):
+                        if key in new:
+                            float(new[key])
+                    for key in ("nx", "ny", "nz"):
+                        if key in new:
+                            new[key] = str(int(new[key]))
+                    self.p.update(new)
             except ValueError:
                 self.warn.setText("A value is not a valid number.")
                 return
@@ -265,12 +323,12 @@ def _make(project):
             self._set_mesh(str(max(1, round(nx * factor))), str(max(1, round(ny * factor))))
 
         def _warn_mpi(self, nx: int, ny: int) -> None:
-            cur = project.current_params()
+            cur = self.project.current_params() if self.project is not None else None
             if cur and str(cur.get("use_mpi")).lower() in ("true", "1") and int(cur.get("n_cpus", 1)) > max(nx, ny):
                 self.warn.setText("The number of MPI processes exceeds max(nx, ny): Setup will refuse the run.")
 
         def _set_bc(self, side: str) -> None:
-            name = project.editor.bc_choices()[self.bc_combos[side].currentText()]
+            name = self._choices()[self.bc_combos[side].currentText()]
             values = {f"bc_{side}": name}
             if name == "periodic":   # periodic is a pair: the opposite side follows
                 values["bc_" + OPPOSITE[side]] = name
@@ -442,6 +500,9 @@ def _make(project):
     return GeometryPanel()
 
 
-MODULE = ModuleSpec("geometry", "Geometry", _make, order=10, requires=("PyQt6", "matplotlib", "numpy"),
+_GEOMETRY_KEYS = ("Lx", "Ly", "Lz", "nx", "ny", "nz", "use_ibm", "ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz",
+                  "bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back")
+
+MODULE = ModuleSpec("geometry", "Geometry", _make, order=10, standalone=True, requires=("PyQt6", "matplotlib", "numpy"),
                     outputs=(Port("geometry", "geometry", label="geometry"),),
                     description="The domain, the immersed body, the Cartesian mesh and the solid cells it makes, as set up.")

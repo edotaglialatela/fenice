@@ -37,8 +37,10 @@ open. The default is a **Geometry** node linked to a **Solver** node.
   the same body on the finer levels of an AMR run (cells across the chord or diameter, solid cells, the finest cell). The domain
   (`Lx`, `Ly`, `nz`, `Lz`), the base mesh (`nx`, `ny`, with *Apply mesh*, *2×* and *½×*: each doubles or halves `nx` and `ny`, four times
   or a quarter of the cells in 2-D), the body (shape, radius, centre) and the side conditions are edited here; they are written into the
-  fields of the linked solver, which are the only copy. Choosing *Periodic* on a side sets the opposite side too. Loading another case on
-  the solver reloads the geometry. The shapes come from `fenice.geometry`, which follows the solver's rules;
+  fields of the linked solver, which are the only copy. The node holds its own geometry (it starts from the defaults of a case) and can be
+  edited before it is linked, and keeps it when unlinked; linking an edited geometry writes it into the solver, linking an untouched one
+  adopts the solver's. Choosing *Periodic* on a side sets the opposite side too. Loading another case on the solver reloads the geometry.
+  A geometry value that is not a number is named by the solver's Run, with the advice to correct it in the Geometry node. The shapes come from `fenice.geometry`, which follows the solver's rules;
   `cases/validation/check_geometry.py` checks that the number of solid cells equals the solver's on every case with a body.
 * **Solver** (input: geometry; outputs: run, results). The setup dialog described below, without the geometry: case, thermodynamics,
   physics, numerical scheme, output, MPI, hot start and AMR. It does not run without a linked geometry. The node itself carries

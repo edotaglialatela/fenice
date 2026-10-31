@@ -19,9 +19,10 @@ solver's own.
   history: log lines, progress lines, physical time). Every other node is bound to the project of the solver it is linked to: its editor
   is built when the link is made and dropped when it is removed, so a monitor linked mid-run shows the run from its start, and a
   postprocessing node linked after a run opens its results.
-* **The geometry is a node, not part of the solver.** The domain, the mesh, the immersed body and the side conditions are edited in the
-  Geometry node and written into the fields of the linked solver page (hidden there), which stay the only copy of every parameter, so the
-  solver, the dialog and the run files are unchanged. A solver does not run without a linked geometry.
+* **The geometry is a node, not part of the solver.** The Geometry node holds its own parameter set (domain, mesh, immersed body, side
+  conditions), which can be edited unlinked. Linked, it is written into the fields of the solver page (hidden there), which stay the only
+  copy of every parameter the run reads, so the solver, the dialog and the run files are unchanged. A solver does not run without a
+  linked geometry.
 * **Registration.** A module is a file in `gui/modules/` that defines one `MODULE` record (name, title, ports, whether it owns a project,
   an editor factory, an optional face for the node, the Python packages it needs). The workbench imports whatever it finds; a module
   whose packages are missing is listed as unavailable with the reason, so that an install without the optional pieces still runs.

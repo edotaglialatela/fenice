@@ -50,7 +50,22 @@ def _make(project):
             for w in getattr(self, "_side_widgets", []):
                 w.setVisible(False)
 
+        def _geometry_problem(self) -> str | None:
+            """The first geometry field (held here, edited in the geometry node) that is not a number, as a message."""
+            v = self.geometry_values()
+            for key, kind in (("Lx", float), ("Ly", float), ("Lz", float), ("ibm_radius", float), ("ibm_cx", float), ("ibm_cy", float),
+                              ("ibm_cz", float), ("nx", int), ("ny", int), ("nz", int)):
+                try:
+                    kind(v[key])
+                except ValueError:
+                    return f"The geometry has an invalid value: {key} = '{v[key]}'. Correct it in the Geometry node."
+            return None
+
         def validate_and_accept(self):
+            problem = self._geometry_problem()
+            if problem:
+                QMessageBox.information(self, "Fenice", problem)
+                return
             if self._collect_params():
                 try:
                     project.start_run(self.sim_params)
