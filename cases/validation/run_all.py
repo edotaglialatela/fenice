@@ -33,6 +33,8 @@ PARTIAL = 75   # exit code of a study stopped by its budget (fenice.study.PARTIA
 # tier: "quick" (under 2 min, one core), "medium" (under 30 min, 4 cores), "long" (hours or MPI)
 GROUPS = {
     "verification": {
+        "implosions": (["verification/implosions.py"], "medium", 0.11),   # A7: Noh (exact) and Sedov (scaling), 2-D
+        "blast_waves": (["verification/blast_waves.py"], "quick", 0.02),   # A2: Woodward-Colella blast waves, self-convergence
         "sod": (["verification/sod.py"], "quick", None),
         "shock_order": (["verification/shock_order.py"], "quick", None),   # order of accuracy at a shock (Sod, 100 to 1600 cells)
         "isentropic_vortex": (["verification/isentropic_vortex.py"], "quick", None),
