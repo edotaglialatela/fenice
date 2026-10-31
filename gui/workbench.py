@@ -47,7 +47,7 @@ class _SubWindow(QWidget):
     def __init__(self, title: str, parent: QWidget) -> None:
         super().__init__(parent, Qt.WindowType.Window)
         self.setWindowTitle(title)
-        self.resize(980, 700)
+        self.resize(1040, 760)
         self._lay = QVBoxLayout(self)
         self._lay.setContentsMargins(4, 4, 4, 4)
 
@@ -62,7 +62,7 @@ class Workbench(QMainWindow):
     def __init__(self, default_graph: bool = True):
         super().__init__()
         self.setWindowTitle("Fenice")
-        self.resize(1360, 900)
+        self.resize(1560, 980)
         self.graph = Graph()
         self.specs = {s.name: s for s in discover()}
         self.items: dict[int, NodeItem] = {}
@@ -103,6 +103,13 @@ class Workbench(QMainWindow):
         self.bottom = QStackedWidget()
         self.bottom.addWidget(self.empty)
         self.bottom.addWidget(self.tabs)
+        self.tabs.currentChanged.connect(self._show_console)
+        self.console_stack = QStackedWidget()   # the console of the monitor on show: a column on the right, the full height of the window
+        self.console_stack.setMinimumWidth(440)
+        hint = QLabel("The console of a linked Monitor shows here.")
+        hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        hint.setStyleSheet("background: #1b1d23; color: #8a8f9c;")
+        self.console_stack.addWidget(hint)
         self.split = QSplitter(Qt.Orientation.Vertical)
         self.split.addWidget(self.view)
         self.split.addWidget(self.bottom)
@@ -113,6 +120,8 @@ class Workbench(QMainWindow):
         lay = QHBoxLayout(body)
         lay.addWidget(self.palette)
         lay.addWidget(self.split, 1)
+        lay.addWidget(self.console_stack)
+        lay.setStretch(2, 0)
         self.state_label = QLabel("")
         self.state_label.setObjectName("note")
         outer = QWidget()
@@ -297,6 +306,7 @@ class Workbench(QMainWindow):
         editor, node = self.editors[nid], self.graph.nodes[nid]
         if node.spec.name == "monitor":
             if nid not in self._placeholders:
+                self.console_stack.addWidget(editor.console)
                 self.tabs.addTab(editor, node.title)
                 self.tabs.setCurrentWidget(editor)
             self._sync_bottom()
@@ -308,6 +318,12 @@ class Workbench(QMainWindow):
 
     def _sync_bottom(self) -> None:
         self.bottom.setCurrentWidget(self.tabs if self.tabs.count() else self.empty)
+        self._show_console()
+
+    def _show_console(self, *_) -> None:
+        panel = self.tabs.currentWidget()
+        console = getattr(panel, "console", None)
+        self.console_stack.setCurrentWidget(console if console is not None else self.console_stack.widget(0))
 
     def _drop_editor(self, nid: int) -> None:
         editor = self.editors.pop(nid, None)
@@ -317,6 +333,9 @@ class Workbench(QMainWindow):
         i = self.tabs.indexOf(editor)
         if i >= 0:
             self.tabs.removeTab(i)
+        console = getattr(editor, "console", None)
+        if console is not None:
+            self.console_stack.removeWidget(console)
         win = self.windows.get(nid)
         if win is not None:
             win.take_editor(editor)

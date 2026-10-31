@@ -73,3 +73,38 @@ def spans(text: str) -> list[tuple[str, dict]]:
     if pos < len(text):
         out.append((text[pos:], dict(style)))
     return out
+
+
+_RULES = [   # (pattern, style) for the lines the solver prints without colour; the first match of a position wins
+    (re.compile(r"(?i)\b(error|fatal|abort\w*|failed|diverg\w*|nan)\b"), {"color": "#ff6b6b", "bold": True}),
+    (re.compile(r"(?i)\bwarning\b"), {"color": "#f2c14e", "bold": True}),
+    (re.compile(r"\bStep \d+"), {"color": "#e8eaf0", "bold": True}),
+    (re.compile(r"\bt = [-+0-9.eE]+ s"), {"color": "#5cc8e8"}),
+    (re.compile(r"\b(?:dt|S_max) = [-+0-9.eE]+(?: m/s| s)?"), {"color": "#b9a3f5"}),
+    (re.compile(r"\bleaves = [0-9,]+"), {"color": "#7fd6a4"}),
+    (re.compile(r"\bwall = [-+0-9.eE]+ s"), {"dim": True}),
+    (re.compile(r"Checkpoint saved|written|finished|DONE|done"), {"color": "#5fd38d"}),
+    (re.compile(r"^\[GUI\]"), {"color": "#7aa2f7", "bold": True}),
+    (re.compile(r"^\[[A-Z]+\]"), {"color": "#4fb3bf"}),
+    (re.compile(r"^=== .* ===|^===.*"), {"color": "#5fd38d", "bold": True}),
+]
+
+
+def colorize(line: str) -> list[tuple[str, dict]]:
+    """[(text, style)] for a line without escape codes: keywords, the numbers of a progress line, the bracketed tag of a section."""
+    marks: list[tuple[int, int, dict]] = []
+    for pattern, style in _RULES:
+        for m in pattern.finditer(line):
+            if not any(m.start() < e and s < m.end() for s, e, _ in marks):
+                marks.append((m.start(), m.end(), style))
+    marks.sort()
+    out, pos = [], 0
+    rest_dim = bool(re.match(r"^\[(AMR|EXPORTER|IBM|MPI)\]", line))   # the detail lines of a section are read less often than its tag
+    for s, e, style in marks:
+        if s > pos:
+            out.append((line[pos:s], {"dim": True} if rest_dim else {}))
+        out.append((line[s:e], style))
+        pos = e
+    if pos < len(line):
+        out.append((line[pos:], {"dim": True} if rest_dim else {}))
+    return out or [("", {})]

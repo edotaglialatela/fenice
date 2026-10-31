@@ -10,16 +10,34 @@ import time
 from pathlib import Path
 
 import numpy as np
-from PyQt6.QtCore import Qt, QTimer
+from PyQt6.QtCore import QTimer
 from PyQt6.QtGui import QColor, QFont, QTextCharFormat, QTextCursor
-from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPlainTextEdit, QPushButton, QSplitter, QVBoxLayout, QWidget
+from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPlainTextEdit, QProgressBar, QPushButton, QVBoxLayout, QWidget
 
 from gui import ansi
 from gui.modules import ModuleSpec, Port
 from gui.project import IDLE, RUNNING, STOPPING
 
+import matplotlib
+
+matplotlib.rcParams["mathtext.fontset"] = "cm"   # the math of the labels in the Computer Modern of TeX, without needing a TeX installation
+
 _MAX_LINES = 20000
 _CONSOLE_BG, _CONSOLE_FG, _CONSOLE_DIM = "#1b1d23", "#d8dae0", "#8a8f9c"   # the banner colours are made for a dark terminal
+
+
+def _tick_format(v, _pos=None) -> str:
+    """A number for an axis or a corner: three significant figures, and a power of ten as mathtext when it is far from 1."""
+    if not np.isfinite(v):
+        return ""
+    if v == 0:
+        return "0"
+    text = f"{v:.3g}"
+    if "e" in text:
+        mant, exp = text.split("e")
+        text = (f"{mant}\\times" if float(mant) != 1 else "") + f"10^{{{int(exp)}}}"
+        return f"${text}$"
+    return text
 
 
 def _clock(seconds: float) -> str:
@@ -45,27 +63,26 @@ class RunPanel(QWidget):
         mono = QFont("Consolas")
         mono.setStyleHint(QFont.StyleHint.Monospace)
         self.text.setFont(mono)
-        self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.NoWrap)
+        self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)   # a narrow column: long lines wrap, no sideways scrolling
         self.text.setStyleSheet(f"QPlainTextEdit {{ background: {_CONSOLE_BG}; color: {_CONSOLE_FG}; border: 1px solid #3a3d46; }}")
 
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
         from matplotlib.figure import Figure
         from gui.theme import COLORS
         self._colors = COLORS
-        self.fig = Figure(figsize=(8, 4))
+        self.fig = Figure(figsize=(8, 5))
         self.fig.set_facecolor(COLORS["bg_window"])
         self.canvas = FigureCanvasQTAgg(self.fig)
-        self.ax_dt, self.ax_s, self.ax_r, self.ax_q = self.fig.subplots(4, 1, sharex=True)
-        self.fig.subplots_adjust(left=0.12, right=0.98, top=0.98, bottom=0.09, hspace=0.14)
+        # the residuals are what a run is judged by: the largest panel; the time step and the wave speed the smallest
+        self.ax_dt, self.ax_s, self.ax_r, self.ax_q = self.fig.subplots(4, 1, sharex=True, gridspec_kw={"height_ratios": [1, 1, 2.4, 1.4]})
+        self.fig.subplots_adjust(left=0.065, right=0.985, top=0.985, bottom=0.085, hspace=0.07)
+        self.console = self.text   # shown by the workbench in its right-hand column, the full height of the window
 
-        split = QSplitter(Qt.Orientation.Horizontal)   # the plots, and the console as a column on the right
-        split.addWidget(self.canvas)
-        split.addWidget(self.text)
-        split.setStretchFactor(0, 3)
-        split.setStretchFactor(1, 2)
-        split.setChildrenCollapsible(False)
-        self.split = split
-
+        self.progress = QProgressBar()
+        self.progress.setRange(0, 1000)
+        self.progress.setTextVisible(False)
+        self.progress.setFixedHeight(8)
+        self.status.setStyleSheet("font-size: 10.5pt;")
         row = QHBoxLayout()
         for w in (self.btn_stop, self.btn_kill):
             row.addWidget(w)
@@ -74,7 +91,8 @@ class RunPanel(QWidget):
         row.addWidget(self.status, 1)
         lay = QVBoxLayout(self)
         lay.addLayout(row)
-        lay.addWidget(split, 1)
+        lay.addWidget(self.progress)
+        lay.addWidget(self.canvas, 1)
 
         self.monitor = None
         self._series = None
@@ -92,13 +110,6 @@ class RunPanel(QWidget):
         project.finished.connect(self._finished)
         self._state(project.state)
         self._replay()
-
-    def showEvent(self, event):
-        super().showEvent(event)
-        if not getattr(self, "_halved", False):   # the first time: plots and console share the height equally
-            self._halved = True
-            h = self.split.height()
-            self.split.setSizes([h // 2, h - h // 2])
 
     # ---- from the history of the project: also what a monitor linked in the middle of a run missed
     def _replay(self) -> None:
@@ -139,7 +150,9 @@ class RunPanel(QWidget):
         cur.movePosition(QTextCursor.MoveOperation.End)
         if not self.text.document().isEmpty():
             cur.insertBlock()
-        for chunk, style in ansi.spans(line.replace("\r", "")):
+        line = line.replace("\r", "")
+        spans = ansi.spans(line) if "\x1b" in line else ansi.colorize(line)   # the solver's own colours, or ours for its plain lines
+        for chunk, style in spans:
             fmt = QTextCharFormat()
             fmt.setForeground(QColor(style.get("color", _CONSOLE_DIM if style.get("dim") else _CONSOLE_FG)))
             if style.get("bold"):
@@ -172,6 +185,7 @@ class RunPanel(QWidget):
             if wall:
                 bits.append(f"wall {wall}")
         self.status.setText("   ".join(bits) if pr.progress_history or pr.t_now else self.project.state)
+        self.progress.setValue(int(1000 * min(pr.t_now / pr.t_end, 1.0)) if pr.t_end > 0 else 0)
 
     # ---- the plots
     def _read_monitor(self) -> None:
@@ -216,62 +230,102 @@ class RunPanel(QWidget):
                 self.cb_quantity.setCurrentText(keep)
             self.cb_quantity.blockSignals(False)
 
+    def _prepare(self, ax, label: str, last=None, bottom: bool = False) -> None:
+        """A clean panel: the name inside the top-left corner, the latest value inside the top-right one, few ticks, no frame on two sides."""
+        from matplotlib.ticker import MaxNLocator, NullFormatter
+        c = self._colors
+        ax.clear()
+        ax.set_facecolor(c["bg_surface"])
+        ax.grid(True, color=c["border_strong"], lw=0.35, alpha=0.7)
+        for side in ("top", "right"):
+            ax.spines[side].set_visible(False)
+        ax.tick_params(labelsize=7, length=2.5, pad=2, labelbottom=bottom)
+        ax.yaxis.set_major_locator(MaxNLocator(nbins=3, min_n_ticks=2))
+        ax.yaxis.set_major_formatter(_tick_format)
+        ax.yaxis.set_minor_formatter(NullFormatter())
+        ax.text(0.008, 0.94, label, transform=ax.transAxes, ha="left", va="top", fontsize=9, color=c["ink"], zorder=5)
+        if last is not None and np.isfinite(last):
+            ax.text(0.992, 0.94, _tick_format(last, None), transform=ax.transAxes, ha="right", va="top", fontsize=8.5,
+                    color=c["primary"], fontweight="bold", zorder=5)
+
+    @staticmethod
+    def _fit(ax, y) -> None:
+        """The vertical range of what is drawn, with room for the labels in the corner above; a nearly constant quantity is not magnified."""
+        y = np.asarray(y, dtype=float)
+        y = y[np.isfinite(y)]
+        if y.size == 0:
+            return
+        lo, hi = float(y.min()), float(y.max())
+        mid = 0.5 * (lo + hi)
+        span = max(hi - lo, 0.02 * abs(mid), 1e-300)
+        ax.set_ylim(mid - 0.5 * span - 0.12 * span, mid + 0.5 * span + 0.30 * span)
+
     def _redraw(self) -> None:
         c, pr = self._colors, self.project
         hist = pr.progress_history
-        for ax in (self.ax_dt, self.ax_s, self.ax_r, self.ax_q):
-            ax.clear()
-            ax.set_facecolor(c["bg_surface"])
-            ax.grid(True, color=c["border_strong"], lw=0.4)
-            ax.tick_params(labelsize=8)
-        if hist:
-            t = [r[1] for r in hist]
-            mark = "." if len(t) < 60 else None
-            self.ax_dt.plot(t, [r[2] for r in hist], color=c["primary"], lw=1.2, marker=mark)
-            self.ax_dt.set_yscale("log")
-            self.ax_s.plot(t, [r[3] for r in hist], color=c["primary"], lw=1.2, marker=mark)
+        t = np.array([r[1] for r in hist], dtype=float)
+        dt = np.array([r[2] for r in hist], dtype=float)
+        smax = np.array([r[3] for r in hist], dtype=float)
+        mark = "." if len(t) < 60 else None
+        self._prepare(self.ax_dt, r"$\Delta t$  [s]", dt[-1] if len(dt) else None)
+        self._prepare(self.ax_s, r"$S_{\max}$  [m/s]", smax[-1] if len(smax) else None)
+        if len(t):
+            self.ax_dt.plot(t, dt, color=c["primary"], lw=1.2, marker=mark, ms=3)
+            self.ax_s.plot(t, smax, color=c["primary"], lw=1.2, marker=mark, ms=3)
+            self._fit(self.ax_dt, dt)
+            self._fit(self.ax_s, smax)
+        else:
+            self._note(self.ax_dt, "the time step and the wave speed come from the progress lines (every save_interval steps)")
         self._draw_residuals()
-        self.ax_dt.set_ylabel("dt [s]", fontsize=8)
-        self.ax_s.set_ylabel("S_max [m/s]", fontsize=8)
         q = self.cb_quantity.currentText()
+        label, y, tq, log = q or "monitor", None, None, False
         if q == "leaves":
-            self.ax_q.plot([r[1] for r in hist if r[4]], [r[4] for r in hist if r[4]], color=c["primary"], lw=1.2, marker=".")
+            tq = np.array([r[1] for r in hist if r[4]], dtype=float)
+            y = np.array([r[4] for r in hist if r[4]], dtype=float)
+            label = "leaves"
         elif q and self.monitor is not None and q in self.monitor.dtype.names:
-            y = np.asarray(self.monitor[q], dtype=float)
-            if q.startswith("res_"):   # residual norms: relative to the first row that is not zero, on a log axis
-                ref = next((v for v in y if v > 0), 0.0)
-                if ref > 0:
-                    y = np.where(y > 0, y / ref, np.nan)
-                    self.ax_q.set_yscale("log")
-                    q = q + " / first"
-            self.ax_q.plot(self.monitor["t"], y, color=c["primary"], lw=1.2)
-        self.ax_q.set_ylabel(q or "monitor", fontsize=8)
-        self.ax_q.set_xlabel("t [s]", fontsize=8)
+            tq, y = np.asarray(self.monitor["t"], dtype=float), np.asarray(self.monitor[q], dtype=float)
+        self._prepare(self.ax_q, label, y[-1] if y is not None and len(y) else None, bottom=True)
+        if y is not None and len(y):
+            self.ax_q.plot(tq, y, color=c["primary"], lw=1.2)
+            self._fit(self.ax_q, y)
+        self.ax_q.set_xlabel(r"$t$  [s]", fontsize=8, labelpad=1)
         if pr.t_end > 0:
             self.ax_q.set_xlim(0, pr.t_end)
-        if not hist:
-            self.ax_s.text(0.5, 0.5, "dt and S_max come from the progress lines (every save_interval steps)",
-                           transform=self.ax_s.transAxes, ha="center", va="center", fontsize=8, color=c["ink_soft"])
         self.canvas.draw_idle()
 
+    def _note(self, ax, text: str) -> None:
+        ax.text(0.5, 0.45, text, transform=ax.transAxes, ha="center", va="center", fontsize=8, color=self._colors["ink_soft"])
+
     def _draw_residuals(self) -> None:
-        """The three residual norms of the monitor file, each relative to its first non-zero value, on one log axis."""
-        ax, c, m = self.ax_r, self._colors, self.monitor
-        drawn = False
+        """The three residual norms of the monitor file, each relative to its first non-zero value, on one log axis (decades only)."""
+        from matplotlib.ticker import LogLocator, NullFormatter
+        c, m = self._colors, self.monitor
+        curves = []
         if m is not None and "res_rho" in m.dtype.names:
-            for name, colour in (("res_rho", c["primary"]), ("res_mom", c["ink"]), ("res_E", c["ink_soft"])):
+            for name, colour, label in (("res_rho", c["primary"], r"$\rho$"), ("res_mom", c["ink"], r"$\rho\mathbf{u}$"),
+                                        ("res_E", c["ink_soft"], r"$\rho E$")):
                 y = np.asarray(m[name], dtype=float)
                 ref = next((v for v in y if v > 0), 0.0)
                 if ref > 0:
-                    ax.plot(m["t"], np.where(y > 0, y / ref, np.nan), color=colour, lw=1.2, label=name.replace("res_", ""))
-                    drawn = True
-        if drawn:
-            ax.set_yscale("log")
-            ax.legend(loc="upper right", fontsize=7, ncol=3, frameon=False)
-        else:
-            ax.text(0.5, 0.5, "residuals appear once the monitor file has rows (set 'Record every' on the solver)", transform=ax.transAxes,
-                    ha="center", va="center", fontsize=8, color=c["ink_soft"])
-        ax.set_ylabel("residual / first", fontsize=8)
+                    curves.append((np.where(y > 0, y / ref, np.nan), colour, label))
+        last = curves[0][0][np.isfinite(curves[0][0])][-1] if curves and np.isfinite(curves[0][0]).any() else None
+        self._prepare(self.ax_r, r"$R\,/\,R_0$", last)
+        ax = self.ax_r
+        if not curves:
+            self._note(ax, "residuals appear once the monitor file has rows (set 'Record every' on the solver)")
+            return
+        for y, colour, label in curves:
+            ax.plot(m["t"], y, color=colour, lw=1.3, label=label)
+        ax.set_yscale("log")
+        ax.yaxis.set_major_locator(LogLocator(base=10, numticks=5))
+        ax.yaxis.set_minor_locator(LogLocator(base=10, subs=(), numticks=5))
+        ax.yaxis.set_minor_formatter(NullFormatter())
+        finite = np.concatenate([y[np.isfinite(y)] for y, _, _ in curves])
+        if finite.size:
+            lo, hi = float(finite.min()), float(finite.max())
+            ax.set_ylim(10 ** np.floor(np.log10(lo) - 0.05), 10 ** (np.ceil(np.log10(hi)) + 0.45))   # whole decades, room for the corner text
+        ax.legend(loc="upper center", fontsize=8, ncol=3, frameon=False, handlelength=1.4, columnspacing=1.2, borderaxespad=0.2)
 
     # ---- states
     def _state(self, state: str) -> None:

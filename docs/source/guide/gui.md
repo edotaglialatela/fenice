@@ -51,13 +51,20 @@ The default is a **Geometry** node linked to a **Solver** node.
   creates a `STOP` file in the output folder: the solver saves its checkpoint and the `.pvd` index, then exits, serial or under MPI. A
   solver is its own project, so several solvers can sit on the canvas and run at the same time; a running solver cannot be deleted or
   have its geometry unlinked.
-* **Monitor** (input: run). The upper half shows the time step, the wave speed, the residual norms (`res_rho`, `res_mom`, `res_E`
-  relative to their first row, on a log axis) and one more quantity of your choice (a column of the monitor file, or the number of leaves
-  of an AMR run) against time; the lower half is the solver's console in colour, from rank 0 only under MPI. The curves are filled from
-  the progress lines (every `save_interval` steps) and the monitor file. The console states the total physical time and notes each time
-  the run passes a multiple of 10 % of it; the status line gives the percentage and an estimate of the time left. A monitor linked in
-  the middle of a run shows it from its start (the project keeps the history), and every run starts with an empty console and empty
-  plots. *Stop* and *Kill* are here too; *Kill* ends the solver and every process it started at once.
+* **Monitor** (input: run). Four panels share the time axis, the residuals being the largest: the time step $\Delta t$ and the wave
+  speed $S_{\max}$ (small), the residual norms of the density, momentum and energy equations relative to their first value, $R/R_0$
+  (`res_rho`, `res_mom`, `res_E`, log axis with whole decades only), and one more quantity of your choice (a column of the monitor file, or
+  the number of leaves of an AMR run). The name of each panel is written inside its top-left corner and its latest value inside the
+  top-right one, a panel has at most three ticks, and the vertical range follows the data (a nearly constant quantity is not
+  magnified). The labels are typeset with mathtext (Computer Modern), which needs no TeX installation. The curves are filled from the
+  progress lines (every `save_interval` steps) and the monitor file. Above the plots, a bar and a line give the percentage of the
+  physical time, the step, $t$, $\Delta t$, $S_{\max}$ and an estimate of the time left. The solver's console is a column on the
+  right of the workbench, the full height of the window, showing the console of the monitor on show: the solver's own colours, and
+  colours for its plain lines (step lines with $t$, $\Delta t$, $S_{\max}$ and the leaves in their own colours, section tags, errors in
+  red, warnings in amber, checkpoints and the end of the run in green); only rank 0 writes under MPI. The console states the total
+  physical time and notes each time the run passes a multiple of 10 % of it. A monitor linked in the middle of a run shows it from its
+  start (the project keeps the history), and every run starts with an empty console and empty plots. *Stop* and *Kill* are here too;
+  *Kill* ends the solver and every process it started at once.
 * **Postprocessing** (input: results). The result viewer, below, opened on the folder the solver reports and following it while the
   run goes on; linked after a run, it opens that run's results.
 

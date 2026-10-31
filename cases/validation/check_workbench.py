@@ -96,7 +96,7 @@ low.setChecked(True)
 ok(not low.isEnabled() and page.combo_riemann.currentText() == "HLLC (Preconditioned)", "another Riemann solver is left alone")
 ok(w.tabs.count() == 1 and w.tabs.widget(0) is w.editors[3], "the bottom half holds the monitors only")
 mon_panel = w.editors[3]
-ok(mon_panel.text.mapTo(mon_panel, QPoint(0, 0)).x() > mon_panel.canvas.mapTo(mon_panel, QPoint(0, 0)).x(), "the console is a column on the right of the plots")
+ok(w.console_stack.currentWidget() is mon_panel.console and w.console_stack.x() > w.split.x() and w.console_stack.height() >= w.split.height(), "the console is a column on the right, as high as the window")
 ok(not w.windows[1].isVisible(), "an editor is not open until its node is opened")
 w.open_editor(1)
 ok(w.windows[1].isVisible() and w.windows[1].isWindow() and w.editors[1].window() is w.windows[1], "a module opens in a subwindow of its own")
@@ -186,6 +186,12 @@ link = next(l for l in w.graph.links if l.src == g3.node_id)
 w._remove_link(link)
 pump(0.2)
 ok(w.editors[g3.node_id] is geo3 and geo3.project is None and geo3.p["nx"] == "123", "unlinking keeps the geometry")
+# ---- colour of the plain console lines
+from gui import ansi  # noqa: E402
+
+sp = ansi.colorize("Step 00500 | t = 2.32 s | dt = 4.6e-03 s | S_max = 6.7 m/s | leaves = 21,873 | Checkpoint saved")
+ok(len({st.get("color") for _, st in sp} - {None}) >= 4 and "".join(t for t, _ in sp).startswith("Step 00500"), "a step line gets several colours and keeps its text")
+ok(any(st.get("color") == "#ff6b6b" for _, st in ansi.colorize("ERROR: negative pressure")), "an error line is red")
 w.close()
 print("ALL PASSED" if not failures else f"{len(failures)} FAILED")
 sys.exit(1 if failures else 0)
