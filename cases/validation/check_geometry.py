@@ -25,8 +25,11 @@ def solver_count(case: str, sets: list[str]) -> int | None:
         cmd = [str(fenice.exe()), "--case", case, "--no-logo", "--set", "max_steps=1", "--set", f"output_root={tmp}"]
         for s in sets:
             cmd += ["--set", s]
-        out = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT).stdout
-    m = COUNT.search(out)
+        r = subprocess.run(cmd, capture_output=True, text=True, cwd=ROOT)
+    m = COUNT.search(r.stdout)
+    if not m:   # say why: a crash or a kill (exit code, stderr) is not a disagreement of the counts
+        tail = " | ".join((r.stderr.strip().splitlines() or r.stdout.strip().splitlines() or ["no output"])[-3:])
+        print(f"      solver run of {case} {' '.join(sets)} printed no solid-cell count: exit code {r.returncode}; {tail}")
     return int(m[1]) if m else None
 
 
