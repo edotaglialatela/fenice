@@ -3,7 +3,8 @@
     python cases/validation/amr/golden.py dump OLD_DIR --exe path/to/old/fenice      # before the change (or the main binary)
     python cases/validation/amr/golden.py dump NEW_DIR                               # after it ($FENICE_EXE / build/release)
     python cases/validation/amr/golden.py compare OLD_DIR NEW_DIR                    # every state bit for bit, exit code 0 if equal
-    options of dump: --quick (1 / 3 / 7 threads, the large airfoil on 3 only), --only NAME ..., --env KEY=VALUE ...
+    options of dump: --quick (1 / 3 / 7 threads, the large airfoil on 3 only), --only NAME ..., --env KEY=VALUE ...,
+    --set KEY=VALUE ... (solver parameters, e.g. shock_blend=0 for the new binary against one built before the key existed)
 
 Ten adaptive runs (the four cases of amr_mpi.py --check, MMS 40 steps, cavity 200 steps, Sod remeshed every 2 steps, the two AMR
 ghost-cell cases of ibm_ghost.py --check, the 720 x 360 airfoil for 50 steps) on 1 / 2 / 3 / 4 / 7 threads (the large airfoil on
@@ -59,7 +60,7 @@ def dump(args):
             cmd = [str(exe), "--case", case, "--no-logo", "--threads", str(t), "--set", f"output_root={d}",
                    "--set", f"dump_state={d}.npz", "--set", "save_interval=1000000000", "--set", "use_mpi=false",
                    "--set", "monitor_interval=5"]
-            for s in sets:
+            for s in sets + args.set:
                 cmd += ["--set", s]
             r = subprocess.run(cmd, capture_output=True, text=True, env=env)
             if r.returncode:
@@ -91,6 +92,8 @@ def main():
     d.add_argument("--quick", action="store_true")
     d.add_argument("--only", nargs="*", default=[])
     d.add_argument("--env", nargs="*", default=[], metavar="KEY=VALUE")
+    d.add_argument("--set", nargs="*", default=[], metavar="KEY=VALUE",
+                   help="extra solver parameters of every run (e.g. shock_blend=0 to compare with a binary that predates it)")
     c = sub.add_parser("compare")
     c.add_argument("old")
     c.add_argument("new")

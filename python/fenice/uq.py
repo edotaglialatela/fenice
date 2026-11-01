@@ -113,6 +113,32 @@ def sobol_indices(y, n, d):
     return S1, ST
 
 
+def sobol_bootstrap(y, n, d, n_boot=1000, level=0.95, seed=0):
+    """Percentile confidence intervals of the Sobol indices: the n base rows (A, B and the d AB_i rows of one row index
+    together) are resampled with replacement `n_boot` times and the indices recomputed on each resample.
+
+    Returns (S1_lo, S1_hi, ST_lo, ST_hi), arrays of length d. The interval holds the sampling error of the estimator only: the
+    error of a model that is itself a numerical solution (discretisation) is not in it."""
+    y = np.asarray(y, float)
+    if y.shape != (n * (d + 2),):
+        raise ValueError(f"expected {n * (d + 2)} outputs, got shape {y.shape}")
+    cols = y.reshape(d + 2, n)   # row r of every block belongs to the same base sample
+    yA, yB, yAB = cols[0], cols[1], cols[2:]
+    rng = np.random.default_rng(seed)
+    s1 = np.empty((n_boot, d))
+    st = np.empty((n_boot, d))
+    for b in range(n_boot):
+        k = rng.integers(0, n, n)
+        a, bb, ab = yA[k], yB[k], yAB[:, k]
+        var = np.var(np.concatenate([a, bb]))
+        s1[b] = np.mean(bb * (ab - a), axis=1) / var
+        st[b] = 0.5 * np.mean((a - ab) ** 2, axis=1) / var
+    q = [100 * (1 - level) / 2, 100 * (1 + level) / 2]
+    s1_lo, s1_hi = np.percentile(s1, q, axis=0)
+    st_lo, st_hi = np.percentile(st, q, axis=0)
+    return s1_lo, s1_hi, st_lo, st_hi
+
+
 def _case_text(case):
     p = Path(str(case))
     if p.is_dir():

@@ -4,7 +4,8 @@
 
 Every check compares with an exact or analytic answer; the bands are fixed here, before the first run.
   uq        Ishigami function: first-order and total Sobol indices against the analytic values (|error| <= 0.05 with 20000
-            random points, <= 0.03 with 8192 Sobol points when SciPy is installed); Latin hypercube strata; a real sweep of
+            random points, <= 0.03 with 8192 Sobol points when SciPy is installed); the 99 % bootstrap intervals of the
+            first set contain the analytic and the estimated indices and are narrower than 0.1; Latin hypercube strata; a real sweep of
             four Sod runs, repeated: the second call runs nothing (the cache) and returns the same numbers.
   modal     DMD of a travelling wave and of a damped oscillation (two spatial structures in quadrature): eigenvalues exact to 1e-10; POD of two weighted
             orthogonal modes: energies exact to 1e-12 relative, modes weight-orthonormal to 1e-12; a mode written as .vtr
@@ -52,6 +53,12 @@ def test_uq():
     S1, ST = uq.sobol_indices([ishigami(p) for p in pts], n, 3)
     e1, et = np.abs(S1 - ISHIGAMI_S1).max(), np.abs(ST - ISHIGAMI_ST).max()
     check(e1 <= 0.05 and et <= 0.05, f"Ishigami, random points: S1 error {e1:.3f}, ST error {et:.3f} (band 0.05)")
+    y = [ishigami(p) for p in pts]
+    l1, h1, lt, ht = uq.sobol_bootstrap(y, n, 3, n_boot=500, level=0.99, seed=1)
+    inside = bool(np.all((l1 <= ISHIGAMI_S1) & (ISHIGAMI_S1 <= h1) & (lt <= ISHIGAMI_ST) & (ISHIGAMI_ST <= ht)))
+    width = max((h1 - l1).max(), (ht - lt).max())
+    check(inside and 0 < width < 0.1 and np.all((l1 <= S1) & (S1 <= h1)) and np.all((lt <= ST) & (ST <= ht)),
+          f"Ishigami bootstrap (99 %, 500 resamples): the analytic and the estimated indices lie inside, widest interval {width:.3f} (< 0.1)")
     try:
         n = 8192
         A, B, AB, pts = uq.saltelli(n, bounds, uq.sobol_sampler, seed=3)
