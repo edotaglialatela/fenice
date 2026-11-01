@@ -6,6 +6,10 @@
     St = spectra.strouhal(fpk[0][0], D=1.0, U=1.0)
     k, E = spectra.energy_spectrum(u, v, w=None, lengths=(2*np.pi,)*2)       # shell-averaged E(k)
     sol, dil = spectra.helmholtz(u, v)                # solenoidal / dilatational parts of a velocity field
+    spectra.taylor_microscale(s), spectra.integral_scale(s), spectra.dissipation_spectrum(s, nu)    # derived quantities (D4)
+    spectra.numerical_dissipation(t, K, Z, nu)         # -dK/dt - 2 nu Z: what the scheme dissipates
+    spectra.spectrum_1d(line, dx, "even")              # a non-periodic line (D3): Hann window or mirror extension
+    field, xc, yc, info = spectra.resample_amr(read_vtu(path), "Density", region=(3, 10, 5, 7))   # adaptive mesh -> uniform grid
 
 Conventions.
 Time series (D1): `resample_uniform` linearly interpolates a series sampled at a variable step onto a uniform grid (the error
@@ -51,13 +55,13 @@ def _detrend(seg, kind):
     return seg - np.polyval(p, x)
 
 
-def psd(y, dt, nperseg=None, overlap=0.5, detrend="linear"):
-    """One-sided power spectral density by Welch's method with a Hann window: (f, P, df)."""
+def psd(y, dt, nperseg=None, overlap=0.5, detrend="linear", window="hann"):
+    """One-sided power spectral density by Welch's method with a Hann window (window="none": rectangular): (f, P, df)."""
     y = np.asarray(y, float)
     n = len(y)
     nperseg = n if nperseg is None else min(int(nperseg), n)
     step = max(1, int(round(nperseg * (1 - overlap)))) if nperseg < n else nperseg
-    w = np.hanning(nperseg)   # symmetric Hann, zero at both ends
+    w = np.hanning(nperseg) if window == "hann" else np.ones(nperseg)   # symmetric Hann, zero at both ends
     scale = 1.0 / ((1.0 / dt) * np.sum(w * w))
     acc, count = 0.0, 0
     for s in range(0, n - nperseg + 1, step):
@@ -120,8 +124,13 @@ def energy_spectrum(u, v, w=None, lengths=None, rho=None):
     kk = np.sqrt(sum(k * k for k in K))
     shell = np.rint(kk).astype(int)
     E = np.bincount(shell.ravel(), weights=0.5 * power.ravel())
-    return {"k": np.arange(len(E)), "E": E, "nyquist": min(shape) // 2,
-            "mean_energy": float(0.5 * sum(np.mean(c * c) for c in comps))}
+    k0 = 2 * np.pi / min(list(lengths))
+    kphys = kk * k0
+    inv = np.where(kk > 0, 0.5 * power / np.where(kk > 0, kphys, 1.0), 0.0)   # E_mode / |k|, the mean flow excluded
+    return {"k": np.arange(len(E)), "E": E, "nyquist": min(shape) // 2, "k0": float(k0),
+            "mean_energy": float(0.5 * sum(np.mean(c * c) for c in comps)),
+            "enstrophy": float(np.sum(0.5 * power * kphys ** 2)),   # sum of |k|^2 E over the modes (exact |k|, not the shell number)
+            "inv_k_moment": float(inv.sum())}   # sum of E / |k| over the modes
 
 
 def helmholtz(u, v, w=None, lengths=None):
@@ -141,3 +150,86 @@ def helmholtz(u, v, w=None, lengths=None):
     dil = tuple(np.real(np.fft.ifftn(d)) for d in dil_hat)
     sol = tuple(c - d for c, d in zip(comps, dil))
     return sol, dil
+
+
+# ---------------------------------------------------------------- D4: derived quantities of a shell spectrum
+def dissipation_spectrum(s, nu):
+    """(D, total): D(n) = 2 nu (n k0)^2 E(n), the viscous dissipation of shell n of an `energy_spectrum` result `s` (incompressible
+    part; k = n k0 is the shell number times the smallest wavenumber), and `total` = 2 nu Z with the exact enstrophy Z = sum |k|^2 E
+    over the modes. sum(D) differs from `total` by the spread of |k| inside a shell, so use `total` for the rate."""
+    n = np.asarray(s["k"], float)
+    return 2.0 * nu * (n * s["k0"]) ** 2 * np.asarray(s["E"], float), 2.0 * nu * s["enstrophy"]
+
+
+def taylor_microscale(s):
+    """Taylor micro-scale of isotropic turbulence, lambda = sqrt(15 nu u'^2 / eps) = sqrt(5 K / Z) with K = mean kinetic energy,
+    Z = enstrophy of the spectrum `s` (eps = 2 nu Z, u'^2 = 2 K / 3)."""
+    return float(np.sqrt(5.0 * np.sum(s["E"]) / s["enstrophy"]))
+
+
+def integral_scale(s):
+    """Integral length scale L = 3 pi / (4 K) sum E / |k| (isotropic turbulence, u'^2 = 2 K / 3), from the modes' exact |k|."""
+    return float(3.0 * np.pi / (4.0 * np.sum(s["E"])) * s["inv_k_moment"])
+
+
+def numerical_dissipation(t, K, Z, nu):
+    """Dissipation the scheme adds: eps_num(t) = -dK/dt - 2 nu Z, with K(t) the kinetic energy of the run (monitor) and Z(t) the
+    enstrophy of the resolved field at the same times, dK/dt by central differences (one-sided at the ends). Returns
+    (eps_total, eps_viscous, eps_num); for a compressible flow the dilatational dissipation and the pressure work are in eps_num."""
+    t, K, Z = (np.asarray(a, float) for a in (t, K, Z))
+    tot = -np.gradient(K, t)
+    visc = 2.0 * nu * Z
+    return tot, visc, tot - visc
+
+
+# ---------------------------------------------------------------- D3: non-periodic lines and adaptive meshes
+def spectrum_1d(a, dx, extension="hann"):
+    """Wavenumber spectrum of a non-periodic line of samples: {"k", "E", "dk", "leakage"}.
+
+    extension: "hann" (Hann window), "even" (the line mirrored to length 2 n, which is periodic and continuous, then a
+    rectangular window) or "none" (the raw line: a jump at the ends spreads power over all wavenumbers like 1 / k^2).
+    The mean is removed. E(k) is the one-sided density in wavenumber k = 2 pi f, so sum(E) dk is the windowed mean square of the
+    mean-free data (the Parseval identity of `psd`, for the mirrored line that of the 2 n points). `leakage` = the fraction of
+    the power at wavenumbers above 4 times the strongest one: a window or the mirror lowers it, but none of them removes the
+    dependence of the spectrum on the ends of the line, so a spectrum of a non-periodic line is a rough guide above all at its
+    smallest wavenumbers (wavelength comparable with the line)."""
+    y = np.asarray(a, float)
+    if extension == "even":
+        y = np.concatenate([y, y[::-1]])
+    f, P, df = psd(y, dx, nperseg=None, detrend="mean", window="hann" if extension == "hann" else "none")
+    k, E, dk = 2 * np.pi * f, P / (2 * np.pi), 2 * np.pi * df
+    kpk = k[1:][np.argmax(E[1:])]
+    return {"k": k, "E": E, "dk": dk, "leakage": float(E[k > 4 * kpk].sum() / E[1:].sum())}
+
+
+def resample_amr(leaves, name, component=None, region=None, h=None):
+    """A field of an adaptive-mesh snapshot (the dict of `read_vtu`) on a uniform grid over `region` = (x0, x1, y0, y1)
+    (default: the whole domain) with cell size h (default: the smallest leaf), each leaf value copied to the cells it covers.
+
+    Returns (array (ny, nx), x_centres, y_centres, info) where info = {"cells", "h", "coarsened"}: `cells` is the size of the
+    grid (the cost of everything that follows), `coarsened` the fraction of the region where leaves are larger than h (there
+    the field is piecewise constant, a staircase whose spectrum is not the flow's: it adds power at high wavenumbers). A leaf
+    finer than h, or a gap in the mesh, raises ValueError."""
+    x0, x1, y0, y1 = (np.asarray(leaves[k], float) for k in ("x0", "x1", "y0", "y1"))
+    size = np.minimum(x1 - x0, y1 - y0)
+    h = float(size.min()) if h is None else float(h)
+    if size.min() < h * (1 - 1e-9):
+        raise ValueError(f"leaves of size {size.min():g} are finer than the grid step h = {h:g}")
+    R = (float(x0.min()), float(x1.max()), float(y0.min()), float(y1.max())) if region is None else tuple(map(float, region))
+    nx, ny = int(round((R[1] - R[0]) / h)), int(round((R[3] - R[2]) / h))
+    a = np.asarray(leaves[name], float)
+    if component is not None:
+        a = a[..., component]
+    out = np.full((ny, nx), np.nan)
+    keep = np.where((x1 > R[0]) & (x0 < R[1]) & (y1 > R[2]) & (y0 < R[3]))[0]
+    coarse = np.zeros((ny, nx), bool)
+    for k in keep:
+        i0, i1 = max(int(round((x0[k] - R[0]) / h)), 0), min(int(round((x1[k] - R[0]) / h)), nx)
+        j0, j1 = max(int(round((y0[k] - R[2]) / h)), 0), min(int(round((y1[k] - R[2]) / h)), ny)
+        out[j0:j1, i0:i1] = a[k]
+        if size[k] > h * (1 + 1e-9):
+            coarse[j0:j1, i0:i1] = True
+    if np.isnan(out).any():
+        raise ValueError("the leaves do not cover the region")
+    info = {"cells": nx * ny, "h": h, "coarsened": float(coarse.mean())}
+    return out, R[0] + h * (np.arange(nx) + 0.5), R[2] + h * (np.arange(ny) + 0.5), info

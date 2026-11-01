@@ -13,7 +13,12 @@ Every check compares with an exact or analytic answer; the bands are fixed here,
   spectra   a sine wave: one PSD peak at its frequency (error < df / 20) with power sum(P) df = A^2 / 2 to 1e-3; Parseval
             for the PSD of one segment to roundoff; the Taylor-Green initial field has all its energy in one shell (|k| = sqrt(2) -> shell 1,
             E = 1/4 in 2-D; sqrt(3) -> shell 2, E = 1/8 in 3-D; the others < 1e-14) and sum E = mean energy to 1e-12 (2-D and 3-D); the solenoidal part of a gradient
-            field and the dilatational part of a curl field vanish below 1e-12 of the field.
+            field and the dilatational part of a curl field vanish below 1e-12 of the field. D4: the Taylor-Green 3-D initial field has enstrophy
+            3/8 (1e-13 relative), Taylor micro-scale^2 = 5/3 and integral scale 3 pi / (4 sqrt 3) (1e-12); for the exact decaying 2-D
+            Taylor-Green solution the numerical dissipation -dK/dt - 2 nu Z is below 1e-5 of -dK/dt. D3: a sine with 3.37 periods on a
+            non-periodic line: the peak of the Hann and of the mirrored spectrum within one dk of the exact wavenumber, Parseval to
+            1e-12, leakage (power above 4 k_peak) of both at most a tenth of the raw line's; the resampling of a complete
+            leaf set equals the uniform array exactly, a merged leaf is piecewise constant, `coarsened`, `cells` and a gap error as expected.
 Exit code 0 when everything holds.
 """
 import itertools
@@ -161,7 +166,81 @@ def test_modal():
         check(np.abs(f["mode"] - field).max() < 1e-6 * np.abs(field).max(), "mode export: .vtr written and read back")
 
 
-# ---------------------------------------------------------------- spectra
+# ---------------------------------------------------------------- spectra (D3, D4)
+def test_spectra_derived():
+    N = 32
+    x = (np.arange(N) + 0.5) * 2 * np.pi / N
+    Z3, Y3, X3 = np.meshgrid(x, x, x, indexing="ij")
+    s = spectra.energy_spectrum(np.sin(X3) * np.cos(Y3) * np.cos(Z3), -np.cos(X3) * np.sin(Y3) * np.cos(Z3), np.zeros((N, N, N)))
+    e1 = abs(s["enstrophy"] / (3 / 8) - 1)
+    e2 = abs(spectra.taylor_microscale(s) ** 2 / (5 / 3) - 1)
+    e3 = abs(spectra.integral_scale(s) / (3 * np.pi / (4 * np.sqrt(3))) - 1)
+    check(e1 < 1e-13 and e2 < 1e-12 and e3 < 1e-12,
+          f"Taylor-Green 3-D: enstrophy 3/8 ({e1:.1e}), Taylor micro-scale ({e2:.1e}), integral scale ({e3:.1e})")
+    D, tot = spectra.dissipation_spectrum(s, 0.01)
+    check(abs(tot / (2 * 0.01 * 3 / 8) - 1) < 1e-13, "dissipation_spectrum: total 2 nu Z")
+    # exact decaying 2-D Taylor-Green: K = exp(-4 nu t) / 4, Z = 2 K, so -dK/dt = 2 nu Z
+    nu, M = 0.1, 64
+    xs = (np.arange(M) + 0.5) * 2 * np.pi / M
+    Y2, X2 = np.meshgrid(xs, xs, indexing="ij")
+    ts = np.arange(0, 2.01, 0.01)
+    K, Z = [], []
+    for t in ts:
+        a = np.exp(-2 * nu * t)
+        sp = spectra.energy_spectrum(a * np.sin(X2) * np.cos(Y2), -a * np.cos(X2) * np.sin(Y2))
+        K.append(sp["mean_energy"])
+        Z.append(sp["enstrophy"])
+    tot, visc, num = spectra.numerical_dissipation(ts, K, Z, nu)
+    rel = np.abs(num[1:-1]).max() / tot[1:-1].min()
+    check(rel < 1e-5, f"numerical_dissipation of the exact decaying Taylor-Green solution: {rel:.1e} of the total (band 1e-5)")
+    # D3: a non-periodic line
+    n, L = 512, 1.0
+    xl = (np.arange(n) + 0.5) * L / n
+    k_true = 2 * np.pi * 3.37 / L
+    line = np.sin(k_true * xl + 0.3)
+    res = {m: spectra.spectrum_1d(line, L / n, m) for m in ("hann", "even", "none")}
+    okp = all(abs(r["k"][1:][np.argmax(r["E"][1:])] - k_true) <= r["dk"] for r in res.values())
+    ms = np.mean((line - line.mean()) ** 2)
+    pars = {m: abs(np.sum(r["E"]) * r["dk"] / ms - 1) for m, r in res.items() if m != "hann"}
+    check(okp, f"spectrum_1d of a sine with 3.37 periods: peak within dk of {k_true:.3f} for every extension")
+    check(max(pars.values()) < 1e-12, f"spectrum_1d Parseval, raw and mirrored line: {max(pars.values()):.1e}")
+    lk = {m: r["leakage"] for m, r in res.items()}
+    check(lk["hann"] <= 0.1 * lk["none"] and lk["even"] <= 0.1 * lk["none"],
+          f"spectrum_1d leakage above 4 k_peak: raw {lk['none']:.1e}, Hann {lk['hann']:.1e}, mirrored {lk['even']:.1e} (each <= 0.1 x raw)")
+    # AMR resampling
+    Nf, h = 8, 1.0 / 8
+    rng = np.random.default_rng(2)
+    arr = rng.standard_normal((Nf, Nf))
+    jj, ii = np.meshgrid(np.arange(Nf), np.arange(Nf), indexing="ij")
+    leaves = {"x0": ii.ravel() * h, "x1": (ii.ravel() + 1) * h, "y0": jj.ravel() * h, "y1": (jj.ravel() + 1) * h, "Q": arr.ravel()}
+    out, xc, yc, info = spectra.resample_amr(leaves, "Q")
+    sa, sb = spectra.energy_spectrum(arr, arr), spectra.energy_spectrum(out, out)
+    check(np.array_equal(out, arr) and info["cells"] == 64 and info["coarsened"] == 0 and np.array_equal(sa["E"], sb["E"]),
+          "resample_amr: a complete uniform leaf set returns the array, and the same spectrum, exactly")
+    # merge the cells (4..5, 2..3) into one leaf of twice the size valued 7
+    keep = ~((ii.ravel() >= 4) & (ii.ravel() < 6) & (jj.ravel() >= 2) & (jj.ravel() < 4))
+    mix = {k: np.append(v[keep], val) for k, v, val in (("x0", leaves["x0"], 4 * h), ("x1", leaves["x1"], 6 * h),
+                                                         ("y0", leaves["y0"], 2 * h), ("y1", leaves["y1"], 4 * h), ("Q", leaves["Q"], 7.0))}
+    out, _, _, info = spectra.resample_amr(mix, "Q", h=h)
+    want = arr.copy()
+    want[2:4, 4:6] = 7.0
+    check(np.array_equal(out, want) and abs(info["coarsened"] - 4 / 64) < 1e-15, "resample_amr: a merged leaf fills its 2 x 2 cells; coarsened = 4/64")
+    sub, xs_, ys_, info = spectra.resample_amr(mix, "Q", region=(0.25, 0.75, 0.125, 0.5), h=h)
+    check(np.array_equal(sub, want[1:4, 2:6]) and info["cells"] == 12 and np.allclose(xs_, (np.arange(2, 6) + 0.5) * h),
+          "resample_amr: a sub-region is the matching slice (12 cells, centres exact)")
+    try:
+        spectra.resample_amr({k: v[1:] for k, v in leaves.items()}, "Q")
+        gap = False
+    except ValueError:
+        gap = True
+    try:
+        spectra.resample_amr(leaves, "Q", h=2 * h)
+        fine = False
+    except ValueError:
+        fine = True
+    check(gap and fine, "resample_amr: a missing leaf and a leaf finer than h are errors")
+
+
 def test_spectra():
     dt, n, f0, amp = 0.01, 4096, 7.0, 1.7
     t = np.arange(n) * dt
@@ -222,5 +301,6 @@ if __name__ == "__main__":
     test_uq()
     test_modal()
     test_spectra()
+    test_spectra_derived()
     print("ALL PASSED" if not failures else f"FAILED: {failures}")
     sys.exit(1 if failures else 0)
