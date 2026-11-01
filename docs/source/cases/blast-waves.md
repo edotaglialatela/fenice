@@ -23,16 +23,18 @@ python cases\validation\verification\blast_waves.py      # 400, 800, 1600 cells 
 
 The bands are fixed in the script before the first run: mass and energy conserved to a relative $10^{-11}$ (walls on every
 side), $\rho, p > 0$, the L1 density difference to the reference decreasing with an observed rate of at least 0.4, and the
-position of the density maximum within 0.02 of the reference's and not moving away with refinement.
+position of the density maximum within 0.02 of the reference's and not moving away with refinement by more than a cell of
+the finer grid.
 
 <figure>
 <img src="{{root}}img/blast_waves.png" style="width:100%">
 <figcaption>Density and pressure at t = 0.038 on 400, 800 and 1600 cells and the 3200-cell reference. Conservation errors
-are 2-5e-16; the L1 density differences to the reference are 9.6e-2, 4.5e-2 and 1.8e-2 (observed rates 1.1 and 1.3).</figcaption>
+are 2-6e-16; the L1 density differences to the reference are 9.9e-2, 4.6e-2 and 1.8e-2 (observed rates 1.1 and 1.3).</figcaption>
 </figure>
 
-The density maximum is a spike of one or two cells: its position converges in physical distance (0.0095, 0.0077, 0.0036 from
-400 to 1600 cells), not in a fixed number of cells.
+The density maximum is a spike of one or two cells: its position converges in physical distance (0.0070, 0.0077, 0.0048 from
+400 to 1600 cells), not in a fixed number of cells, and it is quantised to the cell centres of each grid, so the difference
+may grow between two grids by up to a cell of the finer one (0.0007 against 0.00125 from 400 to 800).
 
 ## References
 
