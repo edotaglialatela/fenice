@@ -57,12 +57,18 @@ NumPy only; SciPy is optional (Sobol sequences). Each module is verified against
 
 * `fenice.uq`: `grid`, `latin_hypercube`, `saltelli` / `sobol_indices` (first-order and total indices; Ishigami function
   reproduced to 0.03 with 20000 random points, to under 0.001 with Sobol points), `run_sweep` (parallel, cached by the hash of case file,
-  overrides and solver; one `summary.json` per run). A sampler is any function `sampler(n, d, seed) -> array (n, d)`.
+  overrides and solver; one `summary.json` per run). A sampler is any function `sampler(n, d, seed) -> array (n, d)`: a sampler from an external UQ package is used by passing
+  that function, and the package itself is never imported or required (the Saltelli estimator is a few lines, checked against the
+  analytic Ishigami indices).
 * `fenice.modal`: `load_snapshots` (a `.pvd` series of `.vtr` or adaptive `.vtu` files, the latter resampled to the finest
-  level), `pod` (snapshot method, weighted), `dmd` (exact), `export_modes_vtr`. DMD recovers the exponents of a travelling wave and of
-  a damped oscillation to $10^{-14}$; POD recovers the energies of two orthogonal modes to $10^{-15}$.
+  level; `tol` and the reported `jitter` for series that are uniform in time only to about $10^{-3}$), `pod` (snapshot method,
+  weighted), `dmd` (exact), `delay_embed` (time-delay DMD of a scalar record such as a lift signal), `export_modes_vtr`. DMD
+  recovers the exponents of a travelling wave, of a damped oscillation and of two damped oscillations in one delay-embedded
+  record to $10^{-14}$; POD recovers the energies of two orthogonal modes to $10^{-15}$. Snapshots must be sampled above the
+  Nyquist rate of the dynamics (more than two per period): the application on the cylinder wake
+  (`benchmarks/cylinder_modal.py`, [cylinder page]({{root}}cases/cylinder.html)) uses the run with 3.15 snapshots per period.
 * `fenice.spectra`: `psd` (Welch, Hann, detrend) with `peaks` and `strouhal`, `resample_uniform`, `energy_spectrum` (shell
   averaged, Parseval exact; the Taylor-Green field has all its energy in one shell), `helmholtz` (solenoidal / dilatational split).
 
 Not provided: spectra of non-periodic or adaptive-mesh data, derived quantities (dissipation spectrum, micro-scale), and
-the application runs (cylinder shedding at Re 100 against the lift signal, the 3-D Taylor-Green spectrum at peak dissipation).
+the 3-D Taylor-Green spectrum at peak dissipation.

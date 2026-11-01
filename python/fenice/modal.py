@@ -5,6 +5,7 @@
     pod = modal.pod(snap["X"], snap["weights"])                                 # energies, modes, coefficients
     dmd = modal.dmd(snap["X"], dt=snap["dt"], rank=2)                           # eigenvalues, frequencies, growth rates
     modal.export_modes_vtr("mode0.vtr", pod["modes"][:, 0], snap["x"], snap["y"], "pod0")
+    h = modal.dmd(modal.delay_embed(signal, 60), dt=dt_signal, rank=2)         # frequency of a scalar record (e.g. lift)
 
 Conventions. X is (points, snapshots), one column per snapshot at a uniform time step dt. `weights` are the cell areas (or
 volumes), so inner products are <a, b> = sum(w a b); POD energies are the eigenvalues of the weighted covariance of the
@@ -35,13 +36,15 @@ def _resample_leaves(f, name, component=None):
     return out, np.linspace(0, nx * h, nx + 1), np.linspace(0, ny * h, ny + 1)
 
 
-def load_snapshots(where, field="Density", component=None, every=1, first=0, last=None):
+def load_snapshots(where, field="Density", component=None, every=1, first=0, last=None, tol=1e-6):
     """Read a .pvd series (a folder holding it, or the file) into a snapshot matrix.
 
     field: a cell field name ("Density", "Pressure", "Velocity", ...); component: its component for a vector field.
     every / first / last select snapshots. Returns {"X" (points, snapshots), "times", "dt" (the mean step; the series must
-    be uniform to 1e-6 relative, else ValueError), "weights" (cell areas, flattened like a column), "x", "y" (node
-    coordinates), "shape" (ny, nx)}."""
+    be uniform to `tol` relative, else ValueError), "jitter" (the largest relative deviation of a step from the mean),
+    "weights" (cell areas, flattened like a column), "x", "y" (node coordinates), "shape" (ny, nx)}.
+    Snapshots written every N steps of a run with an adaptive time step are uniform only to about 1e-4: pass tol and
+    report the jitter, the phase error it causes is 2 pi f dt jitter per step."""
     series = read_pvd(where)[first:last:every]
     if len(series) < 2:
         raise ValueError("a modal analysis needs at least two snapshots")
@@ -57,11 +60,23 @@ def load_snapshots(where, field="Density", component=None, every=1, first=0, las
         cols.append(np.asarray(a, float).ravel())
     t = np.array([s[0] for s in series])
     steps = np.diff(t)
-    if np.max(np.abs(steps - steps.mean())) > 1e-6 * abs(steps.mean()):
-        raise ValueError("the snapshots are not uniformly spaced in time; resample them first")
+    jitter = float(np.max(np.abs(steps - steps.mean())) / abs(steps.mean()))
+    if jitter > tol:
+        raise ValueError(f"the snapshots are not uniformly spaced in time (step jitter {jitter:.2e} > tol {tol:g}); "
+                         "pass a larger tol, or resample them first")
     w = np.outer(np.diff(y), np.diff(x)).ravel()
-    return {"X": np.array(cols).T, "times": t, "dt": float(steps.mean()), "weights": w, "x": x, "y": y,
+    return {"X": np.array(cols).T, "times": t, "dt": float(steps.mean()), "jitter": jitter, "weights": w, "x": x, "y": y,
             "shape": (len(y) - 1, len(x) - 1)}
+
+
+def delay_embed(y, rows):
+    """Time-delay (Hankel) embedding of a signal y (uniform step): matrix (rows, len(y) - rows + 1) whose column j is
+    y[j : j + rows]. `dmd` of it gives the frequencies and growth rates of a scalar record (rank 2 per oscillation); rows
+    should span at least one period."""
+    y = np.asarray(y, float)
+    if not 2 <= rows <= len(y) - 1:
+        raise ValueError("rows must be between 2 and len(y) - 1")
+    return np.array([y[i:len(y) - rows + 1 + i] for i in range(rows)])
 
 
 def pod(X, weights=None, mean=True, rank=None):

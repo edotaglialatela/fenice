@@ -45,6 +45,7 @@ GROUPS = {
         "taylor_green_animation": (["verification/taylor_green_animation.py"], "quick", None),
         "poiseuille": (["verification/poiseuille.py"], "quick", None),
         "stress_shocks": (["verification/stress_shocks.py"], "quick", 0.02),   # B0: strong shocks, vacuum, Mach 10-100, odd-even
+        "shock_blend": (["verification/shock_blend.py"], "quick", 0.01),   # B2: odd-even cure, Sod accuracy, strong-shock tubes
         "mms_time": (["verification/mms_time.py"], "quick", None),   # time order, unsteady manufactured solution (2 minutes)
         "mms": (["verification/mms.py"], "quick", None),   # manufactured solutions, 2-D and 3-D, up to 64^2 / 48^3
         "mms_full": (["verification/mms.py", "--full"], "long", None),   # up to 128^2 / 96^3 (about 20 minutes), as in the docs
@@ -58,6 +59,7 @@ GROUPS = {
         "gci": (["benchmarks/gci.py"], "long", None),   # grid convergence index of the cavity, airfoil and 3-D TG results
         "cylinder_loads": (["benchmarks/ibm_loads.py", "cylinder"], "long", None),
         "cylinder_spectrum": (["benchmarks/cylinder_spectrum.py"], "long", None),   # spectra of the cylinder_loads run
+        "cylinder_modal": (["benchmarks/cylinder_modal.py"], "long", None),   # POD / DMD of the cylinder_loads snapshots, St from the lift monitors (needs the runs of cylinder_loads and cylinder_low_blockage)
         "airfoil_loads": (["benchmarks/ibm_loads.py", "airfoil"], "long", None),
     },
     "amr": {

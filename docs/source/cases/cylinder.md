@@ -86,6 +86,19 @@ quoted to two digits, 0.17-0.18, 5-7 % above the literature band 0.164-0.166 (gr
 (<code>cases/validation/benchmarks/cylinder_spectrum.py</code>).</figcaption>
 </figure>
 <figure>
+<img src="{{root}}img/cylinder_modal.png" style="width:100%">
+<figcaption>Modal analysis of the same run, from the 82 snapshots of the transverse velocity $v$ at $t \ge 50$ (3.15 snapshots per
+period; the steps are uniform to $7\times10^{-4}$, a phase error of $1.4\times10^{-3}$ rad per step). Two POD modes carry 96.3 % of the fluctuation
+energy (52.1 % and 44.2 %, the third has 1.1 %); their time coefficients draw a circle, in quadrature to 89.8°, and the pair
+is the travelling wave of the vortex street. The exact DMD of the same snapshots has a leading pair at St = 0.1748
+($|\lambda| = 1.0001$), against 0.1746 from the lift spectrum; a time-delay DMD of the lift record gives 0.1747
+and, for the drag, 2.005 times that frequency. The DMD mode lies in the plane of the two POD modes. On the 1.7 %-blockage AMR runs
+([low blockage]({{root}}cases/cylinder-low-blockage.html)) the lift record gives St = 0.1657 (20 cells per diameter) and 0.1660
+(40), by DMD, spectrum and zero crossings alike to $10^{-4}$, inside the literature band (green); the snapshots of those runs are
+four time units apart, three periods, so only their lift records are used. Bands fixed beforehand, no simulation run for it
+(<code>cases/validation/benchmarks/cylinder_modal.py</code>).</figcaption>
+</figure>
+<figure>
 <img src="{{root}}img/cylinder_mesh_transition.gif" style="width:100%">
 <figcaption>Loads across a hot start: the 400×200 run of the loads study ($t \le 80$, developed street), then 800×400 mapped
 from its checkpoint for three more time units. Shedding carries on without a new start-up transient. After a short

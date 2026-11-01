@@ -114,6 +114,15 @@ def test_modal():
     want = np.sort_complex(np.array([-sigma - 1j * om2, -sigma + 1j * om2]))
     err = np.abs(np.sort_complex(d["omega"]) - want).max()
     check(err < 1e-10, f"DMD, damped oscillation: omega error {err:.1e}; growth {d['growth'][0]:.6f} vs {-sigma}")
+    # one scalar record: the delay embedding turns one shape times cos(om t) into the rank-2 problem DMD can solve
+    ts = np.arange(400) * 0.04
+    y = np.exp(-0.2 * ts) * np.cos(6.0 * ts) + 0.5 * np.exp(-0.05 * ts) * np.cos(15.0 * ts + 0.7)
+    H = modal.delay_embed(y, 30)
+    check(H.shape == (30, 371) and H[3, 5] == y[8] and H[29, 370] == y[399], "delay_embed: Hankel layout, H[i, j] = y[i + j]")
+    d = modal.dmd(H, 0.04, rank=4)
+    want = np.sort_complex(np.array([-0.2 - 6j, -0.2 + 6j, -0.05 - 15j, -0.05 + 15j]))
+    err = np.abs(np.sort_complex(d["omega"]) - want).max()
+    check(err < 1e-8, f"DMD of a delay-embedded scalar record: two damped oscillations, omega error {err:.1e}")
     # POD of two weighted-orthogonal modes with orthogonal temporal coefficients
     rng = np.random.default_rng(0)
     npts = 200
