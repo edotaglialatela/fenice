@@ -283,7 +283,10 @@ def main():
         (OUT / "table.md").write_text(md + "\n", encoding="utf-8")
         print("\n" + md)
         if any(r["case"] == "vortex" for r in res):
-            figure(res)
+            try:
+                figure(res)
+            except ImportError as e:   # the tables are already written
+                print("no figure: " + str(e))
     for name, e in failed:
         print(f"FAILED {name}: {e}")
     return 1 if failed else 0
