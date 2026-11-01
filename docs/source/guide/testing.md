@@ -84,7 +84,7 @@ contains one of the arguments (a filter that matches nothing exits with code 2).
 
 ## Regression references (`regression.py`)
 
-`cpp/tests/reference/` stores final states for 38 short configurations. Sixteen were
+`cpp/tests/reference/` stores final states for 39 short configurations. Sixteen were
 produced by an independent implementation of the same schemes. The Taylor-Green and
 isentropic-vortex references are validated against their exact solutions; the five
 3-D references (Taylor-Green 3-D, an x-decomposed thin box, a no-slip cavity, Sod between
@@ -356,7 +356,7 @@ benchmarks that have a reference value. A hollow marker has no numerical uncerta
 
 ### Fault injection (`verification/fault_injection.py`)
 
-A check that always passes proves nothing, so the checks themselves are tested: eleven known defects are put into the
+A check that always passes proves nothing, so the checks themselves are tested: twelve known defects are put into the
 sources one at a time, the solver is rebuilt, and six checks are run on it (the regression references serial and on
 4 ranks, the MMS convergence bands, the unit tests, the adaptive 1-7 ranks and restart comparison, the ghost-cell wall
 on 1-7 ranks). The first three compare against a tolerance, the last three compare bits between code paths. The
@@ -371,31 +371,37 @@ in a disposable checkout. A full run takes about 20 minutes.
 | F02 Van Leer limiter x (1 + 1e-10) | 1e-10 | caught | passes | caught | caught | caught |
 | F03 viscous cross-derivative one-sided | O(h) | caught | **passes** | caught | passes | caught |
 | F04 wrong halo index, MPI interface | interface cells | 4 ranks only | passes | passes | passes | caught |
-| F05 coarse leaf's neighbours dropped from the halo list | rank interfaces | passes | passes | passes | **passes** | passes |
+| F05 coarse leaf's neighbours dropped from the halo list | rank interfaces | passes | passes | passes | passes | passes (equivalent mutant) |
 | F06 restart: stored speed bound x (1 + 1e-10) | 1e-10 | passes | passes | passes | caught | passes |
-| F07 SSP-RK2 second stage at the old time | O(dt) | **passes** | passes | caught | passes | passes |
+| F07 SSP-RK2 second stage at the old time | O(dt) | caught | passes | caught | passes | passes |
 | F08 `/fp:precise` -> `/fp:fast` | 1e-16 | caught | passes | caught | caught | caught |
 | F09 Prandtl number 0.1 % high | 1e-3 | caught | **passes** | passes | passes | passes |
 | F10 flux-register weight 2e-7 too large | 2e-7 | caught | passes | caught | passes | passes |
 | F11 no-slip ghost velocity sign | O(1) | caught | **passes** | caught | passes | passes |
+| F12 halo list: neighbours of the face cells not marked | viscous reads at rank interfaces | 4 ranks only | passes | caught | caught | caught |
 
-* **Every defect but one is caught by at least one check.** The tolerance checks (regression, MMS bands) alone would
-  have missed F06 and F07; the unit tests and the adaptive comparison catch them. F04 is seen by the 4-rank
-  regression and the ghost-wall comparison only, never by a serial check, as it must be.
+* **Every defect is caught by at least one check, except one that cannot matter.** The tolerance checks (regression, MMS
+  bands) alone miss F06; the unit tests and the adaptive comparison catch it. F04 and F12 are seen by the 4-rank
+  regression, the ghost-wall comparison and (F12) the adaptive comparison, never by a serial check, as they must be.
 * **Round-off-sized defects reach the tolerance checks through the adaptive cases.** The refinement flags of the
   shocked adaptive references flip under a 1e-16 change, the meshes differ, and the final states differ by O(1):
   those references are in effect bitwise references.
-* **The MMS bands do not see these defects.** None of the eleven moved an observed order out of its band, including
-  the sign of the no-slip ghost (F11, the MMS cases with walls use other conditions) and the one-sided cross
-  derivative (F03, an O(h) term in a viscous cross term that does not change the order of the dominant error). A
-  band check certifies the order of the error, not the absence of every defect.
-* **F05 is not caught by anything.** Either the dropped neighbours are also supplied through the other halo
-  dependency lists (the same cells are listed in the stencil reads of the faces), in which case the change is
-  redundant, or no case has a coarse-fine interface at a rank boundary with the missing neighbour mattering. This has
-  not been decided; it is the open item of the study.
-* **Of the 66 predictions, 22 did not hold** (the table in `results/validation/fault_injection/table.md` marks each
-  one): the round-off defects were caught by more checks than predicted, and F03, F07 and F11 by fewer or different
-  ones.
+* **The MMS bands do not see any of these defects.** None moved an observed order out of its band, including the sign of
+  the no-slip ghost (F11; the MMS cases with walls use other conditions) and the one-sided cross derivative (F03, an
+  O(h) term in a viscous cross term that does not change the order of the dominant error). A band check certifies the
+  order of the error, not the absence of every defect.
+* **F07 was first missed by the regression references**, none of which had a time-dependent source under SSP-RK2; the case
+  `mms_unsteady_rk2` was added and the defect is caught now.
+* **F05 is an equivalent mutant**: the dropped branch adds nothing to the set of cells a face reads. The neighbour marks of
+  the two face cells already mark the same leaves (the interpolated virtual cell of a coarser neighbour marks its coarse
+  leaf). An assertion that the branch never adds a cell, run over the unit tests, the 4-rank regression and the 1-7 rank
+  adaptive and ghost-wall comparisons, never fired. The branch is kept as documentation of what the second-order coarse
+  side reads.
+* **The halo check is not blind (F12).** The read check in `localize` and the unit test of it derive their expectation from
+  the same function they check, so a read dropped from that function could go unnoticed; F12 drops the neighbours of both
+  face cells and is caught by the unit tests and the adaptive comparison, whose results then differ from the serial ones.
+* **Of the 72 predictions, 22 did not hold** (the table in `results/validation/fault_injection/table.md` marks each one):
+  the round-off defects were caught by more checks than predicted, and F03 and F11 by fewer or different ones.
 
 ### References
 
