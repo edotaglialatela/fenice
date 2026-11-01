@@ -35,37 +35,32 @@ A and C touch no solver code. B changes the solver but only behind new options, 
   initial spectrum, gradient / divergence-free fields) and the Re 100 lift against DMD.
 * Prerequisites: SciPy extras group (`prerequisites.py`).
 
-**Leftover, in the order I would take it:**
+**Done since (2026-11-01, branch `worktree-bench-uq-leftovers`):**
 
-1. *Small fixes.*
-   * Register `cylinder_low_blockage` in `run_all.py` (long tier): `cylinder_modal.py` needs its runs and tells the user to make
-     them with `run_all.py cylinder_low_blockage`, which is not a known study yet.
-   * Dispatch `Benchmarks` once on GitHub (the workflow parses but has not run there).
-   * Re-run the Windows CI job that failed in `check_geometry` (1200 x 1800 supersonic cylinder, "solver None"; the script now
-     prints the exit code and stderr, so the next failure says why).
-   * Regression references (`--create-missing`) for the new cheap, deterministic cases (blast waves, Kelvin-Helmholtz, Noh,
-     the 2-D Riemann configurations): none added yet.
-   * Golden hashes of B3: the comparison of `shock_blend = 0` against the binary before the change (the four `amr_mpi.py --check`
-     cases and the 720 x 360 airfoil, 1 and N threads, also `FENICE_NO_SIMD=1` / `FENICE_FULL_REBUILD=1`) was not run; the
-     regression, unit tests and `amr_mpi` pass.
-2. *Track C.*
-   * C1c, the worked studies: cylinder Cd at Re 40 against inlet speed, resolution and limiter (quick on small meshes, the larger
-     sweep medium), and a cheap Sod one (L1 against CFL, limiter, resolution).
-   * Confidence intervals of the Sobol indices (a bootstrap in NumPy; `sobol_indices` returns point estimates only).
-3. *Track D.*
-   * D3: spectra of non-periodic data (window or even extension) and of adaptive-mesh data (resample to the finest level over a
-     region, cost printed first, a leakage warning in the output).
-   * D4: dissipation spectrum, enstrophy, Taylor micro-scale, integral scale, numerical-dissipation estimate from the departure
-     of E(k) from the initial Taylor-Green spectrum.
-   * D5, what remains: serial and MPI snapshots give identical spectra; the application to the 3-D Taylor-Green run (spectrum at
-     the time of peak dissipation).
-4. *Track A, benchmarks still to build.*
+* Small fixes: `cylinder_low_blockage` registered (long tier; redraws from the cached l3 / l4 runs); five regression references
+  (`blast_waves_100`, `kelvin_helmholtz_32`, `noh_40`, `riemann2d_c3_32`, `riemann2d_c6_32`; serial and 4 ranks, 44 in all); golden hashes of
+  B3 (the four `amr_mpi` cases, the airfoils, MMS, cavity, ghost cases; 1 / 2 / 3 / 4 / 7 threads; also `FENICE_NO_SIMD=1` and
+  `FENICE_FULL_REBUILD=1`): `shock_blend = 0` is bit-identical to the binary built before the key existed (`golden.py dump --set`).
+* C1c: `sod_sensitivity.py` (quick; resolution ST 0.94, limiter 0.06, CFL 0.005) and `cylinder_sensitivity.py` (Re 40 drag; with
+  `--full`, 160 runs: inlet speed ST 0.46, resolution 0.42, limiter 0.05); `uq.sobol_bootstrap`; Sobol estimators on centred outputs.
+  Two bands of each study were corrected after the first run, with the reason in the script (separate commits).
+* D3, D4, D5: `spectra.spectrum_1d`, `resample_amr`, `taylor_microscale`, `integral_scale`, `dissipation_spectrum`,
+  `numerical_dissipation` with known-answer checks; `benchmarks/spectra_application.py` (3-D Taylor-Green at the dissipation peak:
+  the scheme adds 78 % of the dissipation at 32^3 and 48 % at 96^3; serial == 4 ranks; the wake line of the AMR cylinder).
+
+**Still open:**
+
+1. *Small fixes needing GitHub access* (no `gh` on the workstation): dispatch `Benchmarks` once (`gh workflow run benchmarks.yml --ref main`)
+   and re-run the Windows CI job that failed in `check_geometry` with the current script (`gh workflow run ci.yml --ref main`).
+2. *Track D:* the dissipation spectrum is per shell with the shell centre as |k|; a transfer-free refinement would need the
+   modes' exact |k| per shell.
+3. *Track A, benchmarks still to build.*
    * A3 forward-facing step Mach 3 (first check how to get the solid corner: IBM box or masked region).
    * A6 Rayleigh-Taylor (body force exists).
    * A8 3-D compressible Taylor-Green at M = 0.3-0.5 (96^3, MPI, long).
    * A9 decaying compressible turbulence (long); its run, with D2 / D4, is what decides the low-dissipation question below.
    * A4 double Mach reflection stays blocked on the boundary capability (open point below).
-5. *Track B, only if a case asks for it.* B1 beyond the odd-even diagnosis (no stress case failed, so there was nothing else to
+4. *Track B, only if a case asks for it.* B1 beyond the odd-even diagnosis (no stress case failed, so there was nothing else to
    trace) and a positivity-preserving update (Zhang-Shu type scaling): the risk that remains is in the time update, not in the
    reconstruction.
 
