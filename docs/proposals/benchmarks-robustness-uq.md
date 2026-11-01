@@ -1,7 +1,8 @@
 # Compressible benchmarks, strong-shock robustness, UQ, modal and spectral analysis: one plan
 
-Status: proposal, nothing implemented. Four independent tracks that can run in parallel; the order inside each track is fixed here,
-the choices that are the user's (which limiter, which UQ back-end) are listed as open points and not decided.
+Status (2026-11-01): mostly implemented and merged; what is done and what is left is in "Status and leftover work" below. Four
+independent tracks that can run in parallel; the order inside each track is fixed here, the choices that are the user's (which
+limiter, which UQ back-end) are listed as open points, with the ones decided so far marked.
 
 Tracks (D, spectral post-processing, is added at the end of the track C section):
 
@@ -11,6 +12,64 @@ Tracks (D, spectral post-processing, is added at the end of the track C section)
 
 A and C touch no solver code. B changes the solver but only behind new options, so every existing reference stays bit for bit
 (`regression.py` ALL MATCH is the gate of every B step).
+
+## Status and leftover work (2026-11-01)
+
+**Done** (merged on main; every study has its bands fixed in its script and a page under `docs/source/`):
+
+* Infrastructure (rules 1-8): tiers and `run_all.py --list`, cost estimate (`fenice.budget`), budgeted resumable runs
+  (`check_budget.py`: resumed == uninterrupted, bit for bit), `--budget` / `--threads` on every study script, `study_queue.py`,
+  `summary.json`, polite threads and priority, `.github/workflows/benchmarks.yml` (nightly, only when the sources changed, plus
+  `workflow_dispatch`; results cached so a stopped study resumes). Measured: quick tier 6.6 min, medium +35 min (cavity 32); the
+  per-push CI does not run them.
+* Track A: A1 (`riemann_2d`, quick and `--full`, AMR against uniform), A2 (`blast_waves`), A5 (`kelvin_helmholtz`), A7 (`implosions`:
+  Noh exact, Sedov scaling).
+* Track B: B0 (`stress_shocks`: pressure ratio 1000, 123 with and without vacuum, Mach 10 / 20 / 100, Mach 10 cylinder, odd-even),
+  B2 as a face-local HLLC to HLL blend (`shock_blend`, default 0.2, AVX2 twin bit-identical, `shock_blend.py` gate), B3 gates
+  (regression, `amr_mpi`, unit tests; 16 references regenerated deliberately). Positivity code was left out on purpose: the TVD
+  limiter on primitive variables keeps rho and p between neighbours, so a fallback in the reconstruction could never act.
+* Track C: C1a-b (`fenice.uq`: grid, LHS, Sobol via SciPy when present, Saltelli / Jansen indices, cached sweeps), C2a-c
+  (`fenice.modal`: load, POD, exact DMD, `delay_embed`, `.vtr` export; known-answer tests) and the C2 application
+  (`benchmarks/cylinder_modal.py`, from existing runs: DMD St 0.1748 against 0.1746 from the lift spectrum).
+* Track D: D1 (PSD, peaks, Strouhal), D2 (shell-averaged E(k), Helmholtz split), D5 for those (sine, Parseval, Taylor-Green
+  initial spectrum, gradient / divergence-free fields) and the Re 100 lift against DMD.
+* Prerequisites: SciPy extras group (`prerequisites.py`).
+
+**Leftover, in the order I would take it:**
+
+1. *Small fixes.*
+   * Register `cylinder_low_blockage` in `run_all.py` (long tier): `cylinder_modal.py` needs its runs and tells the user to make
+     them with `run_all.py cylinder_low_blockage`, which is not a known study yet.
+   * Dispatch `Benchmarks` once on GitHub (the workflow parses but has not run there).
+   * Re-run the Windows CI job that failed in `check_geometry` (1200 x 1800 supersonic cylinder, "solver None"; the script now
+     prints the exit code and stderr, so the next failure says why).
+   * Regression references (`--create-missing`) for the new cheap, deterministic cases (blast waves, Kelvin-Helmholtz, Noh,
+     the 2-D Riemann configurations): none added yet.
+   * Golden hashes of B3: the comparison of `shock_blend = 0` against the binary before the change (the four `amr_mpi.py --check`
+     cases and the 720 x 360 airfoil, 1 and N threads, also `FENICE_NO_SIMD=1` / `FENICE_FULL_REBUILD=1`) was not run; the
+     regression, unit tests and `amr_mpi` pass.
+2. *Track C.*
+   * C1c, the worked studies: cylinder Cd at Re 40 against inlet speed, resolution and limiter (quick on small meshes, the larger
+     sweep medium), and a cheap Sod one (L1 against CFL, limiter, resolution).
+   * Confidence intervals of the Sobol indices (a bootstrap in NumPy; `sobol_indices` returns point estimates only).
+3. *Track D.*
+   * D3: spectra of non-periodic data (window or even extension) and of adaptive-mesh data (resample to the finest level over a
+     region, cost printed first, a leakage warning in the output).
+   * D4: dissipation spectrum, enstrophy, Taylor micro-scale, integral scale, numerical-dissipation estimate from the departure
+     of E(k) from the initial Taylor-Green spectrum.
+   * D5, what remains: serial and MPI snapshots give identical spectra; the application to the 3-D Taylor-Green run (spectrum at
+     the time of peak dissipation).
+4. *Track A, benchmarks still to build.*
+   * A3 forward-facing step Mach 3 (first check how to get the solid corner: IBM box or masked region).
+   * A6 Rayleigh-Taylor (body force exists).
+   * A8 3-D compressible Taylor-Green at M = 0.3-0.5 (96^3, MPI, long).
+   * A9 decaying compressible turbulence (long); its run, with D2 / D4, is what decides the low-dissipation question below.
+   * A4 double Mach reflection stays blocked on the boundary capability (open point below).
+5. *Track B, only if a case asks for it.* B1 beyond the odd-even diagnosis (no stress case failed, so there was nothing else to
+   trace) and a positivity-preserving update (Zhang-Shu type scaling): the risk that remains is in the time update, not in the
+   reconstruction.
+
+Not planned: running the fault-injection study inside the queue (it edits the sources and rebuilds: a disposable checkout only).
 
 ## Constraint: the workstation is often busy
 
@@ -160,13 +219,16 @@ The four tracks share only the tier machinery (rules 1-8 above), which therefore
 
 ## Open points (the user's)
 
-* B2: which of the three protections, and whether any default may ever be turned on (it would regenerate references).
+* B2: **decided** (2026-10-31): the carbuncle / odd-even protection is the `shock_blend` flux blend, on by default at 0.2
+  (references regenerated); no positivity code unless a case fails.
 * A4 (double Mach reflection) needs a boundary value that depends on x and t (moving shock at the top boundary).
-  `postprocessing-and-species.md` A.4 already proposes expressions of `t` for boundary values; A4 additionally needs x.
+  `postprocessing-and-species.md` A.4 already proposes expressions of `t` for boundary values; A4 additionally needs x. Open.
 * A9 would be the natural argument for a low-dissipation / higher-order reconstruction; that is a separate proposal if A9 shows
-  MUSCL is too dissipative. Not decided here.
-* C1b: dependency policy (NumPy/SciPy only, or also an external UQ package).
-* Whether the medium tier may use the GitHub nightly runner (cost/minutes), or stays local.
+  MUSCL is too dissipative. **Decided to wait** for a larger turbulence-decay run (A8 / A9) before opening it.
+* C1b: **decided**: NumPy core, SciPy optional (Sobol sequences), no external UQ package; one is used by passing its sampler
+  function.
+* Whether the medium tier may use the GitHub nightly runner: **decided**: yes, nightly and gated by a change of the sources (see
+  Status); the long tier stays local.
 
 ## Not in this plan
 
