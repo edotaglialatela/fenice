@@ -80,7 +80,9 @@ def run_cached(study, tag, case, *sets, mpi=0, threads=None, force=False, done="
             threads = threads or study_threads()
         left = budget_left()
         resumable = any(d.glob("*/*_restart.npz")) and not force   # a partial run, stopped by an earlier budget
-        if left is None and not resumable:
+        # a run the caller limits to a few steps (max_steps=) is short by construction and is not chunked: the chunk's own
+        # max_steps would override it (the MMS truncation-error runs became 200-step runs under a budget)
+        if (left is None and not resumable) or any(s.startswith("max_steps=") for s in sets):
             run(case, *sets, out_root=d, mpi=mpi, dump=dump, threads=threads, polite=True)
         else:
             res = run_budgeted(case, *sets, out_root=d, budget_minutes=left, chunk_steps=chunk_steps, dump=dump,
