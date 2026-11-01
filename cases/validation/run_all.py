@@ -60,6 +60,7 @@ GROUPS = {
         "cylinder_loads": (["benchmarks/ibm_loads.py", "cylinder"], "long", None),
         "cylinder_spectrum": (["benchmarks/cylinder_spectrum.py"], "long", None),   # spectra of the cylinder_loads run
         "cylinder_low_blockage": (["benchmarks/cylinder_low_blockage.py"], "long", None),   # Re 100, 1.7 % blockage, AMR l3 / l4 to t = 60 (l4 on 8 MPI ranks); the runs of cylinder_modal
+        "spectra_application": (["benchmarks/spectra_application.py"], "long", None),   # D5: spectra of the Taylor-Green 3-D runs at peak dissipation, serial vs MPI, wake line (needs the runs of taylor_green_3d and cylinder_low_blockage)
         "cylinder_modal": (["benchmarks/cylinder_modal.py"], "long", None),   # POD / DMD of the cylinder_loads snapshots, St from the lift monitors (needs the runs of cylinder_loads and cylinder_low_blockage)
         "airfoil_loads": (["benchmarks/ibm_loads.py", "airfoil"], "long", None),
     },

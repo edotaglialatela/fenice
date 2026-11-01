@@ -213,7 +213,7 @@ def resample_amr(leaves, name, component=None, region=None, h=None):
     x0, x1, y0, y1 = (np.asarray(leaves[k], float) for k in ("x0", "x1", "y0", "y1"))
     size = np.minimum(x1 - x0, y1 - y0)
     h = float(size.min()) if h is None else float(h)
-    if size.min() < h * (1 - 1e-9):
+    if size.min() < h * (1 - 1e-4):   # coordinates of a .vtu are float32: 1e-4 of a cell is far above their rounding
         raise ValueError(f"leaves of size {size.min():g} are finer than the grid step h = {h:g}")
     R = (float(x0.min()), float(x1.max()), float(y0.min()), float(y1.max())) if region is None else tuple(map(float, region))
     nx, ny = int(round((R[1] - R[0]) / h)), int(round((R[3] - R[2]) / h))
@@ -227,7 +227,7 @@ def resample_amr(leaves, name, component=None, region=None, h=None):
         i0, i1 = max(int(round((x0[k] - R[0]) / h)), 0), min(int(round((x1[k] - R[0]) / h)), nx)
         j0, j1 = max(int(round((y0[k] - R[2]) / h)), 0), min(int(round((y1[k] - R[2]) / h)), ny)
         out[j0:j1, i0:i1] = a[k]
-        if size[k] > h * (1 + 1e-9):
+        if size[k] > h * (1 + 1e-4):
             coarse[j0:j1, i0:i1] = True
     if np.isnan(out).any():
         raise ValueError("the leaves do not cover the region")
