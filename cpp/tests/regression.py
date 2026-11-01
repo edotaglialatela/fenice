@@ -113,6 +113,15 @@ CASES = {
     # a unit test; loads checked against a uniform run of the body's resolution)
     "amr_naca0012":        ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.4, use_amr=True,
                                                 amr_max_level=2, amr_refine_every=5, use_mpi=False)),
+    # Discontinuous compressible benchmarks (studies of cases/validation/verification), small meshes and short times;
+    # "riemann2d:K" is configuration K of verification/riemann_2d.py written to a temporary case file
+    "blast_waves_100":     ("Woodward-Colella Blast Waves", dict(nx=100, ny=4, t_end=0.02)),
+    "kelvin_helmholtz_32": ("Kelvin-Helmholtz", dict(nx=32, ny=36, t_end=4.0)),
+    "noh_40":              ("Noh Implosion", dict(nx=40, ny=40, t_end=0.2)),
+    "riemann2d_c3_32":     ("riemann2d:3", dict(nx=32, ny=32, use_muscl=True, muscl_limiter="MC",
+                                               time_scheme="SSP Runge-Kutta 2")),
+    "riemann2d_c6_32":     ("riemann2d:6", dict(nx=32, ny=32, use_muscl=True, muscl_limiter="MC",
+                                               time_scheme="SSP Runge-Kutta 2")),
 }
 # Cases also run under MPI (AMR: replicated mesh, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
@@ -120,12 +129,26 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodi
              "cylinder_ibm_visc", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
-             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk4", "mms_unsteady_rk2", "mms_unsteady_bdf2"]
+             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk4", "mms_unsteady_rk2", "mms_unsteady_bdf2",
+             "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32"]
+
+
+def riemann_case_file(k, tmp):
+    """Write configuration k of the 2-D Riemann study to a case file under tmp and return its folder."""
+    sys.path.insert(0, os.path.join(HERE, "..", "..", "cases", "validation", "verification"))
+    import riemann_2d
+    folder = os.path.join(tmp, f"riemann2d_{k}")
+    os.makedirs(folder, exist_ok=True)
+    with open(os.path.join(folder, "case.toml"), "w", newline="\n") as f:
+        f.write(riemann_2d.config_case(k))
+    return folder
 
 
 def run_cpp(name, tmp, n_mpi=0):
     tc, ov = CASES[name]
     dump = os.path.join(tmp, f"{name}_{n_mpi}.npz")
+    if tc.startswith("riemann2d:"):
+        tc = riemann_case_file(int(tc.split(":")[1]), tmp)
     cmd = [EXE, "--case", tc, "--no-logo",
            "--set", "save_interval=1000000000", "--set", f"output_root={os.path.join(tmp, 'out')}",
            "--set", f"dump_state={dump}"]
