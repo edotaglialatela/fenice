@@ -35,9 +35,9 @@ density in $[3.5, 6.2]$, $R(0.2)$ of 200 and 400 cells within two coarse cells.
 
 <figure>
 <img src="{{root}}img/implosions.png" style="width:100%">
-<figcaption>Left: Noh density against the radius at t = 0.6 (the shock radius is within a cell of 0.2; plateau 15.6 and 15.8 on
-100 and 200 cells, relative L1 error 2.9 % and 1.6 %). Right: Sedov radially averaged density at t = 0.2 (exponent 0.495
-and 0.506, peak density 4.6 and 5.1 on 200 and 400 cells per unit length; symmetry exact).</figcaption>
+<figcaption>Left: Noh density against the radius at t = 0.6 (the shock radius is within a cell of 0.2; plateau 15.7 and 15.8 on
+100 and 200 cells, relative L1 error 2.8 % and 1.5 %). Right: Sedov radially averaged density at t = 0.2 (exponent 0.495
+and 0.506, peak density 4.6 and 5.2 on 200 and 400 cells per unit length; symmetry exact).</figcaption>
 </figure>
 
 ## References

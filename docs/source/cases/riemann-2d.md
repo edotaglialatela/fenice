@@ -25,7 +25,7 @@ level) is closer to the uniform 200 x 200 run than the uniform 100 x 100 run is,
 
 <figure>
 <img src="{{root}}img/riemann_2d.png" style="width:100%">
-<figcaption>Density contours on 400 x 400 cells. Observed rates 0.90, 1.08, 1.24 and 1.34 (configurations 3, 4, 6, 12);
-symmetry exact (0) on both grids; the AMR run differs from the uniform 200 x 200 run by 1.0e-3, the uniform 100 x 100 run
-by 1.2e-2.</figcaption>
+<figcaption>Density contours on 400 x 400 cells. Observed rates 0.92, 1.08, 1.24 and 1.34 (configurations 3, 4, 6, 12);
+symmetry exact (0) on both grids; the AMR run differs from the uniform 200 x 200 run by 9.4e-4, the uniform 100 x 100 run
+by 1.3e-2.</figcaption>
 </figure>
