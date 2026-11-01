@@ -71,6 +71,7 @@ GROUPS = {
         "amr_memory": (["amr/amr_memory.py"], "long", None),   # memory per MPI rank, remesh parts (the distributed-storage baseline)
     },
     "features": {
+        "sod_sensitivity": (["features/sod_sensitivity.py"], "quick", 0.01),   # C1c: Sobol indices of the Sod L1 error (CFL, resolution, limiter), 320 runs
         "cylinder_mesh_transition": (["features/cylinder_mesh_transition.py"], "long", None),
     },
 }
