@@ -76,7 +76,11 @@ FAULTS = [
          file="cpp/src/CellFlux.cpp",
          old="if (face.kind == CellFaceKind::CoarseFine) {   // the coarse leaf's own neighbours (second-order coarse side)",
          new="if (false && face.kind == CellFaceKind::CoarseFine) {   // the coarse leaf's own neighbours (second-order coarse side)",
-         predicted=pred("unit", "amr")),
+         predicted=pred("unit", "amr"),
+         equivalent="the branch is redundant: the neighbour marks of the two face cells (nbr_) already mark the same leaves, "
+                    "the interpolated virtual cell of a coarser neighbour marks its coarse leaf (checked by an assertion that "
+                    "the branch never added a cell, over the unit tests, the 4-rank regression, and the 1-7 rank AMR and "
+                    "ghost-wall comparisons)"),
     dict(id="F06", title="restart: stored wave-speed bound scaled by 1 + 1e-10", size="1e-10 in the first time step",
          file="cpp/src/Simulation.cpp",
          old='cell_speed_ = a.count("S") ? a.at("S").scalar() : 0.0;',
@@ -105,6 +109,11 @@ FAULTS = [
          old="    case BCType::NoSlip:\n        Wg[1] = -Wi[1];\n        Wg[2] = -Wi[2];\n        Wg[4] = -Wi[4];\n        break;\n    case BCType::MovingWall:",
          new="    case BCType::NoSlip:\n        Wg[1] = Wi[1];\n        Wg[2] = Wi[2];\n        Wg[4] = Wi[4];\n        break;\n    case BCType::MovingWall:",
          predicted=pred("reg", "reg4", "mms", "unit")),
+    dict(id="F12", title="AMR+MPI halo list: neighbours of the two face cells not marked", size="viscous reads across rank interfaces",
+         file="cpp/src/CellFlux.cpp",
+         old="    cell(face.left);\n    cell(face.right);\n    if (face.kind == CellFaceKind::CoarseFine) {",
+         new="    if (false) { cell(face.left); cell(face.right); }\n    if (face.kind == CellFaceKind::CoarseFine) {",
+         predicted=pred("unit", "amr")),
 ]
 
 
@@ -165,6 +174,10 @@ def table(results):
         if not r or "error" in r:
             lines.append(f"| {f['id']} {f['title']} | {f['size']} | " + " | ".join("n/a" for _ in DETECTORS) + " | build failed |")
             continue
+        if f.get("equivalent"):
+            lines.append(f"| {f['id']} {f['title']} | {f['size']} | " + " | ".join(
+                "passes" if not r["detectors"][k]["caught"] else "**caught**" for k, *_ in DETECTORS) + " | equivalent mutant |")
+            continue
         cells, groups = [], set()
         for key, _, group, _, _ in DETECTORS:
             c = r["detectors"][key]["caught"]
@@ -186,7 +199,7 @@ def main():
     faults = [f for f in FAULTS if not a.only or f["id"] in a.only]
     if a.list:
         for f in FAULTS:
-            print(f"{f['id']}  {f['title']}  [{f['size']}]  predicted to be caught by: "
+            print(f"{f['id']}  {f['title']}{'  (EQUIVALENT)' if f.get('equivalent') else ''}  [{f['size']}]  predicted to be caught by: "
                   f"{', '.join(k for k in KEYS if f['predicted'][k]) or 'nobody'}")
         return 0
     dirty = git("status", "--porcelain", "--", "cpp", "CMakeLists.txt").stdout.strip()
@@ -239,7 +252,7 @@ def main():
     wrong = [(f["id"], k) for f in faults if f["id"] in results and "detectors" in results[f["id"]]
              for k in KEYS if results[f["id"]]["detectors"][k]["caught"] != f["predicted"][k]]
     print(f"\npredictions that did not hold: {len(wrong)} of {len(faults) * len(KEYS)}: {wrong}")
-    nobody = [f["id"] for f in faults if f["id"] in results and "detectors" in results[f["id"]]
+    nobody = [f["id"] for f in faults if f["id"] in results and "detectors" in results[f["id"]] and not f.get("equivalent")
               and not any(v["caught"] for v in results[f["id"]]["detectors"].values())]
     print("faults caught by no check:", nobody or "none")
     return 1 if nobody else 0
