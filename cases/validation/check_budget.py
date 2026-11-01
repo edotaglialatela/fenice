@@ -129,6 +129,25 @@ def test_queue():
     check("mms_full" not in study_queue.pending({}, "quick"), "queue: quick selection leaves long studies out")
 
 
+def test_study_parser_flags():
+    import os
+    from fenice import study
+    saved = {k: os.environ.pop(k, None) for k in ("FENICE_STUDY_BUDGET", "FENICE_STUDY_THREADS")}
+    try:
+        ns = study.parser("t").parse_args([])
+        check(ns.budget is None and "FENICE_STUDY_BUDGET" not in os.environ and "FENICE_STUDY_THREADS" not in os.environ,
+              "study.parser: without the flags the environment is left alone")
+        study.parser("t").parse_args(["--budget", "12.5", "--threads", "3"])
+        check(os.environ.get("FENICE_STUDY_BUDGET") == "12.5" and os.environ.get("FENICE_STUDY_THREADS") == "3",
+              "study.parser: --budget / --threads set $FENICE_STUDY_BUDGET / $FENICE_STUDY_THREADS")
+        check(fenice.solver.study_threads() == 3, "study.parser: the threads of a study run follow --threads")
+    finally:
+        for k, v in saved.items():
+            os.environ.pop(k, None)
+            if v is not None:
+                os.environ[k] = v
+
+
 def test_misc():
     e = budget.estimate(cells=400, steps=200)
     check(e["tier"] == "quick" and abs(e["core_hours"] - 400 * 200 / 1e6 / 3600) < 1e-15, "estimate: small run is quick")
@@ -144,6 +163,7 @@ if __name__ == "__main__":
     test_real_resume()
     test_resume_paths()
     test_queue()
+    test_study_parser_flags()
     test_misc()
     print("ALL PASSED" if not failures else f"FAILED: {failures}")
     sys.exit(1 if failures else 0)

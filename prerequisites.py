@@ -11,6 +11,7 @@ Optional flags
 --------------
 --no-gui      Skip PyQt6 (headless / server environments).
 --no-docs     Skip markdown2 (only needed to rebuild the documentation).
+--no-analysis Skip SciPy (only the Sobol sequence of fenice.uq and the cylinder figures need it).
 --viz3d       Also install PyVista (3-D Q-criterion animation of the Taylor-Green case).
 
 Then:
@@ -43,6 +44,10 @@ GUI = [
 
 DOCS = [
     ("markdown2",  "markdown2",  "Markdown renderer for docs/build.py",                               True),
+]
+
+ANALYSIS = [
+    ("scipy",      "scipy",      "Sobol sequence (fenice.uq.sobol_sampler), image smoothing in the cylinder studies", True),
 ]
 
 VIZ3D = [
@@ -114,6 +119,7 @@ def main() -> None:
     )
     parser.add_argument("--no-gui",   action="store_true", help="Skip PyQt6")
     parser.add_argument("--no-docs",  action="store_true", help="Skip markdown2")
+    parser.add_argument("--no-analysis", action="store_true", help="Skip SciPy (fenice.uq, fenice.modal and fenice.spectra run on NumPy alone)")
     parser.add_argument("--viz3d",    action="store_true", help="Also install PyVista (3-D Q-criterion animation)")
     args = parser.parse_args()
 
@@ -150,6 +156,11 @@ def main() -> None:
         all_status.update(_install_group(DOCS, "Documentation -- docs/build.py"))
     else:
         print("\nDocs  [skipped -- --no-docs]")
+
+    if not args.no_analysis:
+        all_status.update(_install_group(ANALYSIS, "Analysis extras -- Sobol sequences, cylinder figures"))
+    else:
+        print("\nAnalysis extras  [skipped -- --no-analysis]")
 
     if args.viz3d:
         all_status.update(_install_group(VIZ3D, "3-D visualisation -- --viz3d"))

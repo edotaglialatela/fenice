@@ -1,0 +1,113 @@
+# The quick and medium tiers of the validation studies (cases/validation/run_all.py --list) on Linux x64, through the resumable
+# queue (study_queue.py): every study keeps its bands fixed in its script and writes results/validation/<study>/summary.json.
+# The long tier (MPI runs, hours) stays on the workstation.
+#
+# When it runs: every night, but only if the sources changed since the last complete run (a marker in the cache holds the hash
+# of cpp/, cases/, python/ and the CMake files; an unchanged night costs a checkout), and on request (workflow_dispatch, with the
+# tier and the minutes of study time). A study that reaches the budget stops at its next checkpoint; the results folder is
+# cached, so the next run resumes it instead of starting over.
+name: Benchmarks
+
+on:
+  schedule:
+    - cron: "23 2 * * *"
+  workflow_dispatch:
+    inputs:
+      tier:
+        description: "Studies up to this tier"
+        type: choice
+        options: [medium, quick]
+        default: medium
+      budget:
+        description: "Minutes of study time in total (the queue stops at the next checkpoint; a later run resumes)"
+        default: "100"
+
+concurrency:
+  group: benchmarks
+  cancel-in-progress: false
+
+env:
+  TIER: ${{ inputs.tier || 'medium' }}
+  BUDGET: ${{ inputs.budget || '100' }}
+  OMPI_MCA_rmaps_base_oversubscribe: "yes"                   # Open MPI 4
+  PRTE_MCA_rmaps_default_mapping_policy: ":oversubscribe"    # Open MPI 5
+
+jobs:
+  studies:
+    name: Studies up to the medium tier (Linux x64)
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v5
+      - name: Hash of the sources
+        id: src
+        run: echo "hash=${{ hashFiles('cpp/**', 'cases/**', 'python/**', 'CMakeLists.txt', 'CMakePresets.json') }}" >> "$GITHUB_OUTPUT"
+      - name: Already tested with these sources?
+        id: tested
+        if: github.event_name == 'schedule'
+        uses: actions/cache/restore@v4
+        with:
+          path: tested.marker
+          key: benchmarks-tested-${{ env.TIER }}-${{ steps.src.outputs.hash }}
+      - name: Nothing to do
+        if: steps.tested.outputs.cache-hit == 'true'
+        run: echo "The ${TIER} tier already passed with these sources; nothing to run." >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-python@v6
+        if: steps.tested.outputs.cache-hit != 'true'
+        with:
+          python-version: "3.12"
+      - name: Dependencies
+        if: steps.tested.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build libopenmpi-dev openmpi-bin
+          python -m pip install -e python numpy matplotlib scipy sympy
+      - name: Build
+        if: steps.tested.outputs.cache-hit != 'true'
+        run: |
+          cmake --preset release
+          cmake --build --preset release -j 4
+      - name: Results of the earlier runs (a study stopped by its budget resumes from them)
+        if: steps.tested.outputs.cache-hit != 'true'
+        uses: actions/cache/restore@v4
+        with:
+          path: results/validation
+          key: benchmarks-results-${{ env.TIER }}-${{ steps.src.outputs.hash }}-${{ github.run_id }}
+          restore-keys: benchmarks-results-${{ env.TIER }}-${{ steps.src.outputs.hash }}-
+      - name: Studies
+        if: steps.tested.outputs.cache-hit != 'true'
+        run: python cases/validation/study_queue.py --tier "$TIER" --budget "$BUDGET" --threads 4
+      - name: State of the queue
+        if: always() && steps.tested.outputs.cache-hit != 'true'
+        run: |
+          { echo '```json'; python cases/validation/study_queue.py --status; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          du -sh results/validation >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always() && steps.tested.outputs.cache-hit != 'true'
+        with:
+          name: validation-summaries
+          path: |
+            results/validation/queue.json
+            results/validation/*/summary.json
+            results/validation/*/*.png
+          if-no-files-found: warn
+      - name: Keep the results for the next run
+        if: always() && steps.tested.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: results/validation
+          key: benchmarks-results-${{ env.TIER }}-${{ steps.src.outputs.hash }}-${{ github.run_id }}
+      - name: Mark these sources as tested (only when no study is pending)
+        if: success() && steps.tested.outputs.cache-hit != 'true'
+        run: |
+          if python cases/validation/study_queue.py --tier "$TIER" --dry-run | grep -q "next:"; then
+            echo "Studies are still pending (the budget was spent): not marking." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "$TIER" > tested.marker
+          fi
+      - name: Save the marker
+        if: success() && steps.tested.outputs.cache-hit != 'true' && hashFiles('tested.marker') != ''
+        uses: actions/cache/save@v4
+        with:
+          path: tested.marker
+          key: benchmarks-tested-${{ env.TIER }}-${{ steps.src.outputs.hash }}

@@ -17,12 +17,29 @@ _deadline = None
 DOCS_IMG = ROOT / "docs" / "img"
 
 
+class _StudyParser(argparse.ArgumentParser):
+    """Carries --budget and --threads into the environment variables the runner reads, once the arguments are parsed."""
+
+    def parse_args(self, args=None, namespace=None):
+        ns = super().parse_args(args, namespace)
+        if ns.budget is not None:
+            os.environ["FENICE_STUDY_BUDGET"] = str(ns.budget)
+        if ns.threads is not None:
+            os.environ["FENICE_STUDY_THREADS"] = str(ns.threads)
+        return ns
+
+
 def parser(description):
-    """argparse parser with the options every study has: --docs, --force, --mpi."""
-    ap = argparse.ArgumentParser(description=description)
+    """argparse parser with the options every study has: --docs, --force, --mpi, --budget, --threads."""
+    ap = _StudyParser(description=description)
     ap.add_argument("--docs", action="store_true", help="also copy the figures into docs/img/")
     ap.add_argument("--force", action="store_true", help="re-run the simulations even if their results exist")
     ap.add_argument("--mpi", type=int, default=0, metavar="N", help="run the solver on N MPI ranks (default: OpenMP)")
+    ap.add_argument("--budget", type=float, default=None, metavar="MINUTES",
+                    help="wall-time budget of the simulations: stop at the next checkpoint (exit 75), the next call "
+                         "continues ($FENICE_STUDY_BUDGET)")
+    ap.add_argument("--threads", type=int, default=None, metavar="N",
+                    help="OpenMP threads of a study run (default 2, $FENICE_STUDY_THREADS)")
     return ap
 
 
