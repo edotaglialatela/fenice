@@ -115,3 +115,19 @@ circle just outside the cylinder (no viscous stresses).</figcaption>
 <img src="{{root}}img/cylinder_no_shedding.gif" style="width:100%">
 <figcaption>Stable case: without perturbations no vortex shedding develops.</figcaption>
 </figure>
+
+## Sensitivity of the drag at Re = 40
+
+<figure>
+<img src="{{root}}img/cylinder_sensitivity.png" style="width:100%">
+<figcaption>Sobol indices of the steady drag coefficient of the Re = 40 cylinder (ghost-cell wall, channel 4 × 2, $t = 20$) for
+the inlet speed (viscosity fixed, so Re = 30 to 50), the resolution (6 to 12 cells per diameter) and the limiter, with 95 %
+bootstrap intervals; 160 runs. Right: $C_d$ of the A sample against Re, coloured by resolution; the dotted line is the
+converged value 1.8836 of the loads study.</figcaption>
+</figure>
+
+`cases/validation/features/cylinder_sensitivity.py --full` (about 40 minutes on 8 workers) gives total indices of $0.46$ for the
+inlet speed (interval 0.26 to 0.74), $0.42$ for the resolution (0.26 to 0.66) and $0.05$ for the limiter (0.02 to 0.09). $C_d$ ranges from 1.73 to 2.15
+and falls with the Reynolds number (rank correlation $-0.64$). At these meshes the discretisation error of $C_d$ is therefore as large
+a part of the variance as the whole 30-50 range of Re; the limiter hardly matters. A run at Re = 40 on 12 cells per diameter gives 1.918, 1.8 % above the converged 1.8836.
+The default mode (8 base points, 41 runs) is a smoke test: its intervals are wider than the indices.

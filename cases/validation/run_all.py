@@ -72,6 +72,8 @@ GROUPS = {
         "amr_memory": (["amr/amr_memory.py"], "long", None),   # memory per MPI rank, remesh parts (the distributed-storage baseline)
     },
     "features": {
+        "cylinder_sensitivity": (["features/cylinder_sensitivity.py"], "medium", 0.5),   # C1c: 8 base points = 41 runs (smoke test; the indices need --full)
+        "cylinder_sensitivity_full": (["features/cylinder_sensitivity.py", "--full"], "long", 5.0),   # 32 base points = 161 runs, measured 18000 s of solver time (about 40 min on 8 workers)
         "sod_sensitivity": (["features/sod_sensitivity.py"], "quick", 0.01),   # C1c: Sobol indices of the Sod L1 error (CFL, resolution, limiter), 320 runs
         "cylinder_mesh_transition": (["features/cylinder_mesh_transition.py"], "long", None),
     },

@@ -69,7 +69,7 @@ NumPy only; SciPy is optional (Sobol sequences). Each module is verified against
   analytic Ishigami indices). `sobol_indices` works on outputs centred by their mean (the first-order estimator is not shift-free at
   finite sample size), and `sobol_bootstrap` gives percentile confidence intervals by resampling the base rows (the 99 % intervals
   of the Ishigami indices contain the analytic values). Worked studies: [Sod]({{root}}cases/sod.html) (CFL, resolution, limiter on the L1
-  error, quick) and `features/cylinder_sensitivity.py` (inlet speed, resolution, limiter on the Re = 40 drag).
+  error, quick) and [cylinder]({{root}}cases/cylinder.html) (`features/cylinder_sensitivity.py --full`: inlet speed, resolution, limiter on the Re = 40 drag; resolution and Re carry comparable variance at 6-12 cells per diameter).
 * `fenice.modal`: `load_snapshots` (a `.pvd` series of `.vtr` or adaptive `.vtu` files, the latter resampled to the finest
   level; `tol` and the reported `jitter` for series that are uniform in time only to about $10^{-3}$), `pod` (snapshot method,
   weighted), `dmd` (exact), `delay_embed` (time-delay DMD of a scalar record such as a lift signal), `export_modes_vtr`. DMD
