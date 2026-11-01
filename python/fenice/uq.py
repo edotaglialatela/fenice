@@ -102,6 +102,7 @@ def sobol_indices(y, n, d):
     y = np.asarray(y, float)
     if y.shape != (n * (d + 2),):
         raise ValueError(f"expected {n * (d + 2)} outputs, got shape {y.shape}")
+    y = y - np.mean(y[:2 * n])   # the estimators are exact for a shift; centring removes its noise (mean(yB (yAB - yA)) is not shift-free at finite n)
     yA, yB = y[:n], y[n:2 * n]
     var = np.var(np.concatenate([yA, yB]))
     S1 = np.empty(d)
@@ -122,6 +123,7 @@ def sobol_bootstrap(y, n, d, n_boot=1000, level=0.95, seed=0):
     y = np.asarray(y, float)
     if y.shape != (n * (d + 2),):
         raise ValueError(f"expected {n * (d + 2)} outputs, got shape {y.shape}")
+    y = y - np.mean(y[:2 * n])   # centred, as in sobol_indices
     cols = y.reshape(d + 2, n)   # row r of every block belongs to the same base sample
     yA, yB, yAB = cols[0], cols[1], cols[2:]
     rng = np.random.default_rng(seed)
