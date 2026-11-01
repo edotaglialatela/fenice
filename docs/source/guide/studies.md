@@ -66,7 +66,10 @@ NumPy only; SciPy is optional (Sobol sequences). Each module is verified against
   reproduced to 0.03 with 20000 random points, to under 0.001 with Sobol points), `run_sweep` (parallel, cached by the hash of case file,
   overrides and solver; one `summary.json` per run). A sampler is any function `sampler(n, d, seed) -> array (n, d)`: a sampler from an external UQ package is used by passing
   that function, and the package itself is never imported or required (the Saltelli estimator is a few lines, checked against the
-  analytic Ishigami indices).
+  analytic Ishigami indices). `sobol_indices` works on outputs centred by their mean (the first-order estimator is not shift-free at
+  finite sample size), and `sobol_bootstrap` gives percentile confidence intervals by resampling the base rows (the 99 % intervals
+  of the Ishigami indices contain the analytic values). Worked studies: [Sod]({{root}}cases/sod.html) (CFL, resolution, limiter on the L1
+  error, quick) and `features/cylinder_sensitivity.py` (inlet speed, resolution, limiter on the Re = 40 drag).
 * `fenice.modal`: `load_snapshots` (a `.pvd` series of `.vtr` or adaptive `.vtu` files, the latter resampled to the finest
   level; `tol` and the reported `jitter` for series that are uniform in time only to about $10^{-3}$), `pod` (snapshot method,
   weighted), `dmd` (exact), `delay_embed` (time-delay DMD of a scalar record such as a lift signal), `export_modes_vtr`. DMD
@@ -76,6 +79,14 @@ NumPy only; SciPy is optional (Sobol sequences). Each module is verified against
   (`benchmarks/cylinder_modal.py`, [cylinder page]({{root}}cases/cylinder.html)) uses the run with 3.15 snapshots per period.
 * `fenice.spectra`: `psd` (Welch, Hann, detrend) with `peaks` and `strouhal`, `resample_uniform`, `energy_spectrum` (shell
   averaged, Parseval exact; the Taylor-Green field has all its energy in one shell), `helmholtz` (solenoidal / dilatational split).
+  Derived quantities of a shell spectrum: exact enstrophy, `taylor_microscale`, `integral_scale`, `dissipation_spectrum`, and
+  `numerical_dissipation` ($-dK/dt - 2
+u Z$); on the Taylor-Green initial field they equal the analytic values to $10^{-16}$,
+  and on the exact decaying 2-D solution the numerical dissipation is below $10^{-5}$ of the total. Non-periodic lines:
+  `spectrum_1d` with a Hann window or a mirror extension (the window lowers the leakage above four peak wavenumbers by $10^4$ for a
+  sine of 3.37 periods, the mirror only by a factor 1.4, since it keeps the break of the slope), and adaptive meshes:
+  `resample_amr` to a uniform grid over a region, which reports the cells it makes and the fraction of the region where leaves are
+  coarser than the grid (there the field is a staircase, and its spectrum carries the steps). Application to the solver's output,
+  with serial and MPI spectra identical: [Taylor-Green 3-D]({{root}}cases/taylor-green-3d.html).
 
-Not provided: spectra of non-periodic or adaptive-mesh data, derived quantities (dissipation spectrum, micro-scale), and
-the 3-D Taylor-Green spectrum at peak dissipation.
+Not provided: spectra written during the run (offline from snapshots is enough).

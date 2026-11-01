@@ -95,6 +95,30 @@ Reading the curves:
 * **Small oscillations** of the 32³ $-dE_k/dt$ come from acoustic waves at Ma 0.1
   exchanging kinetic and internal energy; the total energy is conserved to round-off.
 
+### Spectrum at the peak of the dissipation
+
+<figure>
+<img src="{{root}}img/spectra_application.png" style="width:100%">
+<figcaption>Left: shell-averaged energy spectrum of the velocity at the snapshot nearest to the dissipation peak, 32³
+(t = 6.6) and 96³ (t = 8.3). Middle: total dissipation −dK/dt (monitor) and the viscous part 2νZ from the spectral enstrophy of
+the snapshots; the gap is what the scheme dissipates. Right: spectrum of the wake of the Re = 100 cylinder
+(<a href="{{root}}cases/cylinder-low-blockage.html">low-blockage cylinder page</a>).</figcaption>
+</figure>
+
+From the snapshots of the runs above (`benchmarks/spectra_application.py`, `fenice.spectra`):
+
+| grid | peak $\varepsilon$ at | enstrophy $Z$ (spectral / central differences) | Taylor micro-scale | integral scale | $Re_\lambda$ | share of $\varepsilon$ added by the scheme |
+|---|---|---|---|---|---|---|
+| 32³ | 6.4 | 1.98 / 1.09 | 0.46 | 0.84 | 176 | 78 % |
+| 96³ | 8.3 | 5.14 / 3.75 | 0.29 | 0.67 | 112 | 48 % |
+
+The share is $(-dK/dt - 2\nu Z)/(-dK/dt)$ at the snapshot nearest to the peak. It confirms the reading of the curves: at 96³ about
+half of the dissipation at the peak is still numerical, and the micro-scale ($0.29$ against a cell of $0.065$) is resolved by
+only a few cells. The central-difference enstrophy that the dissipation curve above uses falls short of the spectral one by
+a factor 1.8 at 32³ and 1.4 at 96³, so the "resolved" part drawn there is a lower bound. The dilatational part of the velocity
+is $0.02$ % to $0.14$ % of its energy (Mach 0.1), and the density-weighted spectrum sums to the monitor's kinetic energy to $10^{-8}$.
+Spectra of the same 16³ run on one process and on four MPI ranks are identical bit for bit.
+
 The automated 3-D checks are listed under [Testing]({{root}}guide/testing.html). They include
 the initial dissipation (0.5 % from $0.75\,\nu$) and a stability check of this default case.
 

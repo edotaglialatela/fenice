@@ -69,6 +69,21 @@ below and the mesh with its cell edges at the bottom, for $0 < t \le 0.2$. At $t
 10 240 of the uniform finest mesh.</figcaption>
 </figure>
 
+## Which setting drives the error?
+
+<figure>
+<img src="{{root}}img/sod_sensitivity.png" style="width:100%">
+<figcaption>Sobol indices of $\log_{10}$ of the L1 density error (MUSCL, SSP-RK2, $t = 0.2$) for the CFL number
+(0.2 to 0.8), the resolution (50 to 400 cells) and the limiter (Minmod, Van Leer, MC, Koren), with 95 % bootstrap
+intervals; 1 280 runs (256 base points). Right: the 64 points of the A sample.</figcaption>
+</figure>
+
+`cases/validation/features/sod_sensitivity.py` samples the three inputs together (Saltelli scheme on a Sobol sequence,
+`fenice.uq`) and attributes the variance of the log-error: the resolution carries 0.94 (total index, interval 0.82 to 1.07), the
+limiter 0.06 and the CFL number 0.005. Over the whole range the error falls as $n_x^{-0.9}$
+(a fit through the A sample). Within this range the choice of limiter is worth about 6 % of the variance, the CFL number nothing. The default mode runs 64
+base points (320 runs, about half a minute); the intervals scale as $1/\sqrt{n}$.
+
 ## Reference
 
 * Sod, G.A. (1978). A survey of several finite difference methods for systems of

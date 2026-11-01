@@ -100,6 +100,12 @@ the shedding frequency itself, as the symmetry of the street requires. A window 
 $0.1658$-$0.1662$ along the record: the signal is stationary, unlike that of the confined case, where the lift amplitude was
 still decaying.
 
+In space, the spectrum of $v$ along the wake axis ($y = 6$, $4 \le x \le 11$) of the 40-cells-per-diameter final state, resampled to the
+finest level (5 600 cells, Hann window), peaks at wavenumber $6.28$, a wavelength of $1.00$ (5 diameters; resolution in $k$: $0.90$, so the wavelength is known to about
+15 %). With the shedding frequency $f = \mathrm{St}\,U/D = 0.83$ this is a convection speed of the vortices of about $0.83\,U$. The whole
+line lies in leaves coarser than the finest level, so the resampled field is a staircase (`resample_amr` reports the fraction) and
+its spectrum above the peak carries the steps (`benchmarks/spectra_application.py`).
+
 The wake is carried on level 1 of the mesh (a vortex is about 7 of its cells across) and the vortices lose strength faster than at the
 body resolution; the loads depend on the near body, where the finest level is kept.
 
