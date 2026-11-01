@@ -2,15 +2,15 @@
 # queue (study_queue.py): every study keeps its bands fixed in its script and writes results/validation/<study>/summary.json.
 # The long tier (MPI runs, hours) stays on the workstation.
 #
-# When it runs: every night, but only if the sources changed since the last complete run (a marker in the cache holds the hash
-# of cpp/, cases/, python/ and the CMake files; an unchanged night costs a checkout), and on request (workflow_dispatch, with the
+# When it runs: once a week (Sunday), but only if the sources changed since the last complete run (a marker in the cache holds the hash
+# of cpp/, cases/, python/ and the CMake files; an unchanged week costs a checkout), and on request (workflow_dispatch, with the
 # tier and the minutes of study time). A study that reaches the budget stops at its next checkpoint; the results folder is
 # cached, so the next run resumes it instead of starting over.
 name: Benchmarks
 
 on:
   schedule:
-    - cron: "23 2 * * *"
+    - cron: "23 2 * * 0"   # Sundays, 02:23 UTC
   workflow_dispatch:
     inputs:
       tier:

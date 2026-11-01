@@ -19,7 +19,7 @@ A and C touch no solver code. B changes the solver but only behind new options, 
 
 * Infrastructure (rules 1-8): tiers and `run_all.py --list`, cost estimate (`fenice.budget`), budgeted resumable runs
   (`check_budget.py`: resumed == uninterrupted, bit for bit), `--budget` / `--threads` on every study script, `study_queue.py`,
-  `summary.json`, polite threads and priority, `.github/workflows/benchmarks.yml` (nightly, only when the sources changed, plus
+  `summary.json`, polite threads and priority, `.github/workflows/benchmarks.yml` (weekly since 2026-11-01, only when the sources changed, plus
   `workflow_dispatch`; results cached so a stopped study resumes). Measured: quick tier 6.6 min, medium +35 min (cavity 32); the
   per-push CI does not run them.
 * Track A: A1 (`riemann_2d`, quick and `--full`, AMR against uniform), A2 (`blast_waves`), A5 (`kelvin_helmholtz`), A7 (`implosions`:
@@ -222,7 +222,7 @@ The four tracks share only the tier machinery (rules 1-8 above), which therefore
   MUSCL is too dissipative. **Decided to wait** for a larger turbulence-decay run (A8 / A9) before opening it.
 * C1b: **decided**: NumPy core, SciPy optional (Sobol sequences), no external UQ package; one is used by passing its sampler
   function.
-* Whether the medium tier may use the GitHub nightly runner: **decided**: yes, nightly and gated by a change of the sources (see
+* Whether the medium tier may use the GitHub nightly runner: **decided**: yes, gated by a change of the sources; nightly at first, weekly since 2026-11-01 (see
   Status); the long tier stays local.
 
 ## Not in this plan
