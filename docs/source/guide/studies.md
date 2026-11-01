@@ -19,6 +19,13 @@ Every validation study declares a tier in `cases/validation/run_all.py`: `quick`
 * **Queue.** `python cases/validation/study_queue.py --tier medium --budget 120` runs the pending studies in cost order,
   skips those whose result is current (hash of the script, all case files and the solver executable), records every study in
   `results/validation/queue.json` (done / partial / failed) and can be killed at any time.
+* **Every study script** takes `--budget` and `--threads` as well (`fenice.study.parser`).
+* **Nightly.** `.github/workflows/benchmarks.yml` runs the quick and medium tiers through the queue on Linux x64 every night,
+  but only when the sources changed since the last complete run, and on request (tier and minutes as inputs); the results
+  folder is cached, so a study stopped by the budget resumes on the next run, and the summaries and figures are uploaded as an
+  artifact. Measured on the workstation (4 threads): the quick tier takes 6.6 minutes in all, the medium tier adds 35 minutes
+  (the cavity study alone is 32). The per-push CI does not run them: its budget is the unit tests, the regression and the
+  bitwise checks, and the quick tier alone would cost more than twice the three minutes it was allowed.
 * **Estimate.** `fenice.budget.estimate(cells, steps, stages)` gives cell updates and core-hours from a cells-per-second
   constant, and the tier they fit; `fenice.budget.steps_for` gives the step count from the CFL condition.
 * **Summaries.** `fenice.write_summary(study, data)` writes `results/validation/<study>/summary.json`.
