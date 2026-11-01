@@ -156,7 +156,7 @@ The list of test cases and their defaults come from the solver itself, so new ca
 automatically. Build the solver first, then:
 
 ```bash
-python prerequisites.py      # one-time: PyQt6, numpy, matplotlib, markdown2 (python3 on Linux / macOS)
+python prerequisites.py      # one-time: PyQt6, numpy, matplotlib, sympy, scipy, markdown2 (python3 on Linux / macOS)
 python gui/workbench.py
 ```
 
