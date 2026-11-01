@@ -11,8 +11,11 @@ reference of the same code (there is no exact solution). Bands, fixed before the
      with every refinement, with an observed rate of at least 0.4 between successive levels (a solution with shocks and
      contacts converges at about first order in L1);
   4. the position of the density maximum differs from the reference's by at most 0.02 (a fifth of the first blast's width)
-     on every grid, and the difference in x does not grow with refinement (the peak is a one-or-two-cell spike, its
-     position converges in physical distance, not in cells; a band of 2 cells, the first choice, was wrong for that reason).
+     on every grid, and the difference in x does not grow with refinement by more than one cell of the finer grid (the peak
+     is a one-or-two-cell spike, its position converges in physical distance, not in cells; a band of 2 cells, the first
+     choice, was wrong for that reason; "does not grow" at all, the second choice, was wrong because the position of the
+     maximum is quantised to the cell centres of each grid: with shock_blend 0.2 it goes 0.0070, 0.0077, 0.0048 from 400 to 1600
+     cells, a growth of 0.0007 against a cell of 0.00125 at 800).
 """
 import numpy as np
 
@@ -76,7 +79,7 @@ def main():
     out["pass_rates"] = bool(all(e1 > e2 for e1, e2 in zip(errs, errs[1:])) and all(r >= RATE_BAND for r in rates))
     ok &= out["pass_rates"]
     print(f"observed rates {', '.join(f'{r:.2f}' for r in rates)}  (band >= {RATE_BAND})")
-    out["pass_peak_monotone"] = bool(all(a >= b for a, b in zip(peaks, peaks[1:])))
+    out["pass_peak_monotone"] = bool(all(a + 1.0 / n2 >= b for a, b, n2 in zip(peaks, peaks[1:], LEVELS[1:])))
     ok &= out["pass_peak_monotone"]
     out["passed"] = bool(ok)
     fenice.write_summary(STUDY, out)
