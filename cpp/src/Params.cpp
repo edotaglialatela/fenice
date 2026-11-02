@@ -151,6 +151,7 @@ Params baseline_defaults() {
         {"muscl_limiter", "Van Leer"},
         {"reconstruction", "muscl"},
         {"weno_epsilon", "1e-6"},
+        {"boundary_order", "1"},
         {"dt_phys", "0.1"},
         {"max_inner_iter", "50"},
         {"inner_tol_rel", "1e-3"},
@@ -256,6 +257,7 @@ SimParams SimParams::from(const Params& p) {
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
     s.reconstruction = lower(p.str("reconstruction", "muscl"));
     s.weno_epsilon = p.num("weno_epsilon", 1e-6);
+    s.boundary_order = p.integer("boundary_order", 1);
     s.dt_phys = p.num("dt_phys", s.t_end / 100.0);
     s.max_inner_iter = p.integer("max_inner_iter", 50);
     s.inner_tol_rel = p.num("inner_tol_rel", 1e-3);
@@ -315,6 +317,12 @@ SimParams SimParams::from(const Params& p) {
                                         "Runge-Kutta 3 or Runge-Kutta 4)");
         if (ts == "bdf2 dual time" || ts == "bdf2")
             throw std::invalid_argument("reconstruction = " + s.reconstruction + " is not available with the BDF2 dual-time scheme");
+    }
+    if (s.boundary_order != 1 && s.boundary_order != 2) throw std::invalid_argument("boundary_order must be 1 or 2");
+    if (s.boundary_order == 2) {
+        if (!s.use_muscl) throw std::invalid_argument("boundary_order = 2 needs use_muscl = true (a reconstruction to extend to the boundary faces)");
+        if (s.use_amr) throw std::invalid_argument("boundary_order = 2 is not available with AMR yet");
+        if (s.reconstruction == "weno5") throw std::invalid_argument("boundary_order = 2 is not available with reconstruction = weno5 yet (three ghost layers are needed); use muscl or weno3");
     }
     if (s.use_amr && !(s.amr_criterion > 0.0)) throw std::invalid_argument("amr_criterion must be positive");
     if (!(s.amr_derefine_threshold <= s.amr_refine_threshold))

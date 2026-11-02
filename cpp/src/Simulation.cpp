@@ -94,6 +94,7 @@ void strip_tangential_derivs(const EOS& eos, const BoundaryManager& bm, const Me
 // BC parameters of a run (the same on every MPI rank: global domain lengths).
 BCParams bc_params(const SimParams& p) {
     BCParams b;
+    b.boundary_order = p.boundary_order;
     b.u_in = p.u_in;
     b.rho_in = p.rho_in;
     b.p_out = p.p_out;
@@ -713,6 +714,21 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         mh.b = &perB_;
         mh.t = &perT_;
     }
+    // boundary_order = 2: the physical sides get ghost layers (the BC's own even / odd extension), so that the faces on
+    // the boundary are reconstructed like the interior ones. A side that is periodic, an MPI interface (halo already
+    // set) or non-reflecting keeps its first-order face states.
+    if (mu && p.boundary_order == 2) {
+        const auto ghost = [&](Face side, const Field*& slot, Field& buf) {
+            if (slot) return;
+            const BCType bt = bm.type(side);
+            if (bt == BCType::Periodic || bt == BCType::NonReflecting) return;
+            if (bm.fill_ghost_slab(*Uc, side, D, buf)) slot = &buf;
+        };
+        ghost(Face::Left, mh.l, ghL_);
+        ghost(Face::Right, mh.r, ghR_);
+        ghost(Face::Bottom, mh.b, ghB_);
+        ghost(Face::Top, mh.t, ghT_);
+    }
     if (mu) mu->reconstruct(UL_, UR_, *Uc, nx, ny, mh);
 
     double S = riemann.compute_flux(UL_, UR_, m, F_);
@@ -857,6 +873,23 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
                     }
             mh.f = &perF_;
             mh.bk = &perK_;
+        }
+        // boundary_order = 2: the physical sides get ghost layers (the BC's own even / odd extension), so that the faces on
+        // the boundary are reconstructed like the interior ones. A side that is periodic, an MPI interface (halo already
+        // set) or non-reflecting keeps its first-order face states.
+        if (mu && p.boundary_order == 2) {
+            const auto ghost = [&](Face side, const Field*& slot, Field& buf) {
+                if (slot) return;
+                const BCType bt = bm.type(side);
+                if (bt == BCType::Periodic || bt == BCType::NonReflecting) return;
+                if (bm.fill_ghost_slab(Uv, side, D, buf)) slot = &buf;
+            };
+            ghost(Face::Left, mh.l, ghL_);
+            ghost(Face::Right, mh.r, ghR_);
+            ghost(Face::Bottom, mh.b, ghB_);
+            ghost(Face::Top, mh.t, ghT_);
+            ghost(Face::Front, mh.f, ghF_);
+            ghost(Face::Back, mh.bk, ghK_);
         }
         mu->reconstruct_3d(UL_, UR_, Uv, m, mh);
     }

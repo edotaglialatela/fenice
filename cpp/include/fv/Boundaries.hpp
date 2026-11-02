@@ -25,6 +25,7 @@ struct BCParams {
     double nrbc_sigma = 0.28;             // non-reflecting outlet: relaxation towards p_out (0: none)
     double nrbc_beta = -1.0;              // NRBC transverse weight (1: none, 0: full; < 0: local Mach number)
     double length[3] = {1.0, 1.0, 1.0};   // global domain size per axis (relaxation length of the NRBC)
+    int boundary_order = 1;               // 2: the viscous ghost of a moving wall keeps the internal energy of the interior cell
 };
 
 // MPI strip halos, for the non-reflecting BC's derivatives along a boundary that crosses rank
@@ -79,6 +80,15 @@ public:
     };
     // Ghost state of the non-reflecting outlet for the interior state Ui; `hs` are the cell sizes per axis.
     State nonreflecting_ghost(Face side, const State& Ui, const NrbcTangent& tg, const double* hs) const;
+    // Ghost layers of a physical side in the slab layout of the MPI halos (Halos in Schemes.hpp: b/t [(d*nz + k)*nx + i],
+    // l/r [(k*ny + j)*depth + d], f/bk [(d*ny + j)*nx + i]; d grows with the coordinate): layer l (l = 0 next to the
+    // boundary) is the ghost state of the interior cell l cells from the boundary, i.e. the even / odd extension of
+    // the solution across the boundary that the first-order ghost states are the first layer of. Reconstructing
+    // through them gives the faces on the boundary a second-order state. Not for periodic or non-reflecting sides;
+    // needs the side's mass-flow target of the latest apply_boundary_conditions. Returns false (slab untouched)
+    // when the side has fewer than `depth` cells.
+    bool fill_ghost_slab(const Field& U, Face side, int depth, Field& slab) const;
+
     // Ghost cell of the diffusive (viscous) stencil next to a physical side `side` for the interior state `in`:
     // the zero-gradient copy with the momentum rules of get_padded_U (2-D). Periodic sides use the opposite cell.
     State viscous_ghost(Face side, const State& in) const;
@@ -102,6 +112,7 @@ private:
                         BCType::Wall,         BCType::Periodic,     BCType::Periodic};
     BCParams params_;
     std::function<void(double&, double&)> reducers_[6];
+    mutable double u_target_[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};   // mass-flow inlet velocity per side (apply_side)
 };
 
 }   // namespace fv

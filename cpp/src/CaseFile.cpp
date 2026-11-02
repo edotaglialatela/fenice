@@ -39,7 +39,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& section_tab
          {"bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back", "u_in", "rho_in", "p_out", "nrbc_sigma",
           "nrbc_beta"}},
         {"numerics",
-         {"riemann_solver", "use_muscl", "muscl_limiter", "reconstruction", "weno_epsilon", "time_scheme", "cfl", "dt_phys", "max_inner_iter",
+         {"riemann_solver", "use_muscl", "muscl_limiter", "reconstruction", "weno_epsilon", "boundary_order", "time_scheme", "cfl", "dt_phys", "max_inner_iter",
           "inner_tol_rel", "shock_blend"}},
         {"run",
          {"t_end", "save_interval", "monitor_interval", "max_steps", "resume", "output_root", "dump_state",

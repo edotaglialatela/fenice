@@ -76,6 +76,7 @@ struct SimParams {
     bool use_muscl;
     std::string muscl_limiter;
     double weno_epsilon = 1e-6;   // WENO smoothness-indicator regularisation, relative to the stencil data (eps = weno_epsilon * mean(c^2))
+    int boundary_order = 1;   // 1: physical-boundary faces keep the first-order ghost states; 2: they are reconstructed through ghost layers
     std::string reconstruction = "muscl";   // muscl (default), weno3 or weno5: the face reconstruction when use_muscl is on
     double dt_phys;
     int max_inner_iter;

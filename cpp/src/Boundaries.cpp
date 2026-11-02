@@ -188,6 +188,43 @@ State BoundaryManager::nonreflecting_ghost(Face side, const State& Ui, const Nrb
     return eos_.prim_to_cons(Wg);
 }
 
+namespace {
+// The ghost of a moving wall flips and shifts the momentum; its total energy must follow, so that the ghost has the
+// internal energy (pressure, temperature) of the interior cell: copying E would put a spurious jump of temperature
+// of the order of the kinetic energy difference across the wall.
+inline void match_kinetic_energy(State& g, const State& in) {
+    g[3] = in[3] + 0.5 * (g[1] * g[1] + g[2] * g[2] + g[4] * g[4] - in[1] * in[1] - in[2] * in[2] - in[4] * in[4]) / in[0];
+}
+}   // namespace
+
+bool BoundaryManager::fill_ghost_slab(const Field& U, Face side, int depth, Field& slab) const {
+    const Mesh& m = mesh_;
+    const int nx = m.nx, ny = m.ny, nz = m.nz;
+    const int axis = face_axis(side);
+    const int n_axis = axis == 0 ? nx : (axis == 1 ? ny : nz);
+    if (n_axis < depth) return false;
+    const bool high = (side == Face::Right || side == Face::Top || side == Face::Back);
+    const double ut = u_target_[static_cast<int>(side)];
+    for (int l = 0; l < depth; ++l) {   // l cells from the boundary
+        const int d = high ? l : depth - 1 - l;
+        const int a = high ? n_axis - 1 - l : l;   // index of the interior cell along the axis
+        if (axis == 0) {
+            slab.resize(static_cast<size_t>(ny) * nz * depth);
+            for (int k = 0; k < nz; ++k)
+                for (int j = 0; j < ny; ++j) slab[(static_cast<size_t>(k) * ny + j) * depth + d] = ghost_state(side, U[m.cell(a, j, k)], ut);
+        } else if (axis == 1) {
+            slab.resize(static_cast<size_t>(depth) * nz * nx);
+            for (int k = 0; k < nz; ++k)
+                for (int i = 0; i < nx; ++i) slab[(static_cast<size_t>(d) * nz + k) * nx + i] = ghost_state(side, U[m.cell(i, a, k)], ut);
+        } else {
+            slab.resize(static_cast<size_t>(depth) * ny * nx);
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) slab[(static_cast<size_t>(d) * ny + j) * nx + i] = ghost_state(side, U[m.cell(i, j, a)], ut);
+        }
+    }
+    return true;
+}
+
 State BoundaryManager::viscous_ghost(Face side, const State& in) const {
     State g = in;   // zero-gradient copy, then the momentum rules of get_padded_U (2-D)
     const double u_in = params_.u_in, v_in = params_.v_in;
@@ -233,6 +270,7 @@ void BoundaryManager::apply_side(const Field& U, Field& UL, Field& UR, Face side
         const double rho_avg = std::max(sum / count, 1e-5);
         u_target = (params_.rho_in * params_.u_in) / rho_avg;
     }
+    u_target_[static_cast<int>(side)] = u_target;
 
     for (int k = 0; k < n; ++k) {
         const int f = mesh_.boundary_face(side, k);
@@ -338,6 +376,7 @@ void BoundaryManager::get_padded_U(const Field& U, Field& P) const {
 
     auto at = [&](int jj, int ii) -> State& { return P[jj * W + ii]; };
     const double u_in = params_.u_in, v_in = params_.v_in;
+    const bool e2 = params_.boundary_order == 2;
 
     // Bottom
     switch (type(Face::Bottom)) {
@@ -353,6 +392,7 @@ void BoundaryManager::get_padded_U(const Field& U, Field& P) const {
             const State& in = U[i];
             at(0, i + 1)[1] = 2.0 * in[0] * u_in - in[1];
             at(0, i + 1)[2] = -in[2];
+            if (e2) match_kinetic_energy(at(0, i + 1), in);
         }
         break;
     case BCType::Wall:
@@ -383,6 +423,7 @@ void BoundaryManager::get_padded_U(const Field& U, Field& P) const {
             const State& in = U[(ny - 1) * nx + i];
             at(ny + 1, i + 1)[1] = 2.0 * in[0] * u_in - in[1];
             at(ny + 1, i + 1)[2] = -in[2];
+            if (e2) match_kinetic_energy(at(ny + 1, i + 1), in);
         }
         break;
     default: break;
@@ -407,6 +448,7 @@ void BoundaryManager::get_padded_U(const Field& U, Field& P) const {
             const State& in = U[j * nx];
             at(j + 1, 0)[1] = -in[1];
             at(j + 1, 0)[2] = 2.0 * in[0] * v_in - in[2];
+            if (e2) match_kinetic_energy(at(j + 1, 0), in);
         }
         break;
     default: break;
@@ -431,6 +473,7 @@ void BoundaryManager::get_padded_U(const Field& U, Field& P) const {
             const State& in = U[j * nx + nx - 1];
             at(j + 1, nx + 1)[1] = -in[1];
             at(j + 1, nx + 1)[2] = 2.0 * in[0] * v_in - in[2];
+            if (e2) match_kinetic_energy(at(j + 1, nx + 1), in);
         }
         break;
     default: break;
@@ -511,6 +554,7 @@ void BoundaryManager::padded_3d(const Field& U, Field& P) const {
                 case BCType::Wall: gh[kMom[d]] = -c[kMom[d]]; break;
                 case BCType::MovingWall:
                     for (int t = 0; t < 3; ++t) gh[kMom[t]] = (t == d) ? -c[kMom[t]] : 2.0 * c[0] * uw[t] - c[kMom[t]];
+                    if (params_.boundary_order == 2) match_kinetic_energy(gh, c);
                     break;
                 default:   // periodic
                     gh = U[m.cell(io, jo, ko)];
