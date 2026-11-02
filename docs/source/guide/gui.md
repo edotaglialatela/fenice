@@ -86,7 +86,7 @@ unchanged.
 ## Tabs
 
 * **Configuration.** Test case, mesh, thermodynamics (ideal / stiffened gas), viscous
-  fluxes, body forces, boundary conditions, numerical schemes (2nd-order path with its reconstruction, MUSCL with a limiter or WENO3-Z / WENO5-Z, Riemann solver,
+  fluxes, body forces, boundary conditions, numerical schemes (spatial reconstruction: 1st order, MUSCL with a limiter, WENO3-Z or WENO5-Z; Riemann solver,
   time integration, BDF2 settings), output, and MPI rank count. Choosing a WENO reconstruction sets the time integration
   to SSP Runge-Kutta 3 and colours, with a tooltip, the integrators that do not suit it; a combination the solver refuses
   (WENO with SSP Runge-Kutta 2, BDF2 or AMR, WENO5 with MPI, SSP Runge-Kutta 3 with AMR) is explained under the list and

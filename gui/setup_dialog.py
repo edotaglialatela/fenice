@@ -165,11 +165,9 @@ class SetupDialog(QDialog):
         self.eos_combo.currentTextChanged.connect(self._update_eos_ui)
         self.combo_testcase.currentTextChanged.connect(self._apply_test_case_defaults)
 
-        self.check_muscl.toggled.connect(self._toggle_muscl_inputs)
         self.combo_time.currentTextChanged.connect(self._toggle_bdf2_inputs)
         self.combo_recon.currentTextChanged.connect(self._reconstruction_changed)
         self.combo_time.currentTextChanged.connect(self._update_scheme_warning)
-        self.check_muscl.toggled.connect(self._update_scheme_warning)
         self.check_amr.toggled.connect(self._update_scheme_warning)
         self.check_mpi.toggled.connect(self._update_scheme_warning)
 
@@ -337,18 +335,16 @@ class SetupDialog(QDialog):
         self.combo_time = QComboBox()
         self.combo_time.addItems(["Explicit Euler", "SSP Runge-Kutta 2", "SSP Runge-Kutta 3", "Runge-Kutta 4", "BDF2 Dual Time"])
         self.input_cfl = QLineEdit("0.5")
-        self.check_muscl = QCheckBox("Enable 2nd-Order Spatial (MUSCL)")
         self.combo_limiter = QComboBox()
         self.combo_limiter.addItems(["Van Leer", "MC", "Koren", "Minmod"])
         self.label_limiter = QLabel("Slope Limiter:")
         self.combo_recon = QComboBox()
         self.combo_recon.addItems(list(self._RECON_LABELS))
-        self.label_recon = QLabel("Reconstruction:")
+        self.label_recon = QLabel("Spatial reconstruction:")
         self.label_scheme_warning = QLabel("")
         self.label_scheme_warning.setWordWrap(True)
         self.label_scheme_warning.setStyleSheet("color: #b45309;")
         self.label_scheme_warning.setVisible(False)
-        f4.addRow("", self.check_muscl)
         f4.addRow(self.label_recon, self.combo_recon)
         f4.addRow(self.label_limiter, self.combo_limiter)
         f4.addRow("Riemann solver:", self.combo_riemann)
@@ -591,11 +587,20 @@ class SetupDialog(QDialog):
         self._update_dim_inputs()
 
     # reconstruction choices (label -> value of the `reconstruction` key) and the rules the solver enforces (Params.cpp)
-    _RECON_LABELS = {"MUSCL (limited, 2nd order)": "muscl", "WENO3-Z (3rd order)": "weno3", "WENO5-Z (5th order)": "weno5"}
-    _TIME_FOR = {"muscl": "SSP Runge-Kutta 2", "weno3": "SSP Runge-Kutta 3", "weno5": "SSP Runge-Kutta 3"}
+    _RECON_LABELS = {"1st order (Godunov)": "first", "MUSCL (limited, 2nd order)": "muscl",
+                     "WENO3-Z (3rd order)": "weno3", "WENO5-Z (5th order)": "weno5"}
+    _TIME_FOR = {"first": "Explicit Euler", "muscl": "SSP Runge-Kutta 2", "weno3": "SSP Runge-Kutta 3", "weno5": "SSP Runge-Kutta 3"}
 
     def _recon_value(self):
-        return self._RECON_LABELS.get(self.combo_recon.currentText(), "muscl") if self.check_muscl.isChecked() else "muscl"
+        """first | muscl | weno3 | weno5"""
+        return self._RECON_LABELS.get(self.combo_recon.currentText(), "muscl")
+
+    def _set_recon(self, use_muscl, reconstruction):
+        """Select the drop-down entry for the solver's (use_muscl, reconstruction) pair."""
+        value = "first" if not use_muscl else str(reconstruction).lower()
+        label = next((k for k, v in self._RECON_LABELS.items() if v == value), None)
+        if label is not None:
+            self.combo_recon.setCurrentText(label)
 
     def _scheme_problems(self):
         """(errors, warnings) of the chosen reconstruction / time integration / AMR / MPI combination, as the solver sees it."""
@@ -603,7 +608,7 @@ class SetupDialog(QDialog):
         errors, warnings = [], []
         if self.check_amr.isChecked() and time == "SSP Runge-Kutta 3":
             errors.append("AMR does not support SSP Runge-Kutta 3 yet (use SSP Runge-Kutta 2 or Runge-Kutta 4).")
-        if recon != "muscl":
+        if recon in ("weno3", "weno5"):
             name = self.combo_recon.currentText().split(" (")[0]
             if self.check_amr.isChecked():
                 errors.append(f"{name} is not available with AMR yet: use MUSCL or switch AMR off.")
@@ -621,7 +626,7 @@ class SetupDialog(QDialog):
         """The time integrators that do not suit the chosen reconstruction (shown in colour in the list)."""
         recon = self._recon_value()
         bad = set()
-        if recon != "muscl":
+        if recon in ("weno3", "weno5"):
             bad |= {"Explicit Euler", "SSP Runge-Kutta 2", "BDF2 Dual Time"}
         if self.check_amr.isChecked():
             bad.add("SSP Runge-Kutta 3")
@@ -643,19 +648,17 @@ class SetupDialog(QDialog):
         """Switch the time integrator to the default of the new reconstruction when the current one does not suit it."""
         recon = self._recon_value()
         time = self.combo_time.currentText()
-        if recon != "muscl" and time in self._bad_time_schemes():
+        weno = recon in ("weno3", "weno5")
+        if weno and time in self._bad_time_schemes():
             self.combo_time.setCurrentText(self._TIME_FOR[recon])
-        elif recon == "muscl" and time == "SSP Runge-Kutta 3" and getattr(self, "_time_auto_set", False):
-            self.combo_time.setCurrentText(self._TIME_FOR["muscl"])
-        self._time_auto_set = recon != "muscl"
-        self.label_limiter.setVisible(self.check_muscl.isChecked() and recon == "muscl")
-        self.combo_limiter.setVisible(self.check_muscl.isChecked() and recon == "muscl")
+            self._time_auto_set = True
+        elif not weno and getattr(self, "_time_auto_set", False):
+            if time == "SSP Runge-Kutta 3":
+                self.combo_time.setCurrentText(self._TIME_FOR[recon])
+            self._time_auto_set = False
+        self.label_limiter.setVisible(recon == "muscl")
+        self.combo_limiter.setVisible(recon == "muscl")
         self._update_scheme_warning()
-
-    def _toggle_muscl_inputs(self, checked):
-        self.label_recon.setVisible(checked)
-        self.combo_recon.setVisible(checked)
-        self._reconstruction_changed()
 
     def _toggle_bdf2_inputs(self, text=""):
         is_bdf2 = (text == "BDF2 Dual Time")
@@ -748,9 +751,7 @@ class SetupDialog(QDialog):
             'use_ibm': lambda v: self.check_ibm.setChecked(bool(v)), 'ibm_shape': lambda v: set_combo(self.combo_shape, v),
             'ibm_radius': lambda v: self.input_radius.setText(str(v)), 'ibm_cx': lambda v: self.input_cx.setText(str(v)),
             'ibm_cy': lambda v: self.input_cy.setText(str(v)),
-            'use_muscl': lambda v: self.check_muscl.setChecked(bool(v)),
             'muscl_limiter': lambda v: set_combo(self.combo_limiter, v),
-            'reconstruction': lambda v: set_combo(self.combo_recon, next((k for k, x in self._RECON_LABELS.items() if x == str(v).lower()), "")),
             'dt_phys':        lambda v: self.input_dt_phys.setText(str(v)),
             'max_inner_iter': lambda v: self.input_max_inner.setText(str(v)),
             'inner_tol_rel':  lambda v: self.input_inner_tol.setText(str(v)),
@@ -767,6 +768,8 @@ class SetupDialog(QDialog):
         defaults = {**defaults, **amr_gui_defaults(name)}   # the AMR starting values, unless the case sets its own
         for key, value in defaults.items():
             if key in setters: setters[key](value)
+        if 'use_muscl' in defaults:   # the two solver keys are one drop-down: use_muscl = false is the 1st-order choice
+            self._set_recon(bool(defaults['use_muscl']), defaults.get('reconstruction', 'muscl'))
 
     def _apply_initial_defaults(self):
         self._apply_test_case_defaults(self.combo_testcase.currentText())
@@ -776,7 +779,7 @@ class SetupDialog(QDialog):
         self._toggle_ibm_inputs(self.check_ibm.isChecked())
         self._update_bc_inputs()
         self._update_eos_ui(self.eos_combo.currentText())
-        self._toggle_muscl_inputs(self.check_muscl.isChecked())
+        self._reconstruction_changed()
         self._toggle_bdf2_inputs(self.combo_time.currentText())
         self._update_scheme_warning()
         self._toggle_hot_start_inputs(self.check_hot_start.isChecked())
@@ -882,9 +885,9 @@ class SetupDialog(QDialog):
                 'use_ibm': self.check_ibm.isChecked(), 'ibm_shape': self.combo_shape.currentText(),
                 'ibm_radius': float(self.input_radius.text()), 'ibm_cx': float(self.input_cx.text()),
                 'ibm_cy': float(self.input_cy.text()),
-                'use_muscl': self.check_muscl.isChecked(),
+                'use_muscl': self._recon_value() != "first",
                 'muscl_limiter': self.combo_limiter.currentText(),
-                'reconstruction': self._recon_value(),
+                'reconstruction': "muscl" if self._recon_value() == "first" else self._recon_value(),
                 'dt_phys':        float(self.input_dt_phys.text()),
                 'max_inner_iter': int(self.input_max_inner.text()),
                 'inner_tol_rel':  float(self.input_inner_tol.text()),
