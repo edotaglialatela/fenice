@@ -123,8 +123,9 @@ struct Halos {
 class MusclReconstruction {
 public:
     // Reconstruction with limiter `lim`.
-    MusclReconstruction(const EOS& eos, Limiter lim, Reconstruction scheme = Reconstruction::Muscl)
-        : eos_(eos), lim_(lim), scheme_(scheme) {}
+    // `weno_eps`: relative regularisation of the WENO smoothness indicators (WENO only).
+    MusclReconstruction(const EOS& eos, Limiter lim, Reconstruction scheme = Reconstruction::Muscl, double weno_eps = 1e-6)
+        : eos_(eos), lim_(lim), scheme_(scheme), weno_eps_(weno_eps) {}
 
     // Upgrade first-order face states (in place) to 2nd-order MUSCL states.
     // Physical-boundary faces keep their 1st-order ghost states; MPI-interface
@@ -142,6 +143,7 @@ private:
     EOS eos_;
     Limiter lim_;
     Reconstruction scheme_;
+    double weno_eps_;
 };
 
 }   // namespace fv

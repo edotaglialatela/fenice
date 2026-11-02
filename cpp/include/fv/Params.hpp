@@ -75,6 +75,7 @@ struct SimParams {
     double reynolds;             // > 0: sets mu = rho_in u_in L / reynolds (L: chord or diameter)
     bool use_muscl;
     std::string muscl_limiter;
+    double weno_epsilon = 1e-6;   // WENO smoothness-indicator regularisation, relative to the stencil data (eps = weno_epsilon * mean(c^2))
     std::string reconstruction = "muscl";   // muscl (default), weno3 or weno5: the face reconstruction when use_muscl is on
     double dt_phys;
     int max_inner_iter;

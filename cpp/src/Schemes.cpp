@@ -291,7 +291,28 @@ double RiemannSolver::compute_flux(const Field& UL, const Field& UR, const Mesh&
 // MUSCL
 // ---------------------------------------------------------------------------
 
+namespace {
+// WENO-Z with two 2-point stencils (Borges et al. 2008): the value at the face on the right of c1, from the cells
+// (c0, c1, c2). The right-hand state of the same face is weno3z(c3, c2, c1). The regularisation of the smoothness
+// indicators is relative to the size of the data of the stencil, eps = eps_rel * mean(c^2) (+ a floor): a fixed
+// absolute eps lowers the order at smooth extrema to about 2.5 whatever the units of the variable.
+inline double weno3z(double c0, double c1, double c2, double eps_rel) {
+    const double eps = eps_rel * (c0 * c0 + c1 * c1 + c2 * c2) * (1.0 / 3.0) + 1e-300;
+    const double v0 = -0.5 * c0 + 1.5 * c1, v1 = 0.5 * c1 + 0.5 * c2;
+    const double b0 = (c1 - c0) * (c1 - c0), b1 = (c2 - c1) * (c2 - c1);
+    const double tau = std::abs(b0 - b1);
+    const double a0 = (1.0 / 3.0) * (1.0 + tau / (b0 + eps)), a1 = (2.0 / 3.0) * (1.0 + tau / (b1 + eps));
+    return (a0 * v0 + a1 * v1) / (a0 + a1);
+}
+void require_implemented(Reconstruction s) {
+    if (s == Reconstruction::Weno5) throw std::logic_error("reconstruction = weno5 is not implemented yet");
+}
+}   // namespace
+
 void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int nx, int ny, const Halos& h) const {
+    require_implemented(scheme_);
+    const bool weno3 = scheme_ == Reconstruction::Weno3;
+    const double we = weno_eps_;
     constexpr int pad = kHaloDepth;
     const int PW = nx + 2 * pad;   // padded row width
     thread_local Field W_pad;      // scratch buffer, per thread
@@ -340,6 +361,11 @@ void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int 
             State wl, wr;
             for (int q = 0; q < kNVar; ++q) {
                 const double c0 = row[i][q], c1 = row[i + 1][q], c2 = row[i + 2][q], c3 = row[i + 3][q];
+                if (weno3) {
+                    wl[q] = weno3z(c0, c1, c2, we);
+                    wr[q] = weno3z(c3, c2, c1, we);
+                    continue;
+                }
                 const double b = c2 - c1;
                 wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, b);
                 wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, b);
@@ -366,6 +392,11 @@ void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int 
             for (int q = 0; q < kNVar; ++q) {
                 const double r0 = Wp[j * PW + col][q], r1 = Wp[(j + 1) * PW + col][q];
                 const double r2 = Wp[(j + 2) * PW + col][q], r3 = Wp[(j + 3) * PW + col][q];
+                if (weno3) {
+                    wl[q] = weno3z(r0, r1, r2, we);
+                    wr[q] = weno3z(r3, r2, r1, we);
+                    continue;
+                }
                 const double b = r2 - r1;
                 wl[q] = r1 + 0.5 * apply_limiter(lim, r1 - r0, b);
                 wr[q] = r2 - 0.5 * apply_limiter(lim, r3 - r2, b);
@@ -380,6 +411,9 @@ void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int 
 // state padded by 2 cells in every direction.  Halos (MPI or periodic) replace
 // the padding on their side; layouts as documented in Halos.
 void MusclReconstruction::reconstruct_3d(Field& UL, Field& UR, const Field& U, const Mesh& m, const Halos& h) const {
+    require_implemented(scheme_);
+    const bool weno3 = scheme_ == Reconstruction::Weno3;
+    const double we = weno_eps_;
     constexpr int pad = kHaloDepth;
     const int nx = m.nx, ny = m.ny, nz = m.nz;
     const int PX = nx + 2 * pad, PY = ny + 2 * pad, PZ = nz + 2 * pad;
@@ -446,6 +480,11 @@ void MusclReconstruction::reconstruct_3d(Field& UL, Field& UR, const Field& U, c
                 for (int q = 0; q < kNVar; ++q) {
                     const double c0 = Wp[base][q], c1 = Wp[base + stride][q];
                     const double c2 = Wp[base + 2 * stride][q], c3 = Wp[base + 3 * stride][q];
+                    if (weno3) {
+                        wl[q] = weno3z(c0, c1, c2, we);
+                        wr[q] = weno3z(c3, c2, c1, we);
+                        continue;
+                    }
                     const double b = c2 - c1;
                     wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, b);
                     wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, b);

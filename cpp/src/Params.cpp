@@ -150,6 +150,7 @@ Params baseline_defaults() {
         {"use_muscl", "false"},
         {"muscl_limiter", "Van Leer"},
         {"reconstruction", "muscl"},
+        {"weno_epsilon", "1e-6"},
         {"dt_phys", "0.1"},
         {"max_inner_iter", "50"},
         {"inner_tol_rel", "1e-3"},
@@ -254,6 +255,7 @@ SimParams SimParams::from(const Params& p) {
     s.use_muscl = p.flag("use_muscl");
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
     s.reconstruction = lower(p.str("reconstruction", "muscl"));
+    s.weno_epsilon = p.num("weno_epsilon", 1e-6);
     s.dt_phys = p.num("dt_phys", s.t_end / 100.0);
     s.max_inner_iter = p.integer("max_inner_iter", 50);
     s.inner_tol_rel = p.num("inner_tol_rel", 1e-3);
@@ -297,6 +299,7 @@ SimParams SimParams::from(const Params& p) {
             throw std::invalid_argument("amr_indicator must be density, velocity or pressure, or several of them joined by "
                                         "'+' (e.g. density+velocity); got '" + ind + "'");
     }
+    if (!(s.weno_epsilon >= 0.0)) throw std::invalid_argument("weno_epsilon must be >= 0");
     if (s.reconstruction != "muscl" && s.reconstruction != "weno3" && s.reconstruction != "weno5")
         throw std::invalid_argument("reconstruction must be muscl, weno3 or weno5; got '" + s.reconstruction + "'");
     if (s.reconstruction != "muscl") {

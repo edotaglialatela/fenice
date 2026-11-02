@@ -337,7 +337,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         std::printf("[SOLVER] Preconditioned HLLC active (Weiss-Smith 1995, Ma_cut=0.1)\n");
 
     if (p.use_muscl) {
-        muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter), parse_reconstruction(p.reconstruction));
+        muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter), parse_reconstruction(p.reconstruction), p.weno_epsilon);
         if (verbose && p.reconstruction == "muscl")
             std::printf("[SOLVER] 2nd-Order MUSCL active (Limiter: %s)\n", p.muscl_limiter.c_str());
         if (verbose && p.reconstruction != "muscl") std::printf("[SOLVER] %s reconstruction active\n", p.reconstruction.c_str());
@@ -1591,7 +1591,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
     lm.dz = mesh.dz;
     std::unique_ptr<MusclReconstruction> local_muscl;
     if (p.use_muscl)
-        local_muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter), parse_reconstruction(p.reconstruction));
+        local_muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter), parse_reconstruction(p.reconstruction),
+                                                            p.weno_epsilon);
 
     std::unique_ptr<ImmersedBoundary> local_ibm;
     std::vector<char> ghost_mask_lo, ghost_mask_hi;
