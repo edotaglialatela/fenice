@@ -179,6 +179,7 @@ accuracy are measured, not estimated.
 | `kelvin_helmholtz.py` | linear growth rate of a smooth shear layer against the analytic value ([page]({{root}}cases/kelvin-helmholtz.html)) |
 | `riemann_2d.py` | four 2-D Riemann configurations: positivity, symmetry, self-convergence, AMR against uniform ([page]({{root}}cases/riemann-2d.html)) |
 | `stress_shocks.py` | strong-shock robustness: pressure ratio 1000, vacuum, Mach 10-100, Mach 10 cylinder, odd-even test ([page]({{root}}guide/studies.html)) |
+| `mms_boundary.py` | order of the manufactured solutions with walls / outflow (Euler and Navier-Stokes) per reconstruction, with `--boundary-order 1` or 2; the tables are committed next to it ([page]({{root}}cases/manufactured-solution.html)) |
 
 **`benchmarks/`: is the answer right?** The reference is a literature table, a much finer
 solution or a physical quantity without a closed form, so the comparison carries the

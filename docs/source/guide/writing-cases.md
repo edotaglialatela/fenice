@@ -108,7 +108,7 @@ case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 | `[physics]` | `use_viscous`, `mu`, `pr`, `use_bodyforce`, `gx`, `gy`, `gz` |
 | `[source]` | `source_rho`, `source_mx`, `source_my`, `source_mz`, `source_E` (expressions, for manufactured solutions) |
 | `[boundaries]` | `bc_left`, `bc_right`, `bc_bottom`, `bc_top`, `bc_front`, `bc_back`, `u_in`, `rho_in`, `p_out` |
-| `[numerics]` | `riemann_solver`, `use_muscl`, `muscl_limiter`, `reconstruction`, `weno_epsilon`, `time_scheme`, `cfl`, `dt_phys`, `max_inner_iter`, `inner_tol_rel` |
+| `[numerics]` | `riemann_solver`, `use_muscl`, `muscl_limiter`, `reconstruction`, `weno_epsilon`, `boundary_order`, `time_scheme`, `cfl`, `dt_phys`, `max_inner_iter`, `inner_tol_rel` |
 | `[run]` | `t_end`, `save_interval`, `monitor_interval`, `max_steps`, `resume`, `output_root`, `dump_state` |
 | `[parallel]` | `use_mpi`, `n_cpus` |
 | `[ibm]` | `use_ibm`, `ibm_shape`, `ibm_radius`, `ibm_cx`, `ibm_cy`, `ibm_cz` |

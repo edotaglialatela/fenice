@@ -167,6 +167,7 @@ class SetupDialog(QDialog):
 
         self.combo_time.currentTextChanged.connect(self._toggle_bdf2_inputs)
         self.combo_recon.currentTextChanged.connect(self._reconstruction_changed)
+        self.combo_bo.currentTextChanged.connect(self._update_scheme_warning)
         self.combo_time.currentTextChanged.connect(self._update_scheme_warning)
         self.check_amr.toggled.connect(self._update_scheme_warning)
         self.check_mpi.toggled.connect(self._update_scheme_warning)
@@ -345,7 +346,13 @@ class SetupDialog(QDialog):
         self.label_scheme_warning.setWordWrap(True)
         self.label_scheme_warning.setStyleSheet("color: #b45309;")
         self.label_scheme_warning.setVisible(False)
+        self.combo_bo = QComboBox()
+        self.combo_bo.addItems(["1st order (default)", "2nd order (ghost layers)"])
+        self.combo_bo.setToolTip("Faces on a physical boundary (walls, inlets, outlets): first-order ghost state, or reconstructed "
+                                 "through ghost layers (MUSCL and WENO3-Z; not with AMR).")
+        self.label_bo = QLabel("Boundary faces:")
         f4.addRow(self.label_recon, self.combo_recon)
+        f4.addRow(self.label_bo, self.combo_bo)
         f4.addRow(self.label_limiter, self.combo_limiter)
         f4.addRow("Riemann solver:", self.combo_riemann)
         f4.addRow("Time integration:", self.combo_time)
@@ -602,10 +609,19 @@ class SetupDialog(QDialog):
         if label is not None:
             self.combo_recon.setCurrentText(label)
 
+    def _boundary_order(self):
+        """1 or 2; the option exists only with a reconstruction."""
+        return 2 if self._recon_value() != "first" and self.combo_bo.currentIndex() == 1 else 1
+
     def _scheme_problems(self):
         """(errors, warnings) of the chosen reconstruction / time integration / AMR / MPI combination, as the solver sees it."""
         recon, time = self._recon_value(), self.combo_time.currentText()
         errors, warnings = [], []
+        if self._boundary_order() == 2:
+            if self.check_amr.isChecked():
+                errors.append("2nd-order boundary faces are not available with AMR yet: use 1st-order boundary faces or switch AMR off.")
+            if recon == "weno5":
+                errors.append("2nd-order boundary faces are not available with WENO5-Z yet: use MUSCL or WENO3-Z, or 1st-order boundary faces.")
         if self.check_amr.isChecked() and time == "SSP Runge-Kutta 3":
             errors.append("AMR does not support SSP Runge-Kutta 3 yet (use SSP Runge-Kutta 2 or Runge-Kutta 4).")
         if recon in ("weno3", "weno5"):
@@ -658,6 +674,8 @@ class SetupDialog(QDialog):
             self._time_auto_set = False
         self.label_limiter.setVisible(recon == "muscl")
         self.combo_limiter.setVisible(recon == "muscl")
+        self.label_bo.setVisible(recon != "first")
+        self.combo_bo.setVisible(recon != "first")
         self._update_scheme_warning()
 
     def _toggle_bdf2_inputs(self, text=""):
@@ -752,6 +770,7 @@ class SetupDialog(QDialog):
             'ibm_radius': lambda v: self.input_radius.setText(str(v)), 'ibm_cx': lambda v: self.input_cx.setText(str(v)),
             'ibm_cy': lambda v: self.input_cy.setText(str(v)),
             'muscl_limiter': lambda v: set_combo(self.combo_limiter, v),
+            'boundary_order': lambda v: self.combo_bo.setCurrentIndex(1 if int(v) == 2 else 0),
             'dt_phys':        lambda v: self.input_dt_phys.setText(str(v)),
             'max_inner_iter': lambda v: self.input_max_inner.setText(str(v)),
             'inner_tol_rel':  lambda v: self.input_inner_tol.setText(str(v)),
@@ -888,6 +907,7 @@ class SetupDialog(QDialog):
                 'use_muscl': self._recon_value() != "first",
                 'muscl_limiter': self.combo_limiter.currentText(),
                 'reconstruction': "muscl" if self._recon_value() == "first" else self._recon_value(),
+                'boundary_order': self._boundary_order(),
                 'dt_phys':        float(self.input_dt_phys.text()),
                 'max_inner_iter': int(self.input_max_inner.text()),
                 'inner_tol_rel':  float(self.input_inner_tol.text()),
