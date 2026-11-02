@@ -117,10 +117,17 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
         const bool gl = lo && cg && cg->dir == 'x' && cg->lo_a, gr = hi && cg && cg->dir == 'x' && cg->hi_a;
         const bool px = cg && cg->periodic_x;
         const int xL = (lo && px) ? j * nx + nx - 1 : cL, xR = (hi && px) ? j * nx : cR;
-        const double du_dy = 0.5 * ((gl ? cg->lo_a[j] : dudy[xL]) +
-                                    (gr ? cg->hi_a[j] : dudy[xR]));
-        const double dv_dy = 0.5 * ((gl ? cg->lo_b[j] : dvdy[xL]) +
-                                    (gr ? cg->hi_b[j] : dvdy[xR]));
+        double du_dy = 0.5 * ((gl ? cg->lo_a[j] : dudy[xL]) +
+                              (gr ? cg->hi_a[j] : dudy[xR]));
+        double dv_dy = 0.5 * ((gl ? cg->lo_b[j] : dvdy[xL]) +
+                              (gr ? cg->hi_b[j] : dvdy[xR]));
+        if (bface2_ && ((lo && !gl && !px) || (hi && !gr && !px))) {
+            // physical boundary: d/dy of the face values (ghost and cell average), second order at the wall
+            const int ig = lo ? 0 : nx + 1, ic = lo ? 1 : nx;
+            auto face = [&](int jj, int q) { return 0.5 * (Wp[jj * PW + ig][q] + Wp[jj * PW + ic][q]); };
+            du_dy = (face(j + 2, 1) - face(j, 1)) / (2.0 * dy);
+            dv_dy = (face(j + 2, 2) - face(j, 2)) / (2.0 * dy);
+        }
         const double tau_xx = mu_ * (MU_DIAG * du_dx - MU_OFF * dv_dy);
         const double tau_xy = mu_ * (du_dy + dv_dx);
         const double q_x = -k_cond * dT_dx;
@@ -142,10 +149,16 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
         const bool gb = lo && cg && cg->dir == 'y' && cg->lo_a, gt = hi && cg && cg->dir == 'y' && cg->hi_a;
         const bool py = cg && cg->periodic_y;
         const int yB = (lo && py) ? (ny - 1) * nx + i : cB, yT = (hi && py) ? i : cT;
-        const double du_dx = 0.5 * ((gb ? cg->lo_a[i] : dudx[yB]) +
-                                    (gt ? cg->hi_a[i] : dudx[yT]));
-        const double dv_dx = 0.5 * ((gb ? cg->lo_b[i] : dvdx[yB]) +
-                                    (gt ? cg->hi_b[i] : dvdx[yT]));
+        double du_dx = 0.5 * ((gb ? cg->lo_a[i] : dudx[yB]) +
+                              (gt ? cg->hi_a[i] : dudx[yT]));
+        double dv_dx = 0.5 * ((gb ? cg->lo_b[i] : dvdx[yB]) +
+                              (gt ? cg->hi_b[i] : dvdx[yT]));
+        if (bface2_ && ((lo && !gb && !py) || (hi && !gt && !py))) {
+            const int jg = lo ? 0 : ny + 1, jc = lo ? 1 : ny;
+            auto face = [&](int ii, int q) { return 0.5 * (Wp[jg * PW + ii][q] + Wp[jc * PW + ii][q]); };
+            du_dx = (face(i + 2, 1) - face(i, 1)) / (2.0 * dx);
+            dv_dx = (face(i + 2, 2) - face(i, 2)) / (2.0 * dx);
+        }
         const double tau_yy = mu_ * (MU_DIAG * dv_dy - MU_OFF * du_dx);
         const double tau_yx = mu_ * (du_dy + dv_dx);
         const double q_y = -k_cond * dT_dy;
@@ -287,7 +300,21 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
                 const int xR = (hi && periodic[d]) ? cell_at(0) : cR;
                 const bool mpi_ax = cg && ((cg->dir == 'x' && d == 0) || (cg->dir == 'y' && d == 1));
                 const int slab = d == 0 ? k * ny + j : k * nx + i;
+                // physical boundary face: d u_a / d x_b from the tangential difference of the face values
+                const bool phys = bface2_ && !periodic[d] && ((lo && !(mpi_ax && cg->lo_a)) || (hi && !(mpi_ax && cg->hi_a)));
                 auto cross = [&](int a, int b, int which) {   // which: index into CrossGhosts a/b/c/d
+                    if (phys) {
+                        int pg[3] = {i + 1, j + 1, k + 1}, pc[3] = {i + 1, j + 1, k + 1};
+                        pg[d] = lo ? 0 : n_d + 1;
+                        pc[d] = lo ? 1 : n_d;
+                        auto face = [&](int off) {
+                            int g3[3] = {pg[0], pg[1], pg[2]}, c3[3] = {pc[0], pc[1], pc[2]};
+                            g3[b] += off;
+                            c3[b] += off;
+                            return 0.5 * (padded(g3[0], g3[1], g3[2])[kMom[a]] + padded(c3[0], c3[1], c3[2])[kMom[a]]);
+                        };
+                        return (face(1) - face(-1)) / (2.0 * h[b]);
+                    }
                     double l = G[a][b][xL], r = G[a][b][xR];
                     if (mpi_ax) {
                         const double* gl[4] = {cg->lo_a, cg->lo_b, cg->lo_c, cg->lo_d};

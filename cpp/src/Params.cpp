@@ -322,7 +322,6 @@ SimParams SimParams::from(const Params& p) {
     if (s.boundary_order == 2) {
         if (!s.use_muscl) throw std::invalid_argument("boundary_order = 2 needs use_muscl = true (a reconstruction to extend to the boundary faces)");
         if (s.use_amr) throw std::invalid_argument("boundary_order = 2 is not available with AMR yet");
-        if (s.reconstruction == "weno5") throw std::invalid_argument("boundary_order = 2 is not available with reconstruction = weno5 yet (three ghost layers are needed); use muscl or weno3");
     }
     if (s.use_amr && !(s.amr_criterion > 0.0)) throw std::invalid_argument("amr_criterion must be positive");
     if (!(s.amr_derefine_threshold <= s.amr_refine_threshold))

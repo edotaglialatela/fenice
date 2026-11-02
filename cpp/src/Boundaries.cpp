@@ -480,6 +480,102 @@ void BoundaryManager::get_padded_U(const Field& U, Field& P) const {
     }
 }
 
+void BoundaryManager::fix_padded_corners(Field& P, int mpi_axis, bool mpi_lo, bool mpi_hi) const {
+    if (params_.boundary_order != 2) return;
+    if (mesh_.is3d()) {
+        // edges: entries that are ghost along two axes take the ghost of the lower axis applied to the entry
+        // shifted inside along it (a face-ghost entry of the other axis)
+        const Mesh& m = mesh_;
+        const int n3[3] = {m.nx, m.ny, m.nz};
+        const int PX = m.nx + 2, PY = m.ny + 2;
+        auto at3 = [&](const int p[3]) -> State& { return P[(static_cast<size_t>(p[2]) * PY + p[1]) * PX + p[0]]; };
+        const double uw[3] = {params_.u_in, params_.v_in, 0.0};
+        for (int kk = 0; kk <= m.nz + 1; ++kk)
+            for (int jj = 0; jj <= m.ny + 1; ++jj)
+                for (int ii = 0; ii <= m.nx + 1; ++ii) {
+                    int p[3] = {ii, jj, kk};
+                    int ng = 0, ga[2] = {-1, -1};
+                    for (int a = 0; a < 3; ++a)
+                        if (p[a] == 0 || p[a] == n3[a] + 1) {
+                            if (ng < 2) ga[ng] = a;
+                            ++ng;
+                        }
+                    if (ng != 2) continue;
+                    auto halo = [&](int a) { return a == mpi_axis && (p[a] == 0 ? mpi_lo : mpi_hi); };
+                    const int d = halo(ga[0]) ? ga[1] : ga[0];   // the axis whose boundary condition fills the entry
+                    const bool hi = p[d] != 0;
+                    int q[3] = {p[0], p[1], p[2]};
+                    q[d] = hi ? n3[d] : 1;   // adjacent interior layer
+                    const State c = at3(q);
+                    State g = c;
+                    const Face side = static_cast<Face>(2 * d + (hi ? 1 : 0));
+                    switch (type(side)) {
+                    case BCType::NoSlip:
+                        for (int t : kMom) g[t] = -c[t];
+                        break;
+                    case BCType::Wall: g[kMom[d]] = -c[kMom[d]]; break;
+                    case BCType::MovingWall:
+                        for (int t = 0; t < 3; ++t) g[kMom[t]] = (t == d) ? -c[kMom[t]] : 2.0 * c[0] * uw[t] - c[kMom[t]];
+                        match_kinetic_energy(g, c);
+                        break;
+                    case BCType::Periodic:
+                        q[d] = hi ? 1 : n3[d];
+                        g = at3(q);
+                        break;
+                    default: break;
+                    }
+                    at3(p) = g;
+                }
+        return;
+    }
+    const int nx = mesh_.nx, ny = mesh_.ny, W = nx + 2;
+    auto at = [&](int jj, int ii) -> State& { return P[jj * W + ii]; };
+    auto ghost = [&](bool right, int jj) {
+        const State in = at(jj, right ? nx : 1);
+        State g = in;
+        switch (type(right ? Face::Right : Face::Left)) {
+        case BCType::NoSlip: g[1] = -in[1]; g[2] = -in[2]; break;
+        case BCType::Wall: g[1] = -in[1]; break;
+        case BCType::MovingWall:
+            g[1] = -in[1];
+            g[2] = 2.0 * in[0] * params_.v_in - in[2];
+            match_kinetic_energy(g, in);
+            break;
+        case BCType::Periodic: g = at(jj, right ? 1 : nx); break;
+        default: break;
+        }
+        return g;
+    };
+    // y ghost of the cell in a ghost column (x halo from a neighbour rank): the bottom / top rule
+    auto ghost_y = [&](bool top, int ii) {
+        const State in = at(top ? ny : 1, ii);
+        State g = in;
+        switch (type(top ? Face::Top : Face::Bottom)) {
+        case BCType::NoSlip: g[1] = -in[1]; g[2] = -in[2]; break;
+        case BCType::Wall: g[2] = -in[2]; break;
+        case BCType::MovingWall:
+            g[1] = 2.0 * in[0] * params_.u_in - in[1];
+            g[2] = -in[2];
+            match_kinetic_energy(g, in);
+            break;
+        case BCType::Periodic: g = at(top ? 1 : ny, ii); break;
+        default: break;
+        }
+        return g;
+    };
+    for (int jj : {0, ny + 1}) {
+        const bool top = jj != 0;
+        if (mpi_axis == 0) {   // columns 0 / nx+1 come from the neighbour rank where it has one
+            if (mpi_lo) at(jj, 0) = ghost_y(top, 0); else at(jj, 0) = ghost(false, jj);
+            if (mpi_hi) at(jj, nx + 1) = ghost_y(top, nx + 1); else at(jj, nx + 1) = ghost(true, jj);
+            continue;
+        }
+        const State l = ghost(false, jj), r = ghost(true, jj);
+        at(jj, 0) = l;
+        at(jj, nx + 1) = r;
+    }
+}
+
 // 3-D padded state, (nz+2) x (ny+2) x (nx+2): edge replication, then the same
 // momentum rules as in 2-D on each side's ghost layer (sides in the order
 // bottom, top, left, right, front, back).

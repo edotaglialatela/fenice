@@ -352,6 +352,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
 
     if (p.use_viscous) {
         ns = std::make_unique<NavierStokes>(fluid, p.mu, p.pr);
+        ns->set_second_order_boundary(p.boundary_order == 2);
         if (verbose) std::printf("[PHYSICS] Viscous fluxes enabled (Navier-Stokes)\n");
     } else {
         ns.reset();
@@ -693,24 +694,27 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
             mh.r = halos->hi;
         }
     }
+    // WENO5-Z reads three cells: its periodic halos and ghost layers are three deep (serial only)
+    const int Dh = (mu && mu->scheme() == Reconstruction::Weno5) ? 3 : D;
+    mh.depth = Dh;
     // Periodic axes inside the (sub)domain: wrap-around halos so MUSCL also reconstructs
     // the periodic boundary faces (otherwise they would be a 1st-order seam).
     const bool per_x = bm.type(Face::Left) == BCType::Periodic && bm.type(Face::Right) == BCType::Periodic;
     const bool per_y = bm.type(Face::Bottom) == BCType::Periodic && bm.type(Face::Top) == BCType::Periodic;
-    if (mu && per_x && !mh.l && !mh.r && nx >= D) {
-        perL_.resize(static_cast<size_t>(ny) * D);
-        perR_.resize(static_cast<size_t>(ny) * D);
+    if (mu && per_x && !mh.l && !mh.r && nx >= Dh) {
+        perL_.resize(static_cast<size_t>(ny) * Dh);
+        perR_.resize(static_cast<size_t>(ny) * Dh);
         for (int j = 0; j < ny; ++j)
-            for (int d = 0; d < D; ++d) {
-                perL_[j * D + d] = (*Uc)[j * nx + nx - D + d];
-                perR_[j * D + d] = (*Uc)[j * nx + d];
+            for (int d = 0; d < Dh; ++d) {
+                perL_[j * Dh + d] = (*Uc)[j * nx + nx - Dh + d];
+                perR_[j * Dh + d] = (*Uc)[j * nx + d];
             }
         mh.l = &perL_;
         mh.r = &perR_;
     }
-    if (mu && per_y && !mh.b && !mh.t && ny >= D) {
-        perB_.assign(Uc->end() - static_cast<std::ptrdiff_t>(D) * nx, Uc->end());
-        perT_.assign(Uc->begin(), Uc->begin() + static_cast<std::ptrdiff_t>(D) * nx);
+    if (mu && per_y && !mh.b && !mh.t && ny >= Dh) {
+        perB_.assign(Uc->end() - static_cast<std::ptrdiff_t>(Dh) * nx, Uc->end());
+        perT_.assign(Uc->begin(), Uc->begin() + static_cast<std::ptrdiff_t>(Dh) * nx);
         mh.b = &perB_;
         mh.t = &perT_;
     }
@@ -722,7 +726,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
             if (slot) return;
             const BCType bt = bm.type(side);
             if (bt == BCType::Periodic || bt == BCType::NonReflecting) return;
-            if (bm.fill_ghost_slab(*Uc, side, D, buf)) slot = &buf;
+            if (bm.fill_ghost_slab(*Uc, side, Dh, buf)) slot = &buf;
         };
         ghost(Face::Left, mh.l, ghL_);
         ghost(Face::Right, mh.r, ghR_);
@@ -763,6 +767,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
                     for (int j = 0; j < ny; ++j) Upad_[(j + 1) * PW + nx + 1] = (*halos->hi)[j * D];
             }
         }
+        bm.fix_padded_corners(Upad_, halos ? (halos->dir == 'x' ? 0 : 1) : -1, halos && halos->lo, halos && halos->hi);
         compute_gradients(Upad_, nx, ny, m.dx, m.dy, gX_, gY_);
         CrossGhosts cg;
         cg.periodic_x = per_x;
@@ -833,42 +838,44 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
             mh.r = halos->hi;
         }
     }
+    const int Dh = (mu && mu->scheme() == Reconstruction::Weno5) ? 3 : D;   // WENO5-Z reads three cells
+    mh.depth = Dh;
     // Periodic axes: wrap-around MUSCL halos (the boundary faces are then 2nd order too)
     const bool per[3] = {bm.type(Face::Left) == BCType::Periodic && bm.type(Face::Right) == BCType::Periodic,
                          bm.type(Face::Bottom) == BCType::Periodic && bm.type(Face::Top) == BCType::Periodic,
                          bm.type(Face::Front) == BCType::Periodic && bm.type(Face::Back) == BCType::Periodic};
     if (mu) {
-        if (per[0] && !mh.l && !mh.r && nx >= D) {
-            perL_.resize(static_cast<size_t>(ny) * nz * D);
+        if (per[0] && !mh.l && !mh.r && nx >= Dh) {
+            perL_.resize(static_cast<size_t>(ny) * nz * Dh);
             perR_.resize(perL_.size());
             for (int k = 0; k < nz; ++k)
                 for (int j = 0; j < ny; ++j)
-                    for (int d = 0; d < D; ++d) {
-                        perL_[(k * ny + j) * D + d] = Uv[m.cell(nx - D + d, j, k)];
-                        perR_[(k * ny + j) * D + d] = Uv[m.cell(d, j, k)];
+                    for (int d = 0; d < Dh; ++d) {
+                        perL_[(k * ny + j) * Dh + d] = Uv[m.cell(nx - Dh + d, j, k)];
+                        perR_[(k * ny + j) * Dh + d] = Uv[m.cell(d, j, k)];
                     }
             mh.l = &perL_;
             mh.r = &perR_;
         }
-        if (per[1] && !mh.b && !mh.t && ny >= D) {
-            perB_.resize(static_cast<size_t>(D) * nz * nx);
+        if (per[1] && !mh.b && !mh.t && ny >= Dh) {
+            perB_.resize(static_cast<size_t>(Dh) * nz * nx);
             perT_.resize(perB_.size());
-            for (int d = 0; d < D; ++d)
+            for (int d = 0; d < Dh; ++d)
                 for (int k = 0; k < nz; ++k)
                     for (int i = 0; i < nx; ++i) {
-                        perB_[(d * nz + k) * nx + i] = Uv[m.cell(i, ny - D + d, k)];
+                        perB_[(d * nz + k) * nx + i] = Uv[m.cell(i, ny - Dh + d, k)];
                         perT_[(d * nz + k) * nx + i] = Uv[m.cell(i, d, k)];
                     }
             mh.b = &perB_;
             mh.t = &perT_;
         }
-        if (per[2] && nz >= D) {
-            perF_.resize(static_cast<size_t>(D) * ny * nx);
+        if (per[2] && nz >= Dh) {
+            perF_.resize(static_cast<size_t>(Dh) * ny * nx);
             perK_.resize(perF_.size());
-            for (int d = 0; d < D; ++d)
+            for (int d = 0; d < Dh; ++d)
                 for (int j = 0; j < ny; ++j)
                     for (int i = 0; i < nx; ++i) {
-                        perF_[(d * ny + j) * nx + i] = Uv[m.cell(i, j, nz - D + d)];
+                        perF_[(d * ny + j) * nx + i] = Uv[m.cell(i, j, nz - Dh + d)];
                         perK_[(d * ny + j) * nx + i] = Uv[m.cell(i, j, d)];
                     }
             mh.f = &perF_;
@@ -882,7 +889,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
                 if (slot) return;
                 const BCType bt = bm.type(side);
                 if (bt == BCType::Periodic || bt == BCType::NonReflecting) return;
-                if (bm.fill_ghost_slab(Uv, side, D, buf)) slot = &buf;
+                if (bm.fill_ghost_slab(Uv, side, Dh, buf)) slot = &buf;
             };
             ghost(Face::Left, mh.l, ghL_);
             ghost(Face::Right, mh.r, ghR_);
@@ -950,6 +957,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
                 for (int q = 0; q < 4; ++q) *slots[4 * side + q] = gh[4 * side + q].data();
             }
         }
+        bm.fix_padded_corners(Upad_, halos ? (halos->dir == 'x' ? 0 : 1) : -1, halos && halos->lo, halos && halos->hi);
         compute_gradients_3d(Upad_, m, gX_, gY_, gZ_);
         const double s_visc = ns->viscous_residual_3d(Uv, gX_, gY_, gZ_, m, Upad_, Rv_, &cg, dt_length);
         const int n = static_cast<int>(R.size());

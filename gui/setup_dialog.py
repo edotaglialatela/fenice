@@ -349,7 +349,7 @@ class SetupDialog(QDialog):
         self.combo_bo = QComboBox()
         self.combo_bo.addItems(["1st order (default)", "2nd order (ghost layers)"])
         self.combo_bo.setToolTip("Faces on a physical boundary (walls, inlets, outlets): first-order ghost state, or reconstructed "
-                                 "through ghost layers (MUSCL and WENO3-Z; not with AMR).")
+                                 "through ghost layers (not with AMR).")
         self.label_bo = QLabel("Boundary faces:")
         f4.addRow(self.label_recon, self.combo_recon)
         f4.addRow(self.label_bo, self.combo_bo)
@@ -620,8 +620,6 @@ class SetupDialog(QDialog):
         if self._boundary_order() == 2:
             if self.check_amr.isChecked():
                 errors.append("2nd-order boundary faces are not available with AMR yet: use 1st-order boundary faces or switch AMR off.")
-            if recon == "weno5":
-                errors.append("2nd-order boundary faces are not available with WENO5-Z yet: use MUSCL or WENO3-Z, or 1st-order boundary faces.")
         if self.check_amr.isChecked() and time == "SSP Runge-Kutta 3":
             errors.append("AMR does not support SSP Runge-Kutta 3 yet (use SSP Runge-Kutta 2 or Runge-Kutta 4).")
         if recon in ("weno3", "weno5"):

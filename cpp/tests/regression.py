@@ -140,6 +140,16 @@ CASES = {
                                                 use_muscl=True, time_scheme="SSP Runge-Kutta 2", boundary_order=2)),
     "cavity_weno3_b2":     ("Lid Driven Cavity", dict(nx=20, ny=20, t_end=0.2, use_muscl=True, reconstruction="weno3",
                                                   time_scheme="SSP Runge-Kutta 3", boundary_order=2)),
+    "cavity3d_noslip_z_b2": ("Lid Driven Cavity", dict(nx=10, ny=10, nz=6, Lz=1.0, t_end=0.1, bc_front="no_slip",
+                                                  bc_back="no_slip", use_muscl=True, boundary_order=2)),
+    "cavity_weno5_b2":    ("Lid Driven Cavity", dict(nx=20, ny=20, t_end=0.2, use_muscl=True, reconstruction="weno5",
+                                                 time_scheme="Runge-Kutta 4", boundary_order=2, use_mpi=False)),
+    "cavity3d_weno5_b2":  ("Lid Driven Cavity", dict(nx=12, ny=12, nz=8, Lz=1.0, t_end=0.1, bc_front="no_slip", bc_back="no_slip",
+                                                 use_muscl=True, reconstruction="weno5", time_scheme="Runge-Kutta 4",
+                                                 boundary_order=2, use_mpi=False)),
+    "cavity_xdecomp_b2":   ("Lid Driven Cavity", dict(nx=40, ny=6, t_end=0.1, use_muscl=True, boundary_order=2)),
+    "cavity3d_xdecomp_b2": ("Lid Driven Cavity", dict(nx=24, ny=6, nz=6, Lz=1.0, t_end=0.1, bc_front="no_slip",
+                                                 bc_back="no_slip", use_muscl=True, boundary_order=2)),
 }
 # Cases also run under MPI (AMR: replicated mesh, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
@@ -149,7 +159,7 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodi
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
              "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk4", "mms_unsteady_rk2", "mms_unsteady_bdf2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
-             "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2"]
+             "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2", "cavity3d_noslip_z_b2", "cavity_xdecomp_b2", "cavity3d_xdecomp_b2"]
 
 
 def riemann_case_file(k, tmp):

@@ -213,9 +213,11 @@ properties of the solver, not of the test: changing them is a change of the nume
 `boundary_order = 2` (default 1) gives the physical sides **ghost layers**: layer $l$ ($l = 0$ next to the boundary) is the
 ghost state of the interior cell $l$ cells from the boundary, which is the extension of the solution across the boundary
 that the boundary condition describes, and the faces on the boundary are reconstructed through them like the interior
-faces (MUSCL and WENO3-Z, serial, threads and MPI). The first-order ghost state of the default is the first layer. The moving-wall viscous ghost also keeps the interior
-internal energy, which the default copies without following the momentum. A side that is periodic, an MPI interface or
-non-reflecting is unchanged, and the key is not available with AMR, with `use_muscl = false` or with `reconstruction = weno5`.
+faces (MUSCL and WENO3-Z use two layers, WENO5-Z three; serial, threads and, for the first two, MPI). On a Navier-Stokes boundary face the cross
+derivatives (for instance $\partial u/\partial x$ on a wall normal to $y$) are the tangential difference of the face values (ghost and
+cell average) instead of the first-cell value, which is $O(h)$ away from the wall, and the moving-wall viscous ghost keeps the
+interior internal energy (the default copies the total energy without following the momentum). A side that is periodic, an MPI
+interface or non-reflecting is unchanged, and the key is not available with AMR or with `use_muscl = false`.
 
 `cases/validation/verification/mms_boundary.py` repeats the study for the four non-periodic solutions (each as Euler and as
 Navier-Stokes, which separates the convective closure from the viscous one) with MUSCL, WENO3-Z and WENO5-Z; the tables
@@ -228,45 +230,44 @@ variable (in brackets), and the density error on the 128² grid; $t = 0.5$:
 | Walls, Euler | MUSCL VL, SSP-RK2 | Linf | -0.07, 0.31, 0.52 (u), 1.85e-02 | 2.01, 1.63, 1.47 (v), 5.06e-04 |
 | Walls, Euler | WENO3-Z, SSP-RK3 | L2 | 0.97, 1.10, 1.20 (u), 4.98e-04 | 2.14, 2.14, 2.45 (v), 5.11e-05 |
 | Walls, Euler | WENO3-Z, SSP-RK3 | Linf | -0.00, 0.34, 0.51 (u), 1.88e-02 | 1.62, 1.79, 1.78 (v), 3.22e-04 |
-| Walls, Euler | WENO5-Z, RK4 | L2 | 1.00, 1.12, 1.20 (u), 5.14e-04 | not available |
-| Walls, Euler | WENO5-Z, RK4 | Linf | 0.21, 0.38, 0.52 (u), 1.90e-02 | not available |
-| Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.61, 1.35, 1.09 (rho), 4.93e-04 | 1.78, 1.14, 1.04 (v), 1.23e-04 |
-| Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.79, 0.83, 0.83 (rho), 5.16e-03 | 2.12, 0.69, 0.76 (u), 7.31e-04 |
-| Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.80, 1.38, 1.04 (rho), 5.11e-04 | 2.06, 1.09, 1.00 (v), 1.13e-04 |
-| Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 1.11, 0.78, 0.74 (rho), 5.50e-03 | 1.84, 0.61, 0.87 (u), 7.65e-04 |
-| Walls, Navier-Stokes | WENO5-Z, RK4 | L2 | 1.21, 1.27, 1.02 (rho), 5.18e-04 | not available |
-| Walls, Navier-Stokes | WENO5-Z, RK4 | Linf | 0.61, 0.81, 0.73 (rho), 5.58e-03 | not available |
+| Walls, Euler | WENO5-Z, RK4 | L2 | 1.00, 1.12, 1.20 (u), 5.14e-04 | 2.17, 1.95, 1.99 (p), 4.36e-05 |
+| Walls, Euler | WENO5-Z, RK4 | Linf | 0.21, 0.38, 0.52 (u), 1.90e-02 | 1.55, 2.04, 1.95 (u), 2.36e-04 |
+| Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.61, 1.35, 1.09 (rho), 4.93e-04 | 2.40, 2.04, 1.95 (v), 6.62e-05 |
+| Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.79, 0.83, 0.83 (rho), 5.16e-03 | 2.64, 1.80, 1.90 (v), 3.73e-04 |
+| Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.80, 1.38, 1.04 (rho), 5.11e-04 | 2.54, 2.24, 2.03 (v), 4.74e-05 |
+| Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 1.11, 0.78, 0.74 (rho), 5.50e-03 | 1.96, 1.83, 1.86 (p), 4.54e-04 |
+| Walls, Navier-Stokes | WENO5-Z, RK4 | L2 | 1.21, 1.27, 1.02 (rho), 5.18e-04 | 1.87, 1.97, 2.00 (p), 2.86e-05 |
+| Walls, Navier-Stokes | WENO5-Z, RK4 | Linf | 0.61, 0.81, 0.73 (rho), 5.58e-03 | 1.93, 1.96, 1.99 (p), 6.95e-05 |
 | Outflow, Euler | MUSCL VL, SSP-RK2 | L2 | 1.88, 1.63, 1.23 (p), 2.78e-04 | 1.94, 1.50, 1.15 (v), 2.59e-04 |
 | Outflow, Euler | MUSCL VL, SSP-RK2 | Linf | 1.37, 1.00, 0.72 (p), 2.45e-03 | 1.84, 1.49, 0.90 (u), 1.41e-03 |
 | Outflow, Euler | WENO3-Z, SSP-RK3 | L2 | 1.38, 1.30, 1.35 (v), 1.64e-04 | 1.99, 2.15, 2.32 (u), 5.85e-05 |
 | Outflow, Euler | WENO3-Z, SSP-RK3 | Linf | 0.87, 1.13, 0.69 (p), 2.70e-03 | 1.60, 1.98, 1.83 (u), 4.85e-04 |
-| Outflow, Euler | WENO5-Z, RK4 | L2 | 1.10, 1.19, 1.16 (p), 1.88e-04 | not available |
-| Outflow, Euler | WENO5-Z, RK4 | Linf | 0.34, 0.56, 0.69 (p), 2.77e-03 | not available |
-| Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 2.10, 1.55, 1.01 (u), 1.66e-04 | 2.01, 1.48, 0.99 (u), 9.51e-05 |
-| Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 1.62, 1.18, 0.73 (u), 2.93e-03 | 1.62, 1.18, 0.73 (u), 7.23e-04 |
-| Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 2.17, 1.42, 1.20 (u), 1.85e-04 | 2.04, 1.73, 2.52 (u), 4.84e-05 |
-| Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.96, 0.79, 0.81 (rho), 3.37e-03 | 1.17, 2.04, 2.08 (p), 5.92e-04 |
-| Outflow, Navier-Stokes | WENO5-Z, RK4 | L2 | 1.39, 1.21, 1.06 (u), 1.88e-04 | not available |
-| Outflow, Navier-Stokes | WENO5-Z, RK4 | Linf | 0.58, 0.79, 0.79 (rho), 3.44e-03 | not available |
+| Outflow, Euler | WENO5-Z, RK4 | L2 | 1.10, 1.19, 1.16 (p), 1.88e-04 | 2.02, 1.98, 1.99 (u), 3.42e-05 |
+| Outflow, Euler | WENO5-Z, RK4 | Linf | 0.34, 0.56, 0.69 (p), 2.77e-03 | 1.87, 1.83, 1.96 (u), 1.26e-04 |
+| Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 2.10, 1.55, 1.01 (u), 1.66e-04 | 2.00, 1.47, 0.99 (u), 9.57e-05 |
+| Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 1.62, 1.18, 0.73 (u), 2.93e-03 | 1.58, 1.19, 0.76 (u), 7.13e-04 |
+| Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 2.17, 1.42, 1.20 (u), 1.85e-04 | 2.04, 1.71, 2.48 (u), 4.84e-05 |
+| Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.96, 0.79, 0.81 (rho), 3.37e-03 | 1.17, 2.04, 2.09 (p), 5.84e-04 |
+| Outflow, Navier-Stokes | WENO5-Z, RK4 | L2 | 1.39, 1.21, 1.06 (u), 1.88e-04 | 2.08, 2.02, 1.99 (rho), 1.94e-05 |
+| Outflow, Navier-Stokes | WENO5-Z, RK4 | Linf | 0.58, 0.79, 0.79 (rho), 3.44e-03 | 2.33, 1.78, 1.88 (v), 5.78e-05 |
 
 What it shows:
 
-* **Convective faces.** On the Euler solutions the order goes from about 1 to 2 or above: the walls solution reaches $L_2$ 2.1 with MUSCL and
-  2.5 with WENO3-Z ($L_\infty$ 1.5 and 1.8), and the outflow solution 2.3 with WENO3-Z. The density error on the 128² grid falls by a
-  factor of 6 (MUSCL) and 10 (WENO3-Z) on the walls solution and by 2.8 (WENO3-Z) on the outflow solution. With the first-order boundary faces the three
-  reconstructions gave nearly the same error, because the boundary closure dominated.
-* **MUSCL on the outflow solution** stays at $L_2$ about 1.0 to 1.2 and its error hardly falls (Euler: $2.8\cdot10^{-4}$ to $2.6\cdot10^{-4}$; Navier-Stokes:
-  $1.7\cdot10^{-4}$ to $9.5\cdot10^{-5}$). The
-  solution has an extremum at the boundary (even about $x = 1$ and $x = 0$), where the limiter always clips the slope; WENO3-Z does not.
-  This was not traced further.
-* **Viscous faces.** On the Navier-Stokes solutions the error falls (walls: $4.9\cdot10^{-4}$ to $1.2\cdot10^{-4}$) but the
-  order stays near 1: the viscous flux at a boundary face is still first order. It is a separate closure and not part of this
-  key yet. The error is smooth and not concentrated at the wall; it is largest at the far side (the top slip wall,
-  the transmissive side).
+* **Convective faces.** On the Euler solutions the order goes from about 1 to 2: the walls solution reaches $L_2$ 2.1 with MUSCL, 2.5
+  with WENO3-Z and 2.0 with WENO5-Z, and the density error on the 128² grid falls by a factor of 6, 10 and 12. With the first-order
+  boundary faces the three reconstructions gave nearly the same error, because the boundary closure dominated; with the second-order faces
+  the 5th-order scheme has the smallest error.
+* **Viscous faces.** The Navier-Stokes walls solution stayed at order 1 with only the convective closure although its error fell; with the
+  cross derivatives of the boundary faces all three schemes reach 1.9 to 2.0 in $L_2$ and $L_\infty$.
+* **MUSCL on the outflow solution** stays at $L_2$ about 1.0 to 1.2 and its error hardly falls (Euler: $2.8\cdot10^{-4}$ to
+  $2.6\cdot10^{-4}$; Navier-Stokes: $1.7\cdot10^{-4}$ to $9.5\cdot10^{-5}$). The solution has an extremum at the boundary (even
+  about $x = 1$ and $x = 0$), where the limiter always clips the slope; WENO3-Z and WENO5-Z do not. This was not traced further.
 * **Limits of the test.** Both the initial state and the source terms are evaluated at the cell centres (second order in
-  the cell averages), so no order above 2 can show here for any scheme. The solutions are built so that the mirror is the exact extension, which is
-  also what makes the ghost layers exact; a transmissive or outlet condition on a real flow with a normal gradient is
-  consistent only to first order whatever the reconstruction, and the inlets set a value (first order by construction).
+  the cell averages), so no order above 2 can show here for any scheme: WENO5-Z is at the limit of the data, not of the scheme. The
+  solutions are built so that the mirror is the exact extension, which is also what makes the ghost layers exact; a transmissive or
+  outlet condition on a real flow with a normal gradient is consistent only to first order whatever the reconstruction, and the inlets
+  set a value (first order by construction). A corner where two walls meet is not treated specially (its padded value is one of the two mirrors),
+  and the test has none.
 
 What the two cases leave untested: no-slip on the bottom/top, slip and moving walls on the left/right (separate
 branches of the boundary code), the inlets and the outlets (their ghost states set a value instead of mirroring one,

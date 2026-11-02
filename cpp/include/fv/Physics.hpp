@@ -55,6 +55,11 @@ public:
                                const Mesh& mesh, const Field& U_pad, Field& R_visc,
                                const CrossGhosts* cross = nullptr, double length = 0.0) const;
 
+    // Second-order physical-boundary faces (boundary_order = 2): the cross derivatives on a face on a physical
+    // boundary are the tangential differences of the face values (ghost and cell average) instead of the
+    // first-cell value, which is O(h) away from the wall.
+    void set_second_order_boundary(bool on) { bface2_ = on; }
+
     // Dynamic viscosity.
     double mu() const { return mu_; }
     // Prandtl number.
@@ -63,6 +68,7 @@ public:
 private:
     EOS eos_;
     double mu_, Pr_;
+    bool bface2_ = false;
     mutable Field W_, W_pad_;
     mutable std::vector<double> scratch_;
 };

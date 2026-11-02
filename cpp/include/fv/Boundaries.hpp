@@ -87,6 +87,14 @@ public:
     // through them gives the faces on the boundary a second-order state. Not for periodic or non-reflecting sides;
     // needs the side's mass-flow target of the latest apply_boundary_conditions. Returns false (slab untouched)
     // when the side has fewer than `depth` cells.
+    // boundary_order = 2, 2-D: rebuild the four corner entries of the padded state (rows 0 and ny+1, columns 0 and
+    // nx+1) as the left / right boundary ghost of the cell in the ghost row, so the tangential differences of the
+    // face values on a left / right boundary face see the wrapped (periodic), neighbour-rank (MPI) or mirrored value
+    // instead of an edge copy. 3-D: the same for the edge entries (ghost along two axes). `mpi_axis` (0 = x, 1 = y,
+    // -1 none) and `mpi_lo` / `mpi_hi` say that the ghost layer of that side was filled from a neighbour rank: the
+    // entry then takes the boundary condition of the other axis, applied to the halo cell. Call after the MPI layers
+    // are written; no effect with boundary_order = 1.
+    void fix_padded_corners(Field& P, int mpi_axis = -1, bool mpi_lo = false, bool mpi_hi = false) const;
     bool fill_ghost_slab(const Field& U, Face side, int depth, Field& slab) const;
 
     // Ghost cell of the diffusive (viscous) stencil next to a physical side `side` for the interior state `in`:

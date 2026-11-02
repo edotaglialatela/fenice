@@ -332,26 +332,43 @@ void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U
     m.nx = nx;
     m.ny = ny;
     m.nz = nz;
-    // periodic axes (a wrap-around halo is supplied) wrap, the others replicate the edge cell
-    const bool px = h.l && h.r, py = h.b && h.t, pz = h.f && h.bk;
-    const auto src = [](int i, int n, bool per) { return i < 0 ? (per ? i + n : 0) : (i >= n ? (per ? i - n : n - 1) : i); };
+    // a side with a halo (periodic wrap or ghost layers of a physical boundary) reads it, the others replicate the edge cell
+    if ((h.l || h.r || h.b || h.t || h.f || h.bk) && h.depth < pad)
+        throw std::logic_error("WENO5-Z needs halos three cells deep");
+    const int dh = h.depth;
+    const auto clampi = [](int i, int n) { return i < 0 ? 0 : (i >= n ? n - 1 : i); };
+    // conservative state of cell (i, j, k), one axis possibly outside the domain
+    const auto cell_state = [&](int i, int j, int k) -> const State& {
+        if (i < 0 && h.l) return (*h.l)[(static_cast<size_t>(k) * ny + j) * dh + dh + i];
+        if (i >= nx && h.r) return (*h.r)[(static_cast<size_t>(k) * ny + j) * dh + i - nx];
+        if (j < 0 && h.b) return (*h.b)[(static_cast<size_t>(dh + j) * nz + k) * nx + i];
+        if (j >= ny && h.t) return (*h.t)[(static_cast<size_t>(j - ny) * nz + k) * nx + i];
+        if (k < 0 && h.f) return (*h.f)[(static_cast<size_t>(dh + k) * ny + j) * nx + i];
+        if (k >= nz && h.bk) return (*h.bk)[(static_cast<size_t>(k - nz) * ny + j) * nx + i];
+        return U[m.cell(clampi(i, nx), clampi(j, ny), clampi(k, nz))];
+    };
     thread_local Field W_pad;
     W_pad.resize(static_cast<size_t>(PZ) * PY * PX);
     Field& Wp = W_pad;
     const auto P = [&](int ii, int jj, int kk) -> size_t { return (static_cast<size_t>(kk) * PY + jj) * PX + ii; };
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
     for (int kk = 0; kk < PZ; ++kk) {
-        const int k = src(kk - padz, nz, pz);
+        const int k = kk - padz;
         for (int jj = 0; jj < PY; ++jj) {
-            const int j = src(jj - pad, ny, py);
-            for (int ii = 0; ii < PX; ++ii) Wp[P(ii, jj, kk)] = eos_.cons_to_prim(U[m.cell(src(ii - pad, nx, px), j, k)]);
+            const int j = jj - pad;
+            for (int ii = 0; ii < PX; ++ii) {
+                const int i = ii - pad;
+                // a cell outside the domain along two axes (a corner) is not on any stencil: edge replication
+                const int out = (i < 0 || i >= nx) + (j < 0 || j >= ny) + (k < 0 || k >= nz);
+                Wp[P(ii, jj, kk)] = eos_.cons_to_prim(out > 1 ? U[m.cell(clampi(i, nx), clampi(j, ny), clampi(k, nz))] : cell_state(i, j, k));
+            }
         }
     }
     const EOS& eos = eos_;
     const double we = weno_eps_;
     const auto roundtrip = [&](State& u) { u = eos.prim_to_cons(eos.cons_to_prim(u)); };
     // Faces normal to `axis`: face t lies between cells t-1 and t; its six cells are padded positions t .. t+5.
-    const auto sweep = [&](int axis, bool periodic) {
+    const auto sweep = [&](int axis, bool has_lo, bool has_hi) {
         const int n_a = axis == 0 ? nx : (axis == 1 ? ny : nz);
         const size_t stride = axis == 0 ? 1 : (axis == 1 ? static_cast<size_t>(PX) : static_cast<size_t>(PX) * PY);
         const int ni = axis == 0 ? nx + 1 : nx, nj = axis == 1 ? ny + 1 : ny, nk = axis == 2 ? nz + 1 : nz;
@@ -361,7 +378,7 @@ void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U
             for (int i = 0; i < ni; ++i) {
                 const int t = axis == 0 ? i : (axis == 1 ? j : k);
                 const int f = axis == 0 ? m.xface(i, j, k) : (axis == 1 ? m.yface(i, j, k) : m.zface(i, j, k));
-                if (!((t > 0 && t < n_a) || periodic)) {
+                if (!((t > 0 && t < n_a) || (t == 0 && has_lo) || (t == n_a && has_hi))) {
                     roundtrip(UL[f]);
                     roundtrip(UR[f]);
                     continue;
@@ -380,9 +397,9 @@ void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U
             }
         }
     };
-    sweep(0, px);
-    sweep(1, py);
-    if (nz > 1) sweep(2, pz);
+    sweep(0, h.l, h.r);
+    sweep(1, h.b, h.t);
+    if (nz > 1) sweep(2, h.f, h.bk);
 }
 
 void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int nx, int ny, const Halos& h) const {

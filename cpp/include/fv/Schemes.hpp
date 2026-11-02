@@ -111,8 +111,10 @@ constexpr int kHaloDepth = 2;
 //   b / t  : below / above  [ (d*nz + k)*nx + i ]
 //   l / r  : left / right   [ (k*ny + j)*kHaloDepth + d ]
 //   f / bk : front / back   [ (d*ny + j)*nx + i ]          (3-D only)
-// With nz = 1 these reduce to the 2-D layouts [d*nx + i] and [j*kHaloDepth + d].
+// With nz = 1 these reduce to the 2-D layouts [d*nx + i] and [j*kHaloDepth + d]. `depth` is the number of slices of
+// every halo supplied (kHaloDepth for MUSCL and WENO3-Z, 3 for WENO5-Z, which reads its ghost cells from them).
 struct Halos {
+    int depth = kHaloDepth;
     const Field* b = nullptr;    // below
     const Field* t = nullptr;    // above
     const Field* l = nullptr;    // left
@@ -140,8 +142,9 @@ public:
     Reconstruction scheme() const { return scheme_; }
 
 private:
-    // WENO5-Z on a primitive state padded by 3 cells (periodic axes wrap, others replicate the edge cell); serial only:
-    // an MPI halo is two cells deep. Faces of the 2-D layout when nz = 1.
+    // WENO5-Z on a primitive state padded by 3 cells: a side with a halo (depth 3: periodic wrap or physical ghost layers)
+    // reads it and its boundary faces are reconstructed, a side without one replicates the edge cell (first-order
+    // boundary face); serial only: an MPI halo is two cells deep. Faces of the 2-D layout when nz = 1.
     void reconstruct_weno5(Field& UL, Field& UR, const Field& U, int nx, int ny, int nz, const Halos& h) const;
 
     EOS eos_;
