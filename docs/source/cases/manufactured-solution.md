@@ -185,7 +185,7 @@ no-slip, moving-wall and slip-wall ghosts, the viscous padded state and the adia
 compared with the exact solution. The cases are in the regression too (`mms_walls`, and `mms_outflow_xdecomp`
 on x-strips), serial and on 2 to 4 MPI ranks.
 
-**What the study found.** With the first-order scheme the orders are those of the periodic cases (0.9 to 1.0; one
+**What the study found** (with the default `boundary_order = 1`; the second-order boundary faces are in the next section). With the first-order scheme the orders are those of the periodic cases (0.9 to 1.0; one
 $L_\infty$ entry at 0.84). With MUSCL they are **not**: $L_1$ and $L_2$ fall at 1.0 to 1.9 instead of 2, and $L_\infty$
 at 0.7 to 1.3, and the maximum error sits in the cell next to the wall (the study prints where it is). The bands were
 not moved. A floor of 0.7, set after the first run, keeps a worse loss from passing; the entries are marked

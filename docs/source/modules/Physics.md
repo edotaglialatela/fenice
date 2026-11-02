@@ -50,6 +50,9 @@ cell volume.
   velocity checkerboard mode.
 * *Cross derivatives*, such as $\partial^2u/\partial x\partial y$, use the face average
   of the cell-centre gradients.
+* *On a physical boundary face* with `boundary_order = 2`, the cross derivatives are the tangential difference of the
+  face values (ghost and cell average) instead of the face average of the cell values, which is $O(h)$ away from the wall
+  (`set_second_order_boundary`).
 * *At walls*, the ghost velocities and temperatures come from the padded state. The
   wall shear is therefore correct for no-slip walls, and the adiabatic ghost
   temperature gives zero wall heat flux.
