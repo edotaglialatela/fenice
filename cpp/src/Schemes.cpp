@@ -86,6 +86,14 @@ Limiter parse_limiter(const std::string& s_in) {
     throw std::invalid_argument("Unknown MUSCL limiter: '" + s_in + "' (use Minmod, Van Leer, MC or Koren)");
 }
 
+Reconstruction parse_reconstruction(const std::string& s_in) {
+    const std::string s = lower(s_in);
+    if (s == "muscl") return Reconstruction::Muscl;
+    if (s == "weno3") return Reconstruction::Weno3;
+    if (s == "weno5") return Reconstruction::Weno5;
+    throw std::invalid_argument("Unknown reconstruction: '" + s_in + "' (use muscl, weno3 or weno5)");
+}
+
 // ---------------------------------------------------------------------------
 // HLLC (Toro et al., 1994) with Einfeldt or Weiss-Smith wave-speed bounds
 // ---------------------------------------------------------------------------

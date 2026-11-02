@@ -19,7 +19,7 @@ struct StepResult {
 };
 
 // Available time integrators.
-enum class TimeSchemeType { ExplicitEuler, SSPRK2, RungeKutta4, BDF2DualTime };
+enum class TimeSchemeType { ExplicitEuler, SSPRK2, RungeKutta4, BDF2DualTime, SSPRK3 };
 
 // Scheme from its GUI label ("SSP Runge-Kutta 2") or alias ("ssprk2").
 TimeSchemeType parse_time_scheme(const std::string& s);
@@ -75,6 +75,17 @@ public:
     double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
     std::vector<double> stage_weights() const override { return {0.5, 0.5}; }
     std::vector<double> stage_offsets() const override { return {0.0, 1.0}; }
+};
+
+// Three-stage strong-stability-preserving Runge-Kutta (Shu-Osher form), 3rd order, CFL coefficient 1. Stage times t,
+// t + dt, t + dt / 2.
+class SSPRK3 : public TimeScheme {
+public:
+    using TimeScheme::TimeScheme;
+    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
+    double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
+    std::vector<double> stage_weights() const override { return {1.0 / 6.0, 1.0 / 6.0, 2.0 / 3.0}; }
+    std::vector<double> stage_offsets() const override { return {0.0, 1.0, 0.5}; }
 };
 
 // Classical four-stage Runge-Kutta, 4th order.

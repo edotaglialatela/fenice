@@ -337,8 +337,10 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         std::printf("[SOLVER] Preconditioned HLLC active (Weiss-Smith 1995, Ma_cut=0.1)\n");
 
     if (p.use_muscl) {
-        muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter));
-        if (verbose) std::printf("[SOLVER] 2nd-Order MUSCL active (Limiter: %s)\n", p.muscl_limiter.c_str());
+        muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter), parse_reconstruction(p.reconstruction));
+        if (verbose && p.reconstruction == "muscl")
+            std::printf("[SOLVER] 2nd-Order MUSCL active (Limiter: %s)\n", p.muscl_limiter.c_str());
+        if (verbose && p.reconstruction != "muscl") std::printf("[SOLVER] %s reconstruction active\n", p.reconstruction.c_str());
         if (verbose && parse_time_scheme(p.time_scheme) == TimeSchemeType::ExplicitEuler)
             std::printf("[WARNING] MUSCL with Explicit Euler is unstable for smooth waves (amplitudes grow): "
                         "use SSP Runge-Kutta 2 or Runge-Kutta 4\n");
@@ -1588,7 +1590,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
     lm.dy = mesh.dy;
     lm.dz = mesh.dz;
     std::unique_ptr<MusclReconstruction> local_muscl;
-    if (p.use_muscl) local_muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter));
+    if (p.use_muscl)
+        local_muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter), parse_reconstruction(p.reconstruction));
 
     std::unique_ptr<ImmersedBoundary> local_ibm;
     std::vector<char> ghost_mask_lo, ghost_mask_hi;

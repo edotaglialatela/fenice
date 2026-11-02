@@ -63,6 +63,12 @@ enum class Limiter { Minmod = 0, VanLeer = 1, MC = 2, Koren = 3 };
 // Limiter from its name (case-insensitive); unknown names throw std::invalid_argument.
 Limiter parse_limiter(const std::string& s);
 
+// Face reconstruction of the second-order path: the limited linear MUSCL profile, or a WENO reconstruction (3 or 5 point
+// stencil per side).
+enum class Reconstruction { Muscl, Weno3, Weno5 };
+// Scheme from its parameter value ("muscl", "weno3", "weno5"; case-insensitive).
+Reconstruction parse_reconstruction(const std::string& s);
+
 // Sign of x (0 for 0).
 inline double sgn(double x) { return (x > 0.0) ? 1.0 : ((x < 0.0) ? -1.0 : 0.0); }
 
@@ -117,7 +123,8 @@ struct Halos {
 class MusclReconstruction {
 public:
     // Reconstruction with limiter `lim`.
-    MusclReconstruction(const EOS& eos, Limiter lim) : eos_(eos), lim_(lim) {}
+    MusclReconstruction(const EOS& eos, Limiter lim, Reconstruction scheme = Reconstruction::Muscl)
+        : eos_(eos), lim_(lim), scheme_(scheme) {}
 
     // Upgrade first-order face states (in place) to 2nd-order MUSCL states.
     // Physical-boundary faces keep their 1st-order ghost states; MPI-interface
@@ -128,10 +135,13 @@ public:
 
     // Active limiter.
     Limiter limiter() const { return lim_; }
+    // Active face reconstruction.
+    Reconstruction scheme() const { return scheme_; }
 
 private:
     EOS eos_;
     Limiter lim_;
+    Reconstruction scheme_;
 };
 
 }   // namespace fv

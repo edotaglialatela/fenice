@@ -34,6 +34,7 @@ TimeSchemeType parse_time_scheme(const std::string& s_in) {
     const std::string s = lower(s_in);
     if (s == "explicit euler" || s == "euler" || s == "explicit_euler") return TimeSchemeType::ExplicitEuler;
     if (s == "ssp runge-kutta 2" || s == "ssprk2" || s == "rk2") return TimeSchemeType::SSPRK2;
+    if (s == "ssp runge-kutta 3" || s == "ssprk3" || s == "rk3") return TimeSchemeType::SSPRK3;
     if (s == "runge-kutta 4" || s == "rk4") return TimeSchemeType::RungeKutta4;
     if (s == "bdf2 dual time" || s == "bdf2") return TimeSchemeType::BDF2DualTime;
     throw std::invalid_argument("Unknown time scheme: '" + s_in + "'");
@@ -95,6 +96,46 @@ double SSPRK2::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
     axpy(tmp_, U, dt, R1_);
     res(tmp_, R2_);
     ssp_combine(U, tmp_, dt, R2_);
+    return s;
+}
+
+// ---------------------------------------------------------------------------
+// SSP-RK3 (Shu-Osher form)
+//   U1 = U + dt R(U);  U2 = 3/4 U + 1/4 (U1 + dt R(U1));  U^{n+1} = 1/3 U + 2/3 (U2 + dt R(U2))
+// ---------------------------------------------------------------------------
+
+namespace {
+// out = a * u0 + b * (v + dt * R); out may be v or u0 (element-wise)
+void ssp3_combine(Field& out, const Field& u0, double a, const Field& v, double b, double dt, const Field& R) {
+    const int n = isize(out);
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+    for (int c = 0; c < n; ++c)
+        for (int q = 0; q < kNVar; ++q) out[c][q] = a * u0[c][q] + b * (v[c][q] + dt * R[c][q]);
+}
+}   // namespace
+
+StepResult SSPRK3::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
+    stage_time = t;
+    const double s1 = res(U, R1_);
+    double dt = cfl * min_delta / (s1 + kDtEps);
+    dt = std::min(dt, t_max - t);
+    axpy(tmp_, U, dt, R1_);
+    stage_time = t + dt;
+    const double s2 = res(tmp_, R2_);
+    ssp3_combine(tmp_, U, 0.75, tmp_, 0.25, dt, R2_);
+    stage_time = t + 0.5 * dt;
+    const double s3 = res(tmp_, R3_);
+    ssp3_combine(U, U, 1.0 / 3.0, tmp_, 2.0 / 3.0, dt, R3_);
+    return {dt, std::max(s1, std::max(s2, s3))};
+}
+
+double SSPRK3::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
+    const double s = res(U, R1_);
+    axpy(tmp_, U, dt, R1_);
+    res(tmp_, R2_);
+    ssp3_combine(tmp_, U, 0.75, tmp_, 0.25, dt, R2_);
+    res(tmp_, R3_);
+    ssp3_combine(U, U, 1.0 / 3.0, tmp_, 2.0 / 3.0, dt, R3_);
     return s;
 }
 
@@ -208,6 +249,7 @@ std::unique_ptr<TimeScheme> make_time_scheme(TimeSchemeType type, double cfl, do
                                              double inner_tol_rel) {
     switch (type) {
     case TimeSchemeType::SSPRK2: return std::make_unique<SSPRK2>(cfl);
+    case TimeSchemeType::SSPRK3: return std::make_unique<SSPRK3>(cfl);
     case TimeSchemeType::RungeKutta4: return std::make_unique<RungeKutta4>(cfl);
     case TimeSchemeType::BDF2DualTime:
         return std::make_unique<BDF2DualTime>(cfl, dt_phys, max_inner_iter, inner_tol_rel);

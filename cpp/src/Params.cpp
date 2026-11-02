@@ -149,6 +149,7 @@ Params baseline_defaults() {
         {"reynolds", "0"},
         {"use_muscl", "false"},
         {"muscl_limiter", "Van Leer"},
+        {"reconstruction", "muscl"},
         {"dt_phys", "0.1"},
         {"max_inner_iter", "50"},
         {"inner_tol_rel", "1e-3"},
@@ -252,6 +253,7 @@ SimParams SimParams::from(const Params& p) {
     s.reynolds = p.num("reynolds", 0.0);
     s.use_muscl = p.flag("use_muscl");
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
+    s.reconstruction = lower(p.str("reconstruction", "muscl"));
     s.dt_phys = p.num("dt_phys", s.t_end / 100.0);
     s.max_inner_iter = p.integer("max_inner_iter", 50);
     s.inner_tol_rel = p.num("inner_tol_rel", 1e-3);
@@ -295,6 +297,20 @@ SimParams SimParams::from(const Params& p) {
             throw std::invalid_argument("amr_indicator must be density, velocity or pressure, or several of them joined by "
                                         "'+' (e.g. density+velocity); got '" + ind + "'");
     }
+    if (s.reconstruction != "muscl" && s.reconstruction != "weno3" && s.reconstruction != "weno5")
+        throw std::invalid_argument("reconstruction must be muscl, weno3 or weno5; got '" + s.reconstruction + "'");
+    if (s.reconstruction != "muscl") {
+        const std::string ts = lower(s.time_scheme);
+        if (!s.use_muscl)
+            throw std::invalid_argument("reconstruction = " + s.reconstruction + " needs use_muscl = true (the switch of the "
+                                        "second-order path)");
+        if (s.use_amr) throw std::invalid_argument("reconstruction = " + s.reconstruction + " is not available with AMR yet");
+        if (ts == "ssp runge-kutta 2" || ts == "ssprk2" || ts == "rk2")
+            throw std::invalid_argument("reconstruction = " + s.reconstruction + " is not used with SSP Runge-Kutta 2 (use SSP "
+                                        "Runge-Kutta 3 or Runge-Kutta 4)");
+        if (ts == "bdf2 dual time" || ts == "bdf2")
+            throw std::invalid_argument("reconstruction = " + s.reconstruction + " is not available with the BDF2 dual-time scheme");
+    }
     if (s.use_amr && !(s.amr_criterion > 0.0)) throw std::invalid_argument("amr_criterion must be positive");
     if (!(s.amr_derefine_threshold <= s.amr_refine_threshold))
         throw std::invalid_argument("amr_derefine_threshold must not exceed amr_refine_threshold (else a refined cell "
@@ -305,6 +321,8 @@ SimParams SimParams::from(const Params& p) {
         if (ts == "bdf2 dual time" || ts == "bdf2")
             throw std::invalid_argument("AMR does not support the BDF2 dual-time scheme (use Explicit Euler, SSP "
                                         "Runge-Kutta 2 or Runge-Kutta 4)");
+        if (ts == "ssp runge-kutta 3" || ts == "ssprk3" || ts == "rk3")
+            throw std::invalid_argument("AMR does not support SSP Runge-Kutta 3 yet");
     }
     const std::string eos = lower(s.eos_type);
     if (eos != "ideal gas" && eos != "stiffened gas")

@@ -330,7 +330,7 @@ class SetupDialog(QDialog):
         self.combo_riemann = QComboBox()
         self.combo_riemann.addItems(["HLLC", "HLLC (Low-Mach Thornber)", "HLLC (Preconditioned)"])
         self.combo_time = QComboBox()
-        self.combo_time.addItems(["Explicit Euler", "SSP Runge-Kutta 2", "Runge-Kutta 4", "BDF2 Dual Time"])
+        self.combo_time.addItems(["Explicit Euler", "SSP Runge-Kutta 2", "SSP Runge-Kutta 3", "Runge-Kutta 4", "BDF2 Dual Time"])
         self.input_cfl = QLineEdit("0.5")
         self.check_muscl = QCheckBox("Enable 2nd-Order Spatial (MUSCL)")
         self.combo_limiter = QComboBox()
