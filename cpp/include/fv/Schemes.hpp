@@ -140,6 +140,10 @@ public:
     Reconstruction scheme() const { return scheme_; }
 
 private:
+    // WENO5-Z on a primitive state padded by 3 cells (periodic axes wrap, others replicate the edge cell); serial only:
+    // an MPI halo is two cells deep. Faces of the 2-D layout when nz = 1.
+    void reconstruct_weno5(Field& UL, Field& UR, const Field& U, int nx, int ny, int nz, const Halos& h) const;
+
     EOS eos_;
     Limiter lim_;
     Reconstruction scheme_;

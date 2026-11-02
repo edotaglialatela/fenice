@@ -308,6 +308,8 @@ SimParams SimParams::from(const Params& p) {
             throw std::invalid_argument("reconstruction = " + s.reconstruction + " needs use_muscl = true (the switch of the "
                                         "second-order path)");
         if (s.use_amr) throw std::invalid_argument("reconstruction = " + s.reconstruction + " is not available with AMR yet");
+        if (s.reconstruction == "weno5" && s.use_mpi)
+            throw std::invalid_argument("reconstruction = weno5 is serial for now (an MPI halo is two cells deep, WENO5 reads three); use weno3 with MPI");
         if (ts == "ssp runge-kutta 2" || ts == "ssprk2" || ts == "rk2")
             throw std::invalid_argument("reconstruction = " + s.reconstruction + " is not used with SSP Runge-Kutta 2 (use SSP "
                                         "Runge-Kutta 3 or Runge-Kutta 4)");

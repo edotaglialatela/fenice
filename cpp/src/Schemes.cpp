@@ -304,13 +304,89 @@ inline double weno3z(double c0, double c1, double c2, double eps_rel) {
     const double a0 = (1.0 / 3.0) * (1.0 + tau / (b0 + eps)), a1 = (2.0 / 3.0) * (1.0 + tau / (b1 + eps));
     return (a0 * v0 + a1 * v1) / (a0 + a1);
 }
-void require_implemented(Reconstruction s) {
-    if (s == Reconstruction::Weno5) throw std::logic_error("reconstruction = weno5 is not implemented yet");
+// WENO5-Z (Borges et al. 2008): the value at the face on the right of c2, from the cells (c0 .. c4) = (i-2 .. i+2); the
+// right-hand state of the same face is weno5z(c5, c4, c3, c2, c1) of the six cells c0 .. c5. Same relative regularisation
+// as weno3z.
+inline double weno5z(double c0, double c1, double c2, double c3, double c4, double eps_rel) {
+    const double eps = eps_rel * (c0 * c0 + c1 * c1 + c2 * c2 + c3 * c3 + c4 * c4) * 0.2 + 1e-300;
+    const double p0 = (2.0 * c0 - 7.0 * c1 + 11.0 * c2) / 6.0;
+    const double p1 = (-c1 + 5.0 * c2 + 2.0 * c3) / 6.0;
+    const double p2 = (2.0 * c2 + 5.0 * c3 - c4) / 6.0;
+    const double s0 = c0 - 2.0 * c1 + c2, t0 = c0 - 4.0 * c1 + 3.0 * c2;
+    const double s1 = c1 - 2.0 * c2 + c3, t1 = c1 - c3;
+    const double s2 = c2 - 2.0 * c3 + c4, t2 = 3.0 * c2 - 4.0 * c3 + c4;
+    const double b0 = (13.0 / 12.0) * s0 * s0 + 0.25 * t0 * t0;
+    const double b1 = (13.0 / 12.0) * s1 * s1 + 0.25 * t1 * t1;
+    const double b2 = (13.0 / 12.0) * s2 * s2 + 0.25 * t2 * t2;
+    const double tau = std::abs(b0 - b2);
+    const double a0 = 0.1 * (1.0 + tau / (b0 + eps)), a1 = 0.6 * (1.0 + tau / (b1 + eps)), a2 = 0.3 * (1.0 + tau / (b2 + eps));
+    return (a0 * p0 + a1 * p1 + a2 * p2) / (a0 + a1 + a2);
 }
 }   // namespace
 
+void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U, int nx, int ny, int nz, const Halos& h) const {
+    constexpr int pad = 3;
+    const int padz = nz > 1 ? pad : 0;
+    const int PX = nx + 2 * pad, PY = ny + 2 * pad, PZ = nz + 2 * padz;
+    Mesh m;
+    m.nx = nx;
+    m.ny = ny;
+    m.nz = nz;
+    // periodic axes (a wrap-around halo is supplied) wrap, the others replicate the edge cell
+    const bool px = h.l && h.r, py = h.b && h.t, pz = h.f && h.bk;
+    const auto src = [](int i, int n, bool per) { return i < 0 ? (per ? i + n : 0) : (i >= n ? (per ? i - n : n - 1) : i); };
+    thread_local Field W_pad;
+    W_pad.resize(static_cast<size_t>(PZ) * PY * PX);
+    Field& Wp = W_pad;
+    const auto P = [&](int ii, int jj, int kk) -> size_t { return (static_cast<size_t>(kk) * PY + jj) * PX + ii; };
+#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
+    for (int kk = 0; kk < PZ; ++kk) {
+        const int k = src(kk - padz, nz, pz);
+        for (int jj = 0; jj < PY; ++jj) {
+            const int j = src(jj - pad, ny, py);
+            for (int ii = 0; ii < PX; ++ii) Wp[P(ii, jj, kk)] = eos_.cons_to_prim(U[m.cell(src(ii - pad, nx, px), j, k)]);
+        }
+    }
+    const EOS& eos = eos_;
+    const double we = weno_eps_;
+    const auto roundtrip = [&](State& u) { u = eos.prim_to_cons(eos.cons_to_prim(u)); };
+    // Faces normal to `axis`: face t lies between cells t-1 and t; its six cells are padded positions t .. t+5.
+    const auto sweep = [&](int axis, bool periodic) {
+        const int n_a = axis == 0 ? nx : (axis == 1 ? ny : nz);
+        const size_t stride = axis == 0 ? 1 : (axis == 1 ? static_cast<size_t>(PX) : static_cast<size_t>(PX) * PY);
+        const int ni = axis == 0 ? nx + 1 : nx, nj = axis == 1 ? ny + 1 : ny, nk = axis == 2 ? nz + 1 : nz;
+#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
+        for (int kj = 0; kj < nk * nj; ++kj) {
+            const int j = kj % nj, k = kj / nj;
+            for (int i = 0; i < ni; ++i) {
+                const int t = axis == 0 ? i : (axis == 1 ? j : k);
+                const int f = axis == 0 ? m.xface(i, j, k) : (axis == 1 ? m.yface(i, j, k) : m.zface(i, j, k));
+                if (!((t > 0 && t < n_a) || periodic)) {
+                    roundtrip(UL[f]);
+                    roundtrip(UR[f]);
+                    continue;
+                }
+                const size_t base = axis == 0 ? P(t, j + pad, k + padz)
+                                              : (axis == 1 ? P(i + pad, t, k + padz) : P(i + pad, j + pad, t));
+                State wl, wr;
+                for (int q = 0; q < kNVar; ++q) {
+                    const double c0 = Wp[base][q], c1 = Wp[base + stride][q], c2 = Wp[base + 2 * stride][q];
+                    const double c3 = Wp[base + 3 * stride][q], c4 = Wp[base + 4 * stride][q], c5 = Wp[base + 5 * stride][q];
+                    wl[q] = weno5z(c0, c1, c2, c3, c4, we);
+                    wr[q] = weno5z(c5, c4, c3, c2, c1, we);
+                }
+                UL[f] = eos.prim_to_cons(wl);
+                UR[f] = eos.prim_to_cons(wr);
+            }
+        }
+    };
+    sweep(0, px);
+    sweep(1, py);
+    if (nz > 1) sweep(2, pz);
+}
+
 void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int nx, int ny, const Halos& h) const {
-    require_implemented(scheme_);
+    if (scheme_ == Reconstruction::Weno5) return reconstruct_weno5(UL, UR, U, nx, ny, 1, h);
     const bool weno3 = scheme_ == Reconstruction::Weno3;
     const double we = weno_eps_;
     constexpr int pad = kHaloDepth;
@@ -411,7 +487,7 @@ void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int 
 // state padded by 2 cells in every direction.  Halos (MPI or periodic) replace
 // the padding on their side; layouts as documented in Halos.
 void MusclReconstruction::reconstruct_3d(Field& UL, Field& UR, const Field& U, const Mesh& m, const Halos& h) const {
-    require_implemented(scheme_);
+    if (scheme_ == Reconstruction::Weno5) return reconstruct_weno5(UL, UR, U, m.nx, m.ny, m.nz, h);
     const bool weno3 = scheme_ == Reconstruction::Weno3;
     const double we = weno_eps_;
     constexpr int pad = kHaloDepth;
