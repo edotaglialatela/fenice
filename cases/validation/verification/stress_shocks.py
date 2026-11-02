@@ -6,7 +6,7 @@
 Cases (1-D tubes on 400 x 4 cells, walls top and bottom, transmissive ends; the 2-D ones are named): Sod with a 1000:1
 pressure ratio, the 123 problem (two rarefactions, near vacuum) and a variant that opens a vacuum, Mach 10, 20 and 100 shock tubes, Mach 10 flow past the
 immersed cylinder, and the odd-even decoupling test (a Mach 6 planar shock whose centre row starts one cell ahead).
-Each runs with 1st-order Godunov and with MUSCL (MC limiter) + SSP-RK2, HLLC.
+Each runs with 1st-order Godunov, with MUSCL (MC limiter) + SSP-RK2, and with WENO3-Z and WENO5-Z + SSP-RK3 (WENO5 at CFL 0.3), HLLC.
 
 Pass criterion, fixed before the first run (it is a robustness criterion, not an accuracy one):
   1. the solver finishes (exit code 0);
@@ -32,7 +32,10 @@ STUDY = "stress_shocks"
 GAMMA = 1.4
 CONSERVATION_BAND = 1e-10
 SCHEMES = {"godunov": ["use_muscl=false"],
-           "muscl": ["use_muscl=true", "muscl_limiter=MC", "time_scheme=SSP Runge-Kutta 2"]}
+           "muscl": ["use_muscl=true", "muscl_limiter=MC", "time_scheme=SSP Runge-Kutta 2"],
+           "weno3": ["use_muscl=true", "reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"],
+           # WENO5 with SSP-RK3 is stable up to CFL 0.3 on the near-vacuum tube (0.4 diverges; with RK4 it holds at 0.5)
+           "weno5": ["use_muscl=true", "reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3", "cfl=0.3"]}
 NX, NY = 400, 4
 
 

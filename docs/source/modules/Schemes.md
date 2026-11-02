@@ -148,9 +148,10 @@ about 2 to 4 times as long as MUSCL for the same run (it also uses a three-stage
 * The stencil is as deep as the MUSCL one for `weno3` (so it runs on MPI ranks, with results identical to the serial run bit
   for bit and independent of the thread count); `weno5` reads three cells on each side and is serial.
 * Faces on a non-periodic physical boundary keep the first-order ghost states, as with MUSCL.
-* There is no positivity limiter. The strong-shock suite (Sod with a 1000:1 pressure ratio, the 123 problem, Mach 10, 20 and 100 tubes,
-  the Mach 10 cylinder, the odd-even test) is passed by `weno3` and `weno5`; the near-vacuum tube is passed by `weno3` but not by
-  `weno5`, where the run stalls.
+* There is no positivity limiter. The strong-shock suite (Sod with a 1000:1 pressure ratio, the 123 problem, the near-vacuum tube,
+  Mach 10, 20 and 100 tubes, the Mach 10 cylinder, the odd-even test) is passed by `weno3` at the suite's CFL (0.4 for the tubes and the odd-even test, the case's own value for the cylinder) and by `weno5` at CFL 0.3.
+  `weno5` with SSP-RK3 diverges on the near-vacuum tube at CFL 0.4 (it is stable up to 0.3, and with RK4 at 0.5), so
+  use a lower CFL or RK4 for problems that open a vacuum. A run whose state diverges stops with an error naming the step.
 * Not available with AMR, and not with SSP-RK2 or BDF2 (the combination is rejected when the case is read).
 
 ### References

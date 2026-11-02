@@ -468,6 +468,19 @@ void Simulation::setup(const SimParams& params, bool verbose) {
 }
 
 // FENICE_MEM_TRACE=1: the resident and peak memory of the process at a step of the setup (stderr)
+// A step whose wave speed is not finite, or whose time step is below the resolution of t, means the solution has diverged
+// (a non-finite state, or a speed so large that t no longer advances: the loop would never end). Every rank sees the same
+// speed (it is reduced), so under MPI all ranks stop together.
+static void check_progress(double t, double dt, double smax, int step, const char* scheme) {
+    if (std::isfinite(smax) && std::isfinite(dt) && t + dt > t) return;
+    char msg[256];
+    std::snprintf(msg, sizeof msg,
+                  "the solution diverged at step %d (t = %.6g, dt = %.3g, largest wave speed = %.3g) with %s: lower the CFL number, "
+                  "or use a more robust scheme (reconstruction, time integrator) for this problem",
+                  step, t, dt, smax, scheme);
+    throw std::runtime_error(msg);
+}
+
 static void mem_trace(const char* where) {
     if (!switch_on("FENICE_MEM_TRACE")) return;
     const MemoryUsage m = memory_usage();
@@ -1238,6 +1251,7 @@ void Simulation::solve() {
     bool interrupted = false;
     while (t < p.t_end) {
         const StepResult r = scheme->step(U, res, min_delta, t, p.t_end);
+        check_progress(t, r.dt, r.s_max, step + 1, p.time_scheme.c_str());
         if (p.use_ibm) ibm->apply_solid_reset(U, fluid);
         t += r.dt;
         ++step;
@@ -1401,6 +1415,7 @@ void Simulation::solve_amr() {
             ProfileScope ps(Section::Step);
             S = adv.step(dt, t);
         }
+        check_progress(t, dt, S, step + 1, p.time_scheme.c_str());
         cell_speed_ = S;
         if (p.use_ibm) {
             eng.solid_reset(cm, cm.U);
@@ -1790,6 +1805,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     bool interrupted = false;
     while (t < p.t_end) {
         const StepResult sr = scheme->step(U_local, res, min_delta, t, p.t_end);
+        check_progress(t, sr.dt, sr.s_max, step + 1, p.time_scheme.c_str());
         if (p.use_ibm) solid_reset(U_local);
         t += sr.dt;
         ++step;
