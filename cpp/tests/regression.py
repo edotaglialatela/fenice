@@ -122,6 +122,16 @@ CASES = {
                                                time_scheme="SSP Runge-Kutta 2")),
     "riemann2d_c6_32":     ("riemann2d:6", dict(nx=32, ny=32, use_muscl=True, muscl_limiter="MC",
                                                time_scheme="SSP Runge-Kutta 2")),
+    # WENO-Z reconstruction (order checked by the entropy-wave study; these pin the implementation): WENO3 in 2-D and 3-D
+    # (also on MPI ranks: the stencil is as deep as MUSCL's) and WENO5 (serial), with the SSP-RK3 / RK4 integrators
+    "vortex_weno3_rk3":    ("Isentropic Vortex", dict(nx=48, ny=48, t_end=1.0, use_muscl=True, reconstruction="weno3",
+                                                  time_scheme="SSP Runge-Kutta 3", cfl=0.4)),
+    "vortex_weno5_rk4":    ("Isentropic Vortex", dict(nx=48, ny=48, t_end=1.0, use_muscl=True, reconstruction="weno5",
+                                                  time_scheme="Runge-Kutta 4", cfl=0.4, use_mpi=False)),
+    "tgv3d_weno3_rk3":     ("Taylor-Green Vortex 3D", dict(nx=16, ny=16, nz=16, t_end=1.0, use_muscl=True,
+                                                       reconstruction="weno3", time_scheme="SSP Runge-Kutta 3", cfl=0.4)),
+    "tgv3d_weno5_rk3":     ("Taylor-Green Vortex 3D", dict(nx=16, ny=16, nz=16, t_end=0.5, use_muscl=True,
+                                                       reconstruction="weno5", time_scheme="SSP Runge-Kutta 3", cfl=0.4)),
 }
 # Cases also run under MPI (AMR: replicated mesh, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
@@ -130,7 +140,8 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodi
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
              "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk4", "mms_unsteady_rk2", "mms_unsteady_bdf2",
-             "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32"]
+             "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
+             "vortex_weno3_rk3", "tgv3d_weno3_rk3"]
 
 
 def riemann_case_file(k, tmp):

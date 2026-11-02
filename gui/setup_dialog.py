@@ -167,6 +167,11 @@ class SetupDialog(QDialog):
 
         self.check_muscl.toggled.connect(self._toggle_muscl_inputs)
         self.combo_time.currentTextChanged.connect(self._toggle_bdf2_inputs)
+        self.combo_recon.currentTextChanged.connect(self._reconstruction_changed)
+        self.combo_time.currentTextChanged.connect(self._update_scheme_warning)
+        self.check_muscl.toggled.connect(self._update_scheme_warning)
+        self.check_amr.toggled.connect(self._update_scheme_warning)
+        self.check_mpi.toggled.connect(self._update_scheme_warning)
 
         self.check_hot_start.toggled.connect(self._toggle_hot_start_inputs)
         self.btn_hot_start_browse.clicked.connect(self._browse_hot_start_file)
@@ -336,10 +341,19 @@ class SetupDialog(QDialog):
         self.combo_limiter = QComboBox()
         self.combo_limiter.addItems(["Van Leer", "MC", "Koren", "Minmod"])
         self.label_limiter = QLabel("Slope Limiter:")
+        self.combo_recon = QComboBox()
+        self.combo_recon.addItems(list(self._RECON_LABELS))
+        self.label_recon = QLabel("Reconstruction:")
+        self.label_scheme_warning = QLabel("")
+        self.label_scheme_warning.setWordWrap(True)
+        self.label_scheme_warning.setStyleSheet("color: #b45309;")
+        self.label_scheme_warning.setVisible(False)
         f4.addRow("", self.check_muscl)
+        f4.addRow(self.label_recon, self.combo_recon)
         f4.addRow(self.label_limiter, self.combo_limiter)
         f4.addRow("Riemann solver:", self.combo_riemann)
         f4.addRow("Time integration:", self.combo_time)
+        f4.addRow("", self.label_scheme_warning)
         f4.addRow("CFL number:", self.input_cfl)
         self.label_dt_phys   = QLabel("Physical dt [s]:")
         self.input_dt_phys   = QLineEdit("0.1")
@@ -576,9 +590,72 @@ class SetupDialog(QDialog):
         self.l_cy.setVisible(checked); self.input_cy.setVisible(checked)
         self._update_dim_inputs()
 
+    # reconstruction choices (label -> value of the `reconstruction` key) and the rules the solver enforces (Params.cpp)
+    _RECON_LABELS = {"MUSCL (limited, 2nd order)": "muscl", "WENO3-Z (3rd order)": "weno3", "WENO5-Z (5th order)": "weno5"}
+    _TIME_FOR = {"muscl": "SSP Runge-Kutta 2", "weno3": "SSP Runge-Kutta 3", "weno5": "SSP Runge-Kutta 3"}
+
+    def _recon_value(self):
+        return self._RECON_LABELS.get(self.combo_recon.currentText(), "muscl") if self.check_muscl.isChecked() else "muscl"
+
+    def _scheme_problems(self):
+        """(errors, warnings) of the chosen reconstruction / time integration / AMR / MPI combination, as the solver sees it."""
+        recon, time = self._recon_value(), self.combo_time.currentText()
+        errors, warnings = [], []
+        if self.check_amr.isChecked() and time == "SSP Runge-Kutta 3":
+            errors.append("AMR does not support SSP Runge-Kutta 3 yet (use SSP Runge-Kutta 2 or Runge-Kutta 4).")
+        if recon != "muscl":
+            name = self.combo_recon.currentText().split(" (")[0]
+            if self.check_amr.isChecked():
+                errors.append(f"{name} is not available with AMR yet: use MUSCL or switch AMR off.")
+            if recon == "weno5" and self.check_mpi.isChecked():
+                errors.append("WENO5-Z is serial for now (the MPI halo is two cells deep): use WENO3-Z or switch MPI off.")
+            if time == "SSP Runge-Kutta 2":
+                errors.append(f"{name} cannot run with SSP Runge-Kutta 2 (rejected by the solver): use SSP Runge-Kutta 3 or Runge-Kutta 4.")
+            elif time == "BDF2 Dual Time":
+                errors.append(f"{name} is not available with BDF2 Dual Time: use SSP Runge-Kutta 3 or Runge-Kutta 4.")
+            elif time == "Explicit Euler":
+                warnings.append(f"{name} with Explicit Euler is unstable at normal CFL (smoke test only): use SSP Runge-Kutta 3 or Runge-Kutta 4.")
+        return errors, warnings
+
+    def _bad_time_schemes(self):
+        """The time integrators that do not suit the chosen reconstruction (shown in colour in the list)."""
+        recon = self._recon_value()
+        bad = set()
+        if recon != "muscl":
+            bad |= {"Explicit Euler", "SSP Runge-Kutta 2", "BDF2 Dual Time"}
+        if self.check_amr.isChecked():
+            bad.add("SSP Runge-Kutta 3")
+        return bad
+
+    def _update_scheme_warning(self, *_):
+        errors, warnings = self._scheme_problems()
+        bad = self._bad_time_schemes()
+        from PyQt6.QtGui import QBrush, QColor
+        for i in range(self.combo_time.count()):
+            name = self.combo_time.itemText(i)
+            self.combo_time.setItemData(i, QBrush(QColor("#b45309")) if name in bad else None, Qt.ItemDataRole.ForegroundRole)
+            self.combo_time.setItemData(i, "Does not suit the selected reconstruction" if name in bad else "", Qt.ItemDataRole.ToolTipRole)
+        text = "\n".join(("Not allowed: " + e) for e in errors) + ("\n" if errors and warnings else "") + "\n".join("Warning: " + w for w in warnings)
+        self.label_scheme_warning.setText(text)
+        self.label_scheme_warning.setVisible(bool(text))
+
+    def _reconstruction_changed(self, *_):
+        """Switch the time integrator to the default of the new reconstruction when the current one does not suit it."""
+        recon = self._recon_value()
+        time = self.combo_time.currentText()
+        if recon != "muscl" and time in self._bad_time_schemes():
+            self.combo_time.setCurrentText(self._TIME_FOR[recon])
+        elif recon == "muscl" and time == "SSP Runge-Kutta 3" and getattr(self, "_time_auto_set", False):
+            self.combo_time.setCurrentText(self._TIME_FOR["muscl"])
+        self._time_auto_set = recon != "muscl"
+        self.label_limiter.setVisible(self.check_muscl.isChecked() and recon == "muscl")
+        self.combo_limiter.setVisible(self.check_muscl.isChecked() and recon == "muscl")
+        self._update_scheme_warning()
+
     def _toggle_muscl_inputs(self, checked):
-        self.label_limiter.setVisible(checked)
-        self.combo_limiter.setVisible(checked)
+        self.label_recon.setVisible(checked)
+        self.combo_recon.setVisible(checked)
+        self._reconstruction_changed()
 
     def _toggle_bdf2_inputs(self, text=""):
         is_bdf2 = (text == "BDF2 Dual Time")
@@ -673,6 +750,7 @@ class SetupDialog(QDialog):
             'ibm_cy': lambda v: self.input_cy.setText(str(v)),
             'use_muscl': lambda v: self.check_muscl.setChecked(bool(v)),
             'muscl_limiter': lambda v: set_combo(self.combo_limiter, v),
+            'reconstruction': lambda v: set_combo(self.combo_recon, next((k for k, x in self._RECON_LABELS.items() if x == str(v).lower()), "")),
             'dt_phys':        lambda v: self.input_dt_phys.setText(str(v)),
             'max_inner_iter': lambda v: self.input_max_inner.setText(str(v)),
             'inner_tol_rel':  lambda v: self.input_inner_tol.setText(str(v)),
@@ -700,6 +778,7 @@ class SetupDialog(QDialog):
         self._update_eos_ui(self.eos_combo.currentText())
         self._toggle_muscl_inputs(self.check_muscl.isChecked())
         self._toggle_bdf2_inputs(self.combo_time.currentText())
+        self._update_scheme_warning()
         self._toggle_hot_start_inputs(self.check_hot_start.isChecked())
         self._update_hot_start_target_info()
         self._toggle_amr_inputs(self.check_amr.isChecked())
@@ -805,6 +884,7 @@ class SetupDialog(QDialog):
                 'ibm_cy': float(self.input_cy.text()),
                 'use_muscl': self.check_muscl.isChecked(),
                 'muscl_limiter': self.combo_limiter.currentText(),
+                'reconstruction': self._recon_value(),
                 'dt_phys':        float(self.input_dt_phys.text()),
                 'max_inner_iter': int(self.input_max_inner.text()),
                 'inner_tol_rel':  float(self.input_inner_tol.text()),
@@ -824,6 +904,10 @@ class SetupDialog(QDialog):
             }
             if self.sim_params['nz'] < 1:
                 self._error( "Config Error", "Nz must be at least 1 (1 = 2-D).")
+                return False
+            scheme_errors, _ = self._scheme_problems()
+            if scheme_errors:
+                self._error("Config Error", "\n".join(scheme_errors))
                 return False
             if self.sim_params['nz'] > 1 and self.sim_params['use_amr']:
                 self._error( "Config Error", "AMR is 2-D only: set Nz = 1 or disable AMR.")

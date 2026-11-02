@@ -1,5 +1,5 @@
 ---
-title: Schemes - Riemann solvers, TVD limiters, MUSCL
+title: Schemes - Riemann solvers, TVD limiters, MUSCL, WENO
 nav: Schemes
 section: Modules
 order: 30
@@ -112,6 +112,47 @@ With limiting it is TVD and drops locally to 1st order at extrema.
 
 {{widget:MUSCL}}
 
+## WENO-Z reconstruction
+
+`reconstruction = weno3` or `weno5` (with `use_muscl = true`) replaces the limited linear reconstruction by a
+weighted combination of candidate stencils whose weights fall to zero across a discontinuity. The primitive
+variables are reconstructed component by component, as MUSCL does, and the rest of the face update (Riemann solver, shock blend,
+time integration) is unchanged. The WENO-Z weights (Borges et al. 2008) are
+
+$$\alpha_k = d_k\Bigl(1 + \frac{\tau}{\beta_k + \varepsilon}\Bigr), \qquad \omega_k = \frac{\alpha_k}{\sum_m \alpha_m}, \qquad
+  W_{L,i+1/2} = \sum_k \omega_k\,p_k$$
+
+with $d_k$ the weights that make the combination the linear upwind-biased scheme, $\beta_k$ the smoothness indicators of the
+stencils, $p_k$ their face values and $\tau$ a global indicator of the stencil.
+
+| | stencil | candidates | $d_k$ | $\tau$ |
+|---|---|---|---|---|
+| `weno3` | 3 cells $(i-1\ldots i+1)$ | 2 linear, 2 cells each | $\tfrac13, \tfrac23$ | $\lvert\beta_0 - \beta_1\rvert$ |
+| `weno5` | 5 cells $(i-2\ldots i+2)$ | 3 quadratic, 3 cells each | $\tfrac1{10}, \tfrac35, \tfrac3{10}$ | $\lvert\beta_0 - \beta_2\rvert$ |
+
+The right state of the face is the mirror image of the left one. $\varepsilon$ is relative to the data of the stencil,
+$\varepsilon = \texttt{weno\_epsilon}\cdot\overline{c^2}$: a fixed absolute $\varepsilon$ lowers the order at smooth extrema
+to about 2.5 whatever the units of the variable. The reconstruction is dimension by dimension on the cell averages, so the
+formal order of a multi-dimensional run is limited by the quadrature and by the nonlinear flux evaluation at the faces to second order, whatever the
+one-dimensional order; the higher order shows as a smaller error constant.
+
+**Measured** (1-D entropy wave with exact cell-average data, one period, RK4, observed order between successive meshes):
+`weno3` with `weno_epsilon = 1e-4` converges at 3.0; `weno5` at 5.0 (CFL 0.1; at CFL 0.5 with SSP-RK3 the time error takes over
+and the order falls to 3). The 2-D isentropic vortex at $256^2$: density error $6.4\cdot10^{-5}$ with MUSCL (MC),
+$4.8\cdot10^{-5}$ with `weno3` and $2.1\cdot10^{-6}$ with `weno5`. The 3-D Taylor-Green vortex at $64^3$, Re 1600:
+peak dissipation $-10.8\,\%$ (MUSCL), $-14.1\,\%$ (`weno3`) and $-0.2\,\%$ (`weno5`) from the reference value 0.0127. `weno5` takes
+about 2 to 4 times as long as MUSCL for the same run (it also uses a three-stage time scheme). `weno3` is not more accurate than MUSCL on the turbulent case.
+
+**Limits.**
+
+* The stencil is as deep as the MUSCL one for `weno3` (so it runs on MPI ranks, with results identical to the serial run bit
+  for bit and independent of the thread count); `weno5` reads three cells on each side and is serial.
+* Faces on a non-periodic physical boundary keep the first-order ghost states, as with MUSCL.
+* There is no positivity limiter. The strong-shock suite (Sod with a 1000:1 pressure ratio, the 123 problem, Mach 10, 20 and 100 tubes,
+  the Mach 10 cylinder, the odd-even test) is passed by `weno3` and `weno5`; the near-vacuum tube is passed by `weno3` but not by
+  `weno5`, where the run stalls.
+* Not available with AMR, and not with SSP-RK2 or BDF2 (the combination is rejected when the case is read).
+
 ### References
 
 * Toro, E.F., Spruce, M. & Speares, W. (1994). Restoration of the contact surface in
@@ -121,6 +162,10 @@ With limiting it is TVD and drops locally to 1st order at extrema.
   with low Mach number features. *J. Comput. Phys.* 227(10), 4873-4894.
 * Weiss, J.M. & Smith, W.A. (1995). Preconditioning applied to variable and constant
   density flows. *AIAA J.* 33(11), 2050-2057.
+* Borges, R., Carmona, M., Costa, B. & Don, W.S. (2008). An improved weighted essentially non-oscillatory scheme for
+  hyperbolic conservation laws. *J. Comput. Phys.* 227(6), 3191-3211.
+* Shu, C.-W. & Osher, S. (1988). Efficient implementation of essentially non-oscillatory shock-capturing schemes.
+  *J. Comput. Phys.* 77(2), 439-471.
 * LeVeque, R.J. (2002). *Finite Volume Methods for Hyperbolic Problems*. Cambridge University Press.
 * Koren, B. (1993). A robust upwind discretisation method for advection, diffusion and
   source terms. *Notes on Numerical Fluid Mechanics* 45.

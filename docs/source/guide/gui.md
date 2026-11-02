@@ -86,8 +86,11 @@ unchanged.
 ## Tabs
 
 * **Configuration.** Test case, mesh, thermodynamics (ideal / stiffened gas), viscous
-  fluxes, body forces, boundary conditions, numerical schemes (MUSCL and limiter,
-  Riemann solver, time integration, BDF2 settings), output, and MPI rank count.
+  fluxes, body forces, boundary conditions, numerical schemes (2nd-order path with its reconstruction, MUSCL with a limiter or WENO3-Z / WENO5-Z, Riemann solver,
+  time integration, BDF2 settings), output, and MPI rank count. Choosing a WENO reconstruction sets the time integration
+  to SSP Runge-Kutta 3 and colours, with a tooltip, the integrators that do not suit it; a combination the solver refuses
+  (WENO with SSP Runge-Kutta 2, BDF2 or AMR, WENO5 with MPI, SSP Runge-Kutta 3 with AMR) is explained under the list and
+  blocked when the run is started. Explicit Euler with WENO is allowed with a warning.
   Setting **Nz > 1** makes the run 3-D and shows the z inputs: Lz, the front/back BCs and,
   when enabled, the body force gz. Nz = 1 is a 2-D run.
 * **Immersed Boundaries.** Obstacle shape, radius and centre (CZ appears for 3-D).

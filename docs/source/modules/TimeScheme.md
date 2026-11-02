@@ -61,6 +61,19 @@ $$\mathbf U^{(1)} = \mathbf U^n + \Delta t\,\mathcal R(\mathbf U^n), \qquad
 The update is a convex combination of forward-Euler steps. Any TVD property of the
 Euler step therefore carries over, which makes SSP-RK2 the natural partner for MUSCL.
 
+## SSP-RK3
+
+The three-stage, third-order strong-stability-preserving method of Shu and Osher:
+
+$$\mathbf U^{(1)} = \mathbf U^n + \Delta t\,\mathcal R(\mathbf U^n), \qquad
+  \mathbf U^{(2)} = \tfrac34\mathbf U^n + \tfrac14\bigl(\mathbf U^{(1)} + \Delta t\,\mathcal R(\mathbf U^{(1)})\bigr), \qquad
+  \mathbf U^{n+1} = \tfrac13\mathbf U^n + \tfrac23\bigl(\mathbf U^{(2)} + \Delta t\,\mathcal R(\mathbf U^{(2)})\bigr)$$
+
+The residual is evaluated at $t$, $t+\Delta t$ and $t+\Delta t/2$ (time-dependent sources see these stage times). It has the same
+CFL limit as SSP-RK2 for the Euler step and is the integrator that goes with the WENO reconstructions
+([Schemes]({{root}}modules/Schemes.html)): SSP-RK2 is second order in time and is refused with them. Three residual evaluations per step.
+The adaptive-mesh path does not take it yet.
+
 ## RK4
 
 The classical four-stage scheme, 4th order in time:
