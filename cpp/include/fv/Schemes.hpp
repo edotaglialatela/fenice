@@ -36,6 +36,12 @@ public:
     // what face_flux gives, bit for bit (four faces at a time with AVX2 where the CPU has it, else one by one).
     void face_flux_batch(const State* UL, const State* UR, const int* axis, int n, State* F, double* smax) const;
 
+    // First-order scheme on a 2-D mesh (nz = 1) in one pass over rows of faces: R gets the flux balance of the cells,
+    // ((0 - (Fr dy - Fl dy)) - (Ft dx - Fb dx)) / area, of the fluxes between the cell states U; the faces of the sides take UL / UR
+    // (BoundaryManager::apply_boundary_conditions; the faces between two cells need not be set) and the face fluxes are never
+    // stored. Same values as compute_flux followed by the divergence. Returns the maximum wave speed.
+    double first_order_residual_2d(const Field& UL, const Field& UR, const Field& U, const Mesh& m, Field& R) const;
+
     // Like face_flux_batch for faces whose left / right states are the MUSCL reconstruction from the primitive states
     // W[st[4k]] .. W[st[4k+3]] (two cells each side of face k) with limiter `lim`: wl = c1 + 0.5 phi(c1 - c0, c2 - c1),
     // wr = c2 - 0.5 phi(c3 - c2, c2 - c1) per variable, converted to conservative form. Bit-identical to doing so one face at a time.
@@ -144,6 +150,12 @@ public:
     // maximum wave speed. Only for the MUSCL scheme (no WENO).
     double muscl_fluxes(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
                         const Halos& h, Field& F) const;
+
+    // The same for a 2-D mesh (nz = 1), with the flux balance of the cells taken in the same pass: R gets what muscl_fluxes
+    // followed by the divergence of the face fluxes, ((0 - (Fr dy - Fl dy)) - (Ft dx - Fb dx)) / area, gives, but the face
+    // fluxes never go to memory (a row of them at a time). Returns the maximum wave speed.
+    double muscl_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
+                             const Halos& h, Field& R) const;
 
     // Active limiter.
     Limiter limiter() const { return lim_; }

@@ -661,10 +661,11 @@ Field Simulation::initial_field() const {
 
 // Reconstruction and Riemann solver in one pass (MusclReconstruction::muscl_fluxes): the MUSCL scheme on the AVX2 kernels; the
 // results are the same as with the two passes (FENICE_NO_FUSED=1 takes those, for A/B timing).
-static bool fused_muscl(const MusclReconstruction& mu) {
+static bool fused_enabled() {
     static const bool off = switch_on("FENICE_NO_FUSED");
-    return !off && mu.scheme() == Reconstruction::Muscl;
+    return !off;
 }
+static bool fused_muscl(const MusclReconstruction& mu) { return fused_enabled() && mu.scheme() == Reconstruction::Muscl; }
 
 double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const ImmersedBoundary* ib,
                             const MusclReconstruction* mu, const Field& U_in, Field& R, const StripHalos* halos) {
@@ -683,7 +684,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     // with a reconstruction every face between two cells is overwritten below: only the sides need their first-order states
     {
         ProfileScope ps(Section::Boundary);
-        bm.apply_boundary_conditions(*Uc, UL_, UR_, halos ? &th : nullptr, mu == nullptr);
+        bm.apply_boundary_conditions(*Uc, UL_, UR_, halos ? &th : nullptr, !(mu ? true : fused_enabled()));
     }
 
     Halos mh;
@@ -746,33 +747,36 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     }
     double S;
     if (mu && fused_muscl(*mu)) {
-        ProfileScope ps(Section::Flux);   // reconstruction and Riemann solver in one pass
-        S = mu->muscl_fluxes(riemann, UL_, UR_, *Uc, m, mh, F_);
+        // reconstruction, Riemann solver and flux balance in one pass over rows of faces: the face fluxes are not stored
+        ProfileScope ps(Section::Flux);
+        S = mu->muscl_residual_2d(riemann, UL_, UR_, *Uc, m, mh, R);
+    } else if (!mu && fused_enabled()) {
+        ProfileScope ps(Section::Flux);   // first order: the same pass, the states of the faces are the cells
+        S = riemann.first_order_residual_2d(UL_, UR_, *Uc, m, R);
     } else {
         if (mu) {
             ProfileScope ps(Section::Reconstruct);
             mu->reconstruct(UL_, UR_, *Uc, nx, ny, mh);
         }
-        ProfileScope ps(Section::Flux);
-        S = riemann.compute_flux(UL_, UR_, m, F_);
-    }
-
-    ProfileScope divergence_scope(Section::Divergence);
-    R.resize(Uc->size());
-    const double inv_area = 1.0 / m.cell_area(), dxl = m.dx, dyl = m.dy;
-#pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
-    for (int j = 0; j < ny; ++j)
-        for (int i = 0; i < nx; ++i) {
-            const State& fl = F_[j * (nx + 1) + i];
-            const State& fr = F_[j * (nx + 1) + i + 1];
-            const State& fb = F_[nxf + j * nx + i];
-            const State& ft = F_[nxf + (j + 1) * nx + i];
-            State& r = R[j * nx + i];
-            for (int q = 0; q < kNVar; ++q)
-                r[q] = ((0.0 - (fr[q] * dyl - fl[q] * dyl)) - (ft[q] * dxl - fb[q] * dxl)) * inv_area;
+        {
+            ProfileScope ps(Section::Flux);
+            S = riemann.compute_flux(UL_, UR_, m, F_);
         }
-
-    divergence_scope.stop();
+        ProfileScope ps(Section::Divergence);
+        R.resize(Uc->size());
+        const double inv_area = 1.0 / m.cell_area(), dxl = m.dx, dyl = m.dy;
+#pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i) {
+                const State& fl = F_[j * (nx + 1) + i];
+                const State& fr = F_[j * (nx + 1) + i + 1];
+                const State& fb = F_[nxf + j * nx + i];
+                const State& ft = F_[nxf + (j + 1) * nx + i];
+                State& r = R[j * nx + i];
+                for (int q = 0; q < kNVar; ++q)
+                    r[q] = ((0.0 - (fr[q] * dyl - fl[q] * dyl)) - (ft[q] * dxl - fb[q] * dxl)) * inv_area;
+            }
+    }
     if (ns) {
         ProfileScope ps(Section::Viscous);
         bm.get_padded_U(*Uc, Upad_);
