@@ -5,6 +5,11 @@
 #include <cmath>
 #include <string>
 #include <stdexcept>
+#include <vector>
+
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 
 #include "fv/MemoryBytes.hpp"
 
@@ -166,16 +171,32 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
     };
 
     const double area = mesh.cell_area();
-#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-    for (int j = 0; j < ny; ++j) {
-        State Fl = xflux(j, 0);
-        for (int i = 0; i < nx; ++i) {
-            const State Fr = xflux(j, i + 1);
-            const State Gb = yflux(j, i);
-            const State Gt = yflux(j + 1, i);
-            State& r = Rv[j * nx + i];
-            for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) / area;
-            Fl = Fr;
+    // Every face flux is evaluated once: a thread owns a block of consecutive rows, evaluates the lower y-fluxes of
+    // its first row, and the upper y-fluxes of a row are the lower ones of the next (the values do not depend on how
+    // the rows are shared out, so the result is the same on any number of threads).
+#pragma omp parallel if (n >= kOmpMinWork)
+    {
+        int nthreads = 1, tid = 0;
+#ifdef _OPENMP
+        nthreads = omp_get_num_threads();
+        tid = omp_get_thread_num();
+#endif
+        const int j0 = static_cast<int>(static_cast<long long>(ny) * tid / nthreads);
+        const int j1 = static_cast<int>(static_cast<long long>(ny) * (tid + 1) / nthreads);
+        std::vector<State> below(j0 < j1 ? nx : 0), above(j0 < j1 ? nx : 0);
+        for (int i = 0; j0 < j1 && i < nx; ++i) below[i] = yflux(j0, i);
+        for (int j = j0; j < j1; ++j) {
+            State Fl = xflux(j, 0);
+            for (int i = 0; i < nx; ++i) {
+                const State Fr = xflux(j, i + 1);
+                const State& Gb = below[i];
+                const State Gt = yflux(j + 1, i);
+                above[i] = Gt;
+                State& r = Rv[j * nx + i];
+                for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) / area;
+                Fl = Fr;
+            }
+            below.swap(above);
         }
     }
 
