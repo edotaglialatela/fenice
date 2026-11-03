@@ -60,7 +60,7 @@ void compute_gradients_3d(const Field& P, const Mesh& m, Field& gx, Field& gy, F
 // ---------------------------------------------------------------------------
 
 double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Field& gY, const Mesh& mesh,
-                                      const Field& U_pad, Field& Rv, const CrossGhosts* cg) const {
+                                      const Field& U_pad, Field& Rv, const CrossGhosts* cg, bool accumulate) const {
     constexpr double MU_DIAG = 4.0 / 3.0;
     constexpr double MU_OFF = 2.0 / 3.0;
 
@@ -69,11 +69,11 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
     const double gamma = eos_.gamma;
     const double k_cond = mu_ * gamma / (Pr_ * (gamma - 1.0));
 
-    cons_to_prim(eos_, U, W_);
+    // The primitive state of the padded array; the interior of U_pad is a copy of U, so a cell's primitive state is its entry there.
     cons_to_prim(eos_, U_pad, W_pad_);
-    const Field& W = W_;
     const Field& Wp = W_pad_;
     const int PW = nx + 2;
+    const auto W = [&](int j, int i) -> const State& { return Wp[(j + 1) * PW + i + 1]; };
 
     // Per-cell scalars: u, v, T, du/dx, du/dy, dv/dx, dv/dy
     scratch_.resize(static_cast<size_t>(7) * n);
@@ -85,24 +85,27 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
     double* dvdx = dudy + n;
     double* dvdy = dvdx + n;
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-    for (int c = 0; c < n; ++c) {
-        const double rho = W[c][0], u = W[c][1], v = W[c][2];
-        su[c] = u;
-        sv[c] = v;
-        sT[c] = W[c][3] / rho;
-        const double drx = gX[c][0], dry = gY[c][0];
-        dudx[c] = (gX[c][1] - u * drx) / rho;
-        dudy[c] = (gY[c][1] - u * dry) / rho;
-        dvdx[c] = (gX[c][2] - v * drx) / rho;
-        dvdy[c] = (gY[c][2] - v * dry) / rho;
-    }
+    for (int j = 0; j < ny; ++j)
+        for (int i = 0; i < nx; ++i) {
+            const int c = j * nx + i;
+            const State& w = W(j, i);
+            const double rho = w[0], u = w[1], v = w[2];
+            su[c] = u;
+            sv[c] = v;
+            sT[c] = w[3] / rho;
+            const double drx = gX[c][0], dry = gY[c][0];
+            dudx[c] = (gX[c][1] - u * drx) / rho;
+            dudy[c] = (gY[c][1] - u * dry) / rho;
+            dvdx[c] = (gX[c][2] - v * drx) / rho;
+            dvdy[c] = (gY[c][2] - v * dry) / rho;
+        }
 
     // Ghost values from the padded state (wall BCs); temperature is adiabatic
     auto gU = [&](int jj, int ii) { return Wp[jj * PW + ii][1]; };
     auto gV = [&](int jj, int ii) { return Wp[jj * PW + ii][2]; };
     auto gT = [&](int jj, int ii) { return Wp[jj * PW + ii][3] / Wp[jj * PW + ii][0]; };
 
-    Rv.assign(n, State{0, 0, 0, 0});
+    if (!accumulate) Rv.assign(n, State{0, 0, 0, 0});
 
     // X-faces: F(j, i) for i = 0..nx; left cell i-1, right cell i
     auto xflux = [&](int j, int i) -> State {
@@ -193,7 +196,10 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
                 const State Gt = yflux(j + 1, i);
                 above[i] = Gt;
                 State& r = Rv[j * nx + i];
-                for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) / area;
+                if (accumulate)
+                    for (int q = 0; q < kNVar; ++q) r[q] += ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) / area;
+                else
+                    for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) / area;
                 Fl = Fr;
             }
             below.swap(above);
@@ -213,13 +219,15 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
     {
         double local = 0.0;   // thread-local maximum (OpenMP 2.0 has no max reduction); a max is order independent
 #pragma omp for schedule(static) nowait
-        for (int c = 0; c < n; ++c) {
-            const double rho = W[c][0];
-            const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
-            const double s = std::max(std::abs(W[c][1]), std::abs(W[c][2])) + eos_.sound_speed(W[c][3], rho) +
-                             2.0 * L * inv_h2 * nu_eff;
-            local = std::max(local, s);
-        }
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i) {
+                const State& w = W(j, i);
+                const double rho = w[0];
+                const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+                const double s = std::max(std::abs(w[1]), std::abs(w[2])) + eos_.sound_speed(w[3], rho) +
+                                 2.0 * L * inv_h2 * nu_eff;
+                local = std::max(local, s);
+            }
 #pragma omp critical(fv_viscous_speed)
         s_max = std::max(s_max, local);
     }
@@ -231,7 +239,7 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
 // face averages of the cell-centre gradients otherwise (the "cross" terms).
 double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const Field& gY, const Field& gZ,
                                          const Mesh& m, const Field& U_pad, Field& Rv, const CrossGhosts* cg,
-                                         double length) const {
+                                         double length, bool accumulate) const {
     constexpr double MU_DIAG = 4.0 / 3.0;
     constexpr double MU_OFF = 2.0 / 3.0;
     const int nx = m.nx, ny = m.ny, nz = m.nz, n = nx * ny * nz;
@@ -240,10 +248,12 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
     const double k_cond = mu_ * gamma / (Pr_ * (gamma - 1.0));
     const int PX = nx + 2, PY = ny + 2;
 
-    cons_to_prim(eos_, U, W_);
+    // The interior of U_pad is a copy of U: the primitive state of a cell is its entry in the padded one.
     cons_to_prim(eos_, U_pad, W_pad_);
-    const Field& W = W_;
     const Field& Wp = W_pad_;
+    const auto W = [&](int i, int j, int k) -> const State& {
+        return Wp[(static_cast<size_t>(k + 1) * PY + j + 1) * PX + i + 1];
+    };
 
     // Per cell: velocity (3), T, and G[a][b] (9)
     scratch_.resize(static_cast<size_t>(13) * n);
@@ -254,13 +264,18 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
         for (int b = 0; b < 3; ++b) G[a][b] = scratch_.data() + (4 + 3 * a + b) * static_cast<size_t>(n);
     const Field* grads[3] = {&gX, &gY, &gZ};
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-    for (int cc = 0; cc < n; ++cc) {
-        const double rho = W[cc][0];
-        sT[cc] = W[cc][3] / rho;
-        for (int a = 0; a < 3; ++a) {
-            const double ua = W[cc][kMom[a]];
-            vel[a][cc] = ua;
-            for (int b = 0; b < 3; ++b) G[a][b][cc] = ((*grads[b])[cc][kMom[a]] - ua * (*grads[b])[cc][0]) / rho;
+    for (int kj = 0; kj < ny * nz; ++kj) {
+        const int j = kj % ny, k = kj / ny;
+        for (int i = 0; i < nx; ++i) {
+            const int cc = (k * ny + j) * nx + i;
+            const State& w = W(i, j, k);
+            const double rho = w[0];
+            sT[cc] = w[3] / rho;
+            for (int a = 0; a < 3; ++a) {
+                const double ua = w[kMom[a]];
+                vel[a][cc] = ua;
+                for (int b = 0; b < 3; ++b) G[a][b][cc] = ((*grads[b])[cc][kMom[a]] - ua * (*grads[b])[cc][0]) / rho;
+            }
         }
     }
     auto padded = [&](int ii, int jj, int kk) -> const State& {
@@ -392,7 +407,7 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
         }
     }
 
-    Rv.assign(n, State{});
+    if (!accumulate) Rv.assign(n, State{});
     const double vol = m.cell_volume();
     // Bind the thread_local arrays here: inside the parallel region each thread would see its own (empty) copy
     const Field& F0 = Fax[0];
@@ -409,8 +424,12 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
             const State& ff = F2[(k * ny + j) * nx + i];
             const State& fk = F2[((k + 1) * ny + j) * nx + i];
             State& r = Rv[m.cell(i, j, k)];
-            for (int q = 0; q < kNVar; ++q)
-                r[q] = (((0.0 + (fr[q] - fl[q])) + (ft[q] - fb[q])) + (fk[q] - ff[q])) / vol;
+            if (accumulate)
+                for (int q = 0; q < kNVar; ++q)
+                    r[q] += (((0.0 + (fr[q] - fl[q])) + (ft[q] - fb[q])) + (fk[q] - ff[q])) / vol;
+            else
+                for (int q = 0; q < kNVar; ++q)
+                    r[q] = (((0.0 + (fr[q] - fl[q])) + (ft[q] - fb[q])) + (fk[q] - ff[q])) / vol;
         }
     }
 
@@ -424,12 +443,16 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
     {
         double local = 0.0;
 #pragma omp for schedule(static) nowait
-        for (int cc = 0; cc < n; ++cc) {
-            const double rho = W[cc][0];
-            const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
-            const double s = std::max({std::abs(W[cc][1]), std::abs(W[cc][2]), std::abs(W[cc][4])}) +
-                             eos_.sound_speed(W[cc][3], rho) + 2.0 * L * inv_h2 * nu_eff;
-            local = std::max(local, s);
+        for (int kj = 0; kj < ny * nz; ++kj) {
+            const int j = kj % ny, k = kj / ny;
+            for (int i = 0; i < nx; ++i) {
+                const State& w = W(i, j, k);
+                const double rho = w[0];
+                const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+                const double s = std::max({std::abs(w[1]), std::abs(w[2]), std::abs(w[4])}) +
+                                 eos_.sound_speed(w[3], rho) + 2.0 * L * inv_h2 * nu_eff;
+                local = std::max(local, s);
+            }
         }
 #pragma omp critical(fv_viscous_speed)
         s_max = std::max(s_max, local);

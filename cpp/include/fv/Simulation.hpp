@@ -157,7 +157,7 @@ private:
                      const std::array<double, 3>& res) const;
 
     // Scratch buffers reused across residual evaluations
-    Field Uf_, UL_, UR_, F_, Upad_, gX_, gY_, Rv_;
+    Field Uf_, UL_, UR_, F_, Upad_, gX_, gY_;
     Field perL_, perR_, perB_, perT_, perF_, perK_;   // wrap-around MUSCL halos of periodic axes
     Field ghL_, ghR_, ghB_, ghT_, ghF_, ghK_;         // ghost layers of the physical sides (boundary_order = 2)
     Field gZ_;

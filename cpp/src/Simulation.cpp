@@ -811,11 +811,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
                 cg.hi_b = hi_b.data();
             }
         }
-        const double s_visc = ns->viscous_residual(*Uc, gX_, gY_, m, Upad_, Rv_, &cg);
-        const int n = static_cast<int>(R.size());
-#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-        for (int c = 0; c < n; ++c)
-            for (int q = 0; q < kNVar; ++q) R[c][q] += Rv_[c][q];
+        const double s_visc = ns->viscous_residual(*Uc, gX_, gY_, m, Upad_, R, &cg, true);
         S = std::max(S, s_visc);
     }
 
@@ -998,11 +994,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         }
         bm.fix_padded_corners(Upad_, halos ? (halos->dir == 'x' ? 0 : 1) : -1, halos && halos->lo, halos && halos->hi);
         compute_gradients_3d(Upad_, m, gX_, gY_, gZ_);
-        const double s_visc = ns->viscous_residual_3d(Uv, gX_, gY_, gZ_, m, Upad_, Rv_, &cg, dt_length);
-        const int n = static_cast<int>(R.size());
-#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-        for (int cc = 0; cc < n; ++cc)
-            for (int q = 0; q < kNVar; ++q) R[cc][q] += Rv_[cc][q];
+        const double s_visc = ns->viscous_residual_3d(Uv, gX_, gY_, gZ_, m, Upad_, R, &cg, dt_length, true);
         S = std::max(S, s_visc);
     }
 
