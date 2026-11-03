@@ -31,6 +31,14 @@ loops. The CPU check that decides whether they run is compiled without AVX, so t
 face flux stays scalar: its vector version was slower than the scalar loop (1.1 to 1.25 s against 0.88 s), the kernel being dominated
 by scattered loads with three divisions per face.
 
+**Fused passes.** On a uniform mesh the residual is computed in one pass over rows of faces: the MUSCL reconstruction (or the
+cell states, first order), the Riemann solver and, in 2-D, the flux balance of the cells run on a row at a time, so the face fluxes
+and the left / right states never go to memory (the solver is bandwidth-bound on many threads). `FENICE_NO_FUSED=1` takes the
+separate passes; the two give the same bits (`fused_residual_passes_equal_the_two_pass_residual_bit_for_bit`). The primitive
+variables share one reciprocal of the density and the divergence multiplies by the reciprocal of the cell area, so the divisions
+per face are few. Measured on a Ryzen 7 7800X3D (ns per cell-stage, 1 / 16 threads): Sod MUSCL 2000x200 54 / 11, first order
+41 / 9, Kelvin-Helmholtz 512^2 58 / 13, viscous Taylor-Green 512^2 126 / 26, 3-D Taylor-Green 64^3 250 / 61.
+
 **Loop parallelism.** Loops shorter than `kOmpMinWork` (4096 items) run on one thread,
 because OpenMP fork/join would cost more than the work. All reductions, such as the
 maximum wave speed and the BDF2 residual norm, are order-independent maxima. Results are
