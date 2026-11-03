@@ -38,7 +38,7 @@ solver's own.
 | Monitor | live plots (time step, wave speed, residual norms, monitor columns) and the console, linked to a solver, also in the middle of a run | exists |
 | Postprocessing | the viewer: fields, slices, adaptive meshes, monitor curves, following a run | exists |
 | Studies | the validation studies and the regression, with their pass or fail | proposed |
-| Thermochemistry | species, mechanism and reference reactor, when the species work exists (`species-target-cases.md`) | later |
+| Thermochemistry | species, mechanism and reference reactor, when the species work exists (`postprocessing-and-species.md`, part B) | later |
 | Mesh (unstructured) | only if the unstructured solver is built (`unstructured-solver.md`) | later |
 
 ## Run: stopping

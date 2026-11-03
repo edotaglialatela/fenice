@@ -1,7 +1,7 @@
 # An unstructured-mesh solver: proposal
 
 Status: proposal, nothing implemented, no decision taken. Whether to do it, and in which order against the species work
-(`species-target-cases.md`), is the user's.
+(`postprocessing-and-species.md`, part B), is the user's.
 
 ## Why, and why not
 
