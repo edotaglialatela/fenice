@@ -80,6 +80,10 @@ struct NpyArray {
 // Arrays of an .npz file by key (file name without '.npy').
 using NpzArchive = std::map<std::string, NpyArray>;
 
+// Renames `from` over `to` (atomic replace). On Windows a reader that has `to` open (GUI monitor, ParaView, antivirus)
+// makes the rename fail for a moment: it is retried a few times, then the error is thrown.
+void rename_replace(const std::string& from, const std::string& to);
+
 // Uncompressed (ZIP_STORED) archive, readable by numpy.load.
 void write_npz(const std::string& path, const NpzArchive& arrays);
 // Reads archives written by numpy.savez (stored entries, zip64 aware).

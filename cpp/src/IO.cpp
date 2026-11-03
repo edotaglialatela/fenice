@@ -2,6 +2,7 @@
 
 #include <array>
 #include <charconv>
+#include <chrono>
 #include <cstdio>
 #include <cstring>
 #include <filesystem>
@@ -9,6 +10,7 @@
 #include <iostream>
 #include <sstream>
 #include <stdexcept>
+#include <thread>
 
 #include "fv/CellMesh.hpp"
 #include "fv/SolutionMapping.hpp"
@@ -16,6 +18,16 @@
 namespace fs = std::filesystem;
 
 namespace fv {
+
+void rename_replace(const std::string& from, const std::string& to) {
+    for (int attempt = 0;; ++attempt) {
+        std::error_code ec;
+        fs::rename(from, to, ec);
+        if (!ec) return;
+        if (attempt >= 9) throw fs::filesystem_error("Cannot rename " + from + " to " + to, from, to, ec);
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+    }
+}
 
 namespace {
 
@@ -27,7 +39,7 @@ void write_file_atomic(const fs::path& path, const std::string& content) {
         if (!out) throw std::runtime_error("Cannot write " + tmp.string());
         out.write(content.data(), static_cast<std::streamsize>(content.size()));
     }
-    fs::rename(tmp, path);   // atomic replace: readers never see partial files
+    rename_replace(tmp.string(), path.string());   // atomic replace: readers never see partial files
 }
 
 // Replace NaN/Inf/subnormal values so ParaView's float32 parser accepts them.

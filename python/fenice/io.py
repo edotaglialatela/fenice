@@ -31,7 +31,9 @@ def read_pvd(where):
     case output folder holding it."""
     p = Path(where)
     if p.is_dir():
-        p = next(p.glob("*.pvd"))
+        p = next(p.glob("*.pvd"), None)
+        if p is None:
+            raise FileNotFoundError(f"no .pvd file in {where}")
     root = ET.parse(p).getroot()
     return [(float(d.get("timestep")), str(p.parent / d.get("file"))) for d in root.iter("DataSet")]
 
@@ -82,7 +84,9 @@ def read_monitor(where):
     numpy structured array, one row per distinct time. `where`: the CSV or its case folder."""
     p = Path(where)
     if p.is_dir():
-        p = next(p.glob("*_monitor.csv"))
+        p = next(p.glob("*_monitor.csv"), None)
+        if p is None:
+            raise FileNotFoundError(f"no *_monitor.csv file in {where}")
     d = np.genfromtxt(p, delimiter=",", names=True)
     _, keep = np.unique(d["t"], return_index=True)   # the last row may repeat the final time
     return d[np.sort(keep)]

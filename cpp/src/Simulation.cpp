@@ -1043,7 +1043,7 @@ void Simulation::save_checkpoint(int step, const LeafArrays* leaves) {
     a["collection_time"] = NpyArray::from_doubles(times, {static_cast<int64_t>(times.size())});
     a["collection_file"] = NpyArray::from_strings(files);
     write_npz(tmp, a);
-    fs::rename(tmp, path);
+    rename_replace(tmp, path);
 }
 
 int Simulation::load_checkpoint() {
