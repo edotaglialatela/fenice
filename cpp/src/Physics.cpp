@@ -173,7 +173,7 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
         return {0.0, tau_yx * dx, tau_yy * dx, (u_f * tau_yx + v_f * tau_yy - q_y) * dx};
     };
 
-    const double area = mesh.cell_area();
+    const double inv_area = 1.0 / mesh.cell_area();
     // Every face flux is evaluated once: a thread owns a block of consecutive rows, evaluates the lower y-fluxes of
     // its first row, and the upper y-fluxes of a row are the lower ones of the next (the values do not depend on how
     // the rows are shared out, so the result is the same on any number of threads).
@@ -197,9 +197,9 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
                 above[i] = Gt;
                 State& r = Rv[j * nx + i];
                 if (accumulate)
-                    for (int q = 0; q < kNVar; ++q) r[q] += ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) / area;
+                    for (int q = 0; q < kNVar; ++q) r[q] += ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) * inv_area;
                 else
-                    for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) / area;
+                    for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) * inv_area;
                 Fl = Fr;
             }
             below.swap(above);
@@ -408,7 +408,7 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
     }
 
     if (!accumulate) Rv.assign(n, State{});
-    const double vol = m.cell_volume();
+    const double inv_vol = 1.0 / m.cell_volume();
     // Bind the thread_local arrays here: inside the parallel region each thread would see its own (empty) copy
     const Field& F0 = Fax[0];
     const Field& F1 = Fax[1];
@@ -426,10 +426,10 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
             State& r = Rv[m.cell(i, j, k)];
             if (accumulate)
                 for (int q = 0; q < kNVar; ++q)
-                    r[q] += (((0.0 + (fr[q] - fl[q])) + (ft[q] - fb[q])) + (fk[q] - ff[q])) / vol;
+                    r[q] += (((0.0 + (fr[q] - fl[q])) + (ft[q] - fb[q])) + (fk[q] - ff[q])) * inv_vol;
             else
                 for (int q = 0; q < kNVar; ++q)
-                    r[q] = (((0.0 + (fr[q] - fl[q])) + (ft[q] - fb[q])) + (fk[q] - ff[q])) / vol;
+                    r[q] = (((0.0 + (fr[q] - fl[q])) + (ft[q] - fb[q])) + (fk[q] - ff[q])) * inv_vol;
         }
     }
 

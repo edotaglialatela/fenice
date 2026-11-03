@@ -99,13 +99,14 @@ Reconstruction parse_reconstruction(const std::string& s_in) {
 // ---------------------------------------------------------------------------
 
 State RiemannSolver::hllc(const State& UL, const State& UR, int axis, double& smax) const {
-    const State WL = eos_.cons_to_prim(UL);
-    const State WR = eos_.cons_to_prim(UR);
+    double inv_L, inv_R;
+    const State WL = eos_.cons_to_prim(UL, &inv_L);
+    const State WR = eos_.cons_to_prim(UR, &inv_R);
     const double rho_L = WL[0], p_L = WL[3];
     const double rho_R = WR[0], p_R = WR[3];
     const double vel_L[3] = {WL[1], WL[2], WL[4]};
     const double vel_R[3] = {WR[1], WR[2], WR[4]};
-    const double E_L = UL[3] / rho_L, E_R = UR[3] / rho_R;
+    const double E_L = UL[3] * inv_L, E_R = UR[3] * inv_R;
 
     // Axis-aligned face: the normal velocity is the `axis` component, the other two are tangential
     const double Vn_L = vel_L[axis];
@@ -124,8 +125,8 @@ State RiemannSolver::hllc(const State& UL, const State& UR, int axis, double& sm
     FL[3] = Vn_L * (rho_L * E_L + p_L);
     FR[3] = Vn_R * (rho_R * E_R + p_R);
 
-    const double c_L = eos_.sound_speed(p_L, rho_L);
-    const double c_R = eos_.sound_speed(p_R, rho_R);
+    const double c_L = eos_.sound_speed_inv(p_L, inv_L);
+    const double c_R = eos_.sound_speed_inv(p_R, inv_R);
 
     double S_L, S_R;
     if (type_ == RiemannType::PreconditionedHLLC) {

@@ -180,10 +180,13 @@ struct EOS {
         return {rho, rho * u, rho * v, e + ke, rho * w};
     }
 
-    // Conservative -> primitive; density and pressure are floored at kEosEps.
-    State cons_to_prim(const State& U) const {
+    // Conservative -> primitive; density and pressure are floored at kEosEps. One division: the velocities are the momenta
+    // times 1 / rho, which `inv_rho` (when given) returns for the caller's own divisions by the density.
+    State cons_to_prim(const State& U, double* inv_rho = nullptr) const {
         const double rho = std::max(U[0], kEosEps);
-        const double u = U[1] / rho, v = U[2] / rho, w = U[4] / rho;
+        const double inv = 1.0 / rho;
+        if (inv_rho) *inv_rho = inv;
+        const double u = U[1] * inv, v = U[2] * inv, w = U[4] * inv;
         double p;
         if (type == Type::IdealGas) {
             p = (gamma - 1.0) * (U[3] - 0.5 * rho * (u * u + v * v + w * w));
@@ -198,6 +201,11 @@ struct EOS {
     double sound_speed(double p, double rho) const {
         if (type == Type::IdealGas) return std::sqrt(gamma * std::max(p, kEosEps) / std::max(rho, kEosEps));
         return std::sqrt(gamma * (p + p_inf) / std::max(rho, kEosEps));
+    }
+    // The same from the inverse of a density that is already floored (cons_to_prim's `inv_rho`): no division.
+    double sound_speed_inv(double p, double inv_rho) const {
+        if (type == Type::IdealGas) return std::sqrt(gamma * std::max(p, kEosEps) * inv_rho);
+        return std::sqrt(gamma * (p + p_inf) * inv_rho);
     }
 };
 

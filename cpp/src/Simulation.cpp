@@ -759,7 +759,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
 
     ProfileScope divergence_scope(Section::Divergence);
     R.resize(Uc->size());
-    const double area = m.cell_area(), dxl = m.dx, dyl = m.dy;
+    const double inv_area = 1.0 / m.cell_area(), dxl = m.dx, dyl = m.dy;
 #pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
     for (int j = 0; j < ny; ++j)
         for (int i = 0; i < nx; ++i) {
@@ -769,7 +769,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
             const State& ft = F_[nxf + (j + 1) * nx + i];
             State& r = R[j * nx + i];
             for (int q = 0; q < kNVar; ++q)
-                r[q] = ((0.0 - (fr[q] * dyl - fl[q] * dyl)) - (ft[q] * dxl - fb[q] * dxl)) / area;
+                r[q] = ((0.0 - (fr[q] * dyl - fl[q] * dyl)) - (ft[q] * dxl - fb[q] * dxl)) * inv_area;
         }
 
     divergence_scope.stop();
@@ -937,7 +937,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
 
     ProfileScope divergence_scope(Section::Divergence);
     R.resize(Uv.size());
-    const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), vol = m.cell_volume();
+    const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
     for (int kj = 0; kj < ny * nz; ++kj) {
         const int j = kj % ny, k = kj / ny;
@@ -951,7 +951,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
             State& r = R[m.cell(i, j, k)];
             for (int q = 0; q < kNVar; ++q)
                 r[q] =
-                    (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) / vol;
+                    (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) * inv_vol;
         }
     }
 

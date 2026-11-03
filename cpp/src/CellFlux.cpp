@@ -1467,11 +1467,11 @@ void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Fie
                 }
             }
         }
-        const double area = m.area(c);
+        const double inv_area = 1.0 / m.area(c);   // the same multiplication by 1 / area as the uniform solver's
         State& r = R[c - cb];
-        for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 - (G[1][q] - G[0][q])) - (G[3][q] - G[2][q])) / area;
+        for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 - (G[1][q] - G[0][q])) - (G[3][q] - G[2][q])) * inv_area;
         if (visc)
-            for (int q = 0; q < kNVar; ++q) r[q] += ((0.0 + (H[1][q] - H[0][q])) + (H[3][q] - H[2][q])) / area;
+            for (int q = 0; q < kNVar; ++q) r[q] += ((0.0 + (H[1][q] - H[0][q])) + (H[3][q] - H[2][q])) * inv_area;
         if (phys_.body) {
             const ConstantBodyForce& bf = *phys_.body;
             r[1] += U[c][0] * bf.gx;

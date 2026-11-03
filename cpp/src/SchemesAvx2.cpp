@@ -57,11 +57,13 @@ struct VEos {
         : ideal(e.type == EOS::Type::IdealGas), gamma(set1(e.gamma)), gm1(set1(e.gamma - 1.0)), gpinf(set1(e.gamma * e.p_inf)),
           pinf(set1(e.p_inf)), eps(set1(kEosEps)), half(set1(0.5)) {}
 
-    // EOS::cons_to_prim, [rho, u, v, p, w]
-    Vec5 cons_to_prim(const Vec5& U) const {
+    // EOS::cons_to_prim, [rho, u, v, p, w]; `inv_rho` receives 1 / rho
+    Vec5 cons_to_prim(const Vec5& U, V* inv_rho = nullptr) const {
         Vec5 W;
         const V rho = vmax(U.q[0], eps);
-        const V u = dv(U.q[1], rho), v = dv(U.q[2], rho), w = dv(U.q[4], rho);
+        const V inv = dv(set1(1.0), rho);
+        if (inv_rho) *inv_rho = inv;
+        const V u = mul(U.q[1], inv), v = mul(U.q[2], inv), w = mul(U.q[4], inv);
         const V ke = mul(mul(half, rho), add(add(mul(u, u), mul(v, v)), mul(w, w)));
         V p;
         if (ideal)
@@ -88,6 +90,11 @@ struct VEos {
         U.q[4] = mul(rho, w);
         return U;
     }
+    // EOS::sound_speed_inv
+    V sound_speed_inv(V p, V inv_rho) const {
+        if (ideal) return vsqrt(mul(mul(gamma, vmax(p, eps)), inv_rho));
+        return vsqrt(mul(mul(gamma, add(p, pinf)), inv_rho));
+    }
     // EOS::sound_speed
     V sound_speed(V p, V rho) const {
         if (ideal) return vsqrt(dv(mul(gamma, vmax(p, eps)), vmax(rho, eps)));
@@ -104,10 +111,11 @@ struct AxisMasks {
 
 // RiemannSolver::hllc for four faces
 void hllc4(const VEos& E, RiemannType type, double ma_cut, double sb, const AxisMasks& ax, const Vec5& UL, const Vec5& UR, Vec5& F, V& smax) {
-    const Vec5 WL = E.cons_to_prim(UL), WR = E.cons_to_prim(UR);
+    V inv_L, inv_R;
+    const Vec5 WL = E.cons_to_prim(UL, &inv_L), WR = E.cons_to_prim(UR, &inv_R);
     const V rho_L = WL.q[0], p_L = WL.q[3], rho_R = WR.q[0], p_R = WR.q[3];
     const V velL[3] = {WL.q[1], WL.q[2], WL.q[4]}, velR[3] = {WR.q[1], WR.q[2], WR.q[4]};
-    const V E_L = dv(UL.q[3], rho_L), E_R = dv(UR.q[3], rho_R);
+    const V E_L = mul(UL.q[3], inv_L), E_R = mul(UR.q[3], inv_R);
     const V Vn_L = ax.select(velL[0], velL[1], velL[2]), Vn_R = ax.select(velR[0], velR[1], velR[2]);
     // lanes whose normal axis is a (axis 0 is neither 1 nor 2)
     const V all_ones = _mm256_cmp_pd(set1(0.0), set1(0.0), _CMP_EQ_OQ);
@@ -125,7 +133,7 @@ void hllc4(const VEos& E, RiemannType type, double ma_cut, double sb, const Axis
     FL.q[3] = mul(Vn_L, add(mul(rho_L, E_L), p_L));
     FR.q[3] = mul(Vn_R, add(mul(rho_R, E_R), p_R));
 
-    const V c_L = E.sound_speed(p_L, rho_L), c_R = E.sound_speed(p_R, rho_R);
+    const V c_L = E.sound_speed_inv(p_L, inv_L), c_R = E.sound_speed_inv(p_R, inv_R);
     V S_L, S_R;
     if (type == RiemannType::PreconditionedHLLC) {
         const V cut = set1(ma_cut);
