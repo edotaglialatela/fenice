@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <filesystem>
@@ -36,13 +37,13 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& section_tab
         {"physics", {"use_viscous", "mu", "reynolds", "pr", "use_bodyforce", "gx", "gy", "gz"}},
         {"source", {"source_rho", "source_mx", "source_my", "source_mz", "source_E"}},
         {"boundaries",
-         {"bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back", "u_in", "rho_in", "p_out", "nrbc_sigma",
-          "nrbc_beta"}},
+         {"bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back", "u_in", "v_in", "rho_in", "p_out",
+          "u_in_table", "v_in_table", "rho_in_table", "p_out_table", "nrbc_sigma", "nrbc_beta"}},
         {"numerics",
          {"riemann_solver", "use_muscl", "muscl_limiter", "reconstruction", "weno_epsilon", "boundary_order", "time_scheme", "cfl", "dt_phys", "max_inner_iter",
           "inner_tol_rel", "shock_blend"}},
         {"run",
-         {"t_end", "save_interval", "monitor_interval", "max_steps", "resume", "output_root", "dump_state",
+         {"t_end", "save_interval", "write_interval_time", "dt_max", "monitor_interval", "max_steps", "resume", "output_root", "dump_state",
           "vtk_format"}},
         {"parallel", {"use_mpi", "n_cpus"}},
         {"ibm",
@@ -176,6 +177,135 @@ bool parse_number(const std::string& s, double& out) {
     char* end = nullptr;
     out = std::strtod(s.c_str(), &end);
     return end && *end == '\0';
+}
+
+double required_number(const std::string& file, const toml::node& n, const std::string& what) {
+    double value = 0.0;
+    const std::string src = scalar_string(file, n, what);
+    if (!parse_number(src, value) || !std::isfinite(value)) fail(file, &n, what + " must be a finite number");
+    return value;
+}
+
+int interval_value(const std::string& file, const toml::node& n, const std::string& what) {
+    if (!n.is_integer()) fail(file, &n, what + " must be a positive integer");
+    const auto value = n.as_integer()->get();
+    if (value <= 0 || value > std::numeric_limits<int>::max()) fail(file, &n, what + " must be a positive integer");
+    return static_cast<int>(value);
+}
+
+std::vector<double> numeric_vector(const std::string& file, const toml::node& n, const std::string& what) {
+    const std::vector<std::string> values = vector_of(file, n, what);
+    std::vector<double> out;
+    out.reserve(values.size());
+    for (const std::string& src : values) {
+        double value = 0.0;
+        if (!parse_number(src, value) || !std::isfinite(value)) fail(file, &n, what + " entries must be finite numbers");
+        out.push_back(value);
+    }
+    return out;
+}
+
+std::string output_name(const std::string& file, const toml::node& n, const std::string& what) {
+    const std::string name = scalar_string(file, n, what);
+    if (name.empty() || name == "." || name == ".." || name.find_first_of("/\\") != std::string::npos)
+        fail(file, &n, what + " must be a non-empty filename-safe name");
+    for (unsigned char c : name)
+        if (!(std::isalnum(c) || c == '-' || c == '_'))
+            fail(file, &n, what + " may contain only letters, digits, '-' and '_'");
+    return name;
+}
+
+ProbeSpec probe_of(const std::string& file, const toml::node& n, int index) {
+    const toml::table* t = n.as_table();
+    if (!t) fail(file, &n, "[[probe]] entries must be tables");
+    ProbeSpec p;
+    p.name = "probe_" + std::to_string(index);
+    bool has_x = false, has_y = false;
+    for (const auto& [k, v] : *t) {
+        const std::string key(k.str());
+        if (key == "name") p.name = output_name(file, v, "probe.name");
+        else if (key == "x") { p.x = required_number(file, v, "probe.x"); has_x = true; }
+        else if (key == "y") { p.y = required_number(file, v, "probe.y"); has_y = true; }
+        else if (key == "z") { p.z = required_number(file, v, "probe.z"); p.has_z = true; }
+        else if (key == "interval") p.interval = interval_value(file, v, "probe.interval");
+        else fail(file, &v, "unknown key '" + key + "' in [[probe]]" + hint(key, {"name", "x", "y", "z", "interval"}));
+    }
+    if (!has_x || !has_y) fail(file, &n, "[[probe]] needs both x and y coordinates");
+    return p;
+}
+
+SampleSpec sample_of(const std::string& file, const toml::node& n, int index) {
+    const toml::table* t = n.as_table();
+    if (!t) fail(file, &n, "[[sample]] entries must be tables");
+    SampleSpec s;
+    s.name = "sample_" + std::to_string(index);
+    bool has_from = false, has_to = false;
+    for (const auto& [k, v] : *t) {
+        const std::string key(k.str());
+        if (key == "name") s.name = output_name(file, v, "sample.name");
+        else if (key == "from") { s.from = numeric_vector(file, v, "sample.from"); has_from = true; }
+        else if (key == "to") { s.to = numeric_vector(file, v, "sample.to"); has_to = true; }
+        else if (key == "points") {
+            if (!v.is_integer()) fail(file, &v, "sample.points must be an integer >= 2");
+            const auto points = v.as_integer()->get();
+            if (points < 2 || points > std::numeric_limits<int>::max()) fail(file, &v, "sample.points must be an integer >= 2");
+            s.points = static_cast<int>(points);
+        } else if (key == "interval") s.interval = interval_value(file, v, "sample.interval");
+        else fail(file, &v, "unknown key '" + key + "' in [[sample]]" + hint(key, {"name", "from", "to", "points", "interval"}));
+    }
+    if (!has_from || !has_to) fail(file, &n, "[[sample]] needs 'from' and 'to' coordinates");
+    if (s.from.size() != s.to.size()) fail(file, &n, "sample.from and sample.to must have the same number of coordinates");
+    return s;
+}
+
+ForceSpec force_of(const std::string& file, const toml::node& n, int index) {
+    const toml::table* t = n.as_table();
+    if (!t) fail(file, &n, "[[force]] entries must be tables");
+    ForceSpec f;
+    f.name = "force_" + std::to_string(index);
+    bool has_length = false, has_density = false, has_velocity = false;
+    for (const auto& [k, v] : *t) {
+        const std::string key(k.str());
+        if (key == "name") f.name = output_name(file, v, "force.name");
+        else if (key == "interval") f.interval = interval_value(file, v, "force.interval");
+        else if (key == "reference_length") { f.reference_length = required_number(file, v, "force.reference_length"); has_length = true; }
+        else if (key == "reference_density") { f.reference_density = required_number(file, v, "force.reference_density"); has_density = true; }
+        else if (key == "reference_velocity") { f.reference_velocity = required_number(file, v, "force.reference_velocity"); has_velocity = true; }
+        else fail(file, &v, "unknown key '" + key + "' in [[force]]" +
+                              hint(key, {"name", "interval", "reference_length", "reference_density", "reference_velocity"}));
+    }
+    if (!has_length || !has_density || !has_velocity) fail(file, &n, "[[force]] needs reference_length, reference_density and reference_velocity");
+    if (!(f.reference_length > 0.0) || !(f.reference_density > 0.0) || !(f.reference_velocity > 0.0))
+        fail(file, &n, "force reference_length, reference_density and reference_velocity must be positive");
+    return f;
+}
+
+AverageSpec average_of(const std::string& file, const toml::node& n, int index) {
+    const toml::table* t = n.as_table();
+    if (!t) fail(file, &n, "[[average]] entries must be tables");
+    AverageSpec a;
+    a.name = "average_" + std::to_string(index);
+    bool has_variables = false;
+    for (const auto& [k, v] : *t) {
+        const std::string key(k.str());
+        if (key == "name") a.name = output_name(file, v, "average.name");
+        else if (key == "interval") a.interval = interval_value(file, v, "average.interval");
+        else if (key == "variables") {
+            const toml::array* vars = v.as_array();
+            if (!vars || vars->empty()) fail(file, &v, "average.variables must be a non-empty array of strings");
+            static const std::vector<std::string> allowed = {"rho", "u", "v", "w", "p"};
+            for (const toml::node& item : *vars) {
+                if (!item.is_string()) fail(file, &item, "average.variables entries must be strings");
+                const std::string var = item.as_string()->get();
+                if (std::find(allowed.begin(), allowed.end(), var) == allowed.end())
+                    fail(file, &item, "unknown average variable '" + var + "'" + hint(var, allowed));
+                if (std::find(a.variables.begin(), a.variables.end(), var) == a.variables.end()) a.variables.push_back(var);
+            }
+            has_variables = true;
+        } else fail(file, &v, "unknown key '" + key + "' in [[average]]" + hint(key, {"name", "variables", "interval"}));
+    }
+    if (!has_variables) fail(file, &n, "[[average]] needs a variables array");
+    return a;
 }
 
 class Evaluator {
@@ -368,6 +498,18 @@ std::string toml_vector(const std::vector<std::string>& v) {
     return s + "]";
 }
 
+std::string toml_vector(const std::vector<double>& v) {
+    std::string s = "[";
+    for (size_t i = 0; i < v.size(); ++i) s += (i ? ", " : "") + format_double(v[i]);
+    return s + "]";
+}
+
+std::string toml_string_vector(const std::vector<std::string>& v) {
+    std::string s = "[";
+    for (size_t i = 0; i < v.size(); ++i) s += (i ? ", " : "") + toml_string(v[i]);
+    return s + "]";
+}
+
 std::string toml_state(const std::map<std::string, std::string>& st) {
     std::string s = "{ ";
     bool first = true;
@@ -463,9 +605,23 @@ CaseFile load_case_file(const std::string& path_in) {
     std::vector<std::string> top = param_sections();
     top.insert(top.begin(), "case");
     top.push_back("initial");
+    top.insert(top.end(), {"probe", "sample", "force", "average"});
 
     for (const auto& [sk, sv] : tbl) {
         const std::string section(sk.str());
+        if (section == "probe" || section == "sample" || section == "force" || section == "average") {
+            const toml::array* arr = sv.as_array();
+            if (!arr) fail(file, &sv, "write post-processing entries as [[" + section + "]] tables");
+            int index = 1;
+            for (const toml::node& item : *arr) {
+                if (section == "probe") cf.probes.push_back(probe_of(file, item, index));
+                else if (section == "sample") cf.samples.push_back(sample_of(file, item, index));
+                else if (section == "force") cf.forces.push_back(force_of(file, item, index));
+                else cf.averages.push_back(average_of(file, item, index));
+                ++index;
+            }
+            continue;
+        }
         const toml::table* st = sv.as_table();
         if (!st || std::find(top.begin(), top.end(), section) == top.end())
             fail(file, &sv, "unknown section [" + section + "]" + hint(section, top));
@@ -524,6 +680,21 @@ CaseFile load_case_file(const std::string& path_in) {
     }
 
     if (cf.name.empty()) fail(file, nullptr, "missing [case] name");
+    auto unique_names = [&](const auto& specs, const std::string& what) {
+        std::vector<std::string> names;
+        for (const auto& spec : specs) {
+            if (std::find(names.begin(), names.end(), spec.name) != names.end())
+                fail(file, nullptr, "duplicate " + what + " name '" + spec.name + "'");
+            names.push_back(spec.name);
+        }
+    };
+    unique_names(cf.probes, "probe");
+    unique_names(cf.samples, "sample");
+    unique_names(cf.forces, "force");
+    unique_names(cf.averages, "average");
+    for (const SampleSpec& sample : cf.samples)
+        if (sample.from.size() < 2 || sample.from.size() > 3)
+            fail(file, nullptr, "sample.from and sample.to must have two or three coordinates");
     const InitialSpec& in = cf.initial;
     if (in.profile.empty()) {
         if (!in.state.count("rho") || !in.state.count("p"))
@@ -576,6 +747,28 @@ void save_case_file(const CaseFile& cf, const std::string& path_in) {
             }
             o << k << " = " << toml_value(cf.params.str(k)) << "\n";
         }
+    }
+
+    for (const ProbeSpec& p : cf.probes) {
+        o << "\n[[probe]]\nname = " << toml_string(p.name) << "\nx = " << format_double(p.x) << "\ny = " << format_double(p.y)
+          << "\n";
+        if (p.has_z) o << "z = " << format_double(p.z) << "\n";
+        if (p.interval != 1) o << "interval = " << p.interval << "\n";
+    }
+    for (const SampleSpec& s : cf.samples) {
+        o << "\n[[sample]]\nname = " << toml_string(s.name) << "\nfrom = " << toml_vector(s.from) << "\nto = "
+          << toml_vector(s.to) << "\npoints = " << s.points << "\n";
+        if (s.interval != 1) o << "interval = " << s.interval << "\n";
+    }
+    for (const ForceSpec& f : cf.forces) {
+        o << "\n[[force]]\nname = " << toml_string(f.name) << "\nreference_length = " << format_double(f.reference_length)
+          << "\nreference_density = " << format_double(f.reference_density) << "\nreference_velocity = "
+          << format_double(f.reference_velocity) << "\n";
+        if (f.interval != 1) o << "interval = " << f.interval << "\n";
+    }
+    for (const AverageSpec& a : cf.averages) {
+        o << "\n[[average]]\nname = " << toml_string(a.name) << "\nvariables = " << toml_string_vector(a.variables) << "\n";
+        if (a.interval != 1) o << "interval = " << a.interval << "\n";
     }
 
     o << "\n[initial]\n";
@@ -688,6 +881,18 @@ void evaluate_source_points(const Mesh& m, const Params& run, double t, const do
         ev.set_position(xs[k], ys[k], 0.0);
         for (int q = 0; q < kNVar; ++q) out[k][q] = ev.eval(item[q]);
     }
+}
+
+std::function<double(double)> compile_time_expression(const Params& run, const Mesh& mesh, const std::string& expression,
+                                                     const std::string& what) {
+    auto evaluator = std::make_shared<Evaluator>(run, mesh);
+    const int item = evaluator->compile(expression, what);
+    return [evaluator = std::move(evaluator), item](double time) {
+        evaluator->set_time(time);
+        const double value = evaluator->eval(item);
+        if (!std::isfinite(value)) throw std::runtime_error("time expression evaluated to a non-finite value");
+        return value;
+    };
 }
 
 }   // namespace fv

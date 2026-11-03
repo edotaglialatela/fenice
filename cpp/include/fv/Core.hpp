@@ -175,6 +175,31 @@ struct EOS {
     double gamma = 1.4;   // heat capacity ratio
     double p_inf = 0.0;   // stiffness pressure [Pa] (stiffened gas only)
 
+    // Thermodynamic relations are exposed separately so flow and future species models can use the same laws.
+    struct PressureLaw {
+        Type type;
+        double gamma, p_inf;
+        double from_internal_energy_density(double rho_e) const {
+            return type == Type::IdealGas ? (gamma - 1.0) * rho_e : (gamma - 1.0) * rho_e - gamma * p_inf;
+        }
+    };
+    struct InternalEnergyLaw {
+        Type type;
+        double gamma, p_inf;
+        double density_from_pressure(double p) const {
+            return type == Type::IdealGas ? p / (gamma - 1.0) : (p + gamma * p_inf) / (gamma - 1.0);
+        }
+    };
+    struct TransportLaw {
+        double gamma;
+        double heat_capacity_ratio() const { return gamma / (gamma - 1.0); }
+        double thermal_conductivity(double mu, double Pr) const { return mu * gamma / (Pr * (gamma - 1.0)); }
+    };
+
+    PressureLaw pressure_law() const { return {type, gamma, p_inf}; }
+    InternalEnergyLaw internal_energy_law() const { return {type, gamma, p_inf}; }
+    TransportLaw transport_law() const { return {gamma}; }
+
     // Ideal gas (default: air, gamma = 1.4).
     static EOS ideal(double g = 1.4) { return EOS{Type::IdealGas, g, 0.0}; }
     // Stiffened gas (default: liquid water, gamma = 4.4, p_inf = 6e8 Pa).
@@ -184,7 +209,7 @@ struct EOS {
     State prim_to_cons(const State& W) const {
         const double rho = W[0], u = W[1], v = W[2], p = W[3], w = W[4];
         const double ke = 0.5 * rho * (u * u + v * v + w * w);
-        const double e = (type == Type::IdealGas) ? p / (gamma - 1.0) : (p + gamma * p_inf) / (gamma - 1.0);
+        const double e = internal_energy_law().density_from_pressure(p);
         return {rho, rho * u, rho * v, e + ke, rho * w};
     }
 
@@ -195,13 +220,8 @@ struct EOS {
         const double inv = 1.0 / rho;
         if (inv_rho) *inv_rho = inv;
         const double u = U[1] * inv, v = U[2] * inv, w = U[4] * inv;
-        double p;
-        if (type == Type::IdealGas) {
-            p = (gamma - 1.0) * (U[3] - 0.5 * rho * (u * u + v * v + w * w));
-        } else {
-            const double e_kin = 0.5 * rho * (u * u + v * v + w * w);
-            p = (gamma - 1.0) * (U[3] - e_kin) - gamma * p_inf;
-        }
+        const double e_kin = 0.5 * rho * (u * u + v * v + w * w);
+        const double p = pressure_law().from_internal_energy_density(U[3] - e_kin);
         return {rho, u, v, std::max(p, kEosEps), w};
     }
 

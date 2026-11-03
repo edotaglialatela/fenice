@@ -53,11 +53,12 @@ double TimeScheme::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) 
 // Explicit Euler
 // ---------------------------------------------------------------------------
 
-StepResult ExplicitEuler::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
+StepResult ExplicitEuler::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max) {
     stage_time = t;
     const double s = res(U, R1_);
     double dt = cfl * min_delta / (s + kDtEps);
     dt = std::min(dt, t_max - t);
+    if (dt_max > 0.0) dt = std::min(dt, dt_max);
     axpy(U, U, dt, R1_);
     return {dt, s};
 }
@@ -83,11 +84,12 @@ void ssp_combine(Field& U, const Field& U1, double dt, const Field& R2) {
 }
 }   // namespace
 
-StepResult SSPRK2::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
+StepResult SSPRK2::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max) {
     stage_time = t;
     const double s1 = res(U, R1_);
     double dt = cfl * min_delta / (s1 + kDtEps);
     dt = std::min(dt, t_max - t);
+    if (dt_max > 0.0) dt = std::min(dt, dt_max);
     axpy(tmp_, U, dt, R1_);
     stage_time = t + dt;
     const double s2 = res(tmp_, R2_);
@@ -119,11 +121,12 @@ void ssp3_combine(Field& out, const Field& u0, double a, const Field& v, double 
 }
 }   // namespace
 
-StepResult SSPRK3::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
+StepResult SSPRK3::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max) {
     stage_time = t;
     const double s1 = res(U, R1_);
     double dt = cfl * min_delta / (s1 + kDtEps);
     dt = std::min(dt, t_max - t);
+    if (dt_max > 0.0) dt = std::min(dt, dt_max);
     axpy(tmp_, U, dt, R1_);
     stage_time = t + dt;
     const double s2 = res(tmp_, R2_);
@@ -160,11 +163,12 @@ void rk4_combine(Field& U, double dt, const Field& k1, const Field& k2, const Fi
 }
 }   // namespace
 
-StepResult RungeKutta4::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
+StepResult RungeKutta4::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max) {
     stage_time = t;
     const double s1 = res(U, R1_);
     double dt = cfl * min_delta / (s1 + kDtEps);
     dt = std::min(dt, t_max - t);
+    if (dt_max > 0.0) dt = std::min(dt, dt_max);
     axpy(tmp_, U, 0.5 * dt, R1_);
     stage_time = t + 0.5 * dt;
     const double s2 = res(tmp_, R2_);
@@ -198,8 +202,9 @@ BDF2DualTime::BDF2DualTime(double cfl, double dt_phys, int max_inner_iter, doubl
     if (dt_phys <= 0.0) throw std::invalid_argument("dt_phys must be positive, got " + std::to_string(dt_phys));
 }
 
-StepResult BDF2DualTime::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) {
-    const double dt_phys = std::min(dt_phys_, t_max - t);
+StepResult BDF2DualTime::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max) {
+    double dt_phys = std::min(dt_phys_, t_max - t);
+    if (dt_max > 0.0) dt_phys = std::min(dt_phys, dt_max);
     stage_time = t + dt_phys;   // the implicit stage: the residual of every inner iteration is at the new time
     const bool bdf1 = first_step_;   // BDF1 bootstrap: U^{n-1} := U^n
     const double alpha = bdf1 ? 1.0 / dt_phys : 1.5 / dt_phys;

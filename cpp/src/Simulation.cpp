@@ -2,7 +2,10 @@
 #include "fv/Switches.hpp"
 #include "fv/Simulation.hpp"
 
+#include <algorithm>
 #include <chrono>
+#include <cctype>
+#include <cmath>
 #include <cstdlib>
 #include <cstdio>
 #include <limits>
@@ -48,6 +51,70 @@ std::string to_prefix(std::string s) {
 std::string lower(std::string s) {
     for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return s;
+}
+
+double next_time_output(double time, double interval) {
+    if (!(interval > 0.0)) return std::numeric_limits<double>::infinity();
+    const double quotient = time / interval;
+    const double tolerance = 8.0 * std::numeric_limits<double>::epsilon() * std::max(1.0, std::abs(quotient));
+    return (std::floor(quotient + tolerance) + 1.0) * interval;
+}
+
+bool reached_time_output(double time, double target, double interval) {
+    if (!std::isfinite(target)) return false;
+    const double tolerance = 8.0 * std::numeric_limits<double>::epsilon() *
+                             std::max({std::abs(time), std::abs(target), std::abs(interval)});
+    return std::abs(time - target) <= tolerance;
+}
+
+std::vector<std::pair<double, double>> read_time_table(const fs::path& path) {
+    std::ifstream in(path);
+    if (!in) throw std::runtime_error("Cannot read boundary time table " + path.string());
+    std::vector<std::pair<double, double>> values;
+    std::string line;
+    int line_number = 0;
+    while (std::getline(in, line)) {
+        ++line_number;
+        if (line_number == 1 && line.size() >= 3 && static_cast<unsigned char>(line[0]) == 0xEF &&
+            static_cast<unsigned char>(line[1]) == 0xBB && static_cast<unsigned char>(line[2]) == 0xBF)
+            line.erase(0, 3);   // UTF-8 BOM, commonly emitted by spreadsheet CSV exports
+        const size_t first = line.find_first_not_of(" \t\r");
+        if (first == std::string::npos || line[first] == '#') continue;
+        for (char& c : line)
+            if (c == ',') c = ' ';
+        std::istringstream row(line);
+        double time = 0.0, value = 0.0;
+        if (!(row >> time >> value)) {
+            if (values.empty()) {
+                std::istringstream header(line);
+                std::string first, second, extra;
+                if ((header >> first >> second) && !(header >> extra) &&
+                    (lower(first) == "t" || lower(first) == "time") && lower(second) == "value")
+                    continue;   // optional CSV header, also accepted after blank/comment lines
+            }
+            throw std::runtime_error(path.string() + ":" + std::to_string(line_number) + " must contain t,value");
+        }
+        std::string extra;
+        if (row >> extra) throw std::runtime_error(path.string() + ":" + std::to_string(line_number) + " has more than two columns");
+        if (!std::isfinite(time) || !std::isfinite(value))
+            throw std::runtime_error(path.string() + ":" + std::to_string(line_number) + " values must be finite");
+        if (!values.empty() && !(time > values.back().first))
+            throw std::runtime_error(path.string() + ": times must be strictly increasing");
+        values.push_back({time, value});
+    }
+    if (values.size() < 2) throw std::runtime_error(path.string() + " must contain at least two (t,value) rows");
+    return values;
+}
+
+double table_value(const std::vector<std::pair<double, double>>& values, double time) {
+    if (!std::isfinite(time)) throw std::runtime_error("boundary table time must be finite");
+    if (time <= values.front().first) return values.front().second;
+    if (time >= values.back().first) return values.back().second;
+    const auto hi = std::upper_bound(values.begin(), values.end(), time,
+                                     [](double t, const auto& item) { return t < item.first; });
+    const auto lo = hi - 1;
+    const double f = (time - lo->first) / (hi->first - lo->first);
+    return lo->second + f * (hi->second - lo->second);
 }
 
 // Tangential velocity derivatives of a strip of MPI ghost cells, using the same
@@ -96,6 +163,7 @@ BCParams bc_params(const SimParams& p) {
     BCParams b;
     b.boundary_order = p.boundary_order;
     b.u_in = p.u_in;
+    b.v_in = p.v_in;
     b.rho_in = p.rho_in;
     b.p_out = p.p_out;
     b.nrbc_sigma = p.nrbc_sigma;
@@ -264,9 +332,81 @@ std::string Simulation::airfoil_file_path() const {
                              in_case.parent_path().string() + " and the current folder)");
 }
 
+void Simulation::load_boundary_functions() {
+    boundary_expressions_.clear();
+    boundary_tables_.clear();
+    const std::array<std::string, 4> keys = {"u_in", "v_in", "rho_in", "p_out"};
+    for (const std::string& key : keys) {
+        const std::string raw = p.source.str(key, key == "rho_in" || key == "p_out" ? "1.0" : "0.0");
+        const std::string table_key = key + "_table";
+        const std::string table_name = p.source.str(table_key, "");
+        char* end = nullptr;
+        std::strtod(raw.c_str(), &end);
+        const bool numeric = end && end != raw.c_str() && *end == '\0';
+        if (!table_name.empty()) {
+            if (!numeric) throw std::invalid_argument(key + " expression and " + table_key + " cannot both be set");
+            fs::path table_path(table_name);
+            if (!table_path.is_absolute()) {
+                const fs::path beside_case = fs::path(test_case->source).parent_path() / table_path;
+                std::error_code ec;
+                if (fs::exists(beside_case, ec)) table_path = beside_case;
+                else if (!fs::exists(table_path, ec))
+                    throw std::runtime_error("Boundary time table '" + table_name + "' not found next to " + test_case->source +
+                                             " or in the current folder");
+            }
+            boundary_tables_[key] = read_time_table(table_path);
+        } else if (!numeric) {
+            boundary_expressions_[key] = compile_time_expression(p.source, mesh, raw, key);
+        }
+    }
+
+    const auto initial = [&](const std::string& key, double fallback) {
+        const auto table = boundary_tables_.find(key);
+        if (table != boundary_tables_.end()) return table_value(table->second, 0.0);
+        const auto expr = boundary_expressions_.find(key);
+        return expr != boundary_expressions_.end() ? expr->second(0.0) : fallback;
+    };
+    p.u_in = initial("u_in", p.u_in);
+    p.v_in = initial("v_in", p.v_in);
+    p.rho_in = initial("rho_in", p.rho_in);
+    p.p_out = initial("p_out", p.p_out);
+    if (!(p.rho_in > 0.0) || !(p.p_out > 0.0))
+        throw std::invalid_argument("time-dependent rho_in and p_out must be positive at t=0");
+    if (p.reynolds > 0.0) {
+        if (!(p.rho_in > 0.0) || !(p.u_in > 0.0))
+            throw std::invalid_argument("reynolds needs positive u_in and rho_in at t=0 (including boundary tables)");
+        const bool airfoil = !naca_digits(p.ibm_shape).empty() || lower(p.ibm_shape) == "airfoil";
+        const double length = airfoil ? p.ibm_chord : 2.0 * p.ibm_radius;
+        p.mu = p.rho_in * p.u_in * length / p.reynolds;
+        char value[32];
+        std::snprintf(value, sizeof(value), "%.17g", p.mu);
+        p.source.set("mu", value);
+    }
+}
+
+void Simulation::update_boundary_values(double stage_time, BoundaryManager& manager) const {
+    if (boundary_expressions_.empty() && boundary_tables_.empty()) return;
+    BCParams values = manager.params();
+    const auto evaluate = [&](const std::string& key, double current) {
+        const auto table = boundary_tables_.find(key);
+        if (table != boundary_tables_.end()) return table_value(table->second, stage_time);
+        const auto expression = boundary_expressions_.find(key);
+        return expression == boundary_expressions_.end() ? current : expression->second(stage_time);
+    };
+    values.u_in = evaluate("u_in", values.u_in);
+    values.v_in = evaluate("v_in", values.v_in);
+    values.rho_in = evaluate("rho_in", values.rho_in);
+    values.p_out = evaluate("p_out", values.p_out);
+    if (!(values.rho_in > 0.0) || !(values.p_out > 0.0))
+        throw std::runtime_error("time-dependent rho_in and p_out must stay positive (at t=" + std::to_string(stage_time) + ")");
+    manager.set_params(values);
+}
+
 void Simulation::setup(const SimParams& params, bool verbose) {
     p = params;
     test_case = &get_test_case(p.test_case);
+    if (!test_case->forces.empty() && !p.use_ibm)
+        throw std::invalid_argument("[[force]] outputs need use_ibm = true");
 
     scheme = make_time_scheme(parse_time_scheme(p.time_scheme), p.cfl, p.dt_phys, p.max_inner_iter, p.inner_tol_rel);
 
@@ -276,6 +416,26 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     exporter = VTKExporter((fs::path(p.output_root) / subdir).string(), verbose, p.vtk_format != "ascii");
 
     mesh = generate_cartesian_mesh_3d(p.Lx, p.Ly, p.Lz, p.nx, p.ny, p.nz);
+    load_boundary_functions();
+    const auto inside_axis = [](double x, double origin, double length) { return x >= origin && x <= origin + length; };
+    for (const ProbeSpec& probe : test_case->probes) {
+        if (!inside_axis(probe.x, mesh.x0, mesh.Lx) || !inside_axis(probe.y, mesh.y0, mesh.Ly) ||
+            (mesh.is3d() && (!probe.has_z || !inside_axis(probe.z, mesh.z0, mesh.Lz))) ||
+            (!mesh.is3d() && probe.has_z && probe.z != 0.0))
+            throw std::invalid_argument("probe '" + probe.name + "' coordinates must lie inside the simulation domain");
+    }
+    for (const SampleSpec& sample : test_case->samples) {
+        const size_t dimensions = mesh.is3d() ? 3 : 2;
+        if (sample.from.size() != dimensions || sample.to.size() != dimensions)
+            throw std::invalid_argument("sample '" + sample.name + "' needs " + std::to_string(dimensions) +
+                                        " coordinates for this mesh");
+        for (size_t d = 0; d < dimensions; ++d) {
+            const double origin = d == 0 ? mesh.x0 : (d == 1 ? mesh.y0 : mesh.z0);
+            const double length = d == 0 ? mesh.Lx : (d == 1 ? mesh.Ly : mesh.Lz);
+            if (!inside_axis(sample.from[d], origin, length) || !inside_axis(sample.to[d], origin, length))
+                throw std::invalid_argument("sample '" + sample.name + "' endpoints must lie inside the simulation domain");
+        }
+    }
     if (verbose && mesh.is3d()) std::printf("[MESH] 3-D: %d x %d x %d cells\n", p.nx, p.ny, p.nz);
     // CFL length: min(dx, dy) in 2-D. In 3-D the unsplit fluxes add three directional Courant
     // numbers; 2 / sum(1/h) bounds that sum by 2 CFL, the same bound min(dx, dy) gives a 2-D square cell.
@@ -330,6 +490,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     boundaries.set_type(Face::Front, parse_bc(p.bc_front));
     boundaries.set_type(Face::Back, parse_bc(p.bc_back));
     boundaries.set_params(bc_params(p));
+    update_boundary_values(0.0, boundaries);
 
     const RiemannType rt = parse_riemann(p.riemann_solver);
     riemann = RiemannSolver(fluid, rt, 0.1, p.shock_blend);
@@ -369,6 +530,49 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         body_force.reset();
     }
 
+    rhs_sources.clear();
+    if (body_force) {
+        RhsSourceTerm term;
+        term.uniform = [this](const Mesh&, const Field& Uin, Field& R, double) {
+            ProfileScope profile(Section::BodyForce);
+            body_force->add_to(Uin, R);
+        };
+        term.adaptive = [this](const CellMesh&, const Field& Uin, Field& R, int begin, int end, double, const Field*) {
+            ProfileScope profile(Section::BodyForce);
+            const ConstantBodyForce& body = *body_force;
+#pragma omp parallel for schedule(static) if (end - begin >= kOmpMinWork)
+            for (int c = begin; c < end; ++c) {
+                State& r = R[static_cast<size_t>(c - begin)];
+                const State& u = Uin[static_cast<size_t>(c)];
+                r[1] += u[0] * body.gx;
+                r[2] += u[0] * body.gy;
+                r[3] += u[1] * body.gx + u[2] * body.gy;
+                if (body.gz != 0.0) {
+                    r[3] += u[4] * body.gz;
+                    r[4] += u[0] * body.gz;
+                }
+            }
+        };
+        rhs_sources.add(std::move(term));
+    }
+    if (p.use_source) {
+        RhsSourceTerm term;
+        term.uniform = [this](const Mesh& m, const Field&, Field& R, double stage_time) {
+            ProfileScope profile(Section::Source);
+            add_source(source_for(m, stage_time), R);
+        };
+        term.adaptive = [this](const CellMesh&, const Field&, Field& R, int begin, int end, double, const Field* cached) {
+            ProfileScope profile(Section::Source);
+            if (!cached) throw std::logic_error("expression source field is not available");
+#pragma omp parallel for schedule(static) if (end - begin >= kOmpMinWork)
+            for (int c = begin; c < end; ++c)
+                for (int q = 0; q < kNVar; ++q)
+                    R[static_cast<size_t>(c - begin)][static_cast<size_t>(q)] +=
+                        (*cached)[static_cast<size_t>(c)][static_cast<size_t>(q)];
+        };
+        rhs_sources.add(std::move(term));
+    }
+
     // AMR: the adaptive mesh and its engine; on several MPI ranks the leaves are distributed over them (CellParallel)
     cells.reset();
     cell_engine.reset();
@@ -383,6 +587,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         cell_physics = CellPhysics{};
         cell_physics.ns = ns.get();
         cell_physics.body = body_force.get();
+        cell_physics.rhs_sources = rhs_sources.empty() ? nullptr : &rhs_sources;
         if (p.use_source) {
             cell_physics.source = &p.source;
             cell_physics.source_unsteady = p.source_unsteady;
@@ -640,6 +845,326 @@ std::array<double, 3> Simulation::cell_loads(const CellMesh& m, const Field& R) 
     return {fx, fy, mz};
 }
 
+namespace {
+
+std::string output_token(const std::string& name) {
+    std::string out;
+    for (unsigned char c : name) {
+        if (std::isalnum(c) || c == '-' || c == '_') out.push_back(static_cast<char>(c));
+        else if (!out.empty() && out.back() != '_') out.push_back('_');
+    }
+    while (!out.empty() && out.back() == '_') out.pop_back();
+    return out.empty() ? "output" : out;
+}
+
+std::FILE* open_post_csv(const fs::path& path, int start_step, const std::string& header) {
+    std::error_code ec;
+    const bool existed = start_step > 0 && fs::exists(path, ec);
+    std::FILE* f = std::fopen(path.string().c_str(), start_step > 0 ? "a" : "w");
+    if (!f) throw std::runtime_error("Cannot open post-processing output " + path.string());
+    if (!existed) std::fprintf(f, "%s\n", header.c_str());
+    return f;
+}
+
+int bounded_cell(double x, double origin, double spacing, int count) {
+    int i = static_cast<int>(std::floor((x - origin) / spacing));
+    return std::max(0, std::min(count - 1, i));
+}
+
+int leaf_at_point(const CellMesh& cm, const std::vector<int>& levels, const std::vector<int>& ci,
+                  const std::vector<int>& cj, double x, double y) {
+    for (int l = cm.max_level; l >= 0; --l) {
+        const int i = bounded_cell(x, cm.x0, cm.dx(l), cm.nx_at(l));
+        const int j = bounded_cell(y, cm.y0, cm.dy(l), cm.ny_at(l));
+        const uint64_t key = morton_key(static_cast<uint32_t>(i), static_cast<uint32_t>(j));
+        auto first = std::lower_bound(levels.begin(), levels.end(), l);
+        auto last = std::upper_bound(first, levels.end(), l);
+        size_t lo = static_cast<size_t>(first - levels.begin());
+        size_t hi = static_cast<size_t>(last - levels.begin());
+        while (lo < hi) {
+            const size_t mid = lo + (hi - lo) / 2;
+            const uint64_t mid_key = morton_key(static_cast<uint32_t>(ci[mid]), static_cast<uint32_t>(cj[mid]));
+            if (mid_key < key)
+                lo = mid + 1;
+            else
+                hi = mid;
+        }
+        if (lo < static_cast<size_t>(last - levels.begin()) && ci[lo] == i && cj[lo] == j) return static_cast<int>(lo);
+    }
+    return -1;
+}
+
+class PostprocessWriter {
+public:
+    PostprocessWriter(const TestCase& tc, const std::string& output_dir, const std::string& prefix, int start_step)
+        : probes_(tc.probes), samples_(tc.samples), forces_(tc.forces), averages_(tc.averages),
+          avg_state_(tc.averages.size()), last_probe_(tc.probes.size(), -1), last_sample_(tc.samples.size(), -1),
+          last_force_(tc.forces.size(), -1), dir_(output_dir), prefix_(prefix), start_step_(start_step) {
+        try {
+            for (const ProbeSpec& s : probes_)
+                probe_files_.push_back(open_csv(s.name + "_probe", "step,t,x,y,z,cell_x,cell_y,cell_z,rho,u,v,p,w"));
+            for (const SampleSpec& s : samples_)
+                sample_files_.push_back(open_csv(s.name + "_sample", "step,t,point,x,y,z,cell_x,cell_y,cell_z,rho,u,v,p,w"));
+            for (const ForceSpec& s : forces_)
+                force_files_.push_back(open_csv(s.name + "_force", "step,t,Fx,Fy,Mz,Cd,Cl,Cm"));
+            for (const AverageSpec& s : averages_) {
+                std::string header = "step,t";
+                for (const std::string& var : s.variables) header += "," + var + "_time_average";
+                average_files_.push_back(open_csv(s.name + "_average", header));
+            }
+        } catch (...) {
+            close_all();
+            throw;
+        }
+    }
+
+    ~PostprocessWriter() { close_all(); }
+    PostprocessWriter(const PostprocessWriter&) = delete;
+    PostprocessWriter& operator=(const PostprocessWriter&) = delete;
+
+    bool empty() const { return probes_.empty() && samples_.empty() && forces_.empty() && averages_.empty(); }
+    bool has_averages() const { return !averages_.empty(); }
+    bool has_force_due(int step, bool force = false) const {
+        for (size_t i = 0; i < forces_.size(); ++i)
+            if ((force || step % forces_[i].interval == 0) && last_force_[i] != step) return true;
+        return false;
+    }
+
+    void skip_step(int step) {
+        std::fill(last_probe_.begin(), last_probe_.end(), step);
+        std::fill(last_sample_.begin(), last_sample_.end(), step);
+        std::fill(last_force_.begin(), last_force_.end(), step);
+        for (AverageState& state : avg_state_) state.last_written_step = step;
+    }
+
+    void write_uniform(const Mesh& mesh, const EOS& eos, const Field& U, int step, double time, bool force = false) {
+        for (size_t n = 0; n < probes_.size(); ++n) {
+            if (!due(step, probes_[n].interval, force, last_probe_[n])) continue;
+            const ProbeSpec& p = probes_[n];
+            const int i = bounded_cell(p.x, mesh.x0, mesh.dx, mesh.nx);
+            const int j = bounded_cell(p.y, mesh.y0, mesh.dy, mesh.ny);
+            const int k = mesh.is3d() ? bounded_cell(p.z, mesh.z0, mesh.dz, mesh.nz) : 0;
+            const State w = eos.cons_to_prim(U[static_cast<size_t>(mesh.cell(i, j, k))]);
+            write_point(probe_files_[n], step, time, -1, p.x, p.y, p.z, mesh.xc(i), mesh.yc(j),
+                        mesh.is3d() ? mesh.zc(k) : 0.0, w);
+            last_probe_[n] = step;
+        }
+        for (size_t n = 0; n < samples_.size(); ++n) {
+            if (!due(step, samples_[n].interval, force, last_sample_[n])) continue;
+            const SampleSpec& s = samples_[n];
+            for (int point = 0; point < s.points; ++point) {
+                const double f = static_cast<double>(point) / static_cast<double>(s.points - 1);
+                const double x = s.from[0] + f * (s.to[0] - s.from[0]);
+                const double y = s.from[1] + f * (s.to[1] - s.from[1]);
+                const double z = s.from.size() == 3 ? s.from[2] + f * (s.to[2] - s.from[2]) : 0.0;
+                const int i = bounded_cell(x, mesh.x0, mesh.dx, mesh.nx);
+                const int j = bounded_cell(y, mesh.y0, mesh.dy, mesh.ny);
+                const int k = mesh.is3d() ? bounded_cell(z, mesh.z0, mesh.dz, mesh.nz) : 0;
+                const State w = eos.cons_to_prim(U[static_cast<size_t>(mesh.cell(i, j, k))]);
+                write_point(sample_files_[n], step, time, point, x, y, z, mesh.xc(i), mesh.yc(j),
+                            mesh.is3d() ? mesh.zc(k) : 0.0, w);
+            }
+            last_sample_[n] = step;
+        }
+    }
+
+    void write_amr(const CellMesh& mesh, const EOS& eos, const std::vector<int>& levels, const std::vector<int>& ci,
+                   const std::vector<int>& cj, const Field& U, int step, double time, bool force = false) {
+        for (size_t n = 0; n < probes_.size(); ++n) {
+            if (!due(step, probes_[n].interval, force, last_probe_[n])) continue;
+            const ProbeSpec& p = probes_[n];
+            const int c = leaf_at_point(mesh, levels, ci, cj, p.x, p.y);
+            if (c < 0) throw std::logic_error("post-processing probe did not map to an AMR leaf");
+            const State w = eos.cons_to_prim(U[static_cast<size_t>(c)]);
+            const int l = levels[static_cast<size_t>(c)];
+            const double cx = mesh.x0 + (ci[static_cast<size_t>(c)] + 0.5) * mesh.dx(l);
+            const double cy = mesh.y0 + (cj[static_cast<size_t>(c)] + 0.5) * mesh.dy(l);
+            write_point(probe_files_[n], step, time, -1, p.x, p.y, 0.0, cx, cy, 0.0, w);
+            last_probe_[n] = step;
+        }
+        for (size_t n = 0; n < samples_.size(); ++n) {
+            if (!due(step, samples_[n].interval, force, last_sample_[n])) continue;
+            const SampleSpec& s = samples_[n];
+            for (int point = 0; point < s.points; ++point) {
+                const double f = static_cast<double>(point) / static_cast<double>(s.points - 1);
+                const double x = s.from[0] + f * (s.to[0] - s.from[0]);
+                const double y = s.from[1] + f * (s.to[1] - s.from[1]);
+                const int c = leaf_at_point(mesh, levels, ci, cj, x, y);
+                if (c < 0) throw std::logic_error("post-processing sample did not map to an AMR leaf");
+                const State w = eos.cons_to_prim(U[static_cast<size_t>(c)]);
+                const int l = levels[static_cast<size_t>(c)];
+                const double cx = mesh.x0 + (ci[static_cast<size_t>(c)] + 0.5) * mesh.dx(l);
+                const double cy = mesh.y0 + (cj[static_cast<size_t>(c)] + 0.5) * mesh.dy(l);
+                write_point(sample_files_[n], step, time, point, x, y, 0.0, cx, cy, 0.0, w);
+            }
+            last_sample_[n] = step;
+        }
+    }
+
+    void write_forces(int step, double time, const std::array<double, 3>& loads, const Mesh& mesh, bool force = false) {
+        for (size_t n = 0; n < forces_.size(); ++n) {
+            if (!due(step, forces_[n].interval, force, last_force_[n])) continue;
+            const ForceSpec& s = forces_[n];
+            const double q = 0.5 * s.reference_density * s.reference_velocity * s.reference_velocity;
+            const double area = s.reference_length * (mesh.is3d() ? mesh.Lz : 1.0);
+            const double scale = q * area;
+            std::fprintf(force_files_[n], "%d,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e\n", step, time, loads[0],
+                         loads[1], loads[2], scale > 0.0 ? loads[0] / scale : 0.0,
+                         scale > 0.0 ? loads[1] / scale : 0.0,
+                         scale > 0.0 ? -loads[2] / (scale * s.reference_length) : 0.0);
+            std::fflush(force_files_[n]);
+            last_force_[n] = step;
+        }
+    }
+
+    void observe_averages(int step, double time, const std::array<double, 5>& means, bool force = false, bool emit = true) {
+        for (size_t n = 0; n < averages_.size(); ++n) {
+            const AverageSpec& spec = averages_[n];
+            AverageState& state = avg_state_[n];
+            std::vector<double> current;
+            current.reserve(spec.variables.size());
+            for (const std::string& name : spec.variables) current.push_back(means[primitive_index(name)]);
+            if (!state.initialized) {
+                state.start = state.previous_time = time;
+                state.previous = current;
+                state.integral.assign(current.size(), 0.0);
+                state.initialized = true;
+            } else if (time > state.previous_time) {
+                const double dt = time - state.previous_time;
+                for (size_t q = 0; q < current.size(); ++q)
+                    state.integral[q] += 0.5 * (state.previous[q] + current[q]) * dt;
+                state.previous_time = time;
+                state.previous = current;
+            }
+            if (!emit) {
+                state.last_written_step = step;
+            } else if ((force || step % spec.interval == 0) && state.last_written_step != step) {
+                std::fprintf(average_files_[n], "%d,%.17e", step, time);
+                const double elapsed = time - state.start;
+                for (size_t q = 0; q < current.size(); ++q)
+                    std::fprintf(average_files_[n], ",%.17e", elapsed > 0.0 ? state.integral[q] / elapsed : current[q]);
+                std::fprintf(average_files_[n], "\n");
+                std::fflush(average_files_[n]);
+                state.last_written_step = step;
+            }
+        }
+    }
+
+    void reset_averages(double time, const std::array<double, 5>& means) {
+        for (size_t n = 0; n < averages_.size(); ++n) {
+            const AverageSpec& spec = averages_[n];
+            AverageState& state = avg_state_[n];
+            state = AverageState{};
+            for (const std::string& name : spec.variables) state.previous.push_back(means[primitive_index(name)]);
+            state.integral.assign(state.previous.size(), 0.0);
+            state.start = state.previous_time = time;
+            state.initialized = true;
+        }
+    }
+
+private:
+    struct AverageState {
+        bool initialized = false;
+        double start = 0.0, previous_time = 0.0;
+        int last_written_step = -1;
+        std::vector<double> previous, integral;
+    };
+
+    std::FILE* open_csv(const std::string& suffix, const std::string& header) {
+        const fs::path path = fs::path(dir_) / (prefix_ + "_" + output_token(suffix) + ".csv");
+        std::FILE* f = open_post_csv(path, start_step_, header);
+        files_.push_back(f);
+        return f;
+    }
+
+    static bool due(int step, int interval, bool force, int last) { return (force || step % interval == 0) && last != step; }
+
+    static int primitive_index(const std::string& name) {
+        if (name == "rho") return 0;
+        if (name == "u") return 1;
+        if (name == "v") return 2;
+        if (name == "p") return 3;
+        return 4;
+    }
+
+    static void write_point(std::FILE* f, int step, double time, int point, double x, double y, double z, double cx,
+                            double cy, double cz, const State& w) {
+        if (point < 0)
+            std::fprintf(f, "%d,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e\n", step,
+                         time, x, y, z, cx, cy, cz, w[0], w[1], w[2], w[3], w[4]);
+        else
+            std::fprintf(f, "%d,%.17e,%d,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e,%.17e\n", step,
+                         time, point, x, y, z, cx, cy, cz, w[0], w[1], w[2], w[3], w[4]);
+        std::fflush(f);
+    }
+
+    void close_all() {
+        for (std::FILE* f : files_)
+            if (f) std::fclose(f);
+        files_.clear();
+    }
+
+    std::vector<ProbeSpec> probes_;
+    std::vector<SampleSpec> samples_;
+    std::vector<ForceSpec> forces_;
+    std::vector<AverageSpec> averages_;
+    std::vector<AverageState> avg_state_;
+    std::vector<int> last_probe_, last_sample_, last_force_;
+    std::vector<std::FILE*> files_, probe_files_, sample_files_, force_files_, average_files_;
+    std::string dir_, prefix_;
+    int start_step_;
+};
+
+std::array<double, 5> volume_primitive_means(const EOS& eos, const Mesh& mesh, const Field& U) {
+    std::array<double, 5> sums{};
+    const double volume = mesh.cell_volume();
+    for (const State& u : U) {
+        const State w = eos.cons_to_prim(u);
+        for (int q = 0; q < 5; ++q) sums[static_cast<size_t>(q)] += w[static_cast<size_t>(q)] * volume;
+    }
+    const double total = static_cast<double>(U.size()) * volume;
+    for (double& x : sums) x /= total;
+    return sums;
+}
+
+std::array<double, 5> volume_primitive_means(const EOS& eos, const CellMesh& mesh, const std::vector<int>& levels,
+                                             const Field& U) {
+    std::array<double, 5> sums{};
+    double total = 0.0;
+    for (size_t c = 0; c < levels.size(); ++c) {
+        const double area = mesh.dx(levels[c]) * mesh.dy(levels[c]);
+        const State w = eos.cons_to_prim(U[c]);
+        for (int q = 0; q < 5; ++q) sums[static_cast<size_t>(q)] += w[static_cast<size_t>(q)] * area;
+        total += area;
+    }
+    for (double& x : sums) x /= total;
+    return sums;
+}
+
+bool has_postprocess(const TestCase& tc) {
+    return !tc.probes.empty() || !tc.samples.empty() || !tc.forces.empty() || !tc.averages.empty();
+}
+
+bool postprocess_state_due(const TestCase& tc, int step) {
+    for (const ProbeSpec& p : tc.probes) if (step % p.interval == 0) return true;
+    for (const SampleSpec& s : tc.samples) if (step % s.interval == 0) return true;
+    for (const ForceSpec& f : tc.forces) if (step % f.interval == 0) return true;
+    return !tc.averages.empty();   // a time average is integrated at every completed step
+}
+
+bool amr_postprocess_state_due(const TestCase& tc, int step) {
+    for (const ProbeSpec& p : tc.probes) if (step % p.interval == 0) return true;
+    for (const SampleSpec& s : tc.samples) if (step % s.interval == 0) return true;
+    return !tc.averages.empty();   // force outputs are computed from the adaptive residual separately
+}
+
+bool postprocess_force_due(const TestCase& tc, int step) {
+    for (const ForceSpec& f : tc.forces) if (step % f.interval == 0) return true;
+    return false;
+}
+
+}   // namespace
+
 Field Simulation::initial_field() const {
     if (test_case->three_d) {
         if (!mesh.is3d()) throw std::invalid_argument("Test case '" + test_case->key + "' is 3-D: set nz > 1");
@@ -822,14 +1347,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         S = std::max(S, s_visc);
     }
 
-    if (body_force) {
-        ProfileScope profile(Section::BodyForce);
-        body_force->add_to(*Uc, R);
-    }
-    if (p.use_source) {
-        ProfileScope profile(Section::Source);
-        add_source(source_for(m), R);
-    }
+    if (!rhs_sources.empty()) rhs_sources.apply_uniform(m, *Uc, R, scheme ? scheme->stage_time : 0.0);
     return S;
 }
 
@@ -1018,28 +1536,20 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         S = std::max(S, s_visc);
     }
 
-    if (body_force) {
-        ProfileScope profile(Section::BodyForce);
-        body_force->add_to(Uv, R);
-    }
-    if (p.use_source) {
-        ProfileScope profile(Section::Source);
-        add_source(source_for(m), R);
-    }
+    if (!rhs_sources.empty()) rhs_sources.apply_uniform(m, Uv, R, scheme ? scheme->stage_time : 0.0);
     return S;
 }
-const Field& Simulation::source_for(const Mesh& m) {
+const Field& Simulation::source_for(const Mesh& m, double stage_time) {
     const std::array<double, 9> key = {static_cast<double>(m.nx), static_cast<double>(m.ny),
                                        static_cast<double>(m.nz), m.dx, m.dy, m.dz, m.x0, m.y0, m.z0};
     if (p.source_unsteady) {
-        const double t = scheme ? scheme->stage_time : 0.0;
         auto ut = unsteady_source_cache_.find(key);
         if (ut == unsteady_source_cache_.end())
             ut = unsteady_source_cache_.emplace(key, std::make_pair(std::numeric_limits<double>::quiet_NaN(), Field{}))
                      .first;
-        if (!(ut->second.first == t)) {   // also true for the NaN of a new entry
-            ut->second.second = evaluate_source(m, p.source, t);
-            ut->second.first = t;
+        if (!(ut->second.first == stage_time)) {   // also true for the NaN of a new entry
+            ut->second.second = evaluate_source(m, p.source, stage_time);
+            ut->second.first = stage_time;
         }
         return ut->second.second;
     }
@@ -1049,6 +1559,7 @@ const Field& Simulation::source_for(const Mesh& m) {
 }
 
 double Simulation::residual(const Field& Uin, Field& R) {
+    update_boundary_values(scheme ? scheme->stage_time : t, boundaries);
     return assemble(mesh, boundaries, p.use_ibm ? ibm.get() : nullptr, muscl.get(), Uin, R, nullptr);
 }
 
@@ -1328,7 +1839,13 @@ void Simulation::solve() {
 
     const double min_delta = dt_length;
     int step = start_step;
-    if (step == 0) exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
+    int last_snapshot_step = -1;
+    double next_write_time = next_time_output(t, p.write_interval_time);
+    PostprocessWriter post(*test_case, exporter.output_dir(), file_prefix, step);
+    if (step == 0) {
+        exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
+        last_snapshot_step = step;
+    }
 
     const ResidualFn res = [this](const Field& Uin, Field& R) { return residual(Uin, R); };
     std::FILE* mon = open_monitor();
@@ -1336,6 +1853,7 @@ void Simulation::solve() {
     const long long n_all = mesh.num_cells();
     Field R_loads;
     auto row = [&](int st) {   // averages, plus the IBM loads from a residual of the current state
+        scheme->stage_time = t;
         std::array<double, 3> loads{};
         residual(U, R_loads);
         if (p.use_ibm) loads = ibm_loads(mesh, *ibm, U, R_loads);
@@ -1345,19 +1863,43 @@ void Simulation::solve() {
         monitor_row(mon, st, volume_averages(U, n_all), p.use_ibm ? &loads : nullptr, residual_norms(rs));
     };
     if (mon && step == 0) row(step);
+    if (!post.empty()) {
+        if (step == 0) {
+            post.write_uniform(mesh, fluid, U, step, t, true);
+            if (post.has_averages()) post.observe_averages(step, t, volume_primitive_means(fluid, mesh, U), true);
+        } else {
+            post.skip_step(step);
+            if (post.has_averages()) post.observe_averages(step, t, volume_primitive_means(fluid, mesh, U), false, false);
+        }
+        if (step == 0 && post.has_force_due(step, true)) {
+            residual(U, R_loads);
+            post.write_forces(step, t, ibm_loads(mesh, *ibm, U, R_loads), mesh, true);
+        }
+    }
     profile_reset();   // the profile counts the time loop only
     const auto t0 = Clock::now();
     bool interrupted = false;
     while (t < p.t_end) {
         ProfileScope step_profile(Section::Step);
-        const StepResult r = scheme->step(U, res, min_delta, t, p.t_end);
+        const StepResult r = scheme->step(U, res, min_delta, t, std::min(p.t_end, next_write_time), p.dt_max);
         check_progress(t, r.dt, r.s_max, step + 1, p.time_scheme.c_str());
         if (p.use_ibm) ibm->apply_solid_reset(U, fluid);
         t += r.dt;
+        scheme->stage_time = t;
         ++step;
+        const bool time_output = reached_time_output(t, next_write_time, p.write_interval_time);
+        if (time_output) next_write_time += p.write_interval_time;
         if (mon && step % p.monitor_interval == 0) row(step);
+        if (!post.empty()) {
+            post.write_uniform(mesh, fluid, U, step, t);
+            if (post.has_averages()) post.observe_averages(step, t, volume_primitive_means(fluid, mesh, U));
+            if (post.has_force_due(step)) {
+                residual(U, R_loads);
+                post.write_forces(step, t, ibm_loads(mesh, *ibm, U, R_loads), mesh);
+            }
+        }
 
-        if (step % p.save_interval == 0) {
+        if (step % p.save_interval == 0 || time_output) {
             {
                 ProfileScope ps(Section::Snapshot);
                 exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
@@ -1366,6 +1908,7 @@ void Simulation::solve() {
                 ProfileScope ps(Section::Checkpoint);
                 save_checkpoint(step);
             }
+            last_snapshot_step = step;
             char inner[32] = "";
             if (scheme->inner_iter_last() >= 0)
                 std::snprintf(inner, sizeof(inner), " | inner=%d", scheme->inner_iter_last());
@@ -1386,10 +1929,18 @@ void Simulation::solve() {
         if (step % p.monitor_interval != 0) row(step);
         std::fclose(mon);
     }
+    if (!post.empty()) {
+        post.write_uniform(mesh, fluid, U, step, t, true);
+        if (post.has_averages()) post.observe_averages(step, t, volume_primitive_means(fluid, mesh, U), true);
+        if (post.has_force_due(step, true)) {
+            residual(U, R_loads);
+            post.write_forces(step, t, ibm_loads(mesh, *ibm, U, R_loads), mesh, true);
+        }
+    }
     if (interrupted) {
         std::printf("\n[INTERRUPTED] Stopping the simulation...\n");
         exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
-    } else if (step % p.save_interval != 0) {
+    } else if (last_snapshot_step != step) {
         exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
     }
     save_checkpoint(step);
@@ -1407,6 +1958,7 @@ void Simulation::solve_amr() {
     const bool root = rank == 0;
     CellAdvance adv(cm, eng, *scheme);
     if (cell_par) adv.par = cell_par.get();
+    adv.stage_hook = [this](int, double stage_time) { update_boundary_values(stage_time, boundaries); };
     // each rank keeps only its leaves and their halo (CellParallel::localize), unless FENICE_REPLICATED_REMESH=1
     const bool local_run = cell_par && cell_par->localized();
     // the leaves of the whole mesh and their state (collective; a localized run gives them to rank 0 only, the one that writes)
@@ -1419,6 +1971,26 @@ void Simulation::solve_amr() {
         }
         if (cell_par) cell_par->gather_state();
         return {&cm.level, &cm.ci, &cm.cj, &cm.U};
+    };
+    std::unique_ptr<PostprocessWriter> post;
+    if (root) post = std::make_unique<PostprocessWriter>(*test_case, exporter.output_dir(), file_prefix, start_step);
+    const auto post_state = [&](int st, bool force, bool reset_average, bool emit) {
+        if ((!force && !amr_postprocess_state_due(*test_case, st)) ||
+            (force && test_case->probes.empty() && test_case->samples.empty() && test_case->averages.empty()))
+            return;
+        if (!emit && test_case->averages.empty()) {
+            if (root) post->skip_step(st);
+            return;
+        }
+        const LeafArrays lf = leaves();
+        if (!root) return;
+        if (emit) post->write_amr(cm, fluid, *lf.level, *lf.ci, *lf.cj, *lf.U, st, t, force);
+        else post->skip_step(st);
+        if (post->has_averages()) {
+            const std::array<double, 5> means = volume_primitive_means(fluid, cm, *lf.level, *lf.U);
+            if (reset_average) post->reset_averages(t, means);
+            post->observe_averages(st, t, means, force, emit);
+        }
     };
     // number of leaves of the whole mesh (collective)
     const auto total_leaves = [&]() {
@@ -1438,6 +2010,8 @@ void Simulation::solve_amr() {
     double S = start_step > 0 ? cell_speed_ : (local_run ? wave_speed() : eng.residual(cm, cm.U, R));
     cell_speed_ = S;
     int step = start_step;
+    int last_snapshot_step = -1;
+    double next_write_time = next_time_output(t, p.write_interval_time);
 
     // Every rank writes the leaves it owns (the whole mesh on one rank)
     const auto export_state = [&](int st) {
@@ -1454,7 +2028,10 @@ void Simulation::solve_amr() {
     std::FILE* mon = root ? open_monitor() : nullptr;
     arm_stop_file();
     const bool monitoring = p.monitor_interval > 0;
-    const auto row = [&](int st) {
+    const auto row = [&](int st, bool write_monitor, bool write_force, bool force_final) {
+        scheme->stage_time = t;
+        eng.stage_time = t;
+        update_boundary_values(t, boundaries);
         double sums[4] = {0.0, 0.0, 0.0, 0.0};   // mass, kinetic energy, total energy, area
         for (int l = 0; l <= cm.max_level; ++l)
             for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c) {
@@ -1496,6 +2073,34 @@ void Simulation::solve_amr() {
                 if (cell_par)
                     for (double& v : loads) v = cell_par->reduce_sum(v);
             }
+            if (write_force) {
+                Field contributions(static_cast<size_t>(cm.num_leaves()));
+                const std::vector<char>& solid = eng.solid();
+                for (int l = 0; l <= cm.max_level; ++l)
+                    for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c) {
+                        if (!solid[static_cast<size_t>(c)]) continue;
+                        double rx = Rl[static_cast<size_t>(c)][1], ry = Rl[static_cast<size_t>(c)][2];
+                        if (body_force) {
+                            rx -= cm.U[static_cast<size_t>(c)][0] * body_force->gx;
+                            ry -= cm.U[static_cast<size_t>(c)][0] * body_force->gy;
+                        }
+                        const double ex = rx * cm.area(c), ey = ry * cm.area(c);
+                        contributions[static_cast<size_t>(c)] =
+                            {ex, ey, (cm.xc(c) - p.ibm_cx) * ey - (cm.yc(c) - p.ibm_cy) * ex, 0.0, 0.0};
+                    }
+                Field ordered;
+                if (cell_par) cell_par->collect_field(contributions, ordered, true);
+                else ordered = std::move(contributions);
+                if (root) {
+                    std::array<double, 3> deterministic{};
+                    for (const State& c : ordered) {
+                        deterministic[0] += c[0];
+                        deterministic[1] += c[1];
+                        deterministic[2] += c[2];
+                    }
+                    post->write_forces(st, t, deterministic, mesh, force_final);
+                }
+            }
             const std::vector<char>& solid = eng.solid();
             for (int l = 0; l <= cm.max_level; ++l)
                 for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c)
@@ -1505,19 +2110,27 @@ void Simulation::solve_amr() {
             for (double& v : sums) v = cell_par->reduce_sum(v);
             for (double& v : rs) v = cell_par->reduce_sum(v);
         }
-        monitor_row(mon, st, {sums[0] / sums[3] * mesh.cell_area(), sums[1] / sums[3] * mesh.cell_area(), sums[2] / sums[3] * mesh.cell_area()},
-                    p.use_ibm ? &loads : nullptr, residual_norms(rs));
+        if (write_monitor)
+            monitor_row(mon, st, {sums[0] / sums[3] * mesh.cell_area(), sums[1] / sums[3] * mesh.cell_area(), sums[2] / sums[3] * mesh.cell_area()},
+                        p.use_ibm ? &loads : nullptr, residual_norms(rs));
     };
 
-    if (step == 0) export_state(step);
-    if (monitoring && step == 0) row(step);
+    if (step == 0) {
+        export_state(step);
+        last_snapshot_step = step;
+    }
+    post_state(step, step == 0, false, step == 0);
+    if (monitoring && step == 0) row(step, true, postprocess_force_due(*test_case, step), false);
+    else if (step == 0 && postprocess_force_due(*test_case, step)) row(step, false, true, false);
 
     const auto t0 = Clock::now();
     profile_reset();   // the profile counts the time loop only
     double remesh_wall = 0.0, t_gather = 0.0, t_speed = 0.0, t_partition = 0.0;
     bool interrupted = false;
     while (t < p.t_end) {
-        const double dt = std::min(scheme->cfl * std::min(cm.dx(0), cm.dy(0)) / std::max(S, 1e-10), p.t_end - t);
+        double dt = std::min(scheme->cfl * std::min(cm.dx(0), cm.dy(0)) / std::max(S, 1e-10), p.t_end - t);
+        if (p.dt_max > 0.0) dt = std::min(dt, p.dt_max);
+        dt = std::min(dt, next_write_time - t);
         {
             ProfileScope ps(Section::Step);
             S = adv.step(dt, t);
@@ -1530,10 +2143,12 @@ void Simulation::solve_amr() {
         }
         t += dt;
         ++step;
+        const bool time_output = reached_time_output(t, next_write_time, p.write_interval_time);
+        if (time_output) next_write_time += p.write_interval_time;
 
+        bool changed = false;
         if (step % p.amr_refine_every == 0) {
             const auto r0 = Clock::now();
-            bool changed;
             if (local_run) {
                 // indicator on the owned leaves and their region, flags gathered, state of the new leaves migrated: no whole mesh
                 changed = cell_par->remesh(*cell_adaptor);
@@ -1557,14 +2172,18 @@ void Simulation::solve_amr() {
             remesh_wall += seconds_since(r0);
             profile_add(Section::Remesh, seconds_since(r0));
         }
-        if (monitoring && step % p.monitor_interval == 0) row(step);
+        post_state(step, false, changed, true);
+        const bool monitor_due = monitoring && step % p.monitor_interval == 0;
+        const bool force_due = postprocess_force_due(*test_case, step);
+        if (monitor_due || force_due) row(step, monitor_due, force_due, false);
 
-        if (step % p.save_interval == 0) {
+        if (step % p.save_interval == 0 || time_output) {
             ProfileScope ps(Section::Output);
             export_state(step);
             const LeafArrays lf = leaves();
             const int nleaves = total_leaves();
             if (root) save_checkpoint(step, &lf);
+            last_snapshot_step = step;
             if (root)
                 std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | leaves = %d | wall = %s | Checkpoint saved\n",
                             step, t, dt, S, nleaves, format_elapsed(seconds_since(t0)).c_str());
@@ -1580,12 +2199,17 @@ void Simulation::solve_amr() {
     }
     const double loop_wall = seconds_since(t0);
 
+    if (monitoring || !test_case->forces.empty()) {
+        const bool monitor_final = monitoring && step % p.monitor_interval != 0;
+        const bool force_final = !test_case->forces.empty() && !postprocess_force_due(*test_case, step);
+        if (monitor_final || force_final) row(step, monitor_final, force_final, force_final);
+    }
+    post_state(step, true, false, true);
     if (monitoring) {
-        if (step % p.monitor_interval != 0) row(step);
         if (mon) std::fclose(mon);
     }
     if (root && interrupted) std::printf("\n[INTERRUPTED] Stopping the simulation...\n");
-    if (interrupted || step % p.save_interval != 0) export_state(step);
+    if (interrupted || last_snapshot_step != step) export_state(step);
     // resident memory of every rank (collective), before the whole mesh is gathered for the files
     const MemoryUsage mem_end = memory_usage();
     std::vector<double> mem = {mem_setup_.current, mem_init_.current, mem_end.current, mem_end.peak};
@@ -1844,6 +2468,26 @@ void Simulation::run_mpi(MPI_Comm comm) {
         std::printf("[MPI] Initial field scattered to all ranks  (total cells: %d, per-rank avg: %d)\n\n",
                     mesh.num_cells(), mesh.num_cells() / decomp.n_ranks);
 
+    std::unique_ptr<PostprocessWriter> post;
+    if (root) post = std::make_unique<PostprocessWriter>(*test_case, exporter.output_dir(), file_prefix, start);
+    Field R_post;
+    const auto post_state = [&](int st, bool force, bool emit) {
+        if (!has_postprocess(*test_case) || (!force && !postprocess_state_due(*test_case, st))) return;
+        if (!emit && test_case->averages.empty()) {
+            if (root) post->skip_step(st);
+            return;
+        }
+        Field global = decomp.gather(U_local);
+        if (!root) return;
+        if (emit) post->write_uniform(mesh, fluid, global, st, t, force);
+        else post->skip_step(st);
+        if (post->has_averages()) post->observe_averages(st, t, volume_primitive_means(fluid, mesh, global), force, emit);
+        if (emit && post->has_force_due(st, force)) {
+            residual(global, R_post);
+            post->write_forces(st, t, ibm_loads(mesh, *ibm, global, R_post), mesh, force);
+        }
+    };
+
     Field halo_lo, halo_hi, forced;
     const ResidualFn res = [&](const Field& Uin, Field& R) {
         const Field* Uc = &Uin;
@@ -1858,6 +2502,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
         bool has_lo, has_hi;
         decomp.exchange_halos(*Uc, periodic, halo_lo, halo_hi, has_lo, has_hi);
         StripHalos h{dir, has_lo ? &halo_lo : nullptr, has_hi ? &halo_hi : nullptr};
+        update_boundary_values(scheme->stage_time, lb);
         const double s = assemble(lm, lb, nullptr, local_muscl.get(), *Uc, R, &h);
         return decomp.allreduce_max(s);
     };
@@ -1875,11 +2520,15 @@ void Simulation::run_mpi(MPI_Comm comm) {
         local_ibm->apply_solid_reset(Uloc, fluid, &sh);
     };
     const double min_delta = dt_length;
+    double next_write_time = next_time_output(t, p.write_interval_time);
+    int last_snapshot_step = -1;
 
     if (start == 0) {
         Field g = decomp.gather(U_local);
         if (root) exporter.export_vtr(file_prefix, fluid, g, mesh, t, 0);
+        last_snapshot_step = 0;
     }
+    post_state(start, start == 0, start == 0);
     if (root) {
         std::printf("=== MPI TIME-MARCHING  (%d ranks | t_end = %g s) ===\n", decomp.n_ranks, p.t_end);
         std::printf("[MPI] Output: full domain gathered to rank 0 before every VTK write\n");
@@ -1894,6 +2543,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
     const long long n_all = static_cast<long long>(p.nx) * p.ny * p.nz;
     Field R_loads;
     auto row = [&](int st) {   // collective: every rank calls it
+        scheme->stage_time = t;
+        update_boundary_values(t, lb);
         const auto v = volume_averages(U_local, n_all);
         std::array<double, 3> loads{};
         res(U_local, R_loads);   // residual of the current state: the IBM loads (mask or ghost cells) and the norms, summed over the strips
@@ -1912,14 +2563,19 @@ void Simulation::run_mpi(MPI_Comm comm) {
     bool interrupted = false;
     while (t < p.t_end) {
         ProfileScope step_profile(Section::Step);
-        const StepResult sr = scheme->step(U_local, res, min_delta, t, p.t_end);
+        const StepResult sr = scheme->step(U_local, res, min_delta, t, std::min(p.t_end, next_write_time), p.dt_max);
         check_progress(t, sr.dt, sr.s_max, step + 1, p.time_scheme.c_str());
         if (p.use_ibm) solid_reset(U_local);
         t += sr.dt;
+        scheme->stage_time = t;
+        update_boundary_values(t, lb);
         ++step;
+        const bool time_output = reached_time_output(t, next_write_time, p.write_interval_time);
+        if (time_output) next_write_time += p.write_interval_time;
         if (monitoring && step % p.monitor_interval == 0) row(step);
+        post_state(step, false, true);
 
-        if (step % p.save_interval == 0) {
+        if (step % p.save_interval == 0 || time_output) {
             Field g = decomp.gather(U_local);
             if (root) {
                 exporter.export_vtr(file_prefix, fluid, g, mesh, t, step);
@@ -1929,6 +2585,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
                             step, t, sr.dt, sr.s_max, format_elapsed(seconds_since(t0)).c_str());
                 std::fflush(stdout);
             }
+            last_snapshot_step = step;
         }
         // Agree on Ctrl+C across ranks so nobody blocks in a collective
         poll_stop_file();
@@ -1942,10 +2599,11 @@ void Simulation::run_mpi(MPI_Comm comm) {
 
     if (monitoring && step % p.monitor_interval != 0) row(step);
     if (mon) std::fclose(mon);
+    post_state(step, true, true);
     Field g = decomp.gather(U_local);
     if (root) {
         if (interrupted) std::printf("\n[INTERRUPTED] Stopping...\n");
-        if (interrupted || step % p.save_interval != 0) exporter.export_vtr(file_prefix, fluid, g, mesh, t, step);
+        if (interrupted || last_snapshot_step != step) exporter.export_vtr(file_prefix, fluid, g, mesh, t, step);
         U = std::move(g);
         save_checkpoint(step);
         exporter.write_pvd(file_prefix);

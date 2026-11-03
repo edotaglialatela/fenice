@@ -131,6 +131,8 @@ public:
     // mesh may be localized or not). For the checkpoint and the dump. With `root_only` only rank 0 gets them (the other ranks' arrays
     // are empty): the other ranks never hold a copy of the whole state.
     void collect(std::vector<int>& level, std::vector<int>& ci, std::vector<int>& cj, Field& U, bool root_only = false) const;
+    // Gather another per-leaf field in the same global order (e.g. residual contributions for deterministic post-processing).
+    void collect_field(const Field& values, Field& out, bool root_only = false) const;
 
     // Test switch: after partition() the state of the leaves this rank does not hold is set to NaN, so that a missing halo
     // cell cannot go unnoticed.
@@ -217,7 +219,7 @@ private:
     void exchange_sized(const std::vector<std::vector<double>>& send, std::vector<std::vector<double>>& recv) const;
     // The owned leaves of all ranks as records (level, ci, cj, state), 3 + kNVar doubles each, in rank order
     // (with `root_only`, on rank 0 only).
-    void gather_owned(std::vector<double>& all, bool root_only = false) const;
+    void gather_owned(std::vector<double>& all, bool root_only = false, const Field* values = nullptr) const;
 
     bool localized_ = false;
     std::vector<char> level_present_;   // per level: the whole mesh has leaves there (set by partition())

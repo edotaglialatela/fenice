@@ -1,11 +1,14 @@
 # Post-processing in the case file, and multi-species flow: proposals
 
-Status: proposal. Part A needs no method choice and is implemented item by item on branch `postprocessing`; part B lists the
-choices that are the user's and the cases that fix what "done" means; it is not started. Numbers marked *proposed* are starting
-values, to be confirmed before the first run (the convention of `verification/mms.py`: bands are fixed beforehand, never fitted to the
-result).
+Status: Part A's code and documentation are implemented and checked on Windows/MSVC Release: 111 unit tests (1,128,758 checks),
+the scalar-only suite (`FENICE_NO_SIMD=1`), and the stored serial/MPI regression suite all pass. Temporary post-processing checks
+cover uniform, AMR and 3-D probes/samples, forces, averages, exact-time snapshots, time-dependent boundaries and resume; uniform and
+AMR CSVs match byte for byte from serial through 7 MPI ranks. The A5 source/body-force timing (minimum of three) was 1.565 s on
+`main` and 1.572 s with Part A (0.5% slower, within the observed run-to-run spread). Part B lists the user's choices and the cases
+that fix what "done" means; it is not started. Numbers marked *proposed* are starting values, to be confirmed before the first run
+(the convention of `verification/mms.py`: bands are fixed beforehand, never fitted to the result).
 
-## Where the solver stands
+## Baseline before Part A
 
 * The monitor (`monitor_interval`, `Simulation::monitor_row`) writes volume averages and the IBM loads to a CSV. Under MPI its sums
   go through `reduce_sum` in rank order, but the partial sums depend on the partition, so the monitor values agree with serial to
@@ -17,20 +20,22 @@ result).
 
 ## A. Post-processing declared in the case file
 
-Every item is off by default, changes no state and no existing reference, and is tested serial against 1-7 ranks (files identical).
+Acceptance: omitted output tables leave these features off and do not change the state or existing references. Output files must match
+between serial and 1-7 ranks.
 
 1. **Probes and line samples.** `[[probe]]` (a point) and `[[sample]]` (a line of points) write the primitive variables of the cell
-   that holds each point at a given interval. Nearest cell (no interpolation) so that the value is a state value, the same one for
-   any rank count and, with AMR, the leaf that holds the point. Output: one CSV per probe / line under the output folder.
-2. **Forces and averages.** `[[force]]` (IBM loads with a reference length and pressure/density, giving coefficients) and
+   that holds each point at a given interval. The containing cell is used without interpolation, so the value is a state value, the
+   same one for any rank count and, with AMR, the leaf that holds the point. Output: one CSV per probe / line under the output folder.
+2. **Forces and averages.** `[[force]]` (IBM loads with a reference length, density and velocity, giving coefficients) and
    `[[average]]` (time average of chosen variables). Any sum is made in a fixed order (cells in global index order, or a fixed
-   binary tree over blocks) so that the result does not depend on the partition. *Open choice for the user:* with AMR a time average is
-   ill-defined across a remesh: reset it at a remesh, average on the level-0 grid only, or support uniform meshes only.
+   binary tree over blocks) so that the result does not depend on the partition. With AMR the time average resets at a remesh; a resumed
+   run starts a new averaging window at its restart time.
 3. **Output at exact times and a maximum dt.** `write_interval_time` clips the step so that a snapshot lands on 0.01, 0.02, ...;
    `dt_max` caps the step next to the CFL. Both off by default (the references do not move); with AMR the clip is applied to the
    base step.
 4. **Boundary values that vary in time.** `u_in`, `p_out`, ... accept the expression engine's expressions of `t`, evaluated at
-   `TimeScheme::stage_time` as the sources are (ramps, sines); a table (CSV of t, value) with linear interpolation.
+   `TimeScheme::stage_time` as the sources are (ramps, sines); a table (CSV of t, value) with linear interpolation. An expression
+   and a table cannot both be set for the same value.
 5. **Source and thermophysics interfaces.** One small interface for the right-hand-side contributions (body force, expression
    sources, later reactions) and the equation of state split into pressure law, internal energy and transport. Strictly bitwise
    neutral: regression, golden dumps, `FENICE_NO_SIMD=1`; no virtual call inside a face or cell loop; timed against `main` (min of 3)

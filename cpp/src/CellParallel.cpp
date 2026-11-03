@@ -361,7 +361,7 @@ bool CellParallel::same_lists(const CellParallel& o) const {
            level_present_ == o.level_present_ && ob_ == o.ob_ && oe_ == o.oe_;
 }
 
-void CellParallel::gather_owned(std::vector<double>& all, bool root_only) const {
+void CellParallel::gather_owned(std::vector<double>& all, bool root_only, const Field* values) const {
     const int R = comm_.size, M = mesh_.max_level;
     std::vector<double> send;
     for (int l = 0; l <= M; ++l)
@@ -369,7 +369,8 @@ void CellParallel::gather_owned(std::vector<double>& all, bool root_only) const 
             send.push_back(l);
             send.push_back(mesh_.ci[static_cast<size_t>(c)]);
             send.push_back(mesh_.cj[static_cast<size_t>(c)]);
-            send.insert(send.end(), mesh_.U[static_cast<size_t>(c)].begin(), mesh_.U[static_cast<size_t>(c)].end());
+            const State& value = values ? (*values)[static_cast<size_t>(c)] : mesh_.U[static_cast<size_t>(c)];
+            send.insert(send.end(), value.begin(), value.end());
         }
     std::vector<int> counts(static_cast<size_t>(R), 1), displs(static_cast<size_t>(R));
     std::vector<double> mine(1, static_cast<double>(send.size())), sizes(static_cast<size_t>(R));
@@ -429,6 +430,30 @@ void CellParallel::collect(std::vector<int>& level, std::vector<int>& ci, std::v
         ci[k] = static_cast<int>(r[1]);
         cj[k] = static_cast<int>(r[2]);
         for (int q = 0; q < kNVar; ++q) U[k][static_cast<size_t>(q)] = r[3 + q];
+    }
+}
+
+void CellParallel::collect_field(const Field& values, Field& out, bool root_only) const {
+    if (values.size() != mesh_.U.size())
+        throw std::invalid_argument("CellParallel::collect_field: the field must match the local mesh");
+    constexpr size_t rec = 3 + kNVar;
+    std::vector<double> all;
+    gather_owned(all, root_only, &values);
+    const size_t n = all.size() / rec;
+    std::vector<size_t> order(n);
+    std::vector<uint64_t> key(n);
+    for (size_t k = 0; k < n; ++k) {
+        order[k] = k;
+        key[k] = morton_key(static_cast<uint32_t>(all[rec * k + 1]), static_cast<uint32_t>(all[rec * k + 2]));
+    }
+    std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+        const int la = static_cast<int>(all[rec * a]), lb = static_cast<int>(all[rec * b]);
+        return la != lb ? la < lb : key[a] < key[b];
+    });
+    out.resize(n);
+    for (size_t k = 0; k < n; ++k) {
+        const double* r = &all[rec * order[k]];
+        for (int q = 0; q < kNVar; ++q) out[k][static_cast<size_t>(q)] = r[3 + q];
     }
 }
 

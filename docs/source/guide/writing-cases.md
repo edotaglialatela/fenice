@@ -107,9 +107,9 @@ case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 | `[thermo]` | `eos_type`, `gamma`, `p_inf` |
 | `[physics]` | `use_viscous`, `mu`, `pr`, `use_bodyforce`, `gx`, `gy`, `gz` |
 | `[source]` | `source_rho`, `source_mx`, `source_my`, `source_mz`, `source_E` (expressions, for manufactured solutions) |
-| `[boundaries]` | `bc_left`, `bc_right`, `bc_bottom`, `bc_top`, `bc_front`, `bc_back`, `u_in`, `rho_in`, `p_out` |
+| `[boundaries]` | `bc_left`, `bc_right`, `bc_bottom`, `bc_top`, `bc_front`, `bc_back`, `u_in`, `v_in`, `rho_in`, `p_out`, `*_table` |
 | `[numerics]` | `riemann_solver`, `use_muscl`, `muscl_limiter`, `reconstruction`, `weno_epsilon`, `boundary_order`, `time_scheme`, `cfl`, `dt_phys`, `max_inner_iter`, `inner_tol_rel` |
-| `[run]` | `t_end`, `save_interval`, `monitor_interval`, `max_steps`, `resume`, `output_root`, `dump_state` |
+| `[run]` | `t_end`, `save_interval`, `write_interval_time`, `dt_max`, `monitor_interval`, `max_steps`, `resume`, `output_root`, `dump_state` |
 | `[parallel]` | `use_mpi`, `n_cpus` |
 | `[ibm]` | `use_ibm`, `ibm_shape`, `ibm_radius`, `ibm_cx`, `ibm_cy`, `ibm_cz` |
 | `[hot_start]` | `use_hot_start`, `hot_start_file`, `hot_start_src_nx`, `hot_start_src_ny` |
@@ -118,6 +118,87 @@ case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 Values use TOML types: numbers (`nx = 200`, `mu = 2.5e-3`), booleans (`use_muscl = true`)
 and strings (`riemann_solver = "HLLC"`). The boundary conditions come from the case file
 (and `--config` / `--set`) only: no case forces its own in code.
+
+## Post-processing
+
+Post-processing is declared with top-level array tables. All intervals are in completed
+solver steps. A probe is a point; a sample is a line with both endpoints included. The
+solver writes the primitive state from the cell containing each point, without
+interpolation. Coordinates must lie inside the domain; a three-dimensional probe needs
+`z`, and a three-dimensional sample uses three-component endpoints.
+
+```toml
+[[probe]]
+name = "centre"
+x = 0.5
+y = 0.5
+interval = 5
+
+[[sample]]
+name = "midline"
+from = [0.0, 0.5]
+to = [1.0, 0.5]
+points = 101
+interval = 10
+
+[[average]]
+name = "bulk"
+variables = ["rho", "u", "v", "p"]
+interval = 10
+```
+
+Each probe and sample writes its own CSV under the output folder. Rows contain step and
+time, the requested and selected-cell coordinates, and `rho,u,v,p,w`. A sample writes
+one row per point each time it is sampled. Each declared output writes the initial and
+final states as well as its step interval; resuming appends without repeating the restart
+row. Names may contain letters, digits, hyphens and underscores.
+
+`[[average]]` takes the volume mean of each listed primitive variable in fixed global
+cell order, then reports its running time average using trapezoidal integration. An AMR
+remesh starts a new average window; a resumed run starts a new window at its restart time.
+
+For an immersed body, `[[force]]` writes the loads and their coefficients:
+
+```toml
+[[force]]
+name = "body"
+reference_length = 1.0
+reference_density = 1.0
+reference_velocity = 1.0
+interval = 10
+```
+
+The dynamic pressure is `0.5 * reference_density * reference_velocity^2`; the reference
+area is `reference_length` per unit depth in 2-D, or `reference_length * Lz` in 3-D. The
+file contains `Fx,Fy,Mz,Cd,Cl,Cm`. A force declaration requires `use_ibm = true`.
+
+These outputs are off when their array tables are omitted. The time-step and snapshot
+controls are ordinary run parameters: `dt_max > 0` caps the CFL step, while
+`write_interval_time > 0` clips steps to exact multiples of that interval and writes a
+snapshot plus a checkpoint at each one.
+
+## Time-dependent boundary values
+
+The boundary values `u_in`, `v_in`, `rho_in` and `p_out` accept expressions of `t`,
+evaluated at each time-scheme stage. They can instead read a two-column CSV table through
+`u_in_table`, `v_in_table`, `rho_in_table` or `p_out_table`:
+
+```toml
+[boundaries]
+u_in = "1.0 + 0.2*sin(2*pi*t)"
+p_out_table = "outlet-pressure.csv"
+```
+
+```csv
+t,value
+0.0,1.0
+0.01,1.2
+```
+
+The header is optional. Rows need finite values and strictly increasing times; values are
+linearly interpolated and held constant outside the table range. A relative table path is
+resolved beside `case.toml`, then from the current folder. For each value, use either its
+expression or its table key, not both. `rho_in` and `p_out` must stay positive.
 
 **`[initial]`** sets the initial condition (next section).
 

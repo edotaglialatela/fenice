@@ -1,5 +1,6 @@
 #include "fv/Params.hpp"
 
+#include "fv/CaseFile.hpp"
 #include "fv/Geometry.hpp"
 
 #include <cctype>
@@ -110,6 +111,8 @@ Params baseline_defaults() {
         {"cfl", "0.5"},
         {"t_end", "0.005"},
         {"save_interval", "1"},
+        {"write_interval_time", "0"},
+        {"dt_max", "0"},
         {"use_viscous", "false"},
         {"riemann_solver", "HLLC"},
         {"time_scheme", "Explicit Euler"},
@@ -120,8 +123,13 @@ Params baseline_defaults() {
         {"bc_front", "periodic"},
         {"bc_back", "periodic"},
         {"u_in", "0.0"},
+        {"v_in", "0.0"},
         {"rho_in", "1.0"},
         {"p_out", "1.0"},
+        {"u_in_table", ""},
+        {"v_in_table", ""},
+        {"rho_in_table", ""},
+        {"p_out_table", ""},
         {"nrbc_sigma", "0.28"},
         {"nrbc_beta", "-1"},
         {"use_bodyforce", "false"},
@@ -204,12 +212,22 @@ SimParams SimParams::from(const Params& p) {
     s.cfl = p.num("cfl", 0.5);
     s.t_end = p.num("t_end");
     s.save_interval = std::max(1, p.integer("save_interval", 1));
+    s.write_interval_time = p.num("write_interval_time", 0.0);
+    s.dt_max = p.num("dt_max", 0.0);
     s.use_viscous = p.flag("use_viscous");
     s.mu = p.num("mu", 1e-3);
     s.pr = p.num("pr", 0.72);
-    s.u_in = p.num("u_in", 0.0);
-    s.rho_in = p.num("rho_in", 1.0);
-    s.p_out = p.num("p_out", 1.0);
+    Mesh expression_mesh;
+    expression_mesh.Lx = s.Lx;
+    expression_mesh.Ly = s.Ly;
+    expression_mesh.Lz = s.Lz;
+    expression_mesh.nx = s.nx;
+    expression_mesh.ny = s.ny;
+    expression_mesh.nz = s.nz;
+    s.u_in = compile_time_expression(p, expression_mesh, p.str("u_in", "0.0"), "u_in")(0.0);
+    s.v_in = compile_time_expression(p, expression_mesh, p.str("v_in", "0.0"), "v_in")(0.0);
+    s.rho_in = compile_time_expression(p, expression_mesh, p.str("rho_in", "1.0"), "rho_in")(0.0);
+    s.p_out = compile_time_expression(p, expression_mesh, p.str("p_out", "1.0"), "p_out")(0.0);
     s.nrbc_sigma = p.num("nrbc_sigma", 0.28);
     s.nrbc_beta = p.num("nrbc_beta", -1.0);
     s.use_bodyforce = p.flag("use_bodyforce");
@@ -353,6 +371,9 @@ SimParams SimParams::from(const Params& p) {
     if (!(s.nrbc_beta <= 1.0)) throw std::invalid_argument("nrbc_beta must be <= 1 (< 0: local Mach number)");
     if (!(s.cfl > 0.0)) throw std::invalid_argument("cfl must be positive");
     if (!(s.t_end > 0.0)) throw std::invalid_argument("t_end must be positive");
+    if (!(s.write_interval_time >= 0.0) || !std::isfinite(s.write_interval_time))
+        throw std::invalid_argument("write_interval_time must be finite and >= 0 (0: off)");
+    if (!(s.dt_max >= 0.0) || !std::isfinite(s.dt_max)) throw std::invalid_argument("dt_max must be finite and >= 0 (0: off)");
     if (!(s.gamma > 1.0)) throw std::invalid_argument("gamma must be greater than 1");
     const std::string shape = lower(s.ibm_shape);
     const bool airfoil = shape == "airfoil" || !naca_digits(s.ibm_shape).empty();
@@ -374,13 +395,18 @@ SimParams SimParams::from(const Params& p) {
     if (s.reynolds > 0.0) {
         // mu from the Reynolds number on the body: rho_in u_in L / mu, L = chord or diameter
         if (!s.use_ibm) throw std::invalid_argument("reynolds needs an IBM body for its length scale (or set mu)");
-        if (!(s.u_in > 0.0) || !(s.rho_in > 0.0))
-            throw std::invalid_argument("reynolds needs positive u_in and rho_in");
-        const double L = airfoil ? s.ibm_chord : 2.0 * s.ibm_radius;
-        s.mu = s.rho_in * s.u_in * L / s.reynolds;
-        char buf[32];
-        std::snprintf(buf, sizeof(buf), "%.17g", s.mu);
-        s.source.set("mu", buf);   // expressions in the case file see the same mu
+        // A boundary table is resolved next to the case file in Simulation::setup; defer the
+        // positive-reference check and derived mu until then if the numeric t=0 values are absent.
+        if (s.u_in > 0.0 && s.rho_in > 0.0) {
+            const double L = airfoil ? s.ibm_chord : 2.0 * s.ibm_radius;
+            s.mu = s.rho_in * s.u_in * L / s.reynolds;
+            char buf[32];
+            std::snprintf(buf, sizeof(buf), "%.17g", s.mu);
+            s.source.set("mu", buf);   // expressions in the case file see the same mu
+        } else {
+            s.mu = 0.0;   // placeholder: Simulation::setup replaces it after resolving boundary tables
+            s.source.set("mu", "0.0");
+        }
     }
     if (s.use_viscous && (!(s.mu >= 0.0) || !(s.pr > 0.0)))
         throw std::invalid_argument("mu must be >= 0 and pr > 0 with use_viscous");

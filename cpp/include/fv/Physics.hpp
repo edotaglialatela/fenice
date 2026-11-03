@@ -5,11 +5,45 @@
 
 #include <array>
 #include <functional>
+#include <utility>
+#include <vector>
 
 #include "fv/Core.hpp"
 #include "fv/Geometry.hpp"
 
 namespace fv {
+
+class CellMesh;
+
+// Contribution to the right-hand side of dU/dt = R.  A term is called once per mesh/range; its implementation owns the cell loop,
+// so adding new source types does not add virtual dispatch inside a face or cell kernel.
+struct RhsSourceTerm {
+    using UniformApply = std::function<void(const Mesh&, const Field&, Field&, double stage_time)>;
+    using AdaptiveApply =
+        std::function<void(const CellMesh&, const Field&, Field&, int begin, int end, double stage_time, const Field* cached)>;
+    UniformApply uniform;
+    AdaptiveApply adaptive;
+};
+
+class RhsSourceTerms {
+public:
+    void add(RhsSourceTerm term) { terms_.push_back(std::move(term)); }
+    void clear() { terms_.clear(); }
+    bool empty() const { return terms_.empty(); }
+
+    void apply_uniform(const Mesh& mesh, const Field& U, Field& R, double stage_time) const {
+        for (const RhsSourceTerm& term : terms_)
+            if (term.uniform) term.uniform(mesh, U, R, stage_time);
+    }
+    void apply_adaptive(const CellMesh& mesh, const Field& U, Field& R, int begin, int end, double stage_time,
+                        const Field* cached = nullptr) const {
+        for (const RhsSourceTerm& term : terms_)
+            if (term.adaptive) term.adaptive(mesh, U, R, begin, end, stage_time, cached);
+    }
+
+private:
+    std::vector<RhsSourceTerm> terms_;
+};
 
 // Central-difference cell-centre gradients from a (ny+2)*(nx+2) padded state.
 void compute_gradients(const Field& U_pad, int nx, int ny, double dx, double dy, Field& grad_x, Field& grad_y);

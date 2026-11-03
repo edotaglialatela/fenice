@@ -31,6 +31,7 @@ namespace fv {
 struct CellPhysics {
     const NavierStokes* ns = nullptr;          // viscous terms (needs the cell sizes of the leaves)
     const ConstantBodyForce* body = nullptr;   // body force
+    const RhsSourceTerms* rhs_sources = nullptr;   // ordered contributions, applied after convective and viscous residuals
     const Params* source = nullptr;            // source_* expressions (null: none)
     bool source_unsteady = false;              // the expressions use t: evaluated at CellFluxEngine::stage_time
     const Mesh* source_mesh = nullptr;         // base mesh the expression variables (Lx, nx, ...) come from

@@ -54,9 +54,11 @@ struct SimParams {
     std::string riemann_solver, time_scheme;
     double cfl, t_end;
     int save_interval;
+    double write_interval_time;   // > 0: exact-time snapshots; 0: off
+    double dt_max;                 // > 0: cap the time step; 0: off
     bool use_viscous;
     double mu, pr;
-    double u_in, rho_in, p_out;
+    double u_in, v_in, rho_in, p_out;
     double nrbc_sigma;   // non-reflecting outlet: relaxation of p towards p_out (0: none)
     double nrbc_beta;    // NRBC transverse weight in [0, 1] (1: LODI only); < 0: local Mach number
     bool use_bodyforce;

@@ -67,6 +67,10 @@ TestCase make_test_case(const CaseFile& cf) {
     tc.three_d = cf.requires_3d;
     tc.defaults = cf.params;
     tc.initial = cf.initial;
+    tc.probes = cf.probes;
+    tc.samples = cf.samples;
+    tc.forces = cf.forces;
+    tc.averages = cf.averages;
     const Profile* prof = nullptr;
     if (!cf.initial.profile.empty()) {
         prof = find_profile(cf.initial.profile);
@@ -185,6 +189,10 @@ std::string save_case(const TestCase& source, const Params& run, const std::stri
     cf.requires_viscous = source.requires_viscosity;
     cf.requires_3d = source.three_d;
     cf.initial = source.initial;
+    cf.probes = source.probes;
+    cf.samples = source.samples;
+    cf.forces = source.forces;
+    cf.averages = source.averages;
 
     // Parameters: those the source case sets, plus anything that differs from the baseline
     const Params base = baseline_defaults();

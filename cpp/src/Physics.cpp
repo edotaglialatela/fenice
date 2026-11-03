@@ -68,7 +68,7 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
     const int nx = mesh.nx, ny = mesh.ny, n = nx * ny;
     const double dx = mesh.dx, dy = mesh.dy;
     const double gamma = eos_.gamma;
-    const double k_cond = mu_ * gamma / (Pr_ * (gamma - 1.0));
+    const double k_cond = eos_.transport_law().thermal_conductivity(mu_, Pr_);
 
     // The primitive state of the padded array; the interior of U_pad is a copy of U, so a cell's primitive state is its entry there.
     {
@@ -253,7 +253,7 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
     const int nx = mesh.nx, ny = mesh.ny, n = nx * ny;
     const double dx = mesh.dx, dy = mesh.dy;
     const double gamma = eos_.gamma;
-    const double k_cond = mu_ * gamma / (Pr_ * (gamma - 1.0));
+    const double k_cond = eos_.transport_law().thermal_conductivity(mu_, Pr_);
 
     ProfileScope sweep_profile(Section::ViscousSweep);
     // Primitive state of the ghost ring (O(nx + ny)); a cell's own primitive state is computed with its row.
@@ -451,7 +451,7 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
     const int nx = m.nx, ny = m.ny, nz = m.nz, n = nx * ny * nz;
     const double h[3] = {m.dx, m.dy, m.dz};
     const double gamma = eos_.gamma;
-    const double k_cond = mu_ * gamma / (Pr_ * (gamma - 1.0));
+    const double k_cond = eos_.transport_law().thermal_conductivity(mu_, Pr_);
     const int PX = nx + 2, PY = ny + 2;
 
     // The interior of U_pad is a copy of U: the primitive state of a cell is its entry in the padded one.

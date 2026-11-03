@@ -102,13 +102,18 @@ public:
     std::unique_ptr<MusclReconstruction> muscl;                 // nullptr: 1st-order Godunov
     std::unique_ptr<NavierStokes> ns;                           // nullptr: Euler
     std::unique_ptr<ConstantBodyForce> body_force;              // optional source term
+    RhsSourceTerms rhs_sources;                                  // ordered RHS contribution interface
     // Source terms of the case (source_*), evaluated once per mesh the residual is assembled on (the whole mesh,
     // or an MPI strip); keyed by (nx, ny, nz, dx, dy, dz, x0, y0, z0)
     std::map<std::array<double, 9>, Field> source_cache_;
     // Unsteady sources (a source expression uses t): per mesh, the field of the last stage time it was asked for;
     // the inner iterations of BDF2 and the stages that share a time reuse it
     std::map<std::array<double, 9>, std::pair<double, Field>> unsteady_source_cache_;
-    const Field& source_for(const Mesh& m);
+    const Field& source_for(const Mesh& m, double stage_time);
+    std::map<std::string, std::function<double(double)>> boundary_expressions_;
+    std::map<std::string, std::vector<std::pair<double, double>>> boundary_tables_;
+    void load_boundary_functions();
+    void update_boundary_values(double stage_time, BoundaryManager& manager) const;
     std::unique_ptr<ImmersedBoundary> ibm;                      // optional obstacle
     std::function<ImmersedBoundary(const Mesh&)> ibm_factory;   // same body on the uniform mesh of any level
     std::unique_ptr<TimeScheme> scheme;                         // time integrator

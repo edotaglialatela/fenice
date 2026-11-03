@@ -3,6 +3,7 @@
 // needs no C++ and no recompilation.
 #pragma once
 
+#include <functional>
 #include <map>
 #include <string>
 #include <vector>
@@ -35,6 +36,36 @@ struct InitialSpec {
     std::vector<InitialRegion> regions;
 };
 
+// Optional outputs declared by a case file.  Intervals are measured in completed solver
+// steps; every configured output also writes the initial state at step zero.
+struct ProbeSpec {
+    std::string name;
+    double x = 0.0, y = 0.0, z = 0.0;
+    bool has_z = false;
+    int interval = 1;
+};
+
+struct SampleSpec {
+    std::string name;
+    std::vector<double> from, to;   // 2 entries in 2-D, 3 in 3-D
+    int points = 2;
+    int interval = 1;
+};
+
+struct ForceSpec {
+    std::string name;
+    int interval = 1;
+    double reference_length = 1.0;
+    double reference_density = 1.0;
+    double reference_velocity = 1.0;
+};
+
+struct AverageSpec {
+    std::string name;
+    std::vector<std::string> variables;   // volume means of rho, u, v, w and/or p
+    int interval = 1;
+};
+
 // A parsed case file.
 struct CaseFile {
     std::string name;   // registry key, e.g. "Sod Shock Tube"
@@ -45,6 +76,10 @@ struct CaseFile {
     bool requires_3d = false;        // needs nz > 1 (otherwise a 2-D case, extruded on 3-D meshes)
     Params params;                   // parameter overrides, flattened from the sections
     InitialSpec initial;
+    std::vector<ProbeSpec> probes;
+    std::vector<SampleSpec> samples;
+    std::vector<ForceSpec> forces;
+    std::vector<AverageSpec> averages;
 };
 
 // Read a case (a folder containing case.toml, or the .toml file itself).  Throws
@@ -84,5 +119,10 @@ Field evaluate_source(const Mesh& mesh, const Params& run, double t = 0.0);
 // variables Lx, nx, ... come from it): the cell centres of an adaptive mesh. Writes n states into `out`.
 void evaluate_source_points(const Mesh& mesh, const Params& run, double t, const double* xs, const double* ys, int n,
                             State* out);
+
+// Compile a scalar case-file expression once and return a function of time.  The expression can also refer to numeric run
+// parameters, pi and e; x, y and z remain zero because boundary values are spatially uniform.
+std::function<double(double)> compile_time_expression(const Params& run, const Mesh& mesh, const std::string& expression,
+                                                     const std::string& what);
 
 }   // namespace fv

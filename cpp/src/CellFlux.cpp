@@ -1321,7 +1321,7 @@ void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& f
     const int nlist = static_cast<int>(faces.size());
     const NavierStokes& ns = *phys_.ns;
     const double mu = ns.mu(), gamma = eos_.gamma;
-    const double k_cond = mu * gamma / (ns.prandtl() * (gamma - 1.0));
+    const double k_cond = eos_.transport_law().thermal_conductivity(mu, ns.prandtl());
     const Field& U = *us_;
     if (Fv_.size() != m.faces.size()) Fv_.resize(m.faces.size());
 #pragma omp parallel for schedule(static) if (nlist >= kOmpMinWork)
@@ -1388,7 +1388,7 @@ void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& f
 double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
     const NavierStokes& ns = *phys_.ns;
     const double mu = ns.mu(), gamma = eos_.gamma;
-    const double k_cond = mu * gamma / (ns.prandtl() * (gamma - 1.0));
+    const double k_cond = eos_.transport_law().thermal_conductivity(mu, ns.prandtl());
     const Field& U = *us_;
     const LevelSizes hs(m);
     const int nblock = (ce - cb + kViscBlock - 1) / kViscBlock;
@@ -1412,7 +1412,7 @@ double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
 double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
     const NavierStokes& ns = *phys_.ns;
     const double mu = ns.mu(), gamma = eos_.gamma;
-    const double k_cond = mu * gamma / (ns.prandtl() * (gamma - 1.0));
+    const double k_cond = eos_.transport_law().thermal_conductivity(mu, ns.prandtl());
     const Field& U = *us_;
     double s_max = 0.0;
 #pragma omp parallel if (ce - cb >= kOmpMinWork)
@@ -1472,7 +1472,7 @@ void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Fie
         for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 - (G[1][q] - G[0][q])) - (G[3][q] - G[2][q])) * inv_area;
         if (visc)
             for (int q = 0; q < kNVar; ++q) r[q] += ((0.0 + (H[1][q] - H[0][q])) + (H[3][q] - H[2][q])) * inv_area;
-        if (phys_.body) {
+        if (!phys_.rhs_sources && phys_.body) {
             const ConstantBodyForce& bf = *phys_.body;
             r[1] += U[c][0] * bf.gx;
             r[2] += U[c][0] * bf.gy;
@@ -1482,9 +1482,11 @@ void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Fie
                 r[4] += U[c][0] * bf.gz;
             }
         }
-        if (phys_.source)
+        if (!phys_.rhs_sources && phys_.source)
             for (int q = 0; q < kNVar; ++q) r[q] += src_[c][q];
     }
+    if (phys_.rhs_sources)
+        phys_.rhs_sources->apply_adaptive(m, U, R, cb, ce, stage_time, phys_.source ? &src_ : nullptr);
 }
 
 double CellFluxEngine::residual(const CellMesh& m, const Field& U, Field& R) {

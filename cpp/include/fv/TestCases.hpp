@@ -18,6 +18,10 @@ struct TestCase {
     bool three_d = false;              // initialize() expects a 3-D mesh (otherwise 2-D, extruded along z)
     Params defaults;                   // case parameters (override baseline_defaults)
     InitialSpec initial;               // as written in the case file
+    std::vector<ProbeSpec> probes;
+    std::vector<SampleSpec> samples;
+    std::vector<ForceSpec> forces;
+    std::vector<AverageSpec> averages;
     // Initial conservative field on `mesh`; `run` holds the resolved run parameters.
     std::function<Field(const Mesh& mesh, const EOS& eos, const Params& run)> initialize;
 };

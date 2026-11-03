@@ -32,7 +32,7 @@ public:
     virtual ~TimeScheme() = default;
 
     // Advance U in place by one adaptive (CFL) step, clamped to t_max.
-    virtual StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) = 0;
+    virtual StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max = 0.0) = 0;
 
     // Advance U in place by an imposed dt (AMR subcycling); returns S_max of
     // the first stage.  Default: first-order Euler.
@@ -63,7 +63,7 @@ protected:
 class ExplicitEuler : public TimeScheme {
 public:
     using TimeScheme::TimeScheme;
-    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
+    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max = 0.0) override;
     double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
 };
 
@@ -71,7 +71,7 @@ public:
 class SSPRK2 : public TimeScheme {
 public:
     using TimeScheme::TimeScheme;
-    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
+    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max = 0.0) override;
     double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
     std::vector<double> stage_weights() const override { return {0.5, 0.5}; }
     std::vector<double> stage_offsets() const override { return {0.0, 1.0}; }
@@ -82,7 +82,7 @@ public:
 class SSPRK3 : public TimeScheme {
 public:
     using TimeScheme::TimeScheme;
-    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
+    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max = 0.0) override;
     double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
     std::vector<double> stage_weights() const override { return {1.0 / 6.0, 1.0 / 6.0, 2.0 / 3.0}; }
     std::vector<double> stage_offsets() const override { return {0.0, 1.0, 0.5}; }
@@ -92,7 +92,7 @@ public:
 class RungeKutta4 : public TimeScheme {
 public:
     using TimeScheme::TimeScheme;
-    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
+    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max = 0.0) override;
     double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
     std::vector<double> stage_weights() const override { return {1.0 / 6.0, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0}; }
     std::vector<double> stage_offsets() const override { return {0.0, 0.5, 0.5, 1.0}; }
@@ -104,7 +104,7 @@ public:
     // Fixed physical step `dt_phys`; the inner loop stops after `max_inner_iter` iterations
     // or when the modified residual drops by `inner_tol_rel`.  Throws if dt_phys <= 0.
     BDF2DualTime(double cfl, double dt_phys, int max_inner_iter = 50, double inner_tol_rel = 1e-3);
-    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max) override;
+    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max = 0.0) override;
     int inner_iter_last() const override { return inner_iter_last_; }
 
     // Global max across MPI ranks (identity in serial).

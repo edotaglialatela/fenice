@@ -66,9 +66,12 @@ with the immersed boundary.
 |---|---|---|
 | `bc_left`, `bc_right`, `bc_bottom`, `bc_top` | `wall` | One of `wall` (*Inviscid Wall (Slip)*), `no_slip` (*Viscous Wall (No-Slip)*), `moving_wall`, `vel_inlet` (*Velocity Inlet*), `massflow_inlet` (*Mass Flow Inlet*), `outlet` (*Pressure Outlet*), `transmissive`, `nonreflecting` (*Non-Reflecting Outlet*), `periodic` (periodic on both sides of an axis or neither) |
 | `bc_front`, `bc_back` | `periodic` | 3-D only: the $z = 0$ and $z = L_z$ sides, same choices |
-| `u_in` | `0.0` | Inlet velocity / moving-wall velocity [m/s] |
-| `rho_in` | `1.0` | Mass-flow inlet density [kg/m³]; also the IBM reference density |
-| `p_out` | `1.0` | Outlet pressure [Pa]; also the IBM reference pressure and the far-field pressure of `nonreflecting` |
+| `u_in` | `0.0` | Inlet velocity / moving-wall x-velocity [m/s]; may be an expression of `t` |
+| `v_in` | `0.0` | Moving-wall y-velocity [m/s]; may be an expression of `t` |
+| `rho_in` | `1.0` | Mass-flow inlet density [kg/m³]; also the IBM reference density; may be an expression of `t` |
+| `p_out` | `1.0` | Outlet pressure [Pa]; also the IBM reference pressure and the far-field pressure of `nonreflecting`; may be an expression of `t` |
+| `u_in_table`, `v_in_table` | *(empty)* | Optional CSV path with `t,value` columns for the inlet / wall velocity component; linearly interpolated, holding the first and last values outside the table range |
+| `rho_in_table`, `p_out_table` | *(empty)* | Optional CSV path with `t,value` columns for inlet density or outlet pressure; linearly interpolated, holding end values outside the table range |
 | `nrbc_sigma` | `0.28` | `nonreflecting`: relaxation of the pressure towards `p_out` ($\sigma$; 0: none) |
 | `nrbc_beta` | `-1` | `nonreflecting`: weight of the transverse terms in [0, 1] (1: none, 0: full); negative: local Mach number |
 
@@ -98,6 +101,8 @@ override them. See the [BC formulas]({{root}}modules/Boundaries.html).
 |---|---|---|
 | `t_end` | `0.005` | End time [s] |
 | `save_interval` | `1` | Snapshot + checkpoint every N steps |
+| `write_interval_time` | `0` | If > 0, clip steps to snapshots at exact multiples of this time interval [s] (0: off); each such snapshot also writes a checkpoint |
+| `dt_max` | `0` | Maximum physical time step [s] (0: off), applied in addition to the CFL limit and exact-time output clipping |
 | `resume` | `false` | Continue from `<case>_restart.npz` (also with AMR: the leaves are restored exactly) |
 | `output_root` | `<repo>/results` | Parent of the per-case output folder |
 | `max_steps` | `0` | Stop after N steps (≤ 0: run to `t_end`) |
