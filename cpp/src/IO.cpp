@@ -60,20 +60,23 @@ inline void append_sci(std::string& s, double v, int prec) {
 
 void append_base64(std::string& s, const uint8_t* d, size_t n) {
     static const char* abc = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    const size_t at = s.size();
+    s.resize(at + (n + 2) / 3 * 4);   // written through a pointer: one append per character was the cost
+    char* o = &s[at];
     size_t i = 0;
-    for (; i + 2 < n; i += 3) {
+    for (; i + 2 < n; i += 3, o += 4) {
         const uint32_t v = (uint32_t(d[i]) << 16) | (uint32_t(d[i + 1]) << 8) | d[i + 2];
-        s += abc[v >> 18];
-        s += abc[(v >> 12) & 63];
-        s += abc[(v >> 6) & 63];
-        s += abc[v & 63];
+        o[0] = abc[v >> 18];
+        o[1] = abc[(v >> 12) & 63];
+        o[2] = abc[(v >> 6) & 63];
+        o[3] = abc[v & 63];
     }
     if (i < n) {
         const uint32_t v = (uint32_t(d[i]) << 16) | (i + 1 < n ? uint32_t(d[i + 1]) << 8 : 0u);
-        s += abc[v >> 18];
-        s += abc[(v >> 12) & 63];
-        s += i + 1 < n ? abc[(v >> 6) & 63] : '=';
-        s += '=';
+        o[0] = abc[v >> 18];
+        o[1] = abc[(v >> 12) & 63];
+        o[2] = i + 1 < n ? abc[(v >> 6) & 63] : '=';
+        o[3] = '=';
     }
 }
 
@@ -110,6 +113,7 @@ std::string build_vtr(const EOS& eos, const Field& U, int nx, int ny, double x0,
     const int n = nx * ny * nz;
     const bool three_d = nz > 1;
     std::vector<double> rho(n), u(n), v(n), w(n), p(n), T(n), mach(n);
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int c = 0; c < n; ++c) {
         const State W = eos.cons_to_prim(U[c]);
         rho[c] = sanitize(W[0]);
@@ -520,18 +524,30 @@ NpyArray parse_npy(const uint8_t* p, size_t n) {
 // ZIP (stored entries only)
 // ---------------------------------------------------------------------------
 
+// CRC-32 (zip), eight bytes per step (slicing-by-8; the value is the same as the byte-wise table).
 uint32_t crc32(const uint8_t* d, size_t n) {
-    static const std::array<uint32_t, 256> table = [] {   // thread-safe one-time init
-        std::array<uint32_t, 256> t{};
+    static const std::array<std::array<uint32_t, 256>, 8> table = [] {   // thread-safe one-time init
+        std::array<std::array<uint32_t, 256>, 8> t{};
         for (uint32_t i = 0; i < 256; ++i) {
             uint32_t c = i;
             for (int k = 0; k < 8; ++k) c = (c & 1) ? 0xEDB88320u ^ (c >> 1) : c >> 1;
-            t[i] = c;
+            t[0][i] = c;
         }
+        for (uint32_t i = 0; i < 256; ++i)
+            for (int s = 1; s < 8; ++s) t[s][i] = (t[s - 1][i] >> 8) ^ t[0][t[s - 1][i] & 0xFF];
         return t;
     }();
     uint32_t c = 0xFFFFFFFFu;
-    for (size_t i = 0; i < n; ++i) c = table[(c ^ d[i]) & 0xFF] ^ (c >> 8);
+    size_t i = 0;
+    for (; i + 8 <= n; i += 8) {   // little-endian assembly of the two words, independent of the host byte order
+        const uint32_t lo = (c ^ (static_cast<uint32_t>(d[i]) | static_cast<uint32_t>(d[i + 1]) << 8 |
+                                  static_cast<uint32_t>(d[i + 2]) << 16 | static_cast<uint32_t>(d[i + 3]) << 24));
+        const uint32_t hi = static_cast<uint32_t>(d[i + 4]) | static_cast<uint32_t>(d[i + 5]) << 8 |
+                            static_cast<uint32_t>(d[i + 6]) << 16 | static_cast<uint32_t>(d[i + 7]) << 24;
+        c = table[7][lo & 0xFF] ^ table[6][(lo >> 8) & 0xFF] ^ table[5][(lo >> 16) & 0xFF] ^ table[4][lo >> 24] ^
+            table[3][hi & 0xFF] ^ table[2][(hi >> 8) & 0xFF] ^ table[1][(hi >> 16) & 0xFF] ^ table[0][hi >> 24];
+    }
+    for (; i < n; ++i) c = table[0][(c ^ d[i]) & 0xFF] ^ (c >> 8);
     return c ^ 0xFFFFFFFFu;
 }
 
@@ -554,16 +570,22 @@ uint64_t get(const std::vector<uint8_t>& b, size_t at, int bytes) {
 }   // namespace
 
 void write_npz(const std::string& path, const NpzArchive& arrays) {
-    std::string zip, central;
+    // Entry after entry goes straight to the file (the archive is never held whole in memory): only the central
+    // directory is collected.
+    std::ofstream out(path, std::ios::binary | std::ios::trunc);
+    if (!out) throw std::runtime_error("Cannot write " + path);
+    std::string central;
+    uint64_t written = 0;
     uint32_t count = 0;
     for (const auto& kv : arrays) {
         const std::string name = kv.first + ".npy";
         const std::string body = npy_bytes(kv.second);
-        if (body.size() >= 0xFFFFFFFFull || zip.size() >= 0xFFFFFFFFull)
+        if (body.size() >= 0xFFFFFFFFull || written >= 0xFFFFFFFFull)
             throw std::runtime_error("Checkpoint exceeds 4 GB (zip64 writing not supported)");
         const uint32_t crc = crc32(reinterpret_cast<const uint8_t*>(body.data()), body.size());
-        const uint32_t offset = static_cast<uint32_t>(zip.size());
+        const uint32_t offset = static_cast<uint32_t>(written);
 
+        std::string zip;
         zip += "PK\x03\x04";
         put16(zip, 20);
         put16(zip, 0);
@@ -576,7 +598,9 @@ void write_npz(const std::string& path, const NpzArchive& arrays) {
         put16(zip, static_cast<uint32_t>(name.size()));
         put16(zip, 0);
         zip += name;
-        zip += body;
+        out.write(zip.data(), static_cast<std::streamsize>(zip.size()));
+        out.write(body.data(), static_cast<std::streamsize>(body.size()));
+        written += zip.size() + body.size();
 
         central += "PK\x01\x02";
         put16(central, 20);
@@ -598,8 +622,8 @@ void write_npz(const std::string& path, const NpzArchive& arrays) {
         central += name;
         ++count;
     }
-    const uint32_t cd_offset = static_cast<uint32_t>(zip.size());
-    zip += central;
+    const uint32_t cd_offset = static_cast<uint32_t>(written);
+    std::string zip = central;
     zip += "PK\x05\x06";
     put16(zip, 0);
     put16(zip, 0);
@@ -608,16 +632,17 @@ void write_npz(const std::string& path, const NpzArchive& arrays) {
     put32(zip, static_cast<uint32_t>(central.size()));
     put32(zip, cd_offset);
     put16(zip, 0);
-
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    if (!out) throw std::runtime_error("Cannot write " + path);
     out.write(zip.data(), static_cast<std::streamsize>(zip.size()));
 }
 
 NpzArchive read_npz(const std::string& path) {
     std::ifstream in(path, std::ios::binary);
     if (!in) throw std::runtime_error("Cannot open " + path);
-    std::vector<uint8_t> b((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    in.seekg(0, std::ios::end);
+    const std::streamoff file_size = in.tellg();
+    in.seekg(0, std::ios::beg);
+    std::vector<uint8_t> b(file_size > 0 ? static_cast<size_t>(file_size) : 0);
+    if (!b.empty()) in.read(reinterpret_cast<char*>(b.data()), file_size);
     if (b.size() < 22) throw std::runtime_error("Not a zip archive: " + path);
 
     // End of central directory (scan backwards over a possible comment)

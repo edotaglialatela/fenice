@@ -25,6 +25,13 @@ enum class Section {
     ShareEngine,        // CellFluxEngine::build on the partial mesh
     SharePartition,     // partition_local: the owners, the splitters and the lists
     ShareLocalize,      // the re-indexing of the engine and the halo to the share
+    Boundary,           // uniform mesh, one residual: the first-order face states of the sides
+    Reconstruct,        // uniform mesh: the MUSCL / WENO face states
+    Flux,               // uniform mesh: the Riemann solver on every face
+    Divergence,         // uniform mesh: the flux balance of the cells
+    Viscous,            // uniform mesh: the Navier-Stokes terms (gradients and viscous fluxes)
+    Snapshot,           // uniform mesh: the VTK file of a save interval
+    Checkpoint,         // uniform mesh: the .npz checkpoint
     kCount
 };
 
@@ -43,8 +50,12 @@ public:
     explicit ProfileScope(Section s) : section_(s), on_(profile_enabled()) {
         if (on_) start_ = std::chrono::steady_clock::now();
     }
-    ~ProfileScope() {
-        if (on_) profile_add(section_, std::chrono::duration<double>(std::chrono::steady_clock::now() - start_).count());
+    ~ProfileScope() { stop(); }
+    // Ends the section before the scope does (a second call, and the destructor after it, add nothing).
+    void stop() {
+        if (!on_) return;
+        on_ = false;
+        profile_add(section_, std::chrono::duration<double>(std::chrono::steady_clock::now() - start_).count());
     }
     ProfileScope(const ProfileScope&) = delete;
     ProfileScope& operator=(const ProfileScope&) = delete;

@@ -24,7 +24,8 @@ const char* section_name(Section s) {
     static const char* const names[kN] = {"time step",         "output",           "remesh",          "remesh: region",
                                           "remesh: flags",     "remesh: topology", "remesh: migrate", "remesh: rebuild",
                                           "remesh: partition", "fetch_leaves",     "share: region",   "share: mesh",
-                                          "share: engine",     "share: partition", "share: localize"};
+                                          "share: engine",     "share: partition", "share: localize", "boundary",        "reconstruct",
+                                          "flux",              "divergence",       "viscous",         "snapshot (VTK)",  "checkpoint"};
     return names[static_cast<size_t>(s)];
 }
 

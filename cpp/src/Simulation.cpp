@@ -674,7 +674,10 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     TangentialHalos th;
     if (halos) th = {halos->dir, D, halos->lo, halos->hi};
     // with a reconstruction every face between two cells is overwritten below: only the sides need their first-order states
-    bm.apply_boundary_conditions(*Uc, UL_, UR_, halos ? &th : nullptr, mu == nullptr);
+    {
+        ProfileScope ps(Section::Boundary);
+        bm.apply_boundary_conditions(*Uc, UL_, UR_, halos ? &th : nullptr, mu == nullptr);
+    }
 
     Halos mh;
     if (halos) {
@@ -734,10 +737,18 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         ghost(Face::Bottom, mh.b, ghB_);
         ghost(Face::Top, mh.t, ghT_);
     }
-    if (mu) mu->reconstruct(UL_, UR_, *Uc, nx, ny, mh);
+    if (mu) {
+        ProfileScope ps(Section::Reconstruct);
+        mu->reconstruct(UL_, UR_, *Uc, nx, ny, mh);
+    }
 
-    double S = riemann.compute_flux(UL_, UR_, m, F_);
+    double S;
+    {
+        ProfileScope ps(Section::Flux);
+        S = riemann.compute_flux(UL_, UR_, m, F_);
+    }
 
+    ProfileScope divergence_scope(Section::Divergence);
     R.resize(Uc->size());
     const double area = m.cell_area(), dxl = m.dx, dyl = m.dy;
 #pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
@@ -752,7 +763,9 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
                 r[q] = ((0.0 - (fr[q] * dyl - fl[q] * dyl)) - (ft[q] * dxl - fb[q] * dxl)) / area;
         }
 
+    divergence_scope.stop();
     if (ns) {
+        ProfileScope ps(Section::Viscous);
         bm.get_padded_U(*Uc, Upad_);
         if (halos) {
             const int PW = nx + 2;
@@ -816,7 +829,10 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
 
     TangentialHalos th;
     if (halos) th = {halos->dir, D, halos->lo, halos->hi};
-    bm.apply_boundary_conditions(Uv, UL_, UR_, halos ? &th : nullptr, mu == nullptr);
+    {
+        ProfileScope ps(Section::Boundary);
+        bm.apply_boundary_conditions(Uv, UL_, UR_, halos ? &th : nullptr, mu == nullptr);
+    }
 
     // MPI halos (slab layouts, see Halos) override the BC ghosts at interface faces
     Halos mh;
@@ -899,11 +915,17 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
             ghost(Face::Front, mh.f, ghF_);
             ghost(Face::Back, mh.bk, ghK_);
         }
+        ProfileScope ps(Section::Reconstruct);
         mu->reconstruct_3d(UL_, UR_, Uv, m, mh);
     }
 
-    double S = riemann.compute_flux(UL_, UR_, m, F_);
+    double S;
+    {
+        ProfileScope ps(Section::Flux);
+        S = riemann.compute_flux(UL_, UR_, m, F_);
+    }
 
+    ProfileScope divergence_scope(Section::Divergence);
     R.resize(Uv.size());
     const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), vol = m.cell_volume();
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
@@ -923,7 +945,9 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         }
     }
 
+    divergence_scope.stop();
     if (ns) {
+        ProfileScope ps(Section::Viscous);
         bm.get_padded_U(Uv, Upad_);
         CrossGhosts cg;
         cg.periodic_x = per[0];
@@ -1289,6 +1313,7 @@ void Simulation::solve() {
         monitor_row(mon, st, volume_averages(U, n_all), p.use_ibm ? &loads : nullptr, residual_norms(rs));
     };
     if (mon && step == 0) row(step);
+    profile_reset();   // the profile counts the time loop only
     const auto t0 = Clock::now();
     bool interrupted = false;
     while (t < p.t_end) {
@@ -1300,8 +1325,14 @@ void Simulation::solve() {
         if (mon && step % p.monitor_interval == 0) row(step);
 
         if (step % p.save_interval == 0) {
-            exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
-            save_checkpoint(step);
+            {
+                ProfileScope ps(Section::Snapshot);
+                exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
+            }
+            {
+                ProfileScope ps(Section::Checkpoint);
+                save_checkpoint(step);
+            }
             char inner[32] = "";
             if (scheme->inner_iter_last() >= 0)
                 std::snprintf(inner, sizeof(inner), " | inner=%d", scheme->inner_iter_last());
@@ -1333,6 +1364,7 @@ void Simulation::solve() {
     dump_final_state(step);
     std::printf("=== DONE  - open '%s.pvd' in ParaView ===  (time loop %.3f s, %d steps)\n", file_prefix.c_str(),
                 loop_wall, step - start_step);
+    if (profile_enabled()) print_profile(stdout, profile_values(), 1);
 }
 
 void Simulation::solve_amr() {
