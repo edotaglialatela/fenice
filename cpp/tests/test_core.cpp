@@ -479,6 +479,60 @@ TEST(viscous_uniform_zero_and_couette) {
     CHECK(dt > 0.0);
 }
 
+// The one-sweep viscous residual (rows in cache, no gradient field) must give the bits of the gradient version: random state, a
+// mesh above kOmpMinWork so that the thread blocks have seams, 1 / 3 / 7 threads, walls (also with second-order boundary faces)
+// and periodic seams on both axes, replacing and accumulating.
+TEST(viscous_rows_equal_the_gradient_version_bit_for_bit) {
+    const EOS eos = EOS::ideal(1.4);
+    const Mesh m = generate_cartesian_mesh(1.0, 0.8, 70, 61);
+    unsigned seed = 4242u;
+    const auto rnd = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<double>(seed >> 8) / 16777216.0;
+    };
+    Field U(m.num_cells());
+    for (auto& u : U) u = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, 0.4 + rnd(), 0.0});
+    long long compared = 0;
+    for (const int variant : {0, 1, 2}) {   // 0: periodic x and y, 1: walls, 2: walls with second-order boundary faces
+        BoundaryManager bm(m, eos);
+        if (variant == 0)
+            bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Periodic, BCType::Periodic);
+        else
+            bm.set_boundary_types(BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::Transmissive);
+        bm.set_params({1.0, 0.3, 1.0, 1.0});
+        NavierStokes ns(eos, 0.02, 0.72);
+        ns.set_second_order_boundary(variant == 2);
+        Field P, gx, gy;
+        bm.get_padded_U(U, P);
+        compute_gradients(P, m.nx, m.ny, m.dx, m.dy, gx, gy);
+        CrossGhosts cg;
+        cg.periodic_x = cg.periodic_y = (variant == 0);
+        for (const bool accumulate : {false, true}) {
+            Field Ra(m.num_cells()), Rb;
+            for (auto& r : Ra) r = {0.1, 0.2, 0.3, 0.4};
+            Rb = Ra;
+            const double sa = ns.viscous_residual(U, gx, gy, m, P, Ra, &cg, accumulate);
+            for (const int threads : {1, 3, 7}) {
+#ifdef _OPENMP
+                omp_set_num_threads(threads);
+#endif
+                Field Rc = Rb;
+                const double sb = ns.viscous_residual_rows(P, m, Rc, &cg, accumulate);
+                CHECK(sa == sb);
+                bool same = Ra.size() == Rc.size();
+                for (size_t c = 0; same && c < Ra.size(); ++c)
+                    for (int q = 0; q < kNVar; ++q) same = same && Ra[c][q] == Rc[c][q];
+                CHECK(same);
+                compared += static_cast<long long>(Ra.size());
+            }
+        }
+    }
+#ifdef _OPENMP
+    omp_set_num_threads(omp_get_num_procs());
+#endif
+    std::printf("    %lld cell residuals compared\n", compared);
+}
+
 // ---------------------------------------------------------------------------
 // Time schemes
 // ---------------------------------------------------------------------------

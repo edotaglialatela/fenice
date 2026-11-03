@@ -19,9 +19,10 @@ ROOT_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
-from PyQt6.QtCore import QPointF, Qt, QTimer  # noqa: E402
-from PyQt6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QListWidgetItem, QMainWindow, QMenu, QMessageBox,  # noqa: E402
-                             QSizePolicy, QSplitter, QStackedWidget, QTabWidget, QVBoxLayout, QWidget)
+from PyQt6.QtCore import QPointF, Qt, QTimer, QUrl  # noqa: E402
+from PyQt6.QtGui import QDesktopServices  # noqa: E402
+from PyQt6.QtWidgets import (QApplication, QHBoxLayout, QLabel, QListWidgetItem, QMainWindow, QMenu, QMessageBox, QPushButton,
+                             QSizePolicy, QSplitter, QStackedWidget, QTabWidget, QVBoxLayout, QWidget)  # noqa: E402
 
 from gui.canvas import GraphScene, GraphView, LinkItem, NodeItem, Palette  # noqa: E402
 from gui.graph import Graph, Link  # noqa: E402
@@ -133,10 +134,29 @@ class Workbench(QMainWindow):
         self._console_want = 0
         self.state_label = QLabel("")
         self.state_label.setObjectName("note")
+        # Status bar with label and action buttons
+        status_bar = QWidget()
+        status_layout = QHBoxLayout(status_bar)
+        status_layout.setContentsMargins(0, 0, 0, 0)
+        status_layout.setSpacing(10)
+        status_layout.addWidget(self.state_label)
+        # GitHub button
+        self.github_btn = QPushButton("GitHub")
+        self.github_btn.setObjectName("secondaryButton")
+        self.github_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://github.com/edotaglialatela/fenice")))
+        status_layout.addWidget(self.github_btn)
+        # Docs button
+        self.docs_btn = QPushButton("Docs")
+        self.docs_btn.setObjectName("secondaryButton")
+        self.docs_btn.clicked.connect(lambda: QDesktopServices.openUrl(QUrl("https://edotaglialatela.github.io/fenice/index.html#quick-start")))
+        status_layout.addWidget(self.docs_btn)
+        # Add to main layout
         outer = QWidget()
         col = QVBoxLayout(outer)
         col.addWidget(body, 1)
-        col.addWidget(self.state_label)
+        # Make status bar match palette width and align left
+        status_bar.setFixedWidth(self.palette.width())
+        col.addWidget(status_bar, alignment=Qt.AlignmentFlag.AlignLeft)
         self.setCentralWidget(outer)
 
         self._timer = QTimer(self)   # the status line of every node

@@ -10,7 +10,7 @@
 namespace fv {
 
 enum class Section {
-    Step,               // one time step of all levels (the recursion with subcycling)
+    Step,               // one uniform time step or one time step of all AMR levels (the recursion with subcycling)
     Output,             // the snapshot and checkpoint written at a save interval
     Remesh,             // the whole remesh, with the wave-speed bound recomputed after it
     RemeshRegion,       // the region of the mesh the indicator reads, fetched with its state
@@ -30,6 +30,17 @@ enum class Section {
     Flux,               // uniform mesh: the Riemann solver on every face
     Divergence,         // uniform mesh: the flux balance of the cells
     Viscous,            // uniform mesh: the Navier-Stokes terms (gradients and viscous fluxes)
+    PadCopy,            // uniform mesh: conservative state copied and padded for viscous terms
+    PadCornerFix,       // uniform mesh: padded corner and MPI halo fixes
+    ViscousConversion,  // uniform mesh: padded conservative to primitive conversion
+    ViscousSweep,       // uniform mesh: viscous residual calculation after conversion
+    UpdateAxpy,         // time scheme: out = a + s * b
+    UpdateSspCombine,   // time scheme: SSP-RK2 update
+    UpdateSsp3Combine,  // time scheme: SSP-RK3 update
+    UpdateRk4Combine,   // time scheme: classical RK4 update
+    IBMForcing,         // uniform mesh: immersed-boundary forcing of the input field
+    BodyForce,          // uniform mesh: body force added to the residual
+    Source,             // uniform mesh: source terms added to the residual
     Snapshot,           // uniform mesh: the VTK file of a save interval
     Checkpoint,         // uniform mesh: the .npz checkpoint
     kCount

@@ -25,7 +25,10 @@ const char* section_name(Section s) {
                                           "remesh: flags",     "remesh: topology", "remesh: migrate", "remesh: rebuild",
                                           "remesh: partition", "fetch_leaves",     "share: region",   "share: mesh",
                                           "share: engine",     "share: partition", "share: localize", "boundary",        "reconstruct",
-                                          "flux",              "divergence",       "viscous",         "snapshot (VTK)",  "checkpoint"};
+                                          "flux",              "divergence",       "viscous",         "padded copy",     "padded corner fix",
+                                          "viscous conversion", "viscous sweep",    "update axpy",     "update SSP-RK2",  "update SSP-RK3",
+                                          "update RK4",        "IBM forcing",      "body force",      "source",          "snapshot (VTK)",
+                                          "checkpoint"};
     return names[static_cast<size_t>(s)];
 }
 
@@ -62,7 +65,7 @@ void print_profile(std::FILE* out, const std::vector<double>& all, int nranks) {
         }
         const long long calls = static_cast<long long>(all[kN + k]);   // rank 0
         if (calls == 0 && hi == 0.0) continue;
-        std::fprintf(out, "[PROFILE]   %-18s %6lld calls  %8.3f / %8.3f s\n", section_name(static_cast<Section>(k)), calls, lo, hi);
+        std::fprintf(out, "[PROFILE]   %-18s %6lld calls  %10.6f / %10.6f s\n", section_name(static_cast<Section>(k)), calls, lo, hi);
     }
 }
 

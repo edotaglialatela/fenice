@@ -3,6 +3,8 @@
 #include <cctype>
 #include <stdexcept>
 
+#include "fv/Profile.hpp"
+
 namespace fv {
 
 namespace {
@@ -16,6 +18,7 @@ inline int isize(const Field& f) { return static_cast<int>(f.size()); }
 
 // out = a + s * b
 void axpy(Field& out, const Field& a, double s, const Field& b) {
+    ProfileScope profile(Section::UpdateAxpy);
     const int n = isize(a);
     out.resize(a.size());
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
@@ -72,6 +75,7 @@ double ExplicitEuler::advance_fixed_dt(Field& U, const ResidualFn& res, double d
 namespace {
 // U <- 0.5*U + 0.5*(U1 + dt*R2)
 void ssp_combine(Field& U, const Field& U1, double dt, const Field& R2) {
+    ProfileScope profile(Section::UpdateSspCombine);
     const int n = isize(U);
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int c = 0; c < n; ++c)
@@ -107,6 +111,7 @@ double SSPRK2::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
 namespace {
 // out = a * u0 + b * (v + dt * R); out may be v or u0 (element-wise)
 void ssp3_combine(Field& out, const Field& u0, double a, const Field& v, double b, double dt, const Field& R) {
+    ProfileScope profile(Section::UpdateSsp3Combine);
     const int n = isize(out);
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int c = 0; c < n; ++c)
@@ -146,6 +151,7 @@ double SSPRK3::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
 namespace {
 // U <- U + (dt/6)*(k1 + 2k2 + 2k3 + k4)
 void rk4_combine(Field& U, double dt, const Field& k1, const Field& k2, const Field& k3, const Field& k4) {
+    ProfileScope profile(Section::UpdateRk4Combine);
     const int n = isize(U);
     const double w = dt / 6.0;
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)

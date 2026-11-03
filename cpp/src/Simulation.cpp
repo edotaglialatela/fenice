@@ -672,6 +672,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     if (m.is3d()) return assemble_3d(m, bm, ib, mu, U_in, R, halos);
     const Field* Uc = &U_in;
     if (ib) {
+        ProfileScope profile(Section::IBMForcing);
         Uf_ = U_in;
         ib->apply_forcing(Uf_, fluid);
         Uc = &Uf_;
@@ -779,7 +780,10 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     }
     if (ns) {
         ProfileScope ps(Section::Viscous);
-        bm.get_padded_U(*Uc, Upad_);
+        {
+            ProfileScope profile(Section::PadCopy);
+            bm.get_padded_U(*Uc, Upad_);
+        }
         if (halos) {
             const int PW = nx + 2;
             if (halos->dir == 'y') {
@@ -794,8 +798,12 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
                     for (int j = 0; j < ny; ++j) Upad_[(j + 1) * PW + nx + 1] = (*halos->hi)[j * D];
             }
         }
-        bm.fix_padded_corners(Upad_, halos ? (halos->dir == 'x' ? 0 : 1) : -1, halos && halos->lo, halos && halos->hi);
-        compute_gradients(Upad_, nx, ny, m.dx, m.dy, gX_, gY_);
+        {
+            ProfileScope profile(Section::PadCornerFix);
+            bm.fix_padded_corners(Upad_, halos ? (halos->dir == 'x' ? 0 : 1) : -1, halos && halos->lo, halos && halos->hi);
+        }
+        static const bool two_pass_viscous = switch_on("FENICE_NO_FUSED_VISCOUS");
+        if (two_pass_viscous) compute_gradients(Upad_, nx, ny, m.dx, m.dy, gX_, gY_);
         CrossGhosts cg;
         cg.periodic_x = per_x;
         cg.periodic_y = per_y;
@@ -815,12 +823,19 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
                 cg.hi_b = hi_b.data();
             }
         }
-        const double s_visc = ns->viscous_residual(*Uc, gX_, gY_, m, Upad_, R, &cg, true);
+        const double s_visc = two_pass_viscous ? ns->viscous_residual(*Uc, gX_, gY_, m, Upad_, R, &cg, true)
+                                               : ns->viscous_residual_rows(Upad_, m, R, &cg, true);
         S = std::max(S, s_visc);
     }
 
-    if (body_force) body_force->add_to(*Uc, R);
-    if (p.use_source) add_source(source_for(m), R);
+    if (body_force) {
+        ProfileScope profile(Section::BodyForce);
+        body_force->add_to(*Uc, R);
+    }
+    if (p.use_source) {
+        ProfileScope profile(Section::Source);
+        add_source(source_for(m), R);
+    }
     return S;
 }
 
@@ -828,6 +843,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
                                const MusclReconstruction* mu, const Field& U_in, Field& R, const StripHalos* halos) {
     const Field* Uc = &U_in;
     if (ib) {
+        ProfileScope profile(Section::IBMForcing);
         Uf_ = U_in;
         ib->apply_forcing(Uf_, fluid);
         Uc = &Uf_;
@@ -962,7 +978,10 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     divergence_scope.stop();
     if (ns) {
         ProfileScope ps(Section::Viscous);
-        bm.get_padded_U(Uv, Upad_);
+        {
+            ProfileScope profile(Section::PadCopy);
+            bm.get_padded_U(Uv, Upad_);
+        }
         CrossGhosts cg;
         cg.periodic_x = per[0];
         cg.periodic_y = per[1];
@@ -996,14 +1015,23 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
                 for (int q = 0; q < 4; ++q) *slots[4 * side + q] = gh[4 * side + q].data();
             }
         }
-        bm.fix_padded_corners(Upad_, halos ? (halos->dir == 'x' ? 0 : 1) : -1, halos && halos->lo, halos && halos->hi);
+        {
+            ProfileScope profile(Section::PadCornerFix);
+            bm.fix_padded_corners(Upad_, halos ? (halos->dir == 'x' ? 0 : 1) : -1, halos && halos->lo, halos && halos->hi);
+        }
         compute_gradients_3d(Upad_, m, gX_, gY_, gZ_);
         const double s_visc = ns->viscous_residual_3d(Uv, gX_, gY_, gZ_, m, Upad_, R, &cg, dt_length, true);
         S = std::max(S, s_visc);
     }
 
-    if (body_force) body_force->add_to(Uv, R);
-    if (p.use_source) add_source(source_for(m), R);
+    if (body_force) {
+        ProfileScope profile(Section::BodyForce);
+        body_force->add_to(Uv, R);
+    }
+    if (p.use_source) {
+        ProfileScope profile(Section::Source);
+        add_source(source_for(m), R);
+    }
     return S;
 }
 const Field& Simulation::source_for(const Mesh& m) {
@@ -1327,6 +1355,7 @@ void Simulation::solve() {
     const auto t0 = Clock::now();
     bool interrupted = false;
     while (t < p.t_end) {
+        ProfileScope step_profile(Section::Step);
         const StepResult r = scheme->step(U, res, min_delta, t, p.t_end);
         check_progress(t, r.dt, r.s_max, step + 1, p.time_scheme.c_str());
         if (p.use_ibm) ibm->apply_solid_reset(U, fluid);
@@ -1372,7 +1401,7 @@ void Simulation::solve() {
     save_checkpoint(step);
     exporter.write_pvd(file_prefix);
     dump_final_state(step);
-    std::printf("=== DONE  - open '%s.pvd' in ParaView ===  (time loop %.3f s, %d steps)\n", file_prefix.c_str(),
+    std::printf("=== DONE  - open '%s.pvd' in ParaView ===  (time loop %.6f s, %d steps)\n", file_prefix.c_str(),
                 loop_wall, step - start_step);
     if (profile_enabled()) print_profile(stdout, profile_values(), 1);
 }
@@ -1888,6 +1917,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     const auto t0 = Clock::now();
     bool interrupted = false;
     while (t < p.t_end) {
+        ProfileScope step_profile(Section::Step);
         const StepResult sr = scheme->step(U_local, res, min_delta, t, p.t_end);
         check_progress(t, sr.dt, sr.s_max, step + 1, p.time_scheme.c_str());
         if (p.use_ibm) solid_reset(U_local);
@@ -1926,7 +1956,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
         save_checkpoint(step);
         exporter.write_pvd(file_prefix);
         dump_final_state(step);
-        std::printf("=== DONE  - open '%s.pvd' in ParaView ===  (time loop %.3f s, %d steps)\n", file_prefix.c_str(),
+        std::printf("=== DONE  - open '%s.pvd' in ParaView ===  (time loop %.6f s, %d steps)\n", file_prefix.c_str(),
                     loop_wall, step - start);
     }
 }

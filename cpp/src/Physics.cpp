@@ -12,6 +12,7 @@
 #endif
 
 #include "fv/MemoryBytes.hpp"
+#include "fv/Profile.hpp"
 
 namespace fv {
 
@@ -70,7 +71,11 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
     const double k_cond = mu_ * gamma / (Pr_ * (gamma - 1.0));
 
     // The primitive state of the padded array; the interior of U_pad is a copy of U, so a cell's primitive state is its entry there.
-    cons_to_prim(eos_, U_pad, W_pad_);
+    {
+        ProfileScope profile(Section::ViscousConversion);
+        cons_to_prim(eos_, U_pad, W_pad_);
+    }
+    ProfileScope sweep_profile(Section::ViscousSweep);
     const Field& Wp = W_pad_;
     const int PW = nx + 2;
     const auto W = [&](int j, int i) -> const State& { return Wp[(j + 1) * PW + i + 1]; };
@@ -234,6 +239,186 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
     return s_max;
 }
 
+// The same residual, bit for bit, in one sweep over rows (no gradient field, no per-cell arrays): a thread keeps the cell
+// quantities (u, v, T and the four velocity derivatives, exactly the expressions of viscous_residual) of the row it works on and
+// of the row above in two small buffers, so they stay in cache. A row that lies across a thread block is computed by both
+// threads (same bits). The rows a y-face reads are the ones of viscous_residual: the cell below / above, or on a periodic y axis
+// the opposite edge row; at a physical or MPI boundary the first / last row, whose velocity and temperature are replaced by the
+// ghost values there. The wave-speed maximum is taken in the same sweep.
+double NavierStokes::viscous_residual_rows(const Field& P, const Mesh& mesh, Field& Rv, const CrossGhosts* cg,
+                                           bool accumulate) const {
+    constexpr double MU_DIAG = 4.0 / 3.0;
+    constexpr double MU_OFF = 2.0 / 3.0;
+
+    const int nx = mesh.nx, ny = mesh.ny, n = nx * ny;
+    const double dx = mesh.dx, dy = mesh.dy;
+    const double gamma = eos_.gamma;
+    const double k_cond = mu_ * gamma / (Pr_ * (gamma - 1.0));
+
+    {
+        ProfileScope profile(Section::ViscousConversion);
+        cons_to_prim(eos_, P, W_pad_);
+    }
+    ProfileScope sweep_profile(Section::ViscousSweep);
+    const Field& Wp = W_pad_;
+    const int PW = nx + 2;
+    const auto W = [&](int j, int i) -> const State& { return Wp[(j + 1) * PW + i + 1]; };
+
+    if (!accumulate) Rv.assign(n, State{0, 0, 0, 0});
+
+    auto gU = [&](int jj, int ii) { return Wp[jj * PW + ii][1]; };
+    auto gV = [&](int jj, int ii) { return Wp[jj * PW + ii][2]; };
+    auto gT = [&](int jj, int ii) { return Wp[jj * PW + ii][3] / Wp[jj * PW + ii][0]; };
+
+    // Cell quantities of one row: u, v, T, du/dx, du/dy, dv/dx, dv/dy (as viscous_residual; the gradients of the conserved
+    // variables are the central differences of compute_gradients)
+    struct Row {
+        double *u, *v, *T, *dudx, *dudy, *dvdx, *dvdy;
+    };
+    auto fill = [&](int j, const Row& r) {
+        for (int i = 0; i < nx; ++i) {
+            const State& w = W(j, i);
+            const double rho = w[0], u = w[1], v = w[2];
+            r.u[i] = u;
+            r.v[i] = v;
+            r.T[i] = w[3] / rho;
+            const State& pe = P[(j + 1) * PW + i + 2];
+            const State& pw = P[(j + 1) * PW + i];
+            const State& pn = P[(j + 2) * PW + i + 1];
+            const State& ps = P[j * PW + i + 1];
+            const double drx = (pe[0] - pw[0]) / (2.0 * dx), dry = (pn[0] - ps[0]) / (2.0 * dy);
+            const double gx1 = (pe[1] - pw[1]) / (2.0 * dx), gy1 = (pn[1] - ps[1]) / (2.0 * dy);
+            const double gx2 = (pe[2] - pw[2]) / (2.0 * dx), gy2 = (pn[2] - ps[2]) / (2.0 * dy);
+            r.dudx[i] = (gx1 - u * drx) / rho;
+            r.dudy[i] = (gy1 - u * dry) / rho;
+            r.dvdx[i] = (gx2 - v * drx) / rho;
+            r.dvdy[i] = (gy2 - v * dry) / rho;
+        }
+    };
+
+    const bool px = cg && cg->periodic_x, py = cg && cg->periodic_y;
+
+    // X-faces of row j (cells in `c`): F(j, i), i = 0..nx
+    auto xflux = [&](int j, int i, const Row& c) -> State {
+        const bool lo = (i == 0), hi = (i == nx);
+        const int cL = lo ? 0 : i - 1;
+        const int cR = hi ? nx - 1 : i;
+        const double uL = lo ? gU(j + 1, 0) : c.u[cL], uR = hi ? gU(j + 1, nx + 1) : c.u[cR];
+        const double vL = lo ? gV(j + 1, 0) : c.v[cL], vR = hi ? gV(j + 1, nx + 1) : c.v[cR];
+        const double TL = lo ? gT(j + 1, 0) : c.T[cL], TR = hi ? gT(j + 1, nx + 1) : c.T[cR];
+        const double u_f = 0.5 * (uL + uR);
+        const double v_f = 0.5 * (vL + vR);
+        const double du_dx = (uR - uL) / dx;
+        const double dv_dx = (vR - vL) / dx;
+        const double dT_dx = (TR - TL) / dx;
+        const bool gl = lo && cg && cg->dir == 'x' && cg->lo_a, gr = hi && cg && cg->dir == 'x' && cg->hi_a;
+        const int xL = (lo && px) ? nx - 1 : cL, xR = (hi && px) ? 0 : cR;
+        double du_dy = 0.5 * ((gl ? cg->lo_a[j] : c.dudy[xL]) + (gr ? cg->hi_a[j] : c.dudy[xR]));
+        double dv_dy = 0.5 * ((gl ? cg->lo_b[j] : c.dvdy[xL]) + (gr ? cg->hi_b[j] : c.dvdy[xR]));
+        if (bface2_ && ((lo && !gl && !px) || (hi && !gr && !px))) {
+            const int ig = lo ? 0 : nx + 1, ic = lo ? 1 : nx;
+            auto face = [&](int jj, int q) { return 0.5 * (Wp[jj * PW + ig][q] + Wp[jj * PW + ic][q]); };
+            du_dy = (face(j + 2, 1) - face(j, 1)) / (2.0 * dy);
+            dv_dy = (face(j + 2, 2) - face(j, 2)) / (2.0 * dy);
+        }
+        const double tau_xx = mu_ * (MU_DIAG * du_dx - MU_OFF * dv_dy);
+        const double tau_xy = mu_ * (du_dy + dv_dx);
+        const double q_x = -k_cond * dT_dx;
+        return {0.0, tau_xx * dy, tau_xy * dy, (u_f * tau_xx + v_f * tau_xy - q_x) * dy};
+    };
+    // Y-face j at column i; B / T are the rows viscous_residual reads below / above it (see the comment above the function)
+    auto yflux = [&](int j, int i, const Row& B, const Row& T) -> State {
+        const bool lo = (j == 0), hi = (j == ny);
+        const double uB = lo ? gU(0, i + 1) : B.u[i], uT = hi ? gU(ny + 1, i + 1) : T.u[i];
+        const double vB = lo ? gV(0, i + 1) : B.v[i], vT = hi ? gV(ny + 1, i + 1) : T.v[i];
+        const double TB = lo ? gT(0, i + 1) : B.T[i], TT = hi ? gT(ny + 1, i + 1) : T.T[i];
+        const double u_f = 0.5 * (uB + uT);
+        const double v_f = 0.5 * (vB + vT);
+        const double dv_dy = (vT - vB) / dy;
+        const double du_dy = (uT - uB) / dy;
+        const double dT_dy = (TT - TB) / dy;
+        const bool gb = lo && cg && cg->dir == 'y' && cg->lo_a, gt = hi && cg && cg->dir == 'y' && cg->hi_a;
+        double du_dx = 0.5 * ((gb ? cg->lo_a[i] : B.dudx[i]) + (gt ? cg->hi_a[i] : T.dudx[i]));
+        double dv_dx = 0.5 * ((gb ? cg->lo_b[i] : B.dvdx[i]) + (gt ? cg->hi_b[i] : T.dvdx[i]));
+        if (bface2_ && ((lo && !gb && !py) || (hi && !gt && !py))) {
+            const int jg = lo ? 0 : ny + 1, jc = lo ? 1 : ny;
+            auto face = [&](int ii, int q) { return 0.5 * (Wp[jg * PW + ii][q] + Wp[jc * PW + ii][q]); };
+            du_dx = (face(i + 2, 1) - face(i, 1)) / (2.0 * dx);
+            dv_dx = (face(i + 2, 2) - face(i, 2)) / (2.0 * dx);
+        }
+        const double tau_yy = mu_ * (MU_DIAG * dv_dy - MU_OFF * du_dx);
+        const double tau_yx = mu_ * (du_dy + dv_dx);
+        const double q_y = -k_cond * dT_dy;
+        return {0.0, tau_yx * dx, tau_yy * dx, (u_f * tau_yx + v_f * tau_yy - q_y) * dx};
+    };
+
+    const double inv_area = 1.0 / mesh.cell_area();
+    const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
+    double s_max = 0.0;
+#pragma omp parallel if (n >= kOmpMinWork)
+    {
+        int nthreads = 1, tid = 0;
+#ifdef _OPENMP
+        nthreads = omp_get_num_threads();
+        tid = omp_get_thread_num();
+#endif
+        const int j0 = static_cast<int>(static_cast<long long>(ny) * tid / nthreads);
+        const int j1 = static_cast<int>(static_cast<long long>(ny) * (tid + 1) / nthreads);
+        double local = 0.0;   // thread-local maximum (OpenMP 2.0 has no max reduction); a max is order independent
+        if (j0 < j1) {
+            std::vector<double> store(static_cast<size_t>(4) * 7 * nx);
+            auto row_at = [&](int k) {
+                double* b = store.data() + static_cast<size_t>(k) * 7 * nx;
+                return Row{b, b + nx, b + 2 * nx, b + 3 * nx, b + 4 * nx, b + 5 * nx, b + 6 * nx};
+            };
+            Row cur = row_at(0), nxt = row_at(1);
+            const Row first_below = row_at(2), top_wrap = row_at(3);
+            std::vector<State> below(nx), above(nx);
+            // the y-faces under the first row: the row below, or at the bottom of the domain the first row (the opposite
+            // edge row on a periodic axis)
+            fill(j0, cur);
+            fill(j0 == 0 ? (py ? ny - 1 : 0) : j0 - 1, first_below);
+            for (int i = 0; i < nx; ++i) below[i] = yflux(j0, i, first_below, cur);
+            for (int j = j0; j < j1; ++j) {
+                // the row above (or, at the top of the domain, the last row, the first one on a periodic axis)
+                const Row* top = &cur;
+                if (j + 1 < ny) {
+                    fill(j + 1, nxt);
+                    top = &nxt;
+                } else if (py) {
+                    fill(0, top_wrap);
+                    top = &top_wrap;
+                }
+                State Fl = xflux(j, 0, cur);
+                for (int i = 0; i < nx; ++i) {
+                    const State Fr = xflux(j, i + 1, cur);
+                    const State& Gb = below[i];
+                    const State Gt = yflux(j + 1, i, cur, *top);
+                    above[i] = Gt;
+                    State& r = Rv[j * nx + i];
+                    if (accumulate)
+                        for (int q = 0; q < kNVar; ++q) r[q] += ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) * inv_area;
+                    else
+                        for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) * inv_area;
+                    Fl = Fr;
+                    // wave speed of the cell (as viscous_residual)
+                    const State& w = W(j, i);
+                    const double rho = w[0];
+                    const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+                    const double s = std::max(std::abs(w[1]), std::abs(w[2])) + eos_.sound_speed(w[3], rho) +
+                                     2.0 * L * inv_h2 * nu_eff;
+                    local = std::max(local, s);
+                }
+                below.swap(above);
+                if (j + 1 < ny) std::swap(cur, nxt);
+            }
+        }
+#pragma omp critical(fv_viscous_speed_rows)
+        s_max = std::max(s_max, local);
+    }
+    return s_max;
+}
+
 // 3-D viscous residual.  For a face normal to axis d the velocity-gradient tensor
 // G[a][b] = du_a/dx_b uses compact differences across the face for b == d and
 // face averages of the cell-centre gradients otherwise (the "cross" terms).
@@ -249,7 +434,11 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
     const int PX = nx + 2, PY = ny + 2;
 
     // The interior of U_pad is a copy of U: the primitive state of a cell is its entry in the padded one.
-    cons_to_prim(eos_, U_pad, W_pad_);
+    {
+        ProfileScope profile(Section::ViscousConversion);
+        cons_to_prim(eos_, U_pad, W_pad_);
+    }
+    ProfileScope sweep_profile(Section::ViscousSweep);
     const Field& Wp = W_pad_;
     const auto W = [&](int i, int j, int k) -> const State& {
         return Wp[(static_cast<size_t>(k + 1) * PY + j + 1) * PX + i + 1];
