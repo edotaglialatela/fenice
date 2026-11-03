@@ -591,4 +591,121 @@ void MusclReconstruction::reconstruct_3d(Field& UL, Field& UR, const Field& U, c
     sweep(1, h.b, h.t);
     sweep(2, h.f, h.bk);
 }
+
+// Fused reconstruction + Riemann solver on the uniform mesh (2-D when nz = 1, else 3-D): the primitive state is padded as in
+// reconstruct / reconstruct_3d, then the faces of a line go to muscl_face_flux_batch in chunks.
+double MusclReconstruction::muscl_fluxes(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U,
+                                         const Mesh& m, const Halos& h, Field& F) const {
+    constexpr int pad = kHaloDepth;
+    const int nx = m.nx, ny = m.ny, nz = m.nz;
+    const bool three_d = nz > 1;
+    const int zp = three_d ? pad : 0;   // padding along z (none in 2-D)
+    const int PX = nx + 2 * pad, PY = ny + 2 * pad, PZ = nz + 2 * zp;
+    thread_local Field W_pad;
+    W_pad.resize(static_cast<size_t>(PZ) * PY * PX);
+    Field& Wp = W_pad;
+    auto P = [&](int ii, int jj, int kk) -> size_t { return (static_cast<size_t>(kk) * PY + jj) * PX + ii; };
+    F.resize(m.num_faces());
+
+#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
+    for (int kk = 0; kk < PZ; ++kk) {
+        const int k = std::min(std::max(kk - zp, 0), nz - 1);
+        for (int jj = 0; jj < PY; ++jj) {
+            const int j = std::min(std::max(jj - pad, 0), ny - 1);
+            for (int ii = 0; ii < PX; ++ii)
+                Wp[P(ii, jj, kk)] = eos_.cons_to_prim(U[m.cell(std::min(std::max(ii - pad, 0), nx - 1), j, k)]);
+        }
+    }
+    // halos replace the edge padding (the layouts of Halos reduce to the 2-D ones when nz = 1)
+    for (int k = 0; k < nz; ++k)
+        for (int d = 0; d < pad; ++d) {
+            if (h.b)
+                for (int i = 0; i < nx; ++i) Wp[P(i + pad, d, k + zp)] = eos_.cons_to_prim((*h.b)[(d * nz + k) * nx + i]);
+            if (h.t)
+                for (int i = 0; i < nx; ++i)
+                    Wp[P(i + pad, ny + pad + d, k + zp)] = eos_.cons_to_prim((*h.t)[(d * nz + k) * nx + i]);
+            if (h.l)
+                for (int j = 0; j < ny; ++j) Wp[P(d, j + pad, k + zp)] = eos_.cons_to_prim((*h.l)[(k * ny + j) * pad + d]);
+            if (h.r)
+                for (int j = 0; j < ny; ++j)
+                    Wp[P(nx + pad + d, j + pad, k + zp)] = eos_.cons_to_prim((*h.r)[(k * ny + j) * pad + d]);
+        }
+    if (three_d)
+        for (int d = 0; d < pad; ++d)
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) {
+                    if (h.f) Wp[P(i + pad, j + pad, d)] = eos_.cons_to_prim((*h.f)[(d * ny + j) * nx + i]);
+                    if (h.bk) Wp[P(i + pad, j + pad, nz + pad + d)] = eos_.cons_to_prim((*h.bk)[(d * ny + j) * nx + i]);
+                }
+
+    const Limiter lim = lim_;
+    const EOS& eos = eos_;
+    double smax_all = 0.0;
+    constexpr int kChunk = 256;
+#pragma omp parallel if (nx * ny * nz >= kOmpMinWork)
+    {
+        double local = 0.0;
+        int st[4 * kChunk], ax[kChunk];
+        double sm[kChunk];
+        // Faces normal to `axis`: face t along it lies between the cells t-1 and t, padded positions t+1 and t+2 (stencil t .. t+3).
+        // A line of faces runs along x for axis 0 and along y / x otherwise; `first` .. `last` are the faces of the line that
+        // are reconstructed, the others (at most the two ends of an x line) are sides without a halo.
+        const auto sweep = [&](int axis, const Field* lo, const Field* hi) {
+            const int n_a = axis == 0 ? nx : (axis == 1 ? ny : nz);
+            const size_t stride = axis == 0 ? 1 : (axis == 1 ? static_cast<size_t>(PX) : static_cast<size_t>(PX) * PY);
+            const int ni = axis == 0 ? nx + 1 : nx, nj = axis == 1 ? ny + 1 : ny, nk = axis == 2 ? nz + 1 : nz;
+#pragma omp for schedule(static) nowait
+            for (int kj = 0; kj < nk * nj; ++kj) {
+                const int j = kj % nj, k = kj / nj;
+                const int t_line = axis == 0 ? -1 : (axis == 1 ? j : k);
+                int first = 0, last = ni - 1;   // faces of the line that have a full stencil
+                if (axis == 0) {
+                    first = lo ? 0 : 1;
+                    last = hi ? nx : nx - 1;
+                } else if (!((t_line > 0 && t_line < n_a) || (t_line == 0 && lo) || (t_line == n_a && hi))) {
+                    first = 1;
+                    last = 0;   // the whole line is a side
+                }
+                const int f0 = axis == 0 ? m.xface(0, j, k) : (axis == 1 ? m.yface(0, j, k) : m.zface(0, j, k));
+                for (int i0 = first; i0 <= last; i0 += kChunk) {
+                    const int cnt = std::min(kChunk, last - i0 + 1);
+                    for (int c = 0; c < cnt; ++c) {
+                        const int i = i0 + c;
+                        const int t = axis == 0 ? i : t_line;
+                        const size_t base = axis == 0 ? P(t, j + pad, k + zp)
+                                                      : (axis == 1 ? P(i + pad, t, k + zp) : P(i + pad, j + pad, t));
+                        st[4 * c] = static_cast<int>(base);
+                        st[4 * c + 1] = static_cast<int>(base + stride);
+                        st[4 * c + 2] = static_cast<int>(base + 2 * stride);
+                        st[4 * c + 3] = static_cast<int>(base + 3 * stride);
+                        ax[c] = axis;
+                    }
+                    riemann.muscl_face_flux_batch(lim, Wp.data(), st, ax, cnt, &F[f0 + i0], sm);
+                    for (int c = 0; c < cnt; ++c)
+                        if (sm[c] > local) local = sm[c];
+                }
+                // faces of the sides: the first-order ghost states through the round trip, then the Riemann solver
+                for (int i = 0; i < ni; ++i) {
+                    if (i >= first && i <= last) {
+                        i = last;   // skip the reconstructed run
+                        continue;
+                    }
+                    const int f = f0 + i;
+                    State ul = UL[f], ur = UR[f];
+                    ul = eos.prim_to_cons(eos.cons_to_prim(ul));
+                    ur = eos.prim_to_cons(eos.cons_to_prim(ur));
+                    double s = 0.0;
+                    F[f] = riemann.face_flux(ul, ur, axis, s);
+                    if (s > local) local = s;
+                }
+            }
+        };
+        sweep(0, h.l, h.r);
+        sweep(1, h.b, h.t);
+        if (three_d) sweep(2, h.f, h.bk);
+#pragma omp critical(fv_muscl_fluxes_max)
+        if (local > smax_all) smax_all = local;
+    }
+    return smax_all;
+}
 }   // namespace fv

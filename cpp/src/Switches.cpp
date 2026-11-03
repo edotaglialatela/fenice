@@ -11,6 +11,10 @@ const std::vector<EnvSwitch>& env_switches() {
         {"FENICE_NO_SIMD", "flag", "solver",
          "Run the scalar Riemann and viscous kernels instead of the AVX2 ones. The results are identical bit for bit; use it to time "
          "the vector kernels or to check the equivalence."},
+        {"FENICE_NO_FUSED", "flag", "solver",
+         "Uniform mesh with MUSCL: reconstruct the face states into arrays and run the Riemann solver on them in a second pass, "
+         "instead of the one pass that does both (RiemannSolver::muscl_face_flux_batch). The results are identical bit for bit; "
+         "for A/B timing."},
         {"FENICE_FULL_REBUILD", "flag", "solver",
          "AMR: rebuild the faces and the engine tables of every leaf after each adaptation instead of copying those of the leaves "
          "that did not change. The tables are identical; for A/B timing and bisecting."},
@@ -20,8 +24,9 @@ const std::vector<EnvSwitch>& env_switches() {
         {"FENICE_MEM_TRACE", "flag", "solver",
          "Print the resident and the peak memory of the process at the steps of the setup (standard error)."},
         {"FENICE_PROFILE", "flag", "solver",
-         "AMR: print, at the end of the run, the wall time of the time step, the output and each part of the remesh (min / max over "
-         "the ranks). Costs nothing when off."},
+         "Print, at the end of the run, the wall time by section: the output and the parts of a residual on a uniform mesh "
+         "(boundary, reconstruct, flux, divergence, viscous), the time step, the output and each part of the remesh in an AMR run "
+         "(min / max over the ranks). Costs nothing when off."},
         {"FENICE_HALO_REACH", "flag", "solver",
          "AMR: print the halo reach of the mesh (how many rings of leaves the face lists read across a rank boundary). Needs the "
          "whole mesh: a serial run, or FENICE_REPLICATED_REMESH=1 on MPI."},

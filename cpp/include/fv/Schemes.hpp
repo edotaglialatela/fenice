@@ -136,6 +136,15 @@ public:
     // 3-D version (z-sweep added); m gives nx, ny, nz.
     void reconstruct_3d(Field& UL, Field& UR, const Field& U, const Mesh& m, const Halos& h = {}) const;
 
+    // The fluxes of every face of `m` in one pass, for the MUSCL scheme: faces with a four-cell stencil are reconstructed and
+    // sent to the Riemann solver together (RiemannSolver::muscl_face_flux_batch), without storing their left / right states.
+    // The other faces (physical sides without a ghost layer) take the first-order states in UL / UR, which must hold the
+    // faces of the sides (BoundaryManager::apply_boundary_conditions), through the conservative-primitive round trip.
+    // F gets what reconstruct (or reconstruct_3d) followed by RiemannSolver::compute_flux gives, bit for bit; returns the
+    // maximum wave speed. Only for the MUSCL scheme (no WENO).
+    double muscl_fluxes(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
+                        const Halos& h, Field& F) const;
+
     // Active limiter.
     Limiter limiter() const { return lim_; }
     // Active face reconstruction.

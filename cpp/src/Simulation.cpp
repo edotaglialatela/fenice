@@ -659,6 +659,13 @@ Field Simulation::initial_field() const {
 // Residuals
 // ---------------------------------------------------------------------------
 
+// Reconstruction and Riemann solver in one pass (MusclReconstruction::muscl_fluxes): the MUSCL scheme on the AVX2 kernels; the
+// results are the same as with the two passes (FENICE_NO_FUSED=1 takes those, for A/B timing).
+static bool fused_muscl(const MusclReconstruction& mu) {
+    static const bool off = switch_on("FENICE_NO_FUSED");
+    return !off && mu.scheme() == Reconstruction::Muscl;
+}
+
 double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const ImmersedBoundary* ib,
                             const MusclReconstruction* mu, const Field& U_in, Field& R, const StripHalos* halos) {
     if (m.is3d()) return assemble_3d(m, bm, ib, mu, U_in, R, halos);
@@ -737,13 +744,15 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         ghost(Face::Bottom, mh.b, ghB_);
         ghost(Face::Top, mh.t, ghT_);
     }
-    if (mu) {
-        ProfileScope ps(Section::Reconstruct);
-        mu->reconstruct(UL_, UR_, *Uc, nx, ny, mh);
-    }
-
     double S;
-    {
+    if (mu && fused_muscl(*mu)) {
+        ProfileScope ps(Section::Flux);   // reconstruction and Riemann solver in one pass
+        S = mu->muscl_fluxes(riemann, UL_, UR_, *Uc, m, mh, F_);
+    } else {
+        if (mu) {
+            ProfileScope ps(Section::Reconstruct);
+            mu->reconstruct(UL_, UR_, *Uc, nx, ny, mh);
+        }
         ProfileScope ps(Section::Flux);
         S = riemann.compute_flux(UL_, UR_, m, F_);
     }
@@ -915,12 +924,17 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
             ghost(Face::Front, mh.f, ghF_);
             ghost(Face::Back, mh.bk, ghK_);
         }
-        ProfileScope ps(Section::Reconstruct);
-        mu->reconstruct_3d(UL_, UR_, Uv, m, mh);
     }
 
     double S;
-    {
+    if (mu && fused_muscl(*mu)) {
+        ProfileScope ps(Section::Flux);   // reconstruction and Riemann solver in one pass
+        S = mu->muscl_fluxes(riemann, UL_, UR_, Uv, m, mh, F_);
+    } else {
+        if (mu) {
+            ProfileScope ps(Section::Reconstruct);
+            mu->reconstruct_3d(UL_, UR_, Uv, m, mh);
+        }
         ProfileScope ps(Section::Flux);
         S = riemann.compute_flux(UL_, UR_, m, F_);
     }
