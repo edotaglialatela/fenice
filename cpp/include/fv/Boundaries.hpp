@@ -95,8 +95,10 @@ public:
     // instead of an edge copy. 3-D: the same for the edge entries (ghost along two axes). `mpi_axis` (0 = x, 1 = y,
     // -1 none) and `mpi_lo` / `mpi_hi` say that the ghost layer of that side was filled from a neighbour rank: the
     // entry then takes the boundary condition of the other axis, applied to the halo cell. Call after the MPI layers
-    // are written; no effect with boundary_order = 1.
+    // are written; no effect with boundary_order = 1. `fix_frame_corners` is the 2-D version on the ghost ring of
+    // get_padded_frame; `fix_padded_corners` is for the 3-D padded state.
     void fix_padded_corners(Field& P, int mpi_axis = -1, bool mpi_lo = false, bool mpi_hi = false) const;
+    void fix_frame_corners(PaddedFrame& F, int mpi_axis = -1, bool mpi_lo = false, bool mpi_hi = false) const;
     bool fill_ghost_slab(const Field& U, Face side, int depth, Field& slab) const;
 
     // Ghost cell of the diffusive (viscous) stencil next to a physical side `side` for the interior state `in`:
@@ -105,6 +107,9 @@ public:
 
     // U padded with BC-consistent ghost cells: (ny+2)*(nx+2) in 2-D, (nz+2)*(ny+2)*(nx+2) in 3-D (row-major).
     void get_padded_U(const Field& U, Field& U_pad) const;
+    // 2-D: only the ghost ring of get_padded_U (its entries are the same bits; the interior is U). What the solver's viscous
+    // sweep uses, so that the padded array is never built.
+    void get_padded_frame(const Field& U, PaddedFrame& F) const;
 
     // MPI: combine the mass-flow inlet's (sum, count) of interior density across
     // the ranks sharing side `f`, so the inlet average matches the serial run.

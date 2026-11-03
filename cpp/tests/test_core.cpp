@@ -479,9 +479,10 @@ TEST(viscous_uniform_zero_and_couette) {
     CHECK(dt > 0.0);
 }
 
-// The one-sweep viscous residual (rows in cache, no gradient field) must give the bits of the gradient version: random state, a
-// mesh above kOmpMinWork so that the thread blocks have seams, 1 / 3 / 7 threads, walls (also with second-order boundary faces)
-// and periodic seams on both axes, replacing and accumulating.
+// The one-sweep viscous residual (rows in cache, no gradient field, no padded or primitive array: the cell field and the ghost
+// ring only) must give the bits of the gradient version on the padded array: random state, a mesh above kOmpMinWork so that
+// the thread blocks have seams, 1 / 3 / 7 threads, walls (also with second-order boundary faces and fixed corners),
+// neighbour-rank layers in the ring and periodic seams on both axes, replacing and accumulating.
 TEST(viscous_rows_equal_the_gradient_version_bit_for_bit) {
     const EOS eos = EOS::ideal(1.4);
     const Mesh m = generate_cartesian_mesh(1.0, 0.8, 70, 61);
@@ -493,17 +494,45 @@ TEST(viscous_rows_equal_the_gradient_version_bit_for_bit) {
     Field U(m.num_cells());
     for (auto& u : U) u = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, 0.4 + rnd(), 0.0});
     long long compared = 0;
-    for (const int variant : {0, 1, 2}) {   // 0: periodic x and y, 1: walls, 2: walls with second-order boundary faces
+    // 0: periodic x and y, 1: walls, 2: walls with second-order boundary faces (boundary_order = 2, corners fixed),
+    // 3: as 2 with neighbour-rank layers in the ghost ring (an x strip: columns, then a y strip: rows)
+    for (const int variant : {0, 1, 2, 3, 4}) {
         BoundaryManager bm(m, eos);
         if (variant == 0)
             bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Periodic, BCType::Periodic);
         else
             bm.set_boundary_types(BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::Transmissive);
-        bm.set_params({1.0, 0.3, 1.0, 1.0});
+        BCParams bp;
+        bp.u_in = 1.0;
+        bp.v_in = 0.3;
+        bp.boundary_order = variant >= 2 ? 2 : 1;
+        bm.set_params(bp);
         NavierStokes ns(eos, 0.02, 0.72);
-        ns.set_second_order_boundary(variant == 2);
-        Field P, gx, gy;
-        bm.get_padded_U(U, P);
+        ns.set_second_order_boundary(variant >= 2);
+        // the ghost ring as the solver builds it; the padded array of the reference is this ring around U
+        PaddedFrame F;
+        bm.get_padded_frame(U, F);
+        const int mpi_axis = variant == 3 ? 0 : (variant == 4 ? 1 : -1);
+        if (variant == 3) {
+            for (auto& s : F.left) s = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, 0.4 + rnd(), 0.0});
+            for (auto& s : F.right) s = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, 0.4 + rnd(), 0.0});
+        } else if (variant == 4) {
+            for (int i = 0; i < m.nx; ++i) {
+                F.bottom[i + 1] = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, 0.4 + rnd(), 0.0});
+                F.top[i + 1] = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, 0.4 + rnd(), 0.0});
+            }
+        }
+        bm.fix_frame_corners(F, mpi_axis, mpi_axis >= 0, mpi_axis >= 0);
+        Field P((m.ny + 2) * (m.nx + 2)), gx, gy;
+        for (int jj = 0; jj < m.ny + 2; ++jj)
+            for (int ii = 0; ii < m.nx + 2; ++ii) {
+                State& p = P[jj * (m.nx + 2) + ii];
+                if (jj == 0) p = F.bottom[ii];
+                else if (jj == m.ny + 1) p = F.top[ii];
+                else if (ii == 0) p = F.left[jj - 1];
+                else if (ii == m.nx + 1) p = F.right[jj - 1];
+                else p = U[(jj - 1) * m.nx + ii - 1];
+            }
         compute_gradients(P, m.nx, m.ny, m.dx, m.dy, gx, gy);
         CrossGhosts cg;
         cg.periodic_x = cg.periodic_y = (variant == 0);
@@ -517,7 +546,7 @@ TEST(viscous_rows_equal_the_gradient_version_bit_for_bit) {
                 omp_set_num_threads(threads);
 #endif
                 Field Rc = Rb;
-                const double sb = ns.viscous_residual_rows(P, m, Rc, &cg, accumulate);
+                const double sb = ns.viscous_residual_rows(U, F, m, Rc, &cg, accumulate);
                 CHECK(sa == sb);
                 bool same = Ra.size() == Rc.size();
                 for (size_t c = 0; same && c < Ra.size(); ++c)

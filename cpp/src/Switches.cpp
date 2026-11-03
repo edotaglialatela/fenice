@@ -15,9 +15,6 @@ const std::vector<EnvSwitch>& env_switches() {
          "Uniform mesh with MUSCL: reconstruct the face states into arrays and run the Riemann solver on them in a second pass, "
          "instead of the one pass that does both (RiemannSolver::muscl_face_flux_batch). The results are identical bit for bit; "
          "for A/B timing."},
-        {"FENICE_NO_FUSED_VISCOUS", "flag", "solver",
-         "2-D viscous residual: compute the gradient field and the per-cell arrays in separate passes (NavierStokes::viscous_residual) "
-         "instead of the one sweep over rows (viscous_residual_rows). The results are identical bit for bit; for A/B timing."},
         {"FENICE_FULL_REBUILD", "flag", "solver",
          "AMR: rebuild the faces and the engine tables of every leaf after each adaptation instead of copying those of the leaves "
          "that did not change. The tables are identical; for A/B timing and bisecting."},

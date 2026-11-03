@@ -52,10 +52,11 @@ public:
                             const Field& U_pad, Field& R_visc, const CrossGhosts* cross = nullptr,
                             bool accumulate = false) const;
     // The same residual and wave speed as viscous_residual, bit for bit, without the gradient field: the cell quantities
-    // are computed row by row in cache as the faces need them (the 2-D solver uses this one; the gradient version is the
-    // reference of the tests and what FENICE_NO_FUSED_VISCOUS=1 selects).
-    double viscous_residual_rows(const Field& U_pad, const Mesh& mesh, Field& R_visc, const CrossGhosts* cross = nullptr,
-                                 bool accumulate = false) const;
+    // are computed row by row in cache as the faces need them, from the cell field U and the ghost ring `frame` alone
+    // (BoundaryManager::get_padded_frame): the padded state and its primitive copy are never built, a cell's primitive
+    // state is converted with its row. The 2-D solver uses this one; the gradient version is the reference of the tests.
+    double viscous_residual_rows(const Field& U, const PaddedFrame& frame, const Mesh& mesh, Field& R_visc,
+                                 const CrossGhosts* cross = nullptr, bool accumulate = false) const;
     // 3-D version: full stress tensor tau_ij = mu (du_i/dx_j + du_j/dx_i) - 2/3 mu delta_ij div u. `length`
     // is the time-step length L of the solver (0: 2 / sum(1/h)).
     double viscous_residual_3d(const Field& U, const Field& grad_x, const Field& grad_y, const Field& grad_z,

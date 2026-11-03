@@ -30,7 +30,7 @@ enum class Section {
     Flux,               // uniform mesh: the Riemann solver on every face
     Divergence,         // uniform mesh: the flux balance of the cells
     Viscous,            // uniform mesh: the Navier-Stokes terms (gradients and viscous fluxes)
-    PadCopy,            // uniform mesh: conservative state copied and padded for viscous terms
+    PadCopy,            // uniform mesh: ghost ring of the padded state for viscous terms (3-D: the padded copy)
     PadCornerFix,       // uniform mesh: padded corner and MPI halo fixes
     ViscousConversion,  // uniform mesh: padded conservative to primitive conversion
     ViscousSweep,       // uniform mesh: viscous residual calculation after conversion

@@ -22,6 +22,14 @@ constexpr int kNVar = 5;
 using State = std::array<double, kNVar>;
 // A state per cell (row-major, cell = (k*ny + j)*nx + i) or per face.
 using Field = std::vector<State>;
+
+// The ghost ring of a 2-D (ny+2) x (nx+2) padded state, without its interior (which is the cell field itself): padded rows 0
+// (bottom) and ny+1 (top), columns 0 .. nx+1 each, and padded columns 0 (left) and nx+1 (right) for the cell rows 0 .. ny-1.
+// The viscous sweep reads the interior from the cell field and only the ring from here, so no padded copy is made.
+struct PaddedFrame {
+    Field bottom, top;   // nx + 2 entries each
+    Field left, right;   // ny entries each (entry j is padded row j + 1)
+};
 // Component of the momentum (conservative) / velocity (primitive) along axis 0, 1, 2.
 constexpr int kMom[3] = {1, 2, 4};
 

@@ -18,13 +18,15 @@ representations:
 * **Diffusive ghosts.** `get_padded_U` returns the state padded to
   $(n_y+2)\times(n_x+2)$, or $(n_z+2)\times(n_y+2)\times(n_x+2)$ in 3-D. The gradient
   calculator and the viscous flux use it, so they see the same wall values as the
-  convective solver.
+  convective solver. The 2-D solver does not build the padded array: `get_padded_frame` returns
+  only its ghost ring (the entries of `get_padded_U` outside the interior, the same bits) and the
+  viscous sweep reads the interior from the cell field.
 
 With `boundary_order = 2` the physical sides also get **ghost layers**: `fill_ghost_slab` builds, in the halo layout of
 `Schemes`, the ghost state of the interior cell $l$ cells from the boundary (layer $l$), two layers deep for MUSCL and
 WENO3-Z and three for WENO5-Z, and the boundary faces are reconstructed through them. Periodic, MPI-interface and
-non-reflecting sides keep their treatment. For the viscous terms, `fix_padded_corners` rebuilds the corner (2-D) and edge
-(3-D) entries of the padded state as the boundary ghost of the neighbouring ghost entry, so the tangential differences on a
+non-reflecting sides keep their treatment. For the viscous terms, `fix_frame_corners` (2-D, on the ghost ring) and
+`fix_padded_corners` (3-D) rebuild the corner (2-D) and edge (3-D) entries of the padded state as the boundary ghost of the neighbouring ghost entry, so the tangential differences on a
 boundary face see the wrapped, neighbour-rank or mirrored value; and the moving-wall ghost keeps the interior internal
 energy. Measured in [manufactured solutions]({{root}}cases/manufactured-solution.html).
 

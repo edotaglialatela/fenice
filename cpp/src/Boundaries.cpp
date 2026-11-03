@@ -364,19 +364,48 @@ void BoundaryManager::get_padded_U(const Field& U, Field& P) const {
     }
     const int nx = mesh_.nx, ny = mesh_.ny;
     const int W = nx + 2;
+    PaddedFrame F;
+    get_padded_frame(U, F);
     P.resize(static_cast<size_t>(ny + 2) * W);
-
-    // Edge padding (zero-gradient everywhere, corners included)
 #pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
     for (int jj = 0; jj < ny + 2; ++jj) {
-        const int j = std::min(std::max(jj - 1, 0), ny - 1);
-        for (int ii = 0; ii < W; ++ii) {
-            const int i = std::min(std::max(ii - 1, 0), nx - 1);
-            P[jj * W + ii] = U[j * nx + i];
+        State* row = &P[static_cast<size_t>(jj) * W];
+        if (jj == 0 || jj == ny + 1) {
+            const Field& g = jj == 0 ? F.bottom : F.top;
+            for (int ii = 0; ii < W; ++ii) row[ii] = g[ii];
+        } else {
+            row[0] = F.left[jj - 1];
+            for (int i = 0; i < nx; ++i) row[i + 1] = U[(jj - 1) * nx + i];
+            row[nx + 1] = F.right[jj - 1];
         }
     }
+}
 
-    auto at = [&](int jj, int ii) -> State& { return P[jj * W + ii]; };
+void BoundaryManager::get_padded_frame(const Field& U, PaddedFrame& F) const {
+    const int nx = mesh_.nx, ny = mesh_.ny;
+    const int W = nx + 2;
+    F.bottom.resize(W);
+    F.top.resize(W);
+    F.left.resize(ny);
+    F.right.resize(ny);
+
+    // Edge padding (zero-gradient everywhere, corners included)
+    for (int ii = 0; ii < W; ++ii) {
+        const int i = std::min(std::max(ii - 1, 0), nx - 1);
+        F.bottom[ii] = U[i];
+        F.top[ii] = U[(ny - 1) * nx + i];
+    }
+    for (int j = 0; j < ny; ++j) {
+        F.left[j] = U[j * nx];
+        F.right[j] = U[j * nx + nx - 1];
+    }
+
+    // the ghost entry at padded (jj, ii); only the ring is addressed
+    auto at = [&](int jj, int ii) -> State& {
+        if (jj == 0) return F.bottom[ii];
+        if (jj == ny + 1) return F.top[ii];
+        return ii == 0 ? F.left[jj - 1] : F.right[jj - 1];
+    };
     const double u_in = params_.u_in, v_in = params_.v_in;
     const bool e2 = params_.boundary_order == 2;
 
@@ -528,10 +557,17 @@ void BoundaryManager::fix_padded_corners(Field& P, int mpi_axis, bool mpi_lo, bo
                     }
                     at3(p) = g;
                 }
-        return;
     }
-    const int nx = mesh_.nx, ny = mesh_.ny, W = nx + 2;
-    auto at = [&](int jj, int ii) -> State& { return P[jj * W + ii]; };
+}
+
+void BoundaryManager::fix_frame_corners(PaddedFrame& F, int mpi_axis, bool mpi_lo, bool mpi_hi) const {
+    if (params_.boundary_order != 2) return;
+    const int nx = mesh_.nx, ny = mesh_.ny;
+    auto at = [&](int jj, int ii) -> State& {
+        if (jj == 0) return F.bottom[ii];
+        if (jj == ny + 1) return F.top[ii];
+        return ii == 0 ? F.left[jj - 1] : F.right[jj - 1];
+    };
     auto ghost = [&](bool right, int jj) {
         const State in = at(jj, right ? nx : 1);
         State g = in;

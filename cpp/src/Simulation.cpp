@@ -781,29 +781,24 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     if (ns) {
         ProfileScope ps(Section::Viscous);
         {
+            // the ghost ring of the padded state only: the interior is the cell field, which the viscous sweep reads in place
             ProfileScope profile(Section::PadCopy);
-            bm.get_padded_U(*Uc, Upad_);
-        }
-        if (halos) {
-            const int PW = nx + 2;
-            if (halos->dir == 'y') {
-                if (halos->lo)
-                    for (int i = 0; i < nx; ++i) Upad_[i + 1] = (*halos->lo)[(D - 1) * nx + i];
-                if (halos->hi)
-                    for (int i = 0; i < nx; ++i) Upad_[(ny + 1) * PW + i + 1] = (*halos->hi)[i];
-            } else {
-                if (halos->lo)
-                    for (int j = 0; j < ny; ++j) Upad_[(j + 1) * PW] = (*halos->lo)[j * D + D - 1];
-                if (halos->hi)
-                    for (int j = 0; j < ny; ++j) Upad_[(j + 1) * PW + nx + 1] = (*halos->hi)[j * D];
+            bm.get_padded_frame(*Uc, frame_);
+            if (halos) {
+                if (halos->dir == 'y') {
+                    if (halos->lo)
+                        for (int i = 0; i < nx; ++i) frame_.bottom[i + 1] = (*halos->lo)[(D - 1) * nx + i];
+                    if (halos->hi)
+                        for (int i = 0; i < nx; ++i) frame_.top[i + 1] = (*halos->hi)[i];
+                } else {
+                    if (halos->lo)
+                        for (int j = 0; j < ny; ++j) frame_.left[j] = (*halos->lo)[j * D + D - 1];
+                    if (halos->hi)
+                        for (int j = 0; j < ny; ++j) frame_.right[j] = (*halos->hi)[j * D];
+                }
             }
+            bm.fix_frame_corners(frame_, halos ? (halos->dir == 'x' ? 0 : 1) : -1, halos && halos->lo, halos && halos->hi);
         }
-        {
-            ProfileScope profile(Section::PadCornerFix);
-            bm.fix_padded_corners(Upad_, halos ? (halos->dir == 'x' ? 0 : 1) : -1, halos && halos->lo, halos && halos->hi);
-        }
-        static const bool two_pass_viscous = switch_on("FENICE_NO_FUSED_VISCOUS");
-        if (two_pass_viscous) compute_gradients(Upad_, nx, ny, m.dx, m.dy, gX_, gY_);
         CrossGhosts cg;
         cg.periodic_x = per_x;
         cg.periodic_y = per_y;
@@ -823,8 +818,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
                 cg.hi_b = hi_b.data();
             }
         }
-        const double s_visc = two_pass_viscous ? ns->viscous_residual(*Uc, gX_, gY_, m, Upad_, R, &cg, true)
-                                               : ns->viscous_residual_rows(Upad_, m, R, &cg, true);
+        const double s_visc = ns->viscous_residual_rows(*Uc, frame_, m, R, &cg, true);
         S = std::max(S, s_visc);
     }
 

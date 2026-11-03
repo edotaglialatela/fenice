@@ -245,8 +245,8 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
 // threads (same bits). The rows a y-face reads are the ones of viscous_residual: the cell below / above, or on a periodic y axis
 // the opposite edge row; at a physical or MPI boundary the first / last row, whose velocity and temperature are replaced by the
 // ghost values there. The wave-speed maximum is taken in the same sweep.
-double NavierStokes::viscous_residual_rows(const Field& P, const Mesh& mesh, Field& Rv, const CrossGhosts* cg,
-                                           bool accumulate) const {
+double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F, const Mesh& mesh, Field& Rv,
+                                           const CrossGhosts* cg, bool accumulate) const {
     constexpr double MU_DIAG = 4.0 / 3.0;
     constexpr double MU_OFF = 2.0 / 3.0;
 
@@ -255,37 +255,56 @@ double NavierStokes::viscous_residual_rows(const Field& P, const Mesh& mesh, Fie
     const double gamma = eos_.gamma;
     const double k_cond = mu_ * gamma / (Pr_ * (gamma - 1.0));
 
-    {
-        ProfileScope profile(Section::ViscousConversion);
-        cons_to_prim(eos_, P, W_pad_);
-    }
     ProfileScope sweep_profile(Section::ViscousSweep);
-    const Field& Wp = W_pad_;
-    const int PW = nx + 2;
-    const auto W = [&](int j, int i) -> const State& { return Wp[(j + 1) * PW + i + 1]; };
+    // Primitive state of the ghost ring (O(nx + ny)); a cell's own primitive state is computed with its row.
+    Field Wb(F.bottom.size()), Wt(F.top.size()), Wl(F.left.size()), Wr(F.right.size());
+    for (size_t k = 0; k < Wb.size(); ++k) {
+        Wb[k] = eos_.cons_to_prim(F.bottom[k]);
+        Wt[k] = eos_.cons_to_prim(F.top[k]);
+    }
+    for (size_t k = 0; k < Wl.size(); ++k) {
+        Wl[k] = eos_.cons_to_prim(F.left[k]);
+        Wr[k] = eos_.cons_to_prim(F.right[k]);
+    }
+    // the primitive state at padded (jj, ii) of the (ny+2) x (nx+2) array (by value; used on boundary faces only)
+    const auto Wp = [&](int jj, int ii) -> State {
+        if (jj == 0) return Wb[ii];
+        if (jj == ny + 1) return Wt[ii];
+        if (ii == 0) return Wl[jj - 1];
+        if (ii == nx + 1) return Wr[jj - 1];
+        return eos_.cons_to_prim(U[(jj - 1) * nx + ii - 1]);
+    };
 
     if (!accumulate) Rv.assign(n, State{0, 0, 0, 0});
 
-    auto gU = [&](int jj, int ii) { return Wp[jj * PW + ii][1]; };
-    auto gV = [&](int jj, int ii) { return Wp[jj * PW + ii][2]; };
-    auto gT = [&](int jj, int ii) { return Wp[jj * PW + ii][3] / Wp[jj * PW + ii][0]; };
+    auto gU = [&](int jj, int ii) { return Wp(jj, ii)[1]; };
+    auto gV = [&](int jj, int ii) { return Wp(jj, ii)[2]; };
+    auto gT = [&](int jj, int ii) {
+        const State w = Wp(jj, ii);
+        return w[3] / w[0];
+    };
 
-    // Cell quantities of one row: u, v, T, du/dx, du/dy, dv/dx, dv/dy (as viscous_residual; the gradients of the conserved
-    // variables are the central differences of compute_gradients)
+    // Cell quantities of one row: primitive state, u, v, T, du/dx, du/dy, dv/dx, dv/dy (as viscous_residual; the gradients of
+    // the conserved variables are the central differences of compute_gradients)
     struct Row {
+        State* w;
         double *u, *v, *T, *dudx, *dudy, *dvdx, *dvdy;
     };
     auto fill = [&](int j, const Row& r) {
+        const State* cur = &U[static_cast<size_t>(j) * nx];
+        const State* north = j + 1 < ny ? cur + nx : &F.top[1];
+        const State* south = j > 0 ? cur - nx : &F.bottom[1];
         for (int i = 0; i < nx; ++i) {
-            const State& w = W(j, i);
+            r.w[i] = eos_.cons_to_prim(cur[i]);
+            const State& w = r.w[i];
             const double rho = w[0], u = w[1], v = w[2];
             r.u[i] = u;
             r.v[i] = v;
             r.T[i] = w[3] / rho;
-            const State& pe = P[(j + 1) * PW + i + 2];
-            const State& pw = P[(j + 1) * PW + i];
-            const State& pn = P[(j + 2) * PW + i + 1];
-            const State& ps = P[j * PW + i + 1];
+            const State& pe = i + 1 < nx ? cur[i + 1] : F.right[j];
+            const State& pw = i > 0 ? cur[i - 1] : F.left[j];
+            const State& pn = north[i];
+            const State& ps = south[i];
             const double drx = (pe[0] - pw[0]) / (2.0 * dx), dry = (pn[0] - ps[0]) / (2.0 * dy);
             const double gx1 = (pe[1] - pw[1]) / (2.0 * dx), gy1 = (pn[1] - ps[1]) / (2.0 * dy);
             const double gx2 = (pe[2] - pw[2]) / (2.0 * dx), gy2 = (pn[2] - ps[2]) / (2.0 * dy);
@@ -317,7 +336,7 @@ double NavierStokes::viscous_residual_rows(const Field& P, const Mesh& mesh, Fie
         double dv_dy = 0.5 * ((gl ? cg->lo_b[j] : c.dvdy[xL]) + (gr ? cg->hi_b[j] : c.dvdy[xR]));
         if (bface2_ && ((lo && !gl && !px) || (hi && !gr && !px))) {
             const int ig = lo ? 0 : nx + 1, ic = lo ? 1 : nx;
-            auto face = [&](int jj, int q) { return 0.5 * (Wp[jj * PW + ig][q] + Wp[jj * PW + ic][q]); };
+            auto face = [&](int jj, int q) { return 0.5 * (Wp(jj, ig)[q] + Wp(jj, ic)[q]); };
             du_dy = (face(j + 2, 1) - face(j, 1)) / (2.0 * dy);
             dv_dy = (face(j + 2, 2) - face(j, 2)) / (2.0 * dy);
         }
@@ -342,7 +361,7 @@ double NavierStokes::viscous_residual_rows(const Field& P, const Mesh& mesh, Fie
         double dv_dx = 0.5 * ((gb ? cg->lo_b[i] : B.dvdx[i]) + (gt ? cg->hi_b[i] : T.dvdx[i]));
         if (bface2_ && ((lo && !gb && !py) || (hi && !gt && !py))) {
             const int jg = lo ? 0 : ny + 1, jc = lo ? 1 : ny;
-            auto face = [&](int ii, int q) { return 0.5 * (Wp[jg * PW + ii][q] + Wp[jc * PW + ii][q]); };
+            auto face = [&](int ii, int q) { return 0.5 * (Wp(jg, ii)[q] + Wp(jc, ii)[q]); };
             du_dx = (face(i + 2, 1) - face(i, 1)) / (2.0 * dx);
             dv_dx = (face(i + 2, 2) - face(i, 2)) / (2.0 * dx);
         }
@@ -367,9 +386,11 @@ double NavierStokes::viscous_residual_rows(const Field& P, const Mesh& mesh, Fie
         double local = 0.0;   // thread-local maximum (OpenMP 2.0 has no max reduction); a max is order independent
         if (j0 < j1) {
             std::vector<double> store(static_cast<size_t>(4) * 7 * nx);
+            std::vector<State> wstore(static_cast<size_t>(4) * nx);
             auto row_at = [&](int k) {
                 double* b = store.data() + static_cast<size_t>(k) * 7 * nx;
-                return Row{b, b + nx, b + 2 * nx, b + 3 * nx, b + 4 * nx, b + 5 * nx, b + 6 * nx};
+                return Row{wstore.data() + static_cast<size_t>(k) * nx, b,          b + nx,     b + 2 * nx,
+                           b + 3 * nx,                                  b + 4 * nx, b + 5 * nx, b + 6 * nx};
             };
             Row cur = row_at(0), nxt = row_at(1);
             const Row first_below = row_at(2), top_wrap = row_at(3);
@@ -402,7 +423,7 @@ double NavierStokes::viscous_residual_rows(const Field& P, const Mesh& mesh, Fie
                         for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) * inv_area;
                     Fl = Fr;
                     // wave speed of the cell (as viscous_residual)
-                    const State& w = W(j, i);
+                    const State& w = cur.w[i];
                     const double rho = w[0];
                     const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
                     const double s = std::max(std::abs(w[1]), std::abs(w[2])) + eos_.sound_speed(w[3], rho) +
