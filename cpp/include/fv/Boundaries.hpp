@@ -62,8 +62,10 @@ public:
     const Mesh& mesh() const { return mesh_; }
 
     // First-order face states for every face of the mesh (UL/UR resized to num_faces).
-    // `th`: MPI strip halos (non-reflecting sides crossing rank interfaces).
-    void apply_boundary_conditions(const Field& U, Field& UL, Field& UR, const TangentialHalos* th = nullptr) const;
+    // `th`: MPI strip halos (non-reflecting sides crossing rank interfaces). `interior = false` leaves the faces between
+    // two cells unset (resized only) for a caller that overwrites every one of them, such as a MUSCL / WENO reconstruction.
+    void apply_boundary_conditions(const Field& U, Field& UL, Field& UR, const TangentialHalos* th = nullptr,
+                                   bool interior = true) const;
 
     // Ghost state across a physical boundary `side` for the interior state Ui (every type but periodic and
     // non-reflecting, which need more than one cell); `u_target` is the mass-flow inlet velocity. The same

@@ -673,7 +673,8 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
 
     TangentialHalos th;
     if (halos) th = {halos->dir, D, halos->lo, halos->hi};
-    bm.apply_boundary_conditions(*Uc, UL_, UR_, halos ? &th : nullptr);
+    // with a reconstruction every face between two cells is overwritten below: only the sides need their first-order states
+    bm.apply_boundary_conditions(*Uc, UL_, UR_, halos ? &th : nullptr, mu == nullptr);
 
     Halos mh;
     if (halos) {
@@ -815,7 +816,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
 
     TangentialHalos th;
     if (halos) th = {halos->dir, D, halos->lo, halos->hi};
-    bm.apply_boundary_conditions(Uv, UL_, UR_, halos ? &th : nullptr);
+    bm.apply_boundary_conditions(Uv, UL_, UR_, halos ? &th : nullptr, mu == nullptr);
 
     // MPI halos (slab layouts, see Halos) override the BC ghosts at interface faces
     Halos mh;

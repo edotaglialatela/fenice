@@ -51,15 +51,17 @@ void BoundaryManager::set_boundary_types(BCType left, BCType right, BCType botto
 // Convective ghost cells
 // ---------------------------------------------------------------------------
 
-void BoundaryManager::apply_boundary_conditions(const Field& U, Field& UL, Field& UR, const TangentialHalos* th) const {
+void BoundaryManager::apply_boundary_conditions(const Field& U, Field& UL, Field& UR, const TangentialHalos* th,
+                                                bool interior) const {
     const int nx = mesh_.nx, ny = mesh_.ny, nz = mesh_.nz;
     const Mesh& m = mesh_;
     UL.resize(m.num_faces());   // every face is written below (interior + sides)
     UR.resize(m.num_faces());
 
+    const int nkx = interior ? ny * nz : 0, nky = interior ? (ny - 1) * nz : 0;
     // Interior x-faces
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
-    for (int kj = 0; kj < ny * nz; ++kj) {
+    for (int kj = 0; kj < nkx; ++kj) {
         const int j = kj % ny, k = kj / ny;
         for (int i = 1; i < nx; ++i) {
             const int f = m.xface(i, j, k);
@@ -69,7 +71,7 @@ void BoundaryManager::apply_boundary_conditions(const Field& U, Field& UL, Field
     }
     // Interior y-faces
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
-    for (int kj = 0; kj < (ny - 1) * nz; ++kj) {
+    for (int kj = 0; kj < nky; ++kj) {
         const int j = kj % (ny - 1) + 1, k = kj / (ny - 1);
         for (int i = 0; i < nx; ++i) {
             const int f = m.yface(i, j, k);
@@ -78,7 +80,7 @@ void BoundaryManager::apply_boundary_conditions(const Field& U, Field& UL, Field
         }
     }
     // Interior z-faces (3-D)
-    if (m.is3d()) {
+    if (interior && m.is3d()) {
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
         for (int kj = 0; kj < ny * (nz - 1); ++kj) {
             const int j = kj % ny, k = kj / ny + 1;
