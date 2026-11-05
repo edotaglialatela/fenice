@@ -52,6 +52,35 @@ State GridInterp2D::operator()(double x, double y) const {
     return out;
 }
 
+Field leaves_to_uniform(const Field& U, const std::vector<int>& level, const std::vector<int>& ci, const std::vector<int>& cj,
+                        int nx_base, int ny_base, int& nx_out, int& ny_out) {
+    if (U.size() != level.size() || ci.size() != level.size() || cj.size() != level.size())
+        throw std::runtime_error("leaves_to_uniform: the leaf arrays have different lengths");
+    int top = 0;
+    for (int l : level) top = std::max(top, l);
+    if (top > 20) throw std::runtime_error("leaves_to_uniform: more than 20 refinement levels");
+    nx_out = nx_base << top;
+    ny_out = ny_base << top;
+    Field out(static_cast<size_t>(nx_out) * static_cast<size_t>(ny_out), State{});
+    std::vector<char> seen(out.size(), 0);
+    for (size_t c = 0; c < level.size(); ++c) {
+        if (level[c] < 0) throw std::runtime_error("leaves_to_uniform: a negative level");
+        const int w = 1 << (top - level[c]);
+        const int i0 = ci[c] * w, j0 = cj[c] * w;
+        if (ci[c] < 0 || cj[c] < 0 || i0 + w > nx_out || j0 + w > ny_out)
+            throw std::runtime_error("leaves_to_uniform: a leaf lies outside the base mesh of the checkpoint");
+        for (int j = j0; j < j0 + w; ++j)
+            for (int i = i0; i < i0 + w; ++i) {
+                const size_t k = static_cast<size_t>(j) * nx_out + i;
+                out[k] = U[c];
+                seen[k] = 1;
+            }
+    }
+    for (char s : seen)
+        if (!s) throw std::runtime_error("leaves_to_uniform: the leaves of the checkpoint do not cover the domain");
+    return out;
+}
+
 Field map_solution(const Field& U_coarse, int nx_c, int ny_c, int nx_f, int ny_f, double Lx, double Ly) {
     const double dx_c = Lx / nx_c, dy_c = Ly / ny_c;
     const double dx_f = Lx / nx_f, dy_f = Ly / ny_f;

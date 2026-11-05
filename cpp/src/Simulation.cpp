@@ -711,9 +711,12 @@ void Simulation::initialize_field() {
 
     if (p.use_hot_start) {
         // Seed every leaf by sampling the hot-start field at the leaf's cell centre (bilinear, extrapolating at the edges)
-        const double dx_s = mesh.Lx / mesh.nx, dy_s = mesh.Ly / mesh.ny;
-        hot_interp_ = std::make_unique<GridInterp2D>(linspace(dx_s / 2.0, mesh.Lx - dx_s / 2.0, mesh.nx),
-                                                     linspace(dy_s / 2.0, mesh.Ly - dy_s / 2.0, mesh.ny), U);
+        // (a source of another size than the base mesh is sampled at its own resolution)
+        const bool own = hot_src_nx_ > 0;
+        const int nxs = own ? hot_src_nx_ : mesh.nx, nys = own ? hot_src_ny_ : mesh.ny;
+        const double dx_s = mesh.Lx / nxs, dy_s = mesh.Ly / nys;
+        hot_interp_ = std::make_unique<GridInterp2D>(linspace(dx_s / 2.0, mesh.Lx - dx_s / 2.0, nxs),
+                                                     linspace(dy_s / 2.0, mesh.Ly - dy_s / 2.0, nys), own ? hot_src_ : U);
     }
     // Several ranks with the shares kept separately: no rank ever holds the whole mesh (the topology is faceless, the share is built
     // from it, and the initial passes run through CellParallel::remesh with the initial condition filled on the share)
@@ -1719,7 +1722,29 @@ Field Simulation::load_hot_start(const std::string& path) {
     const int nz_c = a.count("nz") ? static_cast<int>(a.at("nz").scalar()) : 1;
     if (nz_c > 1 && !mesh.is3d()) throw std::runtime_error("Hot start from a 3-D checkpoint needs a 3-D run (nz > 1)");
     std::printf("[Hot Start] Mapping %d x %d x %d -> %d x %d x %d ...\n", nx_c, ny_c, nz_c, mesh.nx, mesh.ny, mesh.nz);
-    const Field Uc = npy_to_field(a.at("U"));
+    Field Uc = npy_to_field(a.at("U"));
+    hot_src_.clear();
+    hot_src_nx_ = hot_src_ny_ = 0;
+    if (a.count("leaf_level")) {
+        // the checkpoint of an adaptive run: its leaves on the uniform mesh of their finest level (nx, ny are the base mesh)
+        if (mesh.is3d()) throw std::runtime_error("Hot start from an adaptive (AMR) checkpoint needs a 2-D run");
+        const auto ints = [&](const char* key) {
+            const std::vector<double> d = a.at(key).as_doubles();
+            return std::vector<int>(d.begin(), d.end());
+        };
+        int nxf = 0, nyf = 0;
+        Uc = leaves_to_uniform(Uc, ints("leaf_level"), ints("leaf_i"), ints("leaf_j"), nx_c, ny_c, nxf, nyf);
+        std::printf("[Hot Start] Adaptive checkpoint: %d x %d base mesh, finest level as %d x %d cells\n", nx_c, ny_c, nxf, nyf);
+        nx_c = nxf;
+        ny_c = nyf;
+    }
+    if (cells && nz_c == 1 && a.count("leaf_level") && (nx_c != mesh.nx || ny_c != mesh.ny)) {
+        // an adaptive target samples the finest-level field of an adaptive source at the leaf centres: keep it at its own
+        // resolution, not on the base mesh (a uniform source is mapped onto the base mesh first)
+        hot_src_ = Uc;
+        hot_src_nx_ = nx_c;
+        hot_src_ny_ = ny_c;
+    }
     if (static_cast<int>(Uc.size()) != nx_c * ny_c * nz_c)
         throw std::runtime_error("Hot-start state has " + std::to_string(Uc.size()) + " cells, expected " +
                                  std::to_string(nx_c * ny_c * nz_c));

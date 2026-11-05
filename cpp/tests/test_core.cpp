@@ -1027,6 +1027,48 @@ TEST(solution_mapping_properties) {
     CHECK(std::abs(m1 - m0) / m0 < 1e-2);
 }
 
+TEST(leaves_to_uniform_fills_the_blocks_of_the_finest_level) {
+    // 2 x 2 base mesh; the cell (0, 0) is split in four level-1 leaves, one of which is split again (level 2)
+    std::vector<int> lev, ci, cj;
+    Field U;
+    const auto add = [&](int l, int i, int j, double rho) {
+        lev.push_back(l);
+        ci.push_back(i);
+        cj.push_back(j);
+        U.push_back(State{rho, 0, 0, 1, 0});
+    };
+    add(0, 1, 0, 10);
+    add(0, 0, 1, 20);
+    add(0, 1, 1, 30);
+    add(1, 1, 0, 2);
+    add(1, 0, 1, 3);
+    add(1, 1, 1, 4);
+    add(2, 0, 0, 5);
+    add(2, 1, 0, 6);
+    add(2, 0, 1, 7);
+    add(2, 1, 1, 8);
+    int nx = 0, ny = 0;
+    const Field out = leaves_to_uniform(U, lev, ci, cj, 2, 2, nx, ny);
+    CHECK(nx == 8 && ny == 8 && out.size() == 64);
+    const auto at = [&](int i, int j) { return out[static_cast<size_t>(j) * nx + i][0]; };
+    CHECK(at(0, 0) == 5 && at(1, 0) == 6 && at(0, 1) == 7 && at(1, 1) == 8);   // level 2 leaves: one finest cell each
+    CHECK(at(2, 0) == 2 && at(3, 1) == 2);                                       // level 1 leaf (1,0): 2 x 2 finest cells
+    CHECK(at(0, 2) == 3 && at(1, 3) == 3 && at(2, 2) == 4 && at(3, 3) == 4);
+    CHECK(at(4, 0) == 10 && at(7, 3) == 10 && at(0, 4) == 20 && at(7, 7) == 30);   // level 0 leaves: 4 x 4 finest cells
+    // a missing leaf is refused
+    lev.pop_back();
+    ci.pop_back();
+    cj.pop_back();
+    U.pop_back();
+    bool threw = false;
+    try {
+        leaves_to_uniform(U, lev, ci, cj, 2, 2, nx, ny);
+    } catch (const std::runtime_error&) {
+        threw = true;
+    }
+    CHECK(threw);
+}
+
 // ---------------------------------------------------------------------------
 // Environment switches
 // ---------------------------------------------------------------------------

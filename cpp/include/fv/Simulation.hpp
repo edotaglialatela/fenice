@@ -142,6 +142,8 @@ private:
     // {Fx, Fy, Mz} of the immersed body from the residual of the leaves (the definition of ibm_loads).
     std::array<double, 3> cell_loads(const CellMesh& m, const Field& R) const;
     std::unique_ptr<GridInterp2D> hot_interp_;   // hot-start field of an AMR run
+    Field hot_src_;                              // the hot-start source at its own resolution (2-D; set by load_hot_start)
+    int hot_src_nx_ = 0, hot_src_ny_ = 0;        // its size (0: none)
     double cell_speed_ = 0.0;                    // wave-speed bound the next AMR time step is taken from
     MemoryUsage mem_setup_, mem_init_;           // resident memory after setup and after the initial adaptation (AMR report)
     // FENICE_REPLICATED_REMESH=1: every rank keeps the whole AMR mesh (the storage before docs/design/amr-distributed.md phase 2)

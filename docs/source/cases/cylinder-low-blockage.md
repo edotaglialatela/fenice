@@ -109,6 +109,6 @@ its spectrum above the peak carries the steps (`benchmarks/spectra_application.p
 The wake is carried on level 1 of the mesh (a vortex is about 7 of its cells across) and the vortices lose strength faster than at the
 body resolution; the loads depend on the near body, where the finest level is kept.
 
-**Limits.** A hot start (`use_hot_start`) maps a checkpoint of a uniform mesh; it cannot take the checkpoint of an AMR run with
-a different number of levels (`Hot-start state has 36186 cells, expected 30000`), so the 40-cells-per-diameter run starts
-from the initial condition. Resuming an AMR run on its own mesh (`resume = true`) works.
+**Hot start.** A hot start (`use_hot_start`) takes the checkpoint of a uniform mesh or of an AMR run, whatever its number of levels:
+an adaptive checkpoint is read as its finest-level field (each leaf fills the cells it covers) and an AMR target samples it at its
+leaf centres, a uniform target maps it onto its mesh. Resuming an AMR run on its own mesh (`resume = true`) works as before.

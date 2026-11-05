@@ -78,6 +78,13 @@ CASES = {
     "amr_hot_start":       ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.03, use_hot_start=True,
                                                    hot_start_file="{REF}/hot_source.npz", use_muscl=True, use_amr=True,
                                                    amr_max_level=2, amr_refine_every=3)),
+    # The source of a hot start is the checkpoint of an AMR run (32 x 4 base mesh, 2 levels, 14 steps of the Sod tube): an AMR run
+    # with fewer levels samples it at the leaf centres; a uniform run maps its finest-level field onto its own mesh
+    "amr_hot_start_from_amr": ("Sod Shock Tube", dict(Lx=1.0, nx=32, ny=4, Ly=0.125, t_end=0.03, use_hot_start=True,
+                                                     hot_start_file="{REF}/hot_source_amr.npz", use_muscl=True, use_amr=True,
+                                                     amr_max_level=1, amr_refine_every=3)),
+    "hot_start_from_amr":   ("Sod Shock Tube", dict(Lx=1.0, nx=64, ny=8, Ly=0.125, t_end=0.03, use_hot_start=True,
+                                                   hot_start_file="{REF}/hot_source_amr.npz", use_muscl=True)),
     # Manufactured solutions with source terms (generated cases, see fenice.mms); covered by the order study
     # verification/mms.py. The thin variants make the MPI strips run along x.
     "mms_ns_2d":           ("Manufactured Solution", dict(nx=24, ny=24, t_end=0.1)),
@@ -160,7 +167,7 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk3_visc", "cavity_periodi
              "cylinder_ibm_visc", "cylinder_ibm_source", "amr_cylinder_source", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
-             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
+             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "amr_hot_start_from_amr", "hot_start_from_amr", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
              "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2", "cavity3d_noslip_z_b2", "cavity_xdecomp_b2", "cavity3d_xdecomp_b2"]
 

@@ -25,6 +25,12 @@ private:
     const Field& v_;
 };
 
+// The state of an adaptive run on the uniform mesh of its finest level: every leaf (level, integer coordinates on its level's
+// grid of nx_base * 2^level by ny_base * 2^level cells) fills the block of finest cells it covers with its value. nx_out /
+// ny_out return the size of that uniform mesh (the base mesh times 2^finest level).
+Field leaves_to_uniform(const Field& U, const std::vector<int>& level, const std::vector<int>& ci, const std::vector<int>& cj,
+                        int nx_base, int ny_base, int& nx_out, int& ny_out);
+
 // Bilinear coarse -> fine mapping over the same [0,Lx]x[0,Ly] domain.
 Field map_solution(const Field& U_coarse, int nx_c, int ny_c, int nx_f, int ny_f, double Lx, double Ly);
 
