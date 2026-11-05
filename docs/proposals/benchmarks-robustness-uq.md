@@ -220,6 +220,14 @@ The four tracks share only the tier machinery (rules 1-8 above), which therefore
   The boundary values already accept expressions of `t` and tables (guide: writing cases); A4 additionally needs x. Open.
 * A9 would be the natural argument for a low-dissipation / higher-order reconstruction; that is a separate proposal if A9 shows
   MUSCL is too dissipative. **Decided to wait** for a larger turbulence-decay run (A8 / A9) before opening it.
+* MUSCL at a transmissive outflow with `boundary_order = 2` (manufactured outflow solution): **decided** (2026-11-05) to leave it as it is.
+  Measured: the order falls to 1.0-1.2 between n = 64 and 128 with every limiter (Minmod, Van Leer, MC, Koren; they all give a zero
+  slope in the last cell, whose ghost neighbour is its own mirror), while WENO3-Z / WENO5-Z keep 2-2.5 and MUSCL on the walls case
+  reaches 2. The error is a layer growing toward the outflow and building up in time (last four columns, Van Leer: order 2.0 at
+  t = 0.02, 1.2 at 0.1, 1.0 at 0.5); the one-step truncation error of MUSCL and WENO3-Z looks alike. The left wall has the same even
+  extension of rho, p with a small error, so the clipped extremum alone does not explain it; the cause is not traced to a line of code.
+  If it is picked up again: change the slope of the last cell or the ghost extension on a branch and compare against the same table
+  (`mms_boundary.py --schemes muscl --euler-only --boundary-order 2`).
 * C1b: **decided**: NumPy core, SciPy optional (Sobol sequences), no external UQ package; one is used by passing its sampler
   function.
 * Whether the medium tier may use the GitHub nightly runner: **decided**: yes, gated by a change of the sources; nightly at first, weekly since 2026-11-01 (see
