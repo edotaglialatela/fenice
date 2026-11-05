@@ -159,7 +159,12 @@ OpenMP, MPI strips) and the AMR engine (finest-level band), opt-in; the default 
 
   On the cylinder the box balance has no momentum-change term, so the larger boxes pick up the slow drift (it decreases with the
   box); on the airfoil it includes the change of the fluid cells' momentum (central difference over two steps) and the three boxes
-  agree with the monitor to 0.3 % in Cd and 0.3 % in Cl. Cost: one residual per monitor row (with `monitor_interval = 20` and
+  agree with the monitor to 0.3 % in Cd and 0.3 % in Cl.
+  The probe integral's gap is the truncation error of its wall-shear fit, not of the pressure (cylinder Re = 40, same field, monitor as
+  reference): with the shear from the quadratic through zero the gap is -2.75 % at 20 cells per diameter and -0.98 % at 40 (first probe at
+  1.5 cells); a cubic fit through three probes gives -1.25 % / -0.48 %, a linear one -8 % / -4 %; the wall pressure by constant, linear or
+  quadratic extrapolation changes it by 0.2 % at most; moving the first probe to 2 cells raises the gap to -4.3 % / -1.9 %. It converges
+  with the mesh and needs no fix while the monitor carries the loads; a third probe would halve it if surface distributions need it. Cost: one residual per monitor row (with `monitor_interval = 20` and
   SSP-RK2 about 2.5 % of the run; nothing without a monitor); the probe integral was nearly free. The states are unchanged bit
   for bit; under MPI the strips' sums are added in another order (loads equal to roundoff, `ibm_ghost.py --check`).
 * **Mach 2 cylinder**: the staircase waves at 45-75 degrees and the kinks of the surface pressure are gone with the ghost wall

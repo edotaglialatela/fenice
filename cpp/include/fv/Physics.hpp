@@ -178,7 +178,8 @@ public:
     // two probes at d and 2 d (d >= 1.5 cells) along the normal: wall pressure extrapolated linearly (2 p1 - p2) and, with
     // mu > 0, the wall shear mu du_t/dn = mu (4 u_t1 - u_t2) / (2 d) of the quadratic through zero at the wall (no-slip).
     // For surface distributions; the monitor's loads are the momentum flux into the solid cells (Simulation::ibm_loads), which
-    // this integral underestimates by 1-3 % (cylinder at Re = 40, 20 cells per diameter).
+    // this integral underestimates by 1-3 % (cylinder at Re = 40, 20 cells per diameter; 1 % at 40), the truncation error of the
+    // wall-shear fit, which converges with the mesh.
     std::array<double, 3> surface_loads(const Field& U, const EOS& eos, double mu, double cx, double cy) const;
     // Ghost-cell wall on a part of the mesh (MPI strips), on an object built for the whole mesh. local(c): index of global
     // cell c in the part's field, -1 outside it; in(c): input state of global cell c (any cell an owned ghost reads, see
