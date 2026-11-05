@@ -78,8 +78,8 @@ public:
     NavierStokes(const EOS& eos, double mu, double Pr) : eos_(eos), mu_(mu), Pr_(Pr) {}
 
     // Writes the viscous residual into R_visc and returns the wave speed that bounds the explicit time
-    // step: the maximum over cells of |u| + c + L / dt_visc, with dt_visc the parabolic limit of the
-    // cell. The solver takes S = max(S_convective, this), so the convective and the viscous eigenvalues
+    // step: the maximum over cells of |u| + c + 2 L D sum 1/h^2, with D = max(4/3 nu, kappa / (rho c_v))
+    // the diffusivity of the viscous stencil's fastest mode. The solver takes S = max(S_convective, this), so the convective and the viscous eigenvalues
     // share one stability budget. U_pad is the BC-aware padded state. `accumulate`: R_visc already holds the other terms of
     // the residual (one entry per cell) and the viscous residual is added to it instead of replacing it.
     double viscous_residual(const Field& U, const Field& grad_x, const Field& grad_y, const Mesh& mesh,

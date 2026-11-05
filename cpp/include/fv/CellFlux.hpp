@@ -57,7 +57,7 @@ void viscous_cell_quantities(const EOS& eos, const State& Ui, const State& n0, c
 // The same for the leaves c0 .. c0+n-1, whose four neighbours (nbr[4c .. 4c+3]: left, right, bottom, top) are all leaves of U.
 void viscous_cell_quantities_run(const EOS& eos, const State* U, const int* nbr, const int* level, const double* dx_of_level,
                                  const double* dy_of_level, int c0, int n, const ViscousCellArrays& out);
-// Viscous time-step speed of a leaf (max |u_d| + c + 2 L nu_eff sum 1/h^2, L = min(dx, dy)).
+// Viscous time-step speed of a leaf (max |u_d| + c + 2 L D sum 1/h^2, D = max(4/3 nu, kappa / (rho c_v)), L = min(dx, dy)).
 double viscous_cell_speed(const EOS& eos, double mu, double k_cond, const State& U, double dx, double dy);
 // Maximum of viscous_cell_speed over the leaves cb .. ce-1 (0 for none; NaN speeds are ignored, like std::max(s_max, s)).
 double viscous_speed_range(const EOS& eos, double mu, double k_cond, const State* U, const int* level, const double* dx_of_level,

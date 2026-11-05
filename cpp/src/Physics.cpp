@@ -211,12 +211,13 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
         }
     }
 
-    // Speed that bounds the explicit time step. The convective eigenvalue (2 S / L) and the viscous one, from the
-    // parabolic limit dt_visc = 1 / (2 max(nu, alpha_th) (1/dx^2 + 1/dy^2)) (0.25 h^2 / nu on square cells), share
-    // one stability budget, and the viscous one counts twice (at CFL 0.5 both are at their marginal limit, so
-    // their plain sum has no margin left: a manufactured solution with mu = 0.02 is unstable at CFL 0.5 with the
-    // plain sum and stable up to 0.7 with this weight): dt (2 S / L + 2 / dt_visc) <= 2 CFL, so the solver divides
-    // CFL L by S = (|u| + c) + L / dt_visc of the worst cell. A maximum over cells is the same on any partition
+    // Speed that bounds the explicit time step. The convective eigenvalue (2 S / L) and the viscous one share one
+    // stability budget. The viscous decay rate of the stencil (Fourier bound, frozen coefficients, uniform mesh) is
+    // 4 D (1/dx^2 + 1/dy^2) with D = max(4/3 nu, kappa / (rho c_v)): the longitudinal stress mode and the energy mode
+    // (c_v = 1 / (gamma - 1) in the units of T = p / rho; docs/proposals/viscous-timestep-stability.md). The viscous
+    // eigenvalue counts twice (a manufactured solution with mu = 0.02 is unstable at CFL 0.5 with the plain sum):
+    // dt (2 S / L + 4 D sum 1/h^2) <= 2 CFL, so the solver divides CFL L by S = (|u| + c) + 2 L D sum 1/h^2 of the
+    // worst cell. A maximum over cells is the same on any partition
     // (MPI strips, adaptive-mesh levels), and it stays below the face wave speed as the viscosity goes to zero.
     const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
     double s_max = 0.0;
@@ -228,7 +229,7 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
             for (int i = 0; i < nx; ++i) {
                 const State& w = W(j, i);
                 const double rho = w[0];
-                const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+                const double nu_eff = std::max((4.0 / 3.0) * (mu_ / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
                 const double s = std::max(std::abs(w[1]), std::abs(w[2])) + eos_.sound_speed(w[3], rho) +
                                  2.0 * L * inv_h2 * nu_eff;
                 local = std::max(local, s);
@@ -425,7 +426,7 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
                     // wave speed of the cell (as viscous_residual)
                     const State& w = cur.w[i];
                     const double rho = w[0];
-                    const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+                    const double nu_eff = std::max((4.0 / 3.0) * (mu_ / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
                     const double s = std::max(std::abs(w[1]), std::abs(w[2])) + eos_.sound_speed(w[3], rho) +
                                      2.0 * L * inv_h2 * nu_eff;
                     local = std::max(local, s);
@@ -643,9 +644,8 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
         }
     }
 
-    // Speed that bounds the explicit time step, as in the 2-D version. The parabolic limit of the 3-D heat
-    // equation is dt_visc = 1 / (2 nu sum 1/h^2) (h^2/6nu on cubes; the 2-D 0.25 min(h)^2 / nu is the same
-    // bound for square cells) and the convective length is L = 2 / sum(1/h), so L / dt_visc = 2 L nu sum 1/h^2.
+    // Speed that bounds the explicit time step, as in the 2-D version: D = max(4/3 nu, kappa / (rho c_v)), the
+    // convective length is L = 2 / sum(1/h), and the viscous part of the speed is 2 L D sum 1/h^2.
     const double inv_h2 = 1.0 / (m.dx * m.dx) + 1.0 / (m.dy * m.dy) + 1.0 / (m.dz * m.dz);
     const double L = length > 0.0 ? length : 2.0 / (1.0 / m.dx + 1.0 / m.dy + 1.0 / m.dz);
     double s_max = 0.0;
@@ -658,7 +658,7 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
             for (int i = 0; i < nx; ++i) {
                 const State& w = W(i, j, k);
                 const double rho = w[0];
-                const double nu_eff = std::max(mu_ / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+                const double nu_eff = std::max((4.0 / 3.0) * (mu_ / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
                 const double s = std::max({std::abs(w[1]), std::abs(w[2]), std::abs(w[4])}) +
                                  eos_.sound_speed(w[3], rho) + 2.0 * L * inv_h2 * nu_eff;
                 local = std::max(local, s);

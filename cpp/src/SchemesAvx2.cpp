@@ -386,7 +386,7 @@ void viscous_cells_avx2(const EOS& eos, const State* U, const int* nbr, const in
 double viscous_speed_avx2(const EOS& eos, double mu, double k_cond, const State* U, const int* level, const double* dxl,
                           const double* dyl, int c0, int n) {
     const VEos E(eos);
-    const V one = set1(1.0), two = set1(2.0), vmu = set1(mu), vk = set1(k_cond), gr = set1(eos.gamma / (eos.gamma - 1.0)),
+    const V one = set1(1.0), two = set1(2.0), vmu = set1(mu), vk = set1(k_cond), gm1 = set1(eos.gamma - 1.0), c43 = set1(4.0 / 3.0),
             tiny = set1(1e-12);
     V local = set1(0.0);
     for (int k = 0; k < n; k += 4) {
@@ -395,7 +395,7 @@ double viscous_speed_avx2(const EOS& eos, double mu, double k_cond, const State*
         const V L = vmin(hx, hy), inv_h2 = add(dv(one, mul(hx, hx)), dv(one, mul(hy, hy)));
         const Vec5 W = E.cons_to_prim(load4(U + c));
         const V rho = W.q[0];
-        const V nu_eff = add(vmax(dv(vmu, rho), dv(vk, mul(rho, gr))), tiny);
+        const V nu_eff = add(vmax(mul(c43, dv(vmu, rho)), dv(mul(vk, gm1), rho)), tiny);
         const V s = add(add(vmax(vabs(W.q[1]), vabs(W.q[2])), E.sound_speed(W.q[3], rho)), mul(mul(mul(two, L), inv_h2), nu_eff));
         local = vmax(local, s);
     }

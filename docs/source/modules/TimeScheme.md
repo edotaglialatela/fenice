@@ -25,10 +25,14 @@ blows up after about 30 steps that way.
 **Viscous flows.** The convective and the viscous (diffusive) eigenvalues of the explicit operator
 share one stability budget, and the viscous one is counted twice, so the step must satisfy
 $\Delta t\,(2 S_{\rm adv}/h + 2/\Delta t_{\rm visc}) \le 2\,\mathrm{CFL}$, with the parabolic limit
-$\Delta t_{\rm visc} = 1/(2\,\nu \sum_d \Delta x_d^{-2})$ ($\Delta x^2/4\nu$ on a square 2-D cell). The residual
+$\Delta t_{\rm visc} = 1/(2\,D \sum_d \Delta x_d^{-2})$ ($\Delta x^2/4D$ on a square 2-D cell). The residual
 callback folds it into the speed, cell by cell,
 
-$$S = \max_d|u_d| + c + \frac{h}{\Delta t_{\rm visc}}, \qquad \nu = \max\!\Bigl(\frac{\mu}{\rho}, \frac{k}{\rho\, c_p}\Bigr),$$
+$$S = \max_d|u_d| + c + \frac{h}{\Delta t_{\rm visc}}, \qquad D = \max\!\Bigl(\frac43\frac{\mu}{\rho}, \frac{k}{\rho\, c_v}\Bigr),$$
+
+where $D$ is the diffusivity of the fastest mode of the viscous stencil (a frozen-coefficient Fourier
+analysis on a uniform mesh: the longitudinal stress mode and the energy mode; the decay rate is bounded by
+$4D\sum_d\Delta x_d^{-2}$),
 
 and takes the maximum over the cells, so it is the same on every MPI strip and AMR rank. A viscosity
 that goes to zero leaves $S$ at the convective wave speed. Taking only the smaller of the two

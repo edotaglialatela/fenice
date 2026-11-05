@@ -1205,7 +1205,7 @@ double viscous_cell_speed(const EOS& eos, double mu, double k_cond, const State&
     const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
     const State W = eos.cons_to_prim(U);
     const double rho = W[0];
-    const double nu_eff = std::max(mu / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+    const double nu_eff = std::max((4.0 / 3.0) * (mu / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
     return std::max(std::abs(W[1]), std::abs(W[2])) + eos.sound_speed(W[3], rho) + 2.0 * L * inv_h2 * nu_eff;
 }
 
@@ -1425,7 +1425,7 @@ double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
             const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
             const State W = eos_.cons_to_prim(U[c]);
             const double rho = W[0];
-            const double nu_eff = std::max(mu / rho, k_cond / (rho * (gamma / (gamma - 1.0)))) + 1e-12;
+            const double nu_eff = std::max((4.0 / 3.0) * (mu / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
             const double s =
                 std::max(std::abs(W[1]), std::abs(W[2])) + eos_.sound_speed(W[3], rho) + 2.0 * L * inv_h2 * nu_eff;
             local = std::max(local, s);
