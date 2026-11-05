@@ -31,3 +31,15 @@ about 1 and give nearly the same error on the finest grid: the boundary closure 
 | Manufactured Solution Outflow | WENO3-Z, SSP-RK3 | Linf | rho | 0.96, 0.79, 0.81 | 3.37e-03 | below (1.3) |
 | Manufactured Solution Outflow | WENO5-Z, SSP-RK3 | L2 | u | 1.39, 1.21, 1.06 | 1.88e-04 | below (1.7) |
 | Manufactured Solution Outflow | WENO5-Z, SSP-RK3 | Linf | rho | 0.58, 0.79, 0.79 | 3.44e-03 | below (1.3) |
+| Manufactured Solution Box Euler | MUSCL VL, SSP-RK2 | L2 | u | 1.50, 1.38, 1.40 | 9.00e-04 | below (1.7) |
+| Manufactured Solution Box Euler | MUSCL VL, SSP-RK2 | Linf | v | 0.80, 0.46, 0.57 | 9.20e-03 | below (1.3) |
+| Manufactured Solution Box Euler | WENO3-Z, SSP-RK3 | L2 | u | 1.51, 1.38, 1.38 | 9.26e-04 | below (1.7) |
+| Manufactured Solution Box Euler | WENO3-Z, SSP-RK3 | Linf | v | 0.97, 0.48, 0.57 | 9.37e-03 | below (1.3) |
+| Manufactured Solution Box Euler | WENO5-Z, SSP-RK3 | L2 | u | 1.35, 1.34, 1.36 | 9.65e-04 | below (1.7) |
+| Manufactured Solution Box Euler | WENO5-Z, SSP-RK3 | Linf | v | 0.39, 0.50, 0.58 | 9.45e-03 | below (1.3) |
+| Manufactured Solution Box | MUSCL VL, SSP-RK2 | L2 | v | 1.92, 1.68, 1.43 | 1.14e-03 | below (1.7) |
+| Manufactured Solution Box | MUSCL VL, SSP-RK2 | Linf | rho | 0.85, 0.95, 0.98 | 1.34e-02 | below (1.3) |
+| Manufactured Solution Box | WENO3-Z, SSP-RK3 | L2 | v | 1.93, 1.65, 1.41 | 1.17e-03 | below (1.7) |
+| Manufactured Solution Box | WENO3-Z, SSP-RK3 | Linf | rho | 0.86, 0.94, 0.97 | 1.35e-02 | below (1.3) |
+| Manufactured Solution Box | WENO5-Z, SSP-RK3 | L2 | v | 1.74, 1.53, 1.36 | 1.18e-03 | below (1.7) |
+| Manufactured Solution Box | WENO5-Z, SSP-RK3 | Linf | rho | 0.84, 0.94, 0.97 | 1.35e-02 | below (1.3) |

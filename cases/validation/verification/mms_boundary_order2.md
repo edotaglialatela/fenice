@@ -30,3 +30,15 @@ viscous closure of the walls (moving-wall ghost energy and the cross derivatives
 | Manufactured Solution Outflow | WENO3-Z, SSP-RK3 | Linf | p | 1.17, 2.04, 2.09 | 5.84e-04 | ok (1.3) |
 | Manufactured Solution Outflow | WENO5-Z, SSP-RK3 | L2 | rho | 2.08, 2.02, 1.99 | 1.94e-05 | ok (1.7) |
 | Manufactured Solution Outflow | WENO5-Z, SSP-RK3 | Linf | v | 2.33, 1.78, 1.88 | 5.78e-05 | ok (1.3) |
+| Manufactured Solution Box Euler | MUSCL VL, SSP-RK2 | L2 | p | 1.99, 2.09, 2.11 | 9.60e-05 | ok (1.7) |
+| Manufactured Solution Box Euler | MUSCL VL, SSP-RK2 | Linf | u | 1.61, 1.87, 1.72 | 6.39e-04 | ok (1.3) |
+| Manufactured Solution Box Euler | WENO3-Z, SSP-RK3 | L2 | v | 2.20, 2.12, 2.18 | 4.80e-05 | ok (1.7) |
+| Manufactured Solution Box Euler | WENO3-Z, SSP-RK3 | Linf | u | 1.67, 1.99, 1.58 | 5.41e-04 | ok (1.3) |
+| Manufactured Solution Box Euler | WENO5-Z, SSP-RK3 | L2 | v | 1.90, 1.95, 1.99 | 3.37e-05 | ok (1.7) |
+| Manufactured Solution Box Euler | WENO5-Z, SSP-RK3 | Linf | rho | 1.42, 1.69, 1.93 | 4.03e-04 | ok (1.3) |
+| Manufactured Solution Box | MUSCL VL, SSP-RK2 | L2 | u | 2.40, 2.28, 2.15 | 5.20e-05 | ok (1.7) |
+| Manufactured Solution Box | MUSCL VL, SSP-RK2 | Linf | rho | 1.85, 1.76, 1.82 | 4.40e-04 | ok (1.3) |
+| Manufactured Solution Box | WENO3-Z, SSP-RK3 | L2 | u | 2.72, 2.75, 2.49 | 3.85e-05 | ok (1.7) |
+| Manufactured Solution Box | WENO3-Z, SSP-RK3 | Linf | rho | 1.80, 2.92, 1.86 | 4.80e-04 | ok (1.3) |
+| Manufactured Solution Box | WENO5-Z, SSP-RK3 | L2 | rho | 2.02, 1.99, 2.00 | 1.11e-05 | ok (1.7) |
+| Manufactured Solution Box | WENO5-Z, SSP-RK3 | Linf | p | 2.02, 2.00, 2.00 | 3.23e-05 | ok (1.3) |

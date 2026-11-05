@@ -1,14 +1,14 @@
 # Three method choices left open: positivity for WENO at strong shocks, corners of two walls, second-order inlets and outlets
 
-Status: proposal (2026-11-05). Nothing here is implemented; each item needs a decision before any code. The three are independent
-and can be taken in any order. Every option that touches the solver is opt-in with the default unchanged, so the 59 regression
+Status (2026-11-05): decided. 1: no positivity code (the shocks met so far do not need it). 2: measured with a four-wall manufactured
+solution; the corners need no rule. 3: left as a documented limit. The text below keeps the options for the record. Every option that touches the solver is opt-in with the default unchanged, so the 59 regression
 references and the bitwise MPI checks stay as they are until a default is changed on purpose.
 
 | item | evidence today | recommendation |
 |---|---|---|
-| 1. Positivity for WENO | the strong-shock suite is passed by `weno3` and `weno5`; one failure: `weno5` diverges on the near-vacuum tube at CFL 0.4 | **B** (face fallback, opt-in), only if a case needs it; otherwise keep the CFL rule |
-| 2. Corner of two walls | not measured; the cavity (four corners) and the Ghia comparison are the only indirect evidence | **measure first** (a four-wall manufactured solution), then decide |
-| 3. Inlets and outlets with a normal gradient | the prescribed variable is second order; the free ones (rho, p at a velocity inlet; velocity at a pressure outlet) are copied, so first order | **B** (linear extrapolation of the free variables, opt-in) after a manufactured solution that has a gradient there |
+| 1. Positivity for WENO (**decided: no code**) | the strong-shock suite is passed by `weno3` and `weno5`; one failure: `weno5` diverges on the near-vacuum tube at CFL 0.4 | **B** (face fallback, opt-in), only if a case needs it; otherwise keep the CFL rule |
+| 2. Corner of two walls (**measured: no rule needed**) | not measured; the cavity (four corners) and the Ghia comparison are the only indirect evidence | **measure first** (a four-wall manufactured solution), then decide |
+| 3. Inlets and outlets with a normal gradient (**decided: documented limit**) | the prescribed variable is second order; the free ones (rho, p at a velocity inlet; velocity at a pressure outlet) are copied, so first order | **B** (linear extrapolation of the free variables, opt-in) after a manufactured solution that has a gradient there |
 
 ## 1. Positivity of the reconstructed states with WENO
 
@@ -40,9 +40,15 @@ same in practice for the face states, and it is easy to explain in the paper. Ga
 references unchanged; with it on, the vacuum tube with `weno5` finishes at CFL 0.4 and 0.5 (rho, p above the floor to the end), the other
 stress cases give the same outcome as without it, and the Sod and Shu-Osher errors change by less than 1 %.
 
-**Decision needed:** whether a case you care about (a strong-shock application) justifies the option, or the guide line is enough.
+**Decision (2026-11-05):** D. No strong enough shocks in the cases of interest to enforce positivity; the guide keeps the CFL rule.
 
 ## 2. The corner where two walls meet
+
+**Result (2026-11-05).** `fenice.mms` has a `box` solution (left no-slip, right slip, bottom slip, top no-slip: the four corners are
+all the combinations; zero velocity on every wall). With `boundary_order = 2` every entry of `mms_boundary.py --kinds box` is inside the
+bands fixed above: L2 1.9 to 2.7 and Linf 1.4 to 2.9 for MUSCL, WENO3-Z and WENO5-Z, Euler and Navier-Stokes; with `boundary_order = 1` it
+stays at 1.3 to 1.9 and 0.4 to 1.0 like the other wall solutions. Option A (leave it) is the answer; B and C are not needed. A moving lid
+meeting a side wall is not covered (no smooth solution has it).
 
 **Today.** Faces are reconstructed row by row and column by column, so the inviscid fluxes never read a diagonal neighbour: the corner
 ghost cell matters only to the viscous cross derivatives of the corner cell (and, in 3-D, the edge cells). With `boundary_order = 2`
@@ -67,7 +73,7 @@ as for the other wall solutions. If it is met, take A and delete the limitation;
 case folder, one table; no solver change. This does not test mixed corners; a second solution with a moving lid on one side would
 (u - U_lid odd about the lid), at the same cost.
 
-**Decision needed:** only whether to run the measurement (recommended; it is cheap).
+**Decision (2026-11-05):** measured, see the result above.
 
 ## 3. Inlets and outlets with a normal gradient
 
@@ -97,8 +103,8 @@ double-Mach case in `benchmarks-robustness-uq.md`, A4). Band fixed before the ru
 result recorded for contrast. Gate: all references unchanged with `boundary_order = 1`; the channel and cylinder cases with an
 outlet change by less than their reference tolerance when the option is on (they are not expected to improve).
 
-**Decision needed:** whether a case of yours has a real normal gradient at an inlet or outlet. If not, A (a documented limit) is a
-fair choice; the paper's list can say so.
+**Decision (2026-11-05):** A. No case has a real normal gradient at an inlet or outlet that matters; a documented limit that can be
+avoided by placing the boundary where the gradient is small.
 
 ## Order of work if all three are taken
 

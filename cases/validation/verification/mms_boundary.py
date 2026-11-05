@@ -4,7 +4,8 @@
     python cases/validation/verification/mms_boundary.py --boundary-order 2    # the second-order closure
     python cases/validation/verification/mms_boundary.py --schemes muscl,weno3 --euler-only
 
-The four 2-D solutions of `fenice.mms` with non-periodic sides: moving and slip walls, and no-slip wall with outflow, each
+The 2-D solutions of `fenice.mms` with non-periodic sides: moving and slip walls, no-slip wall with outflow, and a box with
+no-slip and slip walls on all four sides (the corners; --kinds box), each
 as Navier-Stokes and as Euler (the Euler ones isolate the convective closure from the viscous one). Their variables are
 even or odd about the boundaries exactly as the solver's ghost cells assume, so the ghost state IS the extension of the
 solution across the boundary and the boundary closure itself is verified. They say nothing about the accuracy of a
@@ -37,9 +38,12 @@ SCHEMES = {
 BAND_L2, BAND_LINF = 1.7, 1.3
 
 
-def solutions(euler_only, viscous_only):
+KINDS = ("walls", "outflow", "box")
+
+
+def solutions(euler_only, viscous_only, kinds=KINDS):
     out = []
-    for kind in ("walls", "outflow"):
+    for kind in kinds:
         for viscous in (False, True):
             if (euler_only and viscous) or (viscous_only and not viscous):
                 continue
@@ -71,12 +75,14 @@ def main():
     ap.add_argument("--schemes", default="muscl,weno3,weno5")
     ap.add_argument("--euler-only", action="store_true")
     ap.add_argument("--viscous-only", action="store_true")
+    ap.add_argument("--kinds", default=",".join(KINDS), help="solutions to run; with a subset the table rows of the others are kept")
     args = ap.parse_args()
     args.tag = f"b{args.boundary_order}"
     h = [1.0 / n for n in GRIDS]
     print(f"boundary_order = {args.boundary_order}; observed order per pair of grids {GRIDS}, worst variable\n")
     rows = ["| solution | scheme | norm | worst variable | orders per grid pair | finest rho error | band |", "|---|---|---|---|---|---|---|"]
-    for sol in solutions(args.euler_only, args.viscous_only):
+    kinds = tuple(args.kinds.split(","))
+    for sol in solutions(args.euler_only, args.viscous_only, kinds):
         for key in args.schemes.split(","):
             label, sets = SCHEMES[key]
             sets = list(sets) + ([f"boundary_order={args.boundary_order}"] if args.boundary_order == 2 else [])
@@ -90,7 +96,11 @@ def main():
                             f" | {errs[-1]['rho'][norm]:.2e} | {'ok' if ok else 'below'} ({band}) |")
                 print(rows[-1], flush=True)
     path = study.study_dir(STUDY) / f"mms_boundary_order{args.boundary_order}.md"
-    path.write_text("\n".join(rows) + "\n", encoding="utf-8")
+    if path.exists() and kinds != KINDS:   # a subset: replace the rows of the solutions run, keep the rest of the file
+        ran = {r.split(" | ")[0] for r in rows[2:]}
+        old = path.read_text(encoding="utf-8").splitlines()
+        rows = [l for l in old if not (l.startswith("| ") and l.split(" | ")[0] in ran)] + rows[2:]
+    path.write_text("\n".join(rows) + "\n", encoding="utf-8", newline="\n")
     print(f"\nwritten: {path}")
     return 0
 

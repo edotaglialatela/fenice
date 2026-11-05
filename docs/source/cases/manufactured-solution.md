@@ -177,8 +177,12 @@ numerically when it builds the solution (it refuses to write a case that violate
 | Walls | top, $y = 1$ | `wall` (slip) | $\rho$, $p$, $u$ even, $v$ odd |
 | Outflow | left, $x = 0$ | `no_slip` | $\rho$, $p$ even, $u$, $v$ odd |
 | Outflow | right, $x = 1$ | `transmissive` | $\rho$, $p$, $u$, $v$ even (zero normal gradient) |
+| Box | left, $x = 0$ | `no_slip` | $\rho$, $p$ even, $u$, $v$ odd |
+| Box | right, $x = 1$ | `wall` (slip) | $\rho$, $p$, $v$ even, $u$ odd |
+| Box | bottom, $y = 0$ | `wall` (slip) | $\rho$, $p$, $u$ even, $v$ odd |
+| Box | top, $y = 1$ | `no_slip` | $\rho$, $p$ even, $u$, $v$ odd |
 
-The other axis is periodic, so there are no corners. The parities come from $\cos(\pi y)$ (even about both walls),
+In the walls and outflow cases the other axis is periodic, so there are no corners; the box case has four non-periodic sides and all four corner combinations (no-slip/slip, slip/slip, no-slip/no-slip, slip/no-slip), with zero velocity on every wall (a moving wall cannot meet a side wall in a smooth solution). The parities come from $\cos(\pi y)$ (even about both walls),
 $\sin(\pi y)$ (odd about both) and $\sin(\pi y/2)$ (odd about 0, even about 1), mixed into the phases of the
 periodic waves so that the solution stays non-separable. The momentum slot of a wall is the mirrored one, so the
 no-slip, moving-wall and slip-wall ghosts, the viscous padded state and the adiabatic heat flux at the wall are all
@@ -219,7 +223,7 @@ cell average) instead of the first-cell value, which is $O(h)$ away from the wal
 interior internal energy (the default copies the total energy without following the momentum). A side that is periodic, an MPI
 interface or non-reflecting is unchanged, and the key is not available with AMR or with `use_muscl = false`.
 
-`cases/validation/verification/mms_boundary.py` repeats the study for the four non-periodic solutions (each as Euler and as
+`cases/validation/verification/mms_boundary.py` repeats the study for the non-periodic solutions (walls, outflow and box, each as Euler and as
 Navier-Stokes, which separates the convective closure from the viscous one) with MUSCL, WENO3-Z and WENO5-Z; the tables
 are `mms_boundary_order1.md` and `mms_boundary_order2.md` in the same folder. Observed order of each pair of grids, of the worst
 variable (in brackets), and the density error on the 128² grid; $t = 0.5$:
@@ -250,6 +254,18 @@ variable (in brackets), and the density error on the 128² grid; $t = 0.5$:
 | Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.96, 0.79, 0.81 (rho), 3.37e-03 | 1.17, 2.04, 2.09 (p), 5.84e-04 |
 | Outflow, Navier-Stokes | WENO5-Z, SSP-RK3 | L2 | 1.39, 1.21, 1.06 (u), 1.88e-04 | 2.08, 2.02, 1.99 (rho), 1.94e-05 |
 | Outflow, Navier-Stokes | WENO5-Z, SSP-RK3 | Linf | 0.58, 0.79, 0.79 (rho), 3.44e-03 | 2.33, 1.78, 1.88 (v), 5.78e-05 |
+| Box, Euler | MUSCL VL, SSP-RK2 | L2 | 1.50, 1.38, 1.40 (u), 9.00e-04 | 1.99, 2.09, 2.11 (p), 9.60e-05 |
+| Box, Euler | MUSCL VL, SSP-RK2 | Linf | 0.80, 0.46, 0.57 (v), 9.20e-03 | 1.61, 1.87, 1.72 (u), 6.39e-04 |
+| Box, Euler | WENO3-Z, SSP-RK3 | L2 | 1.51, 1.38, 1.38 (u), 9.26e-04 | 2.20, 2.12, 2.18 (v), 4.80e-05 |
+| Box, Euler | WENO3-Z, SSP-RK3 | Linf | 0.97, 0.48, 0.57 (v), 9.37e-03 | 1.67, 1.99, 1.58 (u), 5.41e-04 |
+| Box, Euler | WENO5-Z, SSP-RK3 | L2 | 1.35, 1.34, 1.36 (u), 9.65e-04 | 1.90, 1.95, 1.99 (v), 3.37e-05 |
+| Box, Euler | WENO5-Z, SSP-RK3 | Linf | 0.39, 0.50, 0.58 (v), 9.45e-03 | 1.42, 1.69, 1.93 (rho), 4.03e-04 |
+| Box, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.92, 1.68, 1.43 (v), 1.14e-03 | 2.40, 2.28, 2.15 (u), 5.20e-05 |
+| Box, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.85, 0.95, 0.98 (rho), 1.34e-02 | 1.85, 1.76, 1.82 (rho), 4.40e-04 |
+| Box, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.93, 1.65, 1.41 (v), 1.17e-03 | 2.72, 2.75, 2.49 (u), 3.85e-05 |
+| Box, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.86, 0.94, 0.97 (rho), 1.35e-02 | 1.80, 2.92, 1.86 (rho), 4.80e-04 |
+| Box, Navier-Stokes | WENO5-Z, SSP-RK3 | L2 | 1.74, 1.53, 1.36 (v), 1.18e-03 | 2.02, 1.99, 2.00 (rho), 1.11e-05 |
+| Box, Navier-Stokes | WENO5-Z, SSP-RK3 | Linf | 0.84, 0.94, 0.97 (rho), 1.35e-02 | 2.02, 2.00, 2.00 (p), 3.23e-05 |
 
 What it shows:
 
@@ -259,20 +275,25 @@ What it shows:
   the 5th-order scheme has the smallest error.
 * **Viscous faces.** The Navier-Stokes walls solution stayed at order 1 with only the convective closure although its error fell; with the
   cross derivatives of the boundary faces all three schemes reach 1.9 to 2.0 in $L_2$ and $L_\infty$.
+* **Corners.** The box solution, whose four corners are all combinations of a no-slip and a slip wall, reaches $L_2$ 1.9 to 2.7 and
+  $L_\infty$ 1.4 to 2.9 with all three reconstructions, Euler and Navier-Stokes, with the second-order faces (every entry inside the
+  bands); with the first-order faces it stays at 1.3 to 1.9 ($L_2$) and 0.4 to 1.0 ($L_\infty$) like the other wall solutions. The
+  corner values of the padded state therefore need no special rule.
 * **MUSCL on the outflow solution** stays at $L_2$ about 1.0 to 1.2 and its error hardly falls (Euler: $2.8\cdot10^{-4}$ to
-  $2.6\cdot10^{-4}$; Navier-Stokes: $1.7\cdot10^{-4}$ to $9.5\cdot10^{-5}$). The solution has an extremum at the boundary (even
-  about $x = 1$ and $x = 0$), where the limiter always clips the slope; WENO3-Z and WENO5-Z do not. This was not traced further.
+  $2.6\cdot10^{-4}$; Navier-Stokes: $1.7\cdot10^{-4}$ to $9.5\cdot10^{-5}$). It does not depend on the limiter (Minmod, Van Leer, MC
+  and Koren behave alike), it is a layer that grows toward the outflow and builds up in time (the order near the boundary is about 2
+  at $t = 0.02$ and about 1 at $t = 0.5$), and WENO3-Z and WENO5-Z do not show it. The same extremum is present at the walls of the
+  other cases without this loss, so the clipped slope alone does not explain it; the cause was not traced further.
 * **Limits of the test.** Both the initial state and the source terms are evaluated at the cell centres (second order in
   the cell averages), so no order above 2 can show here for any scheme: WENO5-Z is at the limit of the data, not of the scheme. The
   solutions are built so that the mirror is the exact extension, which is also what makes the ghost layers exact; a transmissive or
   outlet condition on a real flow with a normal gradient is consistent only to first order whatever the reconstruction, and the inlets
-  set a value (first order by construction). A corner where two walls meet is not treated specially (its padded value is one of the two mirrors),
-  and the test has none.
+  set a value (first order by construction). A corner where two walls meet is not treated specially (its padded value is one of the two mirrors); the box
+  case above tests it.
 
-What the two cases leave untested: no-slip on the bottom/top, slip and moving walls on the left/right (separate
-branches of the boundary code), the inlets and the outlets (their ghost states set a value instead of mirroring one,
-so they are first order by construction and no manufactured solution matches them), the non-reflecting outlet, and
-corners where two non-periodic sides meet.
+What the cases leave untested: moving walls on the left/right, the inlets and the outlets (their ghost states set a value
+instead of mirroring one, so they are first order by construction and no manufactured solution matches them), the non-reflecting
+outlet, and a corner that meets a moving wall.
 
 ## An unsteady solution: time accuracy
 

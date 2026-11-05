@@ -59,7 +59,11 @@ class Solution:
     * "walls": x periodic; bottom MovingWall (u = U_WALL, v = 0), top Wall (slip: v = 0). rho, p even about
       y = 0 and y = 1, v odd about both, u - U_WALL odd about y = 0 and u even about y = 1;
     * "outflow": y periodic; left NoSlip, right Transmissive. rho, p even about x = 0 and x = 1, u and v odd about
-      x = 0 and even about x = 1 (zero normal gradient).
+      x = 0 and even about x = 1 (zero normal gradient);
+    * "box": walls on all four sides, of both kinds at every corner: left NoSlip, right Wall (slip), bottom Wall (slip), top NoSlip.
+      rho, p even about all four sides; u odd about x = 0 and x = 1, even about y = 0 and odd about y = 1; v odd about x = 0, even
+      about x = 1, odd about y = 0 and y = 1. The four corners are no-slip/slip, slip/slip, no-slip/no-slip and slip/no-slip; the
+      velocity is zero on every wall (no moving wall: it cannot meet a side wall in a smooth solution).
 
     The symmetry is checked numerically at construction (check_symmetry).
 
@@ -77,8 +81,8 @@ class Solution:
     def __post_init__(self):
         if self.dim not in (2, 3):
             raise ValueError("dim must be 2 or 3")
-        if self.kind not in ("periodic", "walls", "outflow"):
-            raise ValueError("kind must be periodic, walls or outflow")
+        if self.kind not in ("periodic", "walls", "outflow", "box"):
+            raise ValueError("kind must be periodic, walls, outflow or box")
         if self.kind != "periodic" and self.dim != 2:
             raise ValueError("the non-periodic solutions are 2-D")
         if self.unsteady and (self.kind != "periodic" or self.dim != 2):
@@ -104,6 +108,17 @@ class Solution:
                            + _r("0.1") * sp.sin(2 * k * y + _r("0.9") - _r("0.3") * c))
             self.w = sp.Integer(0)
             self.p = 1 + _r("0.2") * sp.cos(k * y + _r("0.6") - _r("0.5") * c) + _r("0.1") * c
+            self.check_symmetry()
+        elif self.kind == "box":
+            cx, cy = sp.cos(sp.pi * x), sp.cos(sp.pi * y)   # even about x = 0, 1 and y = 0, 1
+            g = _r("0.7") + _r("0.3") * cx * cy
+            self.rho = 1 + _r("0.2") * sp.sin(_r("1.7") * cx - _r("1.2") * cy + _r("0.4")) * g
+            self.u = sp.sin(sp.pi * x) * sp.cos(sp.pi * y / 2) * (_r("0.9") * sp.sin(_r("1.3") * cx + _r("1.1") * cy + _r("0.5"))
+                                                                  + _r("0.3") * cx * cy)
+            self.v = sp.sin(sp.pi * x / 2) * sp.sin(sp.pi * y) * (-_r("0.8") * sp.cos(_r("1.1") * cx - _r("1.4") * cy + _r("0.2"))
+                                                                  + _r("0.3") * sp.sin(_r("0.9") * cx + _r("0.6") * cy + _r("0.9")))
+            self.w = sp.Integer(0)
+            self.p = 1 + _r("0.2") * sp.cos(_r("1.5") * cx + _r("1.0") * cy + _r("0.6")) + _r("0.1") * cx * cy
             self.check_symmetry()
         elif self.dim == 2:
             self.rho = 1 + _r("0.2") * sp.sin(k * x + _r("0.4") - 3 * tt) * sp.cos(2 * k * y - _r("0.3") - 2 * tt)
@@ -137,6 +152,17 @@ class Solution:
                       "u - U_WALL odd at y=0": (lo[1] - float(U_WALL)) + (mid[1] - float(U_WALL)),
                       "rho even at y=1": hi[0] - hi_m[0], "p even at y=1": hi[3] - hi_m[3], "v odd at y=1": hi[2] + hi_m[2],
                       "u even at y=1": hi[1] - hi_m[1]}
+        elif self.kind == "box":
+            xl, xm, xh, xhm = ev(-s, t), ev(s, t), ev(1 + s, t), ev(1 - s, t)   # about x = 0 and x = 1
+            yl, ym, yh, yhm = ev(t, -s), ev(t, s), ev(t, 1 + s), ev(t, 1 - s)   # about y = 0 and y = 1
+            checks = {"rho even at x=0": xl[0] - xm[0], "p even at x=0": xl[3] - xm[3], "u odd at x=0": xl[1] + xm[1],
+                      "v odd at x=0": xl[2] + xm[2],
+                      "rho even at x=1": xh[0] - xhm[0], "p even at x=1": xh[3] - xhm[3], "u odd at x=1": xh[1] + xhm[1],
+                      "v even at x=1": xh[2] - xhm[2],
+                      "rho even at y=0": yl[0] - ym[0], "p even at y=0": yl[3] - ym[3], "u even at y=0": yl[1] - ym[1],
+                      "v odd at y=0": yl[2] + ym[2],
+                      "rho even at y=1": yh[0] - yhm[0], "p even at y=1": yh[3] - yhm[3], "u odd at y=1": yh[1] + yhm[1],
+                      "v odd at y=1": yh[2] + yhm[2]}
         else:
             lo, mid, hi, hi_m = ev(-s, t), ev(s, t), ev(1 + s, t), ev(1 - s, t)
             checks = {"rho even at x=0": lo[0] - mid[0], "p even at x=0": lo[3] - mid[3], "u odd at x=0": lo[1] + mid[1],
@@ -211,14 +237,15 @@ class Solution:
         return {k: tinyexpr(e) for k, e in self.source().items() if not (self.dim == 2 and k == "source_mz")}
 
     def name(self) -> str:
-        return ("Manufactured Solution" + {"periodic": "", "walls": " Walls", "outflow": " Outflow"}[self.kind] +
+        return ("Manufactured Solution" + {"periodic": "", "walls": " Walls", "outflow": " Outflow", "box": " Box"}[self.kind] +
                 (" Unsteady" if self.unsteady else "") + ("" if self.viscous else " Euler") +
                 (" 3D" if self.dim == 3 else ""))
 
     def kind_label(self) -> str:
         if self.unsteady:
             return "periodic, unsteady"
-        return {"periodic": "periodic", "walls": "moving and slip walls", "outflow": "no-slip wall and outflow"}[self.kind]
+        return {"periodic": "periodic", "walls": "moving and slip walls", "outflow": "no-slip wall and outflow",
+                "box": "no-slip and slip walls on four sides"}[self.kind]
 
     def boundaries(self) -> dict[str, str]:
         """bc_left ... bc_top of the case file."""
@@ -226,6 +253,8 @@ class Solution:
             return {"bc_left": "periodic", "bc_right": "periodic", "bc_bottom": "moving_wall", "bc_top": "wall"}
         if self.kind == "outflow":
             return {"bc_left": "no_slip", "bc_right": "transmissive", "bc_bottom": "periodic", "bc_top": "periodic"}
+        if self.kind == "box":
+            return {"bc_left": "no_slip", "bc_right": "wall", "bc_bottom": "wall", "bc_top": "no_slip"}
         out = {k: "periodic" for k in ("bc_left", "bc_right", "bc_bottom", "bc_top")}
         if self.dim == 3:
             out.update(bc_front="periodic", bc_back="periodic")
@@ -238,6 +267,9 @@ class Solution:
             m[:margin, :] = m[-margin:, :] = False
         elif self.kind == "outflow":
             m[:, :margin] = m[:, -margin:] = False
+        elif self.kind == "box":
+            m[:margin, :] = m[-margin:, :] = False
+            m[:, :margin] = m[:, -margin:] = False
         return m
 
     def folder(self) -> str:
@@ -246,14 +278,15 @@ class Solution:
     def case_toml(self) -> str:
         """The text of cases/<folder>/case.toml."""
         order = {("periodic", 2, True): 100, ("periodic", 2, False): 101, ("periodic", 3, True): 102,
-                 ("walls", 2, True): 103, ("outflow", 2, True): 104}.get((self.kind, self.dim, self.viscous), 105)
+                 ("walls", 2, True): 103, ("outflow", 2, True): 104, ("box", 2, True): 106}.get((self.kind, self.dim, self.viscous), 105)
         if self.unsteady:
             order = 105
         n = 32 if self.dim == 2 else 16
         lines = [
             f"# Manufactured solution of the {'Navier-Stokes' if self.viscous else 'Euler'} equations, {self.dim}-D, "
             + {"periodic": "periodic unit", "walls": "moving wall below, slip wall above, periodic in x,",
-               "outflow": "no-slip wall on the left, transmissive on the right, periodic in y,"}[self.kind],
+               "outflow": "no-slip wall on the left, transmissive on the right, periodic in y,",
+               "box": "no-slip walls left and top, slip walls right and bottom,"}[self.kind],
             "# domain (Roache 2009, ch. 3). GENERATED by `python -m fenice.mms --write`: do not edit by hand. The source",
             *(["# terms S = dU/dt + div(F - F_v) of the exact solution below are evaluated at the cell centres and at the",
                "# time of every stage (t); the initial state is the solution at t = 0 and the error against the exact",
@@ -344,7 +377,7 @@ def tinyexpr(e: sp.Expr) -> str:
 def default_solutions() -> list[Solution]:
     """The three cases of the repository."""
     return [Solution(2, True), Solution(2, False), Solution(3, True), Solution(kind="walls"), Solution(kind="outflow"),
-            Solution(2, False, unsteady=True)]
+            Solution(2, False, unsteady=True), Solution(kind="box")]
 
 
 def main(argv=None) -> int:
