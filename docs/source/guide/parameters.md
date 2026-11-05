@@ -85,14 +85,11 @@ override them. See the [BC formulas]({{root}}modules/Boundaries.html).
 | `riemann_solver` | `HLLC` | `HLLC`, `HLLC (Low-Mach Thornber)` [`lowmach`], `HLLC (Preconditioned)` [`preconditioned`] |
 | `use_muscl` | `false` | 2nd-order MUSCL reconstruction |
 | `muscl_limiter` | `Van Leer` | `Van Leer`, `MC`, `Koren`, `Minmod` (case-insensitive); read when `reconstruction = muscl` |
-| `reconstruction` | `muscl` | Face reconstruction of the 2nd-order path (`use_muscl = true`): `muscl` (limited, 2nd order), `weno3` (WENO3-Z, 3rd order) or `weno5` (WENO5-Z, 5th order). The WENO schemes need `time_scheme` `SSP Runge-Kutta 3` or `Runge-Kutta 4` (SSP Runge-Kutta 2 and BDF2 are rejected), are not available with AMR, and `weno5` is serial (no MPI). See [Schemes]({{root}}modules/Schemes.html) |
+| `reconstruction` | `muscl` | Face reconstruction of the 2nd-order path (`use_muscl = true`): `muscl` (limited, 2nd order), `weno3` (WENO3-Z, 3rd order) or `weno5` (WENO5-Z, 5th order). The WENO schemes need `time_scheme` `SSP Runge-Kutta 3` or `Runge-Kutta 4` (SSP Runge-Kutta 2 is rejected), are not available with AMR, and `weno5` is serial (no MPI). See [Schemes]({{root}}modules/Schemes.html) |
 | `weno_epsilon` | `1e-6` | WENO smoothness-indicator regularisation, relative to the data of the stencil: $\varepsilon = \texttt{weno\_epsilon}\cdot\overline{c^2}$. Larger values weigh the stencils closer to the linear ones (more accurate at smooth extrema, less non-oscillatory) |
 | `boundary_order` | `1` | `1`: the faces on a physical boundary keep the first-order ghost state. `2`: they are reconstructed through ghost layers (the boundary condition's own extension), second order (`muscl`, `weno3`, `weno5`; not with AMR); on a viscous boundary face the cross derivatives are second order too, and the moving-wall ghost keeps the interior internal energy. See [manufactured solutions]({{root}}cases/manufactured-solution.html) |
-| `time_scheme` | `Explicit Euler` | `Explicit Euler` [`euler`], `SSP Runge-Kutta 2` [`ssprk2`], `SSP Runge-Kutta 3` [`ssprk3`], `Runge-Kutta 4` [`rk4`], `BDF2 Dual Time` [`bdf2`]. AMR runs accept Euler, SSP Runge-Kutta 2 and Runge-Kutta 4 |
-| `cfl` | `0.5` | CFL number (pseudo-time CFL for BDF2) |
-| `dt_phys` | `0.1` | BDF2 physical time step [s] |
-| `max_inner_iter` | `50` | BDF2 pseudo-time iterations per step |
-| `inner_tol_rel` | `1e-3` | BDF2 relative convergence tolerance |
+| `time_scheme` | `Explicit Euler` | `Explicit Euler` [`euler`], `SSP Runge-Kutta 2` [`ssprk2`], `SSP Runge-Kutta 3` [`ssprk3`], `Runge-Kutta 4` [`rk4`]. AMR runs accept Euler, SSP Runge-Kutta 2 and Runge-Kutta 4 |
+| `cfl` | `0.5` | CFL number |
 | `shock_blend` | `0.2` | Shock-face dissipation: a face whose pressure jump `abs(pR - pL) / min(pL, pR)` exceeds this blends its HLLC flux toward HLL (fully at twice the value). The sensor reads the face's own two states, so there is no extra stencil. 0 switches it off |
 
 ## Run control and output
@@ -145,7 +142,7 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `use_amr` | `false` | Adaptive mesh refinement on leaf cells (2-D only: rejected when `nz > 1`; no BDF2). Periodic and mass-flow boundaries, IBM, viscous terms, body force, source terms and MPI are supported. `nx` and `ny` are the level-0 mesh (any size) |
+| `use_amr` | `false` | Adaptive mesh refinement on leaf cells (2-D only: rejected when `nz > 1`). Periodic and mass-flow boundaries, IBM, viscous terms, body force, source terms and MPI are supported. `nx` and `ny` are the level-0 mesh (any size) |
 | `amr_max_level` | `2` | Refinement levels above the base mesh |
 | `amr_indicator` | `density+velocity` | Variables whose variation across faces drives the refinement: `density`, `velocity` (the speed), `pressure`, or several joined by `+`. Use the speed for vortical, nearly incompressible flow such as a wake, where the density hardly varies |
 | `amr_criterion` | `0.1` | Relative variation of a variable across a face that flags both cells |

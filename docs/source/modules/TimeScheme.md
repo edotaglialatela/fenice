@@ -90,27 +90,6 @@ $$\mathbf U^{n+1} = \mathbf U^n + \tfrac{\Delta t}{6}(k_1 + 2k_2 + 2k_3 + k_4)$$
 The linear-advection limit is $\mathrm{CFL} \le 2\sqrt2$; use $\mathrm{CFL} \le 1.2$ for
 compressible flow. RK4 costs four residual evaluations per step, against two for SSP-RK2.
 
-## BDF2 with dual time stepping
-
-Physical time uses the 2nd-order backward differentiation formula
-
-$$\frac{3\mathbf U^{n+1} - 4\mathbf U^n + \mathbf U^{n-1}}{2\Delta t_{\rm phys}} = \mathcal R(\mathbf U^{n+1})$$
-
-It is solved by marching the modified residual
-$\mathcal R^*(\mathbf U) = \mathcal R(\mathbf U) - (3\mathbf U - 4\mathbf U^n + \mathbf U^{n-1})/(2\Delta t_{\rm phys})$
-to zero with explicit-Euler pseudo-time iterations. The pseudo step is sized to the
-spectral radius of $\mathcal R^* = \mathcal R - \alpha I$, with $\alpha = 3/(2\Delta t_{\rm phys})$:
-
-$$\Delta\tau = \frac{\mathrm{CFL}\,h}{S_{\max} + \alpha\,h}$$
-
-The inner loop stops after `max_inner_iter` iterations, or when
-$\lVert\mathcal R^*\rVert_\infty < \texttt{inner\_tol\_rel}\cdot\lVert\mathcal R^*_0\rVert_\infty$.
-This relative criterion is mesh-independent. The first step bootstraps with BDF1
-($\mathbf U^{n-1} := \mathbf U^n$). The scheme suits low-Mach flows: setting
-$\Delta t_{\rm phys}$ to the convective time scale, instead of the acoustic one, removes
-the 100-1000× acoustic CFL penalty. Under MPI the norms are all-reduced, so every rank
-leaves the inner loop at the same iteration.
-
 {{widget:timeScheme}}
 
 {{api}}

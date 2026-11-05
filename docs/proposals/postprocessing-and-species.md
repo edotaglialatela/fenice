@@ -1,47 +1,22 @@
-# Post-processing in the case file, and multi-species flow: proposals
+# Multi-species and reacting flow: proposal
 
-Status: Part A's code and documentation are implemented and checked on Windows/MSVC Release: 111 unit tests (1,128,758 checks),
-the scalar-only suite (`FENICE_NO_SIMD=1`), and the stored serial/MPI regression suite all pass. Temporary post-processing checks
-cover uniform, AMR and 3-D probes/samples, forces, averages, exact-time snapshots, time-dependent boundaries and resume; uniform and
-AMR CSVs match byte for byte from serial through 7 MPI ranks. The A5 source/body-force timing (minimum of three) was 1.565 s on
-`main` and 1.572 s with Part A (0.5% slower, within the observed run-to-run spread). Part B lists the user's choices and the cases
-that fix what "done" means; it is not started. Numbers marked *proposed* are starting values, to be confirmed before the first run
-(the convention of `verification/mms.py`: bands are fixed beforehand, never fitted to the result).
+Status: proposal, not started; the choices below are the user's. The target cases fix what "done" means. Numbers marked *proposed*
+are starting values, to be confirmed before the first run (the convention of `verification/mms.py`: bands are fixed beforehand, never
+fitted to the result).
 
-## Baseline before Part A
+## Starting point
 
-* The monitor (`monitor_interval`, `Simulation::monitor_row`) writes volume averages and the IBM loads to a CSV. Under MPI its sums
-  go through `reduce_sum` in rank order, but the partial sums depend on the partition, so the monitor values agree with serial to
-  roundoff only. The bitwise checks compare states, not the monitor.
-* Boundary values (`u_in`, `rho_in`, ...) are plain numbers. Only the source terms know the time `t` (`TimeScheme::stage_time`).
 * `State` has five slots everywhere (Riemann solvers, AVX2 kernels, AMR registers, MPI buffers, checkpoints).
-* The equation of state is one struct (ideal or stiffened gas). The IBM solid reset uses the ideal-gas pressure formula whatever the
-  EOS; any refactor of the EOS must keep that.
+* The equation of state is one struct (ideal or stiffened gas) with its laws exposed separately (`pressure_law`,
+  `internal_energy_law`, `transport_law`). The IBM solid reset uses the ideal-gas pressure formula whatever the EOS; any refactor of the
+  EOS must keep that.
+* Right-hand-side contributions (body force, expression sources) are `RhsSourceTerms` of the simulation, applied once per mesh / range;
+  reactions would be one more term, with no virtual call inside a face or cell loop. Any change here is bitwise neutral without species
+  (regression, golden dumps, `FENICE_NO_SIMD=1`).
+* `[[probe]]` / `[[sample]]` (primitive variables of the containing cell, without interpolation, same bytes on any rank count, AMR
+  included), `[[force]]` and `[[average]]` exist, and so do boundary values that are expressions of `t` or tables.
 
-## A. Post-processing declared in the case file
-
-Acceptance: omitted output tables leave these features off and do not change the state or existing references. Output files must match
-between serial and 1-7 ranks.
-
-1. **Probes and line samples.** `[[probe]]` (a point) and `[[sample]]` (a line of points) write the primitive variables of the cell
-   that holds each point at a given interval. The containing cell is used without interpolation, so the value is a state value, the
-   same one for any rank count and, with AMR, the leaf that holds the point. Output: one CSV per probe / line under the output folder.
-2. **Forces and averages.** `[[force]]` (IBM loads with a reference length, density and velocity, giving coefficients) and
-   `[[average]]` (time average of chosen variables). Any sum is made in a fixed order (cells in global index order, or a fixed
-   binary tree over blocks) so that the result does not depend on the partition. With AMR the time average resets at a remesh; a resumed
-   run starts a new averaging window at its restart time.
-3. **Output at exact times and a maximum dt.** `write_interval_time` clips the step so that a snapshot lands on 0.01, 0.02, ...;
-   `dt_max` caps the step next to the CFL. Both off by default (the references do not move); with AMR the clip is applied to the
-   base step.
-4. **Boundary values that vary in time.** `u_in`, `p_out`, ... accept the expression engine's expressions of `t`, evaluated at
-   `TimeScheme::stage_time` as the sources are (ramps, sines); a table (CSV of t, value) with linear interpolation. An expression
-   and a table cannot both be set for the same value.
-5. **Source and thermophysics interfaces.** One small interface for the right-hand-side contributions (body force, expression
-   sources, later reactions) and the equation of state split into pressure law, internal energy and transport. Strictly bitwise
-   neutral: regression, golden dumps, `FENICE_NO_SIMD=1`; no virtual call inside a face or cell loop; timed against `main` (min of 3)
-   before it is committed.
-
-## B. Multi-species and reacting flow: choices that are the user's (not started)
+## Choices that are the user's
 
 * **Boundary conditions:** a total-pressure inlet, and an inlet/outlet condition that switches with the sign of the normal velocity.
 * **Species.** Keep the five flow variables and carry the species as a separate per-cell array `rho Y_k`. The cost is in the paths
@@ -62,7 +37,7 @@ between serial and 1-7 ranks.
   molecular weights and reaction data, which the solver reads. The second keeps the C++ build and CI unchanged and keeps the references
   independent of the library's version; the solver then needs its own rate evaluation (Arrhenius, third bodies, falloff) and integrator.
 
-## B. Target cases
+## Target cases
 
 A reacting compressible flow with a reference that does not come from this solver: a one-dimensional H2/O2/Ar detonation (**T**),
 reached through two smaller cases that isolate its two new ingredients, the mixture thermodynamics (**G1**) and the chemistry (**G2**).
@@ -106,7 +81,7 @@ with a millimetre reaction zone), the mechanism of G2. Reference: a Python tool 
 `cases/validation/`: the Chapman-Jouguet speed `D_CJ` and state from equilibrium, and the steady ZND structure (profiles against the
 distance from the shock, induction length `L_ind` to the maximum temperature gradient, reaction length). Setup, two variants (a choice):
 a **travelling wave** (closed tube, initiation by a small hot region at the closed end, AMR following the wave; speed from probe arrival
-times (A1) or the front position over the second half of the tube; the realistic one and the one that shows what AMR is for) or a
+times (`[[probe]]`) or the front position over the second half of the tube; the realistic one and the one that shows what AMR is for) or a
 **steady frame** (unburnt gas enters at `D_CJ`; cheaper and comparable point by point, but the front is only marginally stable).
 
 | Quantity | Pass (proposed) |
@@ -129,7 +104,7 @@ is closed.
 | species flux of the Riemann solver | yes | no | yes |
 | mechanism data and a stiff per-cell integrator | no | yes | yes |
 | coupling of the chemistry with the time step, also inside the AMR recursion | no | no | yes |
-| probes or front tracking | no | no | yes |
+| front tracking (probes exist) | no | no | yes |
 
 The reference values come from a thermochemistry library run once by a script, recorded with the library and mechanism versions, and
 committed as small tables (as the Ghia data for the cavity): studies, CI and the docs build read the tables and need no library. The
@@ -138,7 +113,7 @@ so the 44 references do not move; the new cases get their own (`--create-missing
 
 ## Order
 
-A1, A4, A3, A2, A5, then B: (1) fix the cases and generate the reference tables with the bands; (2) passive species with the species
+(1) fix the cases and generate the reference tables with the bands; (2) passive species with the species
 flux, G1 variant 1, then thermodynamics and G1 variants 2 and 3 (the interface decision); (3) mechanism and integrator, G2; (4) coupling
 with the flow step and the AMR recursion, T on the uniform mesh and then with AMR; (5) T2. A transported scalar stays in [0, 1] and sums
 to one under a stated CFL. Each stage ends with the full oracle set (unit tests, regression, `amr_mpi.py --check` extended to the new

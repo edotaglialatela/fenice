@@ -28,7 +28,7 @@ GUI, validation scripts and full documentation.
 - **Physics:** ideal and stiffened-gas equations of state, Navier-Stokes viscous and heat
   fluxes, body forces, and an immersed boundary method (cylinder, sphere, or an airfoil from
   the NACA 4-digit formulas or a coordinate file), with lift / drag monitoring.
-- **Time integration:** Explicit Euler, SSP-RK2, SSP-RK3, RK4, and BDF2 with dual time stepping.
+- **Time integration:** Explicit Euler, SSP-RK2, SSP-RK3 and RK4.
 - **Meshes:** uniform 2-D (`nz = 1`) or 3-D (`nz > 1`) grids, plus cell-based AMR in
   2-D with subcycling, conservative flux replacement and 2:1 balance.
 - **Boundary conditions:** slip and no-slip walls, moving walls, velocity and mass-flow
@@ -179,7 +179,7 @@ conditions, so adding a case needs no C++ and no recompilation. The shipped case
 | Case | Validates |
 |---|---|
 | Sod Shock Tube | Riemann solvers, limiters, MPI, AMR |
-| Poiseuille Flow | Viscous fluxes, inlet / outlet BCs, BDF2 |
+| Poiseuille Flow | Viscous fluxes, inlet / outlet BCs |
 | Lid Driven Cavity | 2-D Navier-Stokes at Re = 400 vs Ghia et al. (1982) |
 | IBM Flow over Cylinder | IBM, vortex shedding at Re = 100, hot start |
 | IBM Cylinder Low Blockage AMR | Re = 100 in a 1.7 % blockage box with AMR and the ghost-cell wall: St = 0.166 |

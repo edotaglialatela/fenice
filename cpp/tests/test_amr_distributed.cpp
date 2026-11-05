@@ -157,7 +157,7 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
             } else if (sp.body) {
                 ad.set_body(env.ph.ibm_factory, 1);
             }
-            std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4, 1.0, 5, 1e-3);
+            std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4);
             std::unique_ptr<CellParallel> par;
             if (ranks > 0) {
                 par = std::make_unique<CellParallel>(m, eng, hub.comm(rank));
@@ -1076,7 +1076,7 @@ TEST(cell_engine_result_does_not_depend_on_the_thread_count) {
         CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
         eng.set_physics(ph);
         eng.build(m);
-        std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4, 1.0, 5, 1e-3);
+        std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4);
         CellAdvance adv(m, eng, *ts);
         Field R;
         double S = eng.residual(m, m.U, R), t = 0.0;

@@ -19,7 +19,7 @@ struct StepResult {
 };
 
 // Available time integrators.
-enum class TimeSchemeType { ExplicitEuler, SSPRK2, RungeKutta4, BDF2DualTime, SSPRK3 };
+enum class TimeSchemeType { ExplicitEuler, SSPRK2, RungeKutta4, SSPRK3 };
 
 // Scheme from its GUI label ("SSP Runge-Kutta 2") or alias ("ssprk2").
 TimeSchemeType parse_time_scheme(const std::string& s);
@@ -45,13 +45,10 @@ public:
     // is t, t + 0.5 * dt or t + dt exactly as in step()).
     virtual std::vector<double> stage_offsets() const { return {0.0}; }
 
-    // Inner pseudo-time iterations of the last step (BDF2 only), else -1.
-    virtual int inner_iter_last() const { return -1; }
-
     double cfl;   // CFL number
 
     // Absolute time of the stage whose residual is being evaluated (set by every step() before each call of the
-    // residual: t, t + dt, ... of the Runge-Kutta stages; t + dt for BDF2). Only the time-dependent source terms
+    // residual: t, t + dt, ... of the Runge-Kutta stages). Only the time-dependent source terms
     // read it; the fixed-dt path of the AMR subcycling does not set it.
     double stage_time = 0.0;
 
@@ -98,29 +95,7 @@ public:
     std::vector<double> stage_offsets() const override { return {0.0, 0.5, 0.5, 1.0}; }
 };
 
-// BDF2 physical time stepping with an explicit-Euler pseudo-time inner loop.
-class BDF2DualTime : public TimeScheme {
-public:
-    // Fixed physical step `dt_phys`; the inner loop stops after `max_inner_iter` iterations
-    // or when the modified residual drops by `inner_tol_rel`.  Throws if dt_phys <= 0.
-    BDF2DualTime(double cfl, double dt_phys, int max_inner_iter = 50, double inner_tol_rel = 1e-3);
-    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max = 0.0) override;
-    int inner_iter_last() const override { return inner_iter_last_; }
-
-    // Global max across MPI ranks (identity in serial).
-    std::function<double(double)> global_norm = [](double x) { return x; };
-
-private:
-    double dt_phys_;
-    int max_inner_iter_;
-    double inner_tol_rel_;
-    Field U_prev_;
-    bool first_step_ = true;
-    int inner_iter_last_ = 0;
-};
-
-// Factory: the integrator for `type` (BDF2 uses dt_phys / max_inner_iter / inner_tol_rel).
-std::unique_ptr<TimeScheme> make_time_scheme(TimeSchemeType type, double cfl, double dt_phys, int max_inner_iter,
-                                             double inner_tol_rel);
+// Factory: the integrator for `type`.
+std::unique_ptr<TimeScheme> make_time_scheme(TimeSchemeType type, double cfl);
 
 }   // namespace fv

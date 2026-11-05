@@ -160,9 +160,6 @@ Params baseline_defaults() {
         {"reconstruction", "muscl"},
         {"weno_epsilon", "1e-6"},
         {"boundary_order", "1"},
-        {"dt_phys", "0.1"},
-        {"max_inner_iter", "50"},
-        {"inner_tol_rel", "1e-3"},
         {"shock_blend", "0.2"},
         {"use_hot_start", "false"},
         {"hot_start_file", ""},
@@ -276,9 +273,6 @@ SimParams SimParams::from(const Params& p) {
     s.reconstruction = lower(p.str("reconstruction", "muscl"));
     s.weno_epsilon = p.num("weno_epsilon", 1e-6);
     s.boundary_order = p.integer("boundary_order", 1);
-    s.dt_phys = p.num("dt_phys", s.t_end / 100.0);
-    s.max_inner_iter = p.integer("max_inner_iter", 50);
-    s.inner_tol_rel = p.num("inner_tol_rel", 1e-3);
     s.shock_blend = p.num("shock_blend", 0.2);
     s.use_hot_start = p.flag("use_hot_start");
     s.hot_start_file = p.str("hot_start_file");
@@ -333,8 +327,6 @@ SimParams SimParams::from(const Params& p) {
         if (ts == "ssp runge-kutta 2" || ts == "ssprk2" || ts == "rk2")
             throw std::invalid_argument("reconstruction = " + s.reconstruction + " is not used with SSP Runge-Kutta 2 (use SSP "
                                         "Runge-Kutta 3 or Runge-Kutta 4)");
-        if (ts == "bdf2 dual time" || ts == "bdf2")
-            throw std::invalid_argument("reconstruction = " + s.reconstruction + " is not available with the BDF2 dual-time scheme");
     }
     if (s.boundary_order != 1 && s.boundary_order != 2) throw std::invalid_argument("boundary_order must be 1 or 2");
     if (s.boundary_order == 2) {
@@ -348,9 +340,6 @@ SimParams SimParams::from(const Params& p) {
     if (s.use_amr && s.amr_diffusion < 0) throw std::invalid_argument("amr_diffusion must be >= 0");
     if (s.use_amr) {
         const std::string ts = lower(s.time_scheme);
-        if (ts == "bdf2 dual time" || ts == "bdf2")
-            throw std::invalid_argument("AMR does not support the BDF2 dual-time scheme (use Explicit Euler, SSP "
-                                        "Runge-Kutta 2 or Runge-Kutta 4)");
         if (ts == "ssp runge-kutta 3" || ts == "ssprk3" || ts == "rk3")
             throw std::invalid_argument("AMR does not support SSP Runge-Kutta 3 yet");
     }

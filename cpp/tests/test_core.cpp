@@ -288,7 +288,6 @@ TEST(bc_parse_labels) {
     CHECK(parse_bc("Mass Flow Inlet") == BCType::MassflowInlet);
     CHECK(parse_bc("no_slip") == BCType::NoSlip);
     CHECK(parse_riemann("HLLC (Low-Mach Thornber)") == RiemannType::LowMachHLLC);
-    CHECK(parse_time_scheme("BDF2 Dual Time") == TimeSchemeType::BDF2DualTime);
 }
 
 // ---------------------------------------------------------------------------
@@ -576,7 +575,7 @@ TEST(time_schemes_linear_decay) {
     };
     const double exact = std::exp(-0.1);
     for (TimeSchemeType tt : {TimeSchemeType::ExplicitEuler, TimeSchemeType::SSPRK2, TimeSchemeType::RungeKutta4}) {
-        auto ts = make_time_scheme(tt, 0.1, 0.1, 50, 1e-3);
+        auto ts = make_time_scheme(tt, 0.1);
         Field U(1, State{1, 1, 1, 1});
         const StepResult r = ts->step(U, res, 1.0, 0.0, 10.0);   // dt = cfl*min_delta/S = 0.1
         CHECK_NEAR(r.dt, 0.1, 1e-9);
@@ -584,25 +583,9 @@ TEST(time_schemes_linear_decay) {
         CHECK_NEAR(U[0][0], exact, tol);
     }
     // Step clamped to t_max
-    auto e = make_time_scheme(TimeSchemeType::ExplicitEuler, 0.5, 0.1, 50, 1e-3);
+    auto e = make_time_scheme(TimeSchemeType::ExplicitEuler, 0.5);
     Field U(1, State{1, 1, 1, 1});
     CHECK_NEAR(e->step(U, res, 1.0, 0.99, 1.0).dt, 0.01, 1e-12);
-}
-
-TEST(bdf2_steady_state_converges) {
-    // Relaxation dU/dt = 1 - U: BDF2 dual time must approach U = 1
-    const ResidualFn res = [](const Field& U, Field& R) {
-        R.resize(U.size());
-        for (size_t c = 0; c < U.size(); ++c)
-            for (int q = 0; q < kNVar; ++q) R[c][q] = 1.0 - U[c][q];
-        return 0.0;
-    };
-    BDF2DualTime bdf(0.5, 0.5, 200, 1e-8);
-    Field U(3, State{0, 0, 0, 0});
-    double t = 0.0;
-    for (int k = 0; k < 40; ++k) t += bdf.step(U, res, 1.0, t, 1e9).dt;
-    CHECK_NEAR(U[1][2], 1.0, 1e-6);
-    CHECK(bdf.inner_iter_last() >= 1);
 }
 
 // ---------------------------------------------------------------------------
@@ -914,7 +897,7 @@ TEST(ibm_mask_shapes) {
     CHECK(deep > 0);
 }
 
-TEST(time_scheme_stages_and_bdf2) {
+TEST(time_scheme_stages) {
     int calls = 0;
     double smax_seq[4] = {1.0, 3.0, 2.0, 0.5};
     const ResidualFn res = [&](const Field& U, Field& R) {
@@ -930,28 +913,6 @@ TEST(time_scheme_stages_and_bdf2) {
     calls = 0;
     SSPRK2(0.5).step(U, res, 1.0, 0.0, 10.0);
     CHECK(calls == 2);
-    // BDF2: invalid dt rejected, zero RHS converges in one iteration, dt == dt_phys
-    bool threw = false;
-    try {
-        BDF2DualTime bad(0.5, 0.0);
-    } catch (const std::invalid_argument&) { threw = true; }
-    CHECK(threw);
-    BDF2DualTime bdf(0.5, 0.25, 7, 1e-3);
-    calls = 0;
-    const StepResult rb = bdf.step(U, res, 1.0, 0.0, 10.0);
-    CHECK(bdf.inner_iter_last() == 1);
-    CHECK_NEAR(rb.dt, 0.25, 1e-15);
-    CHECK_NEAR(bdf.step(U, res, 1.0, 9.9, 10.0).dt, 0.1, 1e-12);   // clamped near the end
-    // Iteration cap honoured on a residual that never converges
-    const ResidualFn grow = [](const Field& V, Field& R) {
-        R.resize(V.size());
-        for (size_t c = 0; c < V.size(); ++c)
-            for (int q = 0; q < kNVar; ++q) R[c][q] = 1e3 * (c + 1);
-        return 1.0;
-    };
-    BDF2DualTime capped(0.5, 1e9, 7, 1e-12);
-    capped.step(U, grow, 1.0, 0.0, 1e12);
-    CHECK(capped.inner_iter_last() == 7);
 }
 
 TEST(vtk_export_layout) {

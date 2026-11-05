@@ -256,7 +256,7 @@ history of the flagged region). The threshold is the user's decision (section 7,
 ## 10. P3 as built (`CellAdvance`, `cpp/include/fv/CellAdvance.hpp`)
 * `TimeScheme::stage_weights()` / `stage_offsets()` (new virtuals, shared code; the patch engine is untouched): Euler `[1]`/`[0]`, SSP-RK2
   `[1/2,1/2]`/`[0,1]`, RK4 `[1/6,1/3,1/3,1/6]`/`[0,1/2,1/2,1]`. `advance_fixed_dt` is unchanged; `CellAdvance` sets `stage_time` itself
-  in the residual callback (`t`, `t + 0.5 dt`, `t + dt`, as `step()` does), which is what the unsteady sources of P4 need. BDF2 stays rejected with AMR.
+  in the residual callback (`t`, `t + 0.5 dt`, `t + dt`, as `step()` does), which is what the unsteady sources of P4 need.
 * `CellAdvance::step(dt, t)`: level l = one ODE system on its contiguous run of leaves, `advance_fixed_dt` on a copy of the slice, whose
   stage states are written into `mesh.U` for the neighbours, the final result copied back after the scheme returns. Finer level first,
   two substeps of `dt/2` (never clamped inside the recursion: `dt/2` is exact), the registers of level l+1 are zeroed before.
@@ -545,7 +545,7 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
   pre-refinements, the initial adaptation, the solid reset and the partition). The patch engine (`AMR.cpp/hpp`, `restrict_patch`, the patch fields of `CrossGhosts` and `ViscousFaceFluxes`,
   `patch_residual`, `amr_patch_nx/ny`, `amr_buffer_layers`) and the development driver `cell_amr_demo` are removed. Removed keys give an error that names the replacement.
 * Keys: `amr_max_level`, `amr_indicator` (variables joined by `+`), `amr_criterion`, `amr_refine_threshold` (0.15), `amr_derefine_threshold` (0.1, must not exceed the refine threshold),
-  `amr_diffusion`, `amr_refine_every`, `amr_init_levels`, `amr_refine_ibm`. Periodic and mass-flow boundaries and source terms (not with the IBM) are now allowed with AMR; BDF2 is not.
+  `amr_diffusion`, `amr_refine_every`, `amr_init_levels`, `amr_refine_ibm`. Periodic and mass-flow boundaries and source terms (not with the IBM) are now allowed with AMR.
 * Output: `.vtu` (single rank) or per-rank `.vtu` + `.pvtu` (`export_cells`), `AMR_Level` field; `fenice.read_vtu`. Checkpoint: leaf list, `U`, `t`, step, lagged wave-speed bound, `.pvd` collection;
   resume is bitwise, also with another rank count; hot start interpolates at the leaf centres. `dump_state` / `final.npz`: per-leaf `U` and `leaf_meta`.
 * **References.** The six AMR regression references were regenerated (their own commit) after the validation: each case against the uniform run at its finest level (relative L1 density difference

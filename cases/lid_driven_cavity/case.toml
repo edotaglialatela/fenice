@@ -29,9 +29,6 @@ p_out = 100.0
 riemann_solver = "HLLC (Low-Mach Thornber)"
 time_scheme = "Runge-Kutta 4"
 cfl = 0.4
-dt_phys = 0.05
-max_inner_iter = 50
-inner_tol_rel = 1e-3
 
 [run]
 t_end = 15.0

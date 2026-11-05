@@ -74,6 +74,8 @@ jobs:
         run: python cases/validation/amr/amr_mpi.py --check
       - name: Ghost-cell IBM on 2-7 MPI ranks bitwise equal to serial
         run: python cases/validation/features/ibm_ghost.py --check
+      - name: Post-processing outputs on 2-7 MPI ranks bitwise equal to serial
+        run: python cases/validation/features/postprocess.py --check
       - name: Environment switches (table, code and documentation agree)
         run: python cases/validation/check_switches.py
       - name: Immersed-body preview (solid cells equal the solver's)
@@ -109,6 +111,8 @@ jobs:
         run: python cases/validation/amr/amr_mpi.py --check
       - name: Ghost-cell IBM on 2-7 MPI ranks bitwise equal to serial
         run: python cases/validation/features/ibm_ghost.py --check
+      - name: Post-processing outputs on 2-7 MPI ranks bitwise equal to serial
+        run: python cases/validation/features/postprocess.py --check
       - name: Environment switches (table, code and documentation agree)
         run: python cases/validation/check_switches.py
       - name: Immersed-body preview (solid cells equal the solver's)

@@ -192,7 +192,6 @@ struct EOS {
     };
     struct TransportLaw {
         double gamma;
-        double heat_capacity_ratio() const { return gamma / (gamma - 1.0); }
         double thermal_conductivity(double mu, double Pr) const { return mu * gamma / (Pr * (gamma - 1.0)); }
     };
 

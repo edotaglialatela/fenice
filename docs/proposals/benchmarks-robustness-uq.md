@@ -195,7 +195,7 @@ oscillate. A9 and A8 cannot be judged without it. `fenice.spectra`, NumPy FFT on
   (Strouhal against C2's DMD frequency).
 * **D6. In-solver spectra (not planned).** A spectrum written during the run needs a distributed transform on the strips (halo and
   transposes) that must give the same bits for any rank count; the cost is large and nothing needs it. Offline from snapshots
-  and from the probe files of `postprocessing-and-species.md` A.1 is enough; revisit only if snapshot I/O becomes the limit.
+  and from the the `[[probe]]` / `[[sample]]` files (guide: writing cases) is enough; revisit only if snapshot I/O becomes the limit.
 
 Order: D1 and D5 for D1 (needs only a CSV), then D2 on a periodic snapshot, then D4, D3 last. Tier: all quick except the
 3-D application (medium, on the existing 96^3 data if the cache holds it).
@@ -217,7 +217,7 @@ The four tracks share only the tier machinery (rules 1-8 above), which therefore
 * B2: **decided** (2026-10-31): the carbuncle / odd-even protection is the `shock_blend` flux blend, on by default at 0.2
   (references regenerated); no positivity code unless a case fails.
 * A4 (double Mach reflection) needs a boundary value that depends on x and t (moving shock at the top boundary).
-  `postprocessing-and-species.md` A.4 already proposes expressions of `t` for boundary values; A4 additionally needs x. Open.
+  The boundary values already accept expressions of `t` and tables (guide: writing cases); A4 additionally needs x. Open.
 * A9 would be the natural argument for a low-dissipation / higher-order reconstruction; that is a separate proposal if A9 shows
   MUSCL is too dissipative. **Decided to wait** for a larger turbulence-decay run (A8 / A9) before opening it.
 * C1b: **decided**: NumPy core, SciPy optional (Sobol sequences), no external UQ package; one is used by passing its sampler

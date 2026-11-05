@@ -49,7 +49,7 @@ per face are few. Measured on a Ryzen 7 7800X3D (ns per cell-stage, 1 / 16 threa
 
 **Loop parallelism.** Loops shorter than `kOmpMinWork` (4096 items) run on one thread,
 because OpenMP fork/join would cost more than the work. All reductions, such as the
-maximum wave speed and the BDF2 residual norm, are order-independent maxima. Results are
+maximum wave speed, are order-independent maxima. Results are
 therefore **bit-identical for any thread count**.
 
 **AMR.** A level advances with the other levels frozen, so the face and leaf loops of a level are
@@ -90,7 +90,5 @@ On a MacBook Air (Apple M4, 10 threads), which runs the scalar kernels, superson
   by default (`vtk_format`); on very large meshes a high `save_interval` still keeps
   output from dominating the run time.
 * `max_steps = N` stops a run after N steps, which is useful for timing.
-* For low-Mach steady problems, `BDF2 Dual Time` with a convective $\Delta t_{\rm phys}$
-  avoids the acoustic CFL limit; see [TimeScheme]({{root}}modules/TimeScheme.html).
 
 **Where the time goes.** `FENICE_PROFILE=1` prints the total time step and residual sections on uniform runs, including the time updates, viscous padding and conversion, viscous sweep, IBM forcing, body force and sources. It also prints the output and remesh sections on AMR runs (the region the indicator reads, the flags, the topology, the migration of the state, the rebuild of the share and its engine tables, the partition; inside the rebuild the fetch of the leaves, the mask, the partial mesh, the engine build, the partition and the localisation), with the minimum and maximum over the ranks. Sections are timed once per step or remesh, never per face. Nested sections are inclusive, so the total and its children must not be summed together. With the switch off, profile sections only take the cached flag check.

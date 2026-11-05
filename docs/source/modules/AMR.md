@@ -42,7 +42,7 @@ interpolation of the coarser leaf. The level-0 mesh reproduces the uniform solve
 bit (the same expressions in the same order), so refinement is switched on without a second
 implementation of the physics. Periodic axes are supported at level 0 and at every level
 (the stencil wraps), the other boundary conditions use the same ghost states as the uniform
-solver. The one boundary that cannot be used with AMR is the BDF2 dual time step.
+solver.
 
 ### Jump closure
 
@@ -112,7 +112,7 @@ wake, where the density barely varies, and add `pressure` for shocks in a flow w
 ## Physics on the adaptive mesh
 
 Viscous terms, the body force, the immersed-boundary forcing, manufactured-solution sources
-(steady and time dependent) and every boundary condition except the BDF2 dual time step run on the
+(steady and time dependent) and every boundary condition run on the
 face list. The immersed boundary forcing acts in every residual, the solid reset once per complete step.
 A closed viscous box conserves energy to roundoff, and the airfoil study below uses the full
 Navier-Stokes + IBM path.

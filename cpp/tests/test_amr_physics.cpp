@@ -141,7 +141,7 @@ TEST(celladvance_viscous_conservation_free_stream_and_control) {
             CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
             eng.set_physics(ph);
             eng.build(mm);
-            std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.3, 1.0, 5, 1e-3);
+            std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.3);
             CellAdvance adv(mm, eng, *ts);
             adv.flux_replacement = replace;
             Field R;
@@ -183,8 +183,8 @@ TEST(celladvance_fully_refined_mesh_equals_the_finer_uniform_mesh) {
     eu.set_physics(physics_of(sim));
     ea.build(amr);
     eu.build(uni);
-    std::unique_ptr<TimeScheme> ta = make_time_scheme(parse_time_scheme(sim.p.time_scheme), 0.4, 1.0, 5, 1e-3);
-    std::unique_ptr<TimeScheme> tu = make_time_scheme(parse_time_scheme(sim.p.time_scheme), 0.4, 1.0, 5, 1e-3);
+    std::unique_ptr<TimeScheme> ta = make_time_scheme(parse_time_scheme(sim.p.time_scheme), 0.4);
+    std::unique_ptr<TimeScheme> tu = make_time_scheme(parse_time_scheme(sim.p.time_scheme), 0.4);
     CellAdvance aa(amr, ea, *ta), au(uni, eu, *tu);
     const double dt = 1e-3;
     for (int k = 0; k < 3; ++k) {

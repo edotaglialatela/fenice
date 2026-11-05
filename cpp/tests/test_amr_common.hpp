@@ -298,7 +298,7 @@ inline void run_cell_mesh(CellMesh& cm, Simulation& sim, double t_end, int nstep
     eng.coarse_side_second_order = closure >= 2;
     eng.set_physics(physics_of(sim));
     eng.build(cm);
-    std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(sim.p.time_scheme), sim.p.cfl, 1.0, 5, 1e-3);
+    std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(sim.p.time_scheme), sim.p.cfl);
     CellAdvance adv(cm, eng, *ts);
     Field R;
     double S = eng.residual(cm, cm.U, R), t = 0.0;

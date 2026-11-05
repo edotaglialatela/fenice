@@ -408,7 +408,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     if (!test_case->forces.empty() && !p.use_ibm)
         throw std::invalid_argument("[[force]] outputs need use_ibm = true");
 
-    scheme = make_time_scheme(parse_time_scheme(p.time_scheme), p.cfl, p.dt_phys, p.max_inner_iter, p.inner_tol_rel);
+    scheme = make_time_scheme(parse_time_scheme(p.time_scheme), p.cfl);
 
     file_prefix = to_prefix(test_case->key);   // the case name, also for a case given by path
     // AMR runs go to <case>_amr so they don't overwrite the uniform-mesh run.
@@ -857,9 +857,38 @@ std::string output_token(const std::string& name) {
     return out.empty() ? "output" : out;
 }
 
+// A resumed run appends to the file of the stopped one. Rows past the restart step (written after the last checkpoint of a run that
+// did not stop gracefully) are dropped first, so that no step appears twice.
+void drop_rows_after(const fs::path& path, int step) {
+    std::ifstream in(path, std::ios::binary);   // binary: the line ends (CR LF on Windows) are kept as written
+    if (!in) return;
+    std::string line, kept;
+    bool first = true, dropped = false;
+    while (std::getline(in, line)) {
+        if (!first && std::atoi(line.c_str()) > step) {
+            dropped = true;
+            continue;
+        }
+        first = false;
+        kept += line;
+        kept.push_back(static_cast<char>(10));   // LF
+    }
+    in.close();
+    if (!dropped) return;
+    const fs::path tmp = path.string() + ".tmp";
+    {
+        std::ofstream out(tmp, std::ios::binary);
+        out << kept;
+    }
+    std::error_code ec;
+    fs::rename(tmp, path, ec);
+    if (ec) throw std::runtime_error("Cannot rewrite post-processing output " + path.string() + ": " + ec.message());
+}
+
 std::FILE* open_post_csv(const fs::path& path, int start_step, const std::string& header) {
     std::error_code ec;
     const bool existed = start_step > 0 && fs::exists(path, ec);
+    if (existed) drop_rows_after(path, start_step);
     std::FILE* f = std::fopen(path.string().c_str(), start_step > 0 ? "a" : "w");
     if (!f) throw std::runtime_error("Cannot open post-processing output " + path.string());
     if (!existed) std::fprintf(f, "%s\n", header.c_str());
@@ -1909,11 +1938,8 @@ void Simulation::solve() {
                 save_checkpoint(step);
             }
             last_snapshot_step = step;
-            char inner[32] = "";
-            if (scheme->inner_iter_last() >= 0)
-                std::snprintf(inner, sizeof(inner), " | inner=%d", scheme->inner_iter_last());
-            std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s%s | wall = %s | Checkpoint saved\n",
-                        step, t, r.dt, r.s_max, inner, format_elapsed(seconds_since(t0)).c_str());
+            std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | wall = %s | Checkpoint saved\n",
+                        step, t, r.dt, r.s_max, format_elapsed(seconds_since(t0)).c_str());
             std::fflush(stdout);
         }
         poll_stop_file();
@@ -2287,8 +2313,6 @@ void Simulation::run_mpi(MPI_Comm comm) {
 
     setup(p, root);
     MPIDecomposition decomp(p.nx, p.ny, comm, p.nz);
-    if (auto* bdf = dynamic_cast<BDF2DualTime*>(scheme.get()))
-        bdf->global_norm = [&decomp](double v) { return decomp.allreduce_max(v); };
 
     // Layout table
     const char dir = decomp.dir;

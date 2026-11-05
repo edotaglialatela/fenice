@@ -61,8 +61,7 @@ normal viscous derivatives with adjacent-cell face differences and tangential
 derivatives by averaging cell-centred central gradients to the face. It adds
 Newtonian stress and Fourier heat conduction. The viscous callback returns an
 equivalent speed, and the time integrator uses \(\Delta t=\mathrm{CFL}\,L/S\).
-The same speed estimate is used for the explicit pseudo-time iteration inside
-BDF2 dual time stepping. (See `cpp/src/Physics.cpp`, `cpp/src/TimeScheme.cpp`,
+(See `cpp/src/Physics.cpp`, `cpp/src/TimeScheme.cpp`,
 and `cpp/src/Simulation.cpp`.)
 
 For the current formula, define
@@ -237,10 +236,7 @@ The Fourier bound assumes constant coefficients, periodicity, and a uniform
 Cartesian mesh. It does not by itself bound modes introduced by physical-wall
 closures, immersed-boundary forcing, coarse/fine AMR interfaces, or nonlinear
 coefficient variation. The current viscous flux is explicit, so these effects
-must be included in any claim covering every supported configuration. For BDF2
-dual time, the physical BDF2 step is implicit if the inner residual is solved;
-this parabolic restriction applies to the explicit pseudo-time iteration, not
-to the physical step itself.
+must be included in any claim covering every supported configuration.
 
 The validation here covers periodic 2-D Taylor-Green flow with SSP-RK2 and
 supports keeping the current default. If a broader parameter range or a new

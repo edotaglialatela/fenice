@@ -153,7 +153,7 @@ about 2 to 4 times as long as MUSCL for the same run (it also uses a three-stage
   Mach 10, 20 and 100 tubes, the Mach 10 cylinder, the odd-even test) is passed by `weno3` at the suite's CFL (0.4 for the tubes and the odd-even test, the case's own value for the cylinder) and by `weno5` at CFL 0.3.
   `weno5` with SSP-RK3 diverges on the near-vacuum tube at CFL 0.4 (it is stable up to 0.3, and with RK4 at 0.5), so
   use a lower CFL or RK4 for problems that open a vacuum. A run whose state diverges stops with an error naming the step.
-* Not available with AMR, and not with SSP-RK2 or BDF2 (the combination is rejected when the case is read).
+* Not available with AMR, and not with SSP-RK2 (the combination is rejected when the case is read).
 
 ### References
 

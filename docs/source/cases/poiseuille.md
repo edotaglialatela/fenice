@@ -19,11 +19,10 @@ transient otherwise needed to build the gradient.
 The case forces a **mass-flow inlet** on the left ($\rho_0 = 1$, $u_{\rm in} = 0.01$), a
 **pressure outlet** on the right ($p_{\rm out} = 1$) and **no-slip walls**. With the
 defaults, $\mathrm{Re} = \rho_0 u_{\rm in} L_y/\mu = 0.5$. The flow is very low-Mach,
-which makes it a good target for `HLLC (Low-Mach Thornber)` and `BDF2 Dual Time`.
+which makes it a good target for `HLLC (Low-Mach Thornber)`.
 
 ```powershell
 build\release\fenice.exe --case "Poiseuille Flow"
-build\release\fenice.exe --case "Poiseuille Flow" --set time_scheme=bdf2
 python cases\validation\verification\poiseuille.py     # grid convergence + serial vs 4 MPI ranks
 ```
 

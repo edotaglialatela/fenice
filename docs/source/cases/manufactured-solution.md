@@ -280,7 +280,7 @@ The steady source cannot test the time integration, so one more case has **trave
 phases of the solution, the source is $S = \partial U_m/\partial t + \nabla\cdot F(U_m)$ and its expressions use the
 variable `t`. The solver evaluates such a source at the **time of every stage**, in absolute simulation time (so a
 restarted run is unchanged): Explicit Euler at $t$, SSP-RK2 at $t$ and $t + \Delta t$, RK4 at $t$, twice
-$t + \Delta t/2$ and $t + \Delta t$, BDF2 at $t + \Delta t$ in every inner iteration. A source that does not use `t`
+$t + \Delta t/2$ and $t + \Delta t$. A source that does not use `t`
 is still evaluated once.
 
 | Case (`--case`) | Equations | Default mesh |
@@ -290,7 +290,7 @@ is still evaluated once.
 The stage times are checked first by a **unit test** that does not depend on the spatial scheme: on a uniform state,
 with a cubic polynomial in $t$ as the density source, one step of each scheme must equal its own quadrature rule to
 $10^{-14}$ (Euler: $\Delta t\,f(t_0)$; SSP-RK2: the trapezoid rule; RK4: Simpson's rule, which integrates the cubic
-exactly; BDF2: $\rho_1 = \rho_0 + \Delta t f(t_0 + \Delta t)$ and then the BDF2 formula), starting from a non-zero
+exactly), starting from a non-zero
 $t_0$. Disabling the stage time of SSP-RK2 or RK4 makes it fail.
 
 `verification/mms_time.py` then measures the order on $32^2$ cells at $t = 0.2$, against a reference with a very
@@ -301,9 +301,7 @@ first run.
 
 <figure>
 <img src="{{root}}img/mms_time.png" style="width:100%">
-<figcaption>Difference to the small-step reference against the time step (CFL 0.4 to 0.05 for the explicit schemes,
-$\Delta t_{phys}$ 0.04 to 0.005 for BDF2; "def." is BDF2 with the solver's default inner iterations); the observed orders
-of the finest pair are in the table below.</figcaption>
+<figcaption>Difference to the small-step reference against the time step (CFL 0.4 to 0.05); the observed orders of the finest pair are in the table below.</figcaption>
 </figure>
 
 | time scheme | space | 0.4 | 0.2 | 0.1 | 0.05 | order (finest pair) | expected | |
@@ -314,18 +312,10 @@ of the finest pair are in the table below.</figcaption>
 | SSP-RK2 | MUSCL | 1.30e-04 | 3.21e-05 | 8.01e-06 | 2.01e-06 | 2.00 | [1.8, 2.2] | OK |
 | RK4 | 1st order | 4.95e-07 | 8.89e-08 | 2.28e-08 | 5.49e-09 | 2.05 | [3.5, 4.5] | outside (explained) |
 | RK4 | MUSCL | 4.16e-06 | 8.67e-07 | 2.40e-07 | 6.60e-08 | 1.86 | [2.0, 4.5] | outside (explained) |
-| BDF2 | 1st order | 8.28e-03 | 6.08e-03 | 7.65e-04 | 1.92e-04 | 2.00 | [1.8, 2.2] | OK |
-| BDF2 (defaults) | 1st order | 8.27e-03 | 6.09e-03 | 8.06e-04 | 2.91e-04 | 1.47 | - | reported |
-| BDF2 | MUSCL | 5.16e-03 | 5.87e-03 | 5.23e-04 | 1.42e-04 | 1.88 | [1.8, 2.2] | OK |
-| BDF2 (defaults) | MUSCL | 5.15e-03 | 5.89e-03 | 5.45e-04 | 2.19e-04 | 1.32 | - | reported |
 
 * **The reference is the solution of the equations.** Its error against the exact solution falls on 16², 32², 64²
   at 0.8 (first-order space) and 2.1 (MUSCL).
 * **Explicit Euler, SSP-RK2:** orders 1.0 and 2.0 for both spatial schemes, as expected.
-* **BDF2 with a converged inner iteration:** order 2.0 (first-order space) and 1.9 (MUSCL). With the default inner
-  tolerance (`inner_tol_rel = 1e-3`, at most 50 iterations) the order falls to 1.3 to 1.5 and the error at the
-  smallest step is 1.5 times larger: at small physical steps the iteration error, not the BDF2 truncation error, sets the
-  accuracy, so a smaller `dt_phys` calls for a tighter `inner_tol_rel`.
 * **RK4 reaches order 2, not 4 (outside its band, explained, band not moved).** It does so with first-order space as
   well, and on 16², 32² and 64² alike: the error shrinks with $h$ (3.6e-6, 5.0e-7, 7.5e-8) but the order does not
   improve. The right-hand side of the full scheme is not smooth enough for a fourth-order integrator: the Einfeldt wave

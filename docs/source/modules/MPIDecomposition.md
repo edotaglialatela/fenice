@@ -38,7 +38,7 @@ The halos are used everywhere a stencil crosses the interface:
   global mask.
 * **Mass-flow inlets.** The inlet-average density is all-reduced over the ranks sharing
   the inlet.
-* **Time step.** $S_{\max}$ (and the BDF2 residual norm) are all-reduced, so every rank
+* **Time step.** $S_{\max}$ is all-reduced, so every rank
   takes the same $\Delta t$.
 
 The result is that **an MPI run reproduces the serial run**: identical for 3 or 4 ranks

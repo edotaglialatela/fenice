@@ -108,7 +108,7 @@ case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 | `[physics]` | `use_viscous`, `mu`, `pr`, `use_bodyforce`, `gx`, `gy`, `gz` |
 | `[source]` | `source_rho`, `source_mx`, `source_my`, `source_mz`, `source_E` (expressions, for manufactured solutions) |
 | `[boundaries]` | `bc_left`, `bc_right`, `bc_bottom`, `bc_top`, `bc_front`, `bc_back`, `u_in`, `v_in`, `rho_in`, `p_out`, `*_table` |
-| `[numerics]` | `riemann_solver`, `use_muscl`, `muscl_limiter`, `reconstruction`, `weno_epsilon`, `boundary_order`, `time_scheme`, `cfl`, `dt_phys`, `max_inner_iter`, `inner_tol_rel` |
+| `[numerics]` | `riemann_solver`, `use_muscl`, `muscl_limiter`, `reconstruction`, `weno_epsilon`, `boundary_order`, `time_scheme`, `cfl` |
 | `[run]` | `t_end`, `save_interval`, `write_interval_time`, `dt_max`, `monitor_interval`, `max_steps`, `resume`, `output_root`, `dump_state` |
 | `[parallel]` | `use_mpi`, `n_cpus` |
 | `[ibm]` | `use_ibm`, `ibm_shape`, `ibm_radius`, `ibm_cx`, `ibm_cy`, `ibm_cz` |
@@ -151,7 +151,7 @@ Each probe and sample writes its own CSV under the output folder. Rows contain s
 time, the requested and selected-cell coordinates, and `rho,u,v,p,w`. A sample writes
 one row per point each time it is sampled. Each declared output writes the initial and
 final states as well as its step interval; resuming appends without repeating the restart
-row. Names may contain letters, digits, hyphens and underscores.
+row (rows past the checkpoint, left by a run that was killed, are dropped first). Names may contain letters, digits, hyphens and underscores.
 
 `[[average]]` takes the volume mean of each listed primitive variable in fixed global
 cell order, then reports its running time average using trapezoidal integration. An AMR
@@ -170,7 +170,10 @@ interval = 10
 
 The dynamic pressure is `0.5 * reference_density * reference_velocity^2`; the reference
 area is `reference_length` per unit depth in 2-D, or `reference_length * Lz` in 3-D. The
-file contains `Fx,Fy,Mz,Cd,Cl,Cm`. A force declaration requires `use_ibm = true`.
+file contains `Fx,Fy,Mz,Cd,Cl,Cm`: the loads are those of the monitor (body force excluded), `Mz` is taken about the body
+centre (`ibm_cx`, `ibm_cy`), `Cd = Fx/(q A)`, `Cl = Fy/(q A)` and `Cm = -Mz/(q A L)` with the dynamic pressure `q`, the
+reference area `A` and the reference length `L`. A force declaration requires `use_ibm = true`. Rows are written at the
+step interval and at the first and last step; a run stopped and resumed also holds the row of its stop step.
 
 These outputs are off when their array tables are omitted. The time-step and snapshot
 controls are ordinary run parameters: `dt_max > 0` caps the CFL step, while
@@ -198,7 +201,8 @@ t,value
 The header is optional. Rows need finite values and strictly increasing times; values are
 linearly interpolated and held constant outside the table range. A relative table path is
 resolved beside `case.toml`, then from the current folder. For each value, use either its
-expression or its table key, not both. `rho_in` and `p_out` must stay positive.
+expression or its table key: an expression and a table for the same value are refused, and a table takes precedence
+over a plain number. `--save-case` and *Save as case…* copy the tables next to the new `case.toml`. `rho_in` and `p_out` must stay positive.
 
 **`[initial]`** sets the initial condition (next section).
 

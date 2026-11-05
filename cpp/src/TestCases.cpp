@@ -208,7 +208,25 @@ std::string save_case(const TestCase& source, const Params& run, const std::stri
             continue;
         if (source.defaults.has(k) || !base.has(k) || !same(v, base.str(k))) cf.params.set(k, v);
     }
+
+    // A boundary table is found beside the case file (or from the current folder): copy the ones the run reads next to the new
+    // case file, so that the saved case does not lose them (an absolute path stays as it is).
+    std::vector<std::pair<fs::path, fs::path>> tables;
+    for (const auto& [k, v] : cf.params.values()) {
+        if (k.size() < 7 || k.compare(k.size() - 6, 6, "_table") != 0 || v.empty() || fs::path(v).is_absolute()) continue;
+        std::error_code ec;
+        const fs::path beside = fs::path(source.source).parent_path() / v;
+        const fs::path from = fs::exists(beside, ec) ? beside : fs::path(v);
+        if (!fs::exists(from, ec)) throw std::runtime_error("Table '" + v + "' of " + k + " not found next to " + source.source + " or in the current folder");
+        tables.emplace_back(from, dir / v);
+    }
     save_case_file(cf, file.string());
+    for (const auto& [from, to] : tables) {
+        std::error_code ec;
+        if (to.has_parent_path()) fs::create_directories(to.parent_path());
+        fs::copy_file(from, to, fs::copy_options::overwrite_existing, ec);
+        if (ec) throw std::runtime_error("Cannot copy table " + from.string() + " to " + to.string() + ": " + ec.message());
+    }
     return file.generic_string();
 }
 

@@ -73,8 +73,6 @@ TEST(parameter_validation) {
     CHECK(error_of({{"amr_indicator", "pressure+density+velocity"}}).empty());
     CHECK(error_of({{"amr_derefine_threshold", "0.3"}, {"amr_refine_threshold", "0.2"}}).find("derefine") != std::string::npos);
     CHECK(error_of({{"use_amr", "true"}, {"amr_criterion", "0"}}).find("amr_criterion") != std::string::npos);
-    CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}, {"time_scheme", "BDF2 Dual Time"}}).find("BDF2") !=
-          std::string::npos);
     CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}}).empty());
     bool threw = false;
     try {
@@ -255,7 +253,7 @@ bc_front = "wall"
 p_out = 0.7142857142857143
 
 [numerics]
-inner_tol_rel = 1e-3
+cfl = 0.4
 
 [initial]
 state = { rho = 1.0, u = "sin(x)*cos(y)", w = 0.25, p = "1/(gamma*0.1*0.1)" }
@@ -345,3 +343,208 @@ TEST(builtin_cases_and_save_case) {
     CHECK(fs::exists(file));
 }
 
+
+// ---------------------------------------------------------------------------
+// Post-processing tables and time-dependent boundary values
+// ---------------------------------------------------------------------------
+
+namespace {
+const std::string kPostTables = R"toml(
+[[probe]]
+name = "p1"
+x = 0.25
+y = 0.5
+interval = 3
+
+[[sample]]
+name = "line"
+from = [0.0, 0.5]
+to = [1.0, 0.5]
+points = 5
+
+[[force]]
+name = "body"
+reference_length = 0.2
+reference_density = 1.5
+reference_velocity = 2.0
+interval = 4
+
+[[average]]
+name = "mean"
+variables = ["rho", "u", "u", "p"]
+interval = 2
+)toml";
+}   // namespace
+
+TEST(post_processing_tables_parse_and_round_trip) {
+    const CaseFile cf = load_case_file(write_case("post_ok", std::string(kMinimalCase) + kPostTables));
+    CHECK(cf.probes.size() == 1 && cf.samples.size() == 1 && cf.forces.size() == 1 && cf.averages.size() == 1);
+    CHECK(cf.probes[0].name == "p1" && cf.probes[0].x == 0.25 && cf.probes[0].interval == 3 && !cf.probes[0].has_z);
+    CHECK(cf.samples[0].points == 5 && cf.samples[0].interval == 1 && cf.samples[0].to[0] == 1.0);
+    CHECK(cf.forces[0].reference_density == 1.5 && cf.forces[0].interval == 4);
+    CHECK(cf.averages[0].variables == std::vector<std::string>({"rho", "u", "p"}));   // a repeated variable is kept once
+    // the generated names of unnamed entries
+    const CaseFile anon =
+        load_case_file(write_case("post_anon", std::string(kMinimalCase) + "\n[[probe]]\nx = 0.1\ny = 0.2\n"));
+    CHECK(anon.probes[0].name == "probe_1" && anon.probes[0].interval == 1);
+
+    const std::string saved = (tmp_dir() / "casefiles" / "post_saved").string();
+    save_case_file(cf, saved);
+    const CaseFile back = load_case_file(saved);
+    CHECK(back.probes.size() == 1 && back.probes[0].name == "p1" && back.probes[0].y == 0.5 && back.probes[0].interval == 3);
+    CHECK(back.samples.size() == 1 && back.samples[0].from == cf.samples[0].from && back.samples[0].to == cf.samples[0].to &&
+          back.samples[0].points == 5);
+    CHECK(back.forces.size() == 1 && back.forces[0].reference_velocity == 2.0 && back.forces[0].interval == 4);
+    CHECK(back.averages.size() == 1 && back.averages[0].variables == cf.averages[0].variables &&
+          back.averages[0].interval == 2);
+}
+
+TEST(post_processing_tables_reject_bad_input) {
+    const auto rejected = [&](const char* name, const std::string& table, const char* what) {
+        const std::string e = case_error(name, std::string(kMinimalCase) + table);
+        if (e.find(what) == std::string::npos) std::printf("    %s: got '%s', wanted '%s'\n", name, e.c_str(), what);
+        return e.find(what) != std::string::npos;
+    };
+    CHECK(rejected("bad_interval0", "\n[[probe]]\nx = 0.1\ny = 0.2\ninterval = 0\n", "positive integer"));
+    CHECK(rejected("bad_interval_f", "\n[[probe]]\nx = 0.1\ny = 0.2\ninterval = 2.5\n", "positive integer"));
+    CHECK(rejected("bad_probe_y", "\n[[probe]]\nx = 0.1\n", "needs both x and y"));
+    CHECK(rejected("bad_probe_key", "\n[[probe]]\nx = 0.1\ny = 0.2\nintervall = 2\n", "unknown key"));
+    CHECK(rejected("bad_points", "\n[[sample]]\nfrom = [0.0, 0.0]\nto = [1.0, 0.0]\npoints = 1\n", "points"));
+    CHECK(rejected("bad_sample_dim", "\n[[sample]]\nfrom = [0.0, 0.0]\nto = [1.0, 0.0, 0.0]\n",
+                   "same number of coordinates"));
+    CHECK(rejected("bad_sample_dim1", "\n[[sample]]\nfrom = [0.0]\nto = [1.0]\n", "2 or 3 entries"));
+    CHECK(rejected("bad_variable", "\n[[average]]\nvariables = [\"rh0\"]\n", "unknown average variable"));
+    CHECK(rejected("bad_variables_empty", "\n[[average]]\nvariables = []\n", "non-empty array"));
+    CHECK(rejected("bad_name", "\n[[probe]]\nname = \"a b\"\nx = 0.1\ny = 0.2\n", "may contain only"));
+    CHECK(rejected("bad_name_path", "\n[[probe]]\nname = \"../x\"\nx = 0.1\ny = 0.2\n", "filename-safe"));
+    CHECK(rejected("bad_duplicate",
+                   "\n[[probe]]\nname = \"a\"\nx = 0.1\ny = 0.2\n[[probe]]\nname = \"a\"\nx = 0.3\ny = 0.2\n",
+                   "duplicate probe name"));
+    CHECK(rejected("bad_force_ref",
+                   "\n[[force]]\nreference_length = 1.0\nreference_density = 0.0\nreference_velocity = 1.0\n",
+                   "must be positive"));
+    CHECK(rejected("bad_force_missing", "\n[[force]]\nreference_length = 1.0\n", "needs reference_length"));
+}
+
+TEST(post_processing_domain_checks_at_setup) {
+    const auto refused = [&](const char* name, const std::string& tables, const char* what) {
+        const std::string dir = write_case(name, std::string(R"toml(
+[case]
+name = "Post domain"
+[mesh]
+nx = 8
+ny = 4
+Ly = 0.5
+[initial]
+state = { rho = 1.0, p = 1.0 }
+)toml") + tables);
+        try {
+            Simulation sim;
+            Params p = baseline_defaults();
+            p.merge(load_case_file(dir).params);
+            p.set("test_case", dir);
+            p.set("output_root", tmp_dir().string());
+            sim.setup(SimParams::from(p), false);
+        } catch (const std::exception& e) { return std::string(e.what()).find(what) != std::string::npos; }
+        return false;
+    };
+    CHECK(refused("dom_probe_x", "\n[[probe]]\nx = 5.0\ny = 0.1\n", "inside the simulation domain"));
+    CHECK(refused("dom_probe_z", "\n[[probe]]\nx = 0.5\ny = 0.1\nz = 3.0\n", "inside the simulation domain"));
+    CHECK(refused("dom_sample", "\n[[sample]]\nfrom = [0.0, 0.1]\nto = [1.0, 0.9]\npoints = 3\n", "inside the simulation domain"));
+    CHECK(refused("dom_sample_dim", "\n[[sample]]\nfrom = [0.0, 0.1, 0.0]\nto = [1.0, 0.2, 0.0]\npoints = 3\n", "coordinates"));
+    CHECK(refused("dom_force", "\n[[force]]\nreference_length = 1.0\nreference_density = 1.0\nreference_velocity = 1.0\n",
+                  "use_ibm"));
+}
+
+TEST(time_dependent_boundary_values) {
+    const auto lid = [&](std::initializer_list<std::pair<const char*, const char*>> kv) {
+        Params p = baseline_defaults();
+        p.merge(get_test_case("Lid Driven Cavity").defaults);
+        p.set("test_case", "Lid Driven Cavity");
+        p.set("output_root", tmp_dir().string());
+        p.set("nx", "8");
+        p.set("ny", "8");
+        for (const auto& e : kv) p.set(e.first, e.second);
+        return SimParams::from(p);
+    };
+    const auto write_table = [&](const char* name, const std::string& text) {
+        const fs::path f = tmp_dir() / "casefiles" / name;
+        fs::create_directories(f.parent_path());
+        std::ofstream(f, std::ios::binary) << text;
+        return f.string();
+    };
+    // expression of t: evaluated at the stage time
+    {
+        Simulation sim;
+        sim.setup(lid({{"u_in", "1 + 2*t"}}), false);
+        CHECK(sim.boundaries.params().u_in == 1.0);
+        sim.update_boundary_values(0.5, sim.boundaries);
+        CHECK_NEAR(sim.boundaries.params().u_in, 2.0, 1e-14);
+    }
+    // table: BOM, header and comments accepted, linear inside, the end values held outside
+    {
+        const std::string table = write_table("bc_table.csv", "\xEF\xBB\xBFt,value\n0.0,1.0\n# a comment\n1.0,3.0\n2.0,3.0\n");
+        Simulation sim;
+        sim.setup(lid({{"u_in_table", table.c_str()}}), false);
+        CHECK(sim.boundaries.params().u_in == 1.0);
+        sim.update_boundary_values(0.25, sim.boundaries);
+        CHECK_NEAR(sim.boundaries.params().u_in, 1.5, 1e-14);
+        sim.update_boundary_values(9.0, sim.boundaries);
+        CHECK(sim.boundaries.params().u_in == 3.0);
+        sim.update_boundary_values(-1.0, sim.boundaries);
+        CHECK(sim.boundaries.params().u_in == 1.0);
+    }
+    // an expression and a table for the same value; bad tables; a missing file
+    const auto refused = [&](std::initializer_list<std::pair<const char*, const char*>> kv, const char* what) {
+        try {
+            Simulation sim;
+            sim.setup(lid(kv), false);
+        } catch (const std::exception& e) { return std::string(e.what()).find(what) != std::string::npos; }
+        return false;
+    };
+    const std::string good = write_table("bc_good.csv", "0,1\n1,2\n");
+    const std::string down = write_table("bc_down.csv", "0,1\n1,2\n1,3\n");
+    const std::string one = write_table("bc_one.csv", "0,1\n");
+    const std::string three = write_table("bc_three.csv", "0,1,2\n1,2,3\n");
+    CHECK(refused({{"u_in", "1+t"}, {"u_in_table", good.c_str()}}, "cannot both be set"));
+    CHECK(refused({{"u_in_table", down.c_str()}}, "strictly increasing"));
+    CHECK(refused({{"u_in_table", one.c_str()}}, "at least two"));
+    CHECK(refused({{"u_in_table", three.c_str()}}, "more than two columns"));
+    CHECK(refused({{"u_in_table", "no_such_file.csv"}}, "not found"));
+    // a density that is positive at t = 0 is accepted, and refused once it has crossed zero
+    {
+        Simulation sim;
+        sim.setup(lid({{"rho_in", "1 - t"}}), false);
+        bool threw = false;
+        try {
+            sim.update_boundary_values(2.0, sim.boundaries);
+        } catch (const std::runtime_error&) { threw = true; }
+        CHECK(threw);
+    }
+}
+
+TEST(save_case_copies_boundary_tables) {
+    // a relative table (here found from the current folder) is copied next to the saved case file; a missing one is refused
+    const fs::path work = tmp_dir() / "save_tables";
+    fs::remove_all(work);
+    fs::create_directories(work);
+    std::ofstream(work / "lid.csv") << "t,value\n0,1\n1,2\n";
+    const fs::path previous = fs::current_path();
+    fs::current_path(work);
+    Params run = baseline_defaults();
+    run.merge(get_test_case("Lid Driven Cavity").defaults);
+    run.set("u_in_table", "lid.csv");
+    const std::string saved = save_case(get_test_case("Lid Driven Cavity"), run, (work / "saved").string(), "Saved With Table");
+    CHECK(fs::exists(work / "saved" / "lid.csv"));
+    const CaseFile back = load_case_file((work / "saved").string());
+    CHECK(back.params.str("u_in_table") == "lid.csv");
+    run.set("u_in_table", "absent.csv");
+    bool refused = false;
+    try {
+        save_case(get_test_case("Lid Driven Cavity"), run, (work / "saved2").string(), "Saved With Table 2");
+    } catch (const std::runtime_error& e) { refused = std::string(e.what()).find("not found") != std::string::npos; }
+    CHECK(refused);
+    CHECK(!fs::exists(work / "saved2" / "case.toml"));
+    fs::current_path(previous);
+    (void)saved;
+}

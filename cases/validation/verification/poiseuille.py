@@ -3,7 +3,7 @@
     python cases/validation/verification/poiseuille.py            # results/validation/poiseuille/
     python cases/validation/verification/poiseuille.py --docs     # also docs/img/poiseuille_*.png
 
-Runs the "Poiseuille Flow" case (BDF2 dual time, t = 80) on ny = 10, 20, 40 (nx = 3 ny) and
+Runs the "Poiseuille Flow" case (t = 80) on ny = 10, 20, 40 (nx = 3 ny) and
 compares u(y) at x = 0.95 Lx with the parabola u = 6 u_in y (Ly - y) / Ly^2. Runs the ny = 20
 grid again on 4 MPI ranks (needs mpiexec) and checks it against the serial run, which must
 agree to round-off (the all-reduced mass-flow inlet average sums in a different order). Figures: poiseuille_convergence.png, poiseuille_mpi.png.

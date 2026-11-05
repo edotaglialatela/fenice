@@ -528,7 +528,7 @@ TEST(cellremesh_dynamic_sod_follows_the_waves) {
         init(m);
         eng.build(m);
         if (max_level > 0) ad.init_adapt(init);
-        std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4, 1.0, 5, 1e-3);
+        std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4);
         CellAdvance adv(m, eng, *ts);
         const double mass0 = cell_total(m, 0);
         Field R;
@@ -581,7 +581,7 @@ TEST(cellremesh_sod_indicator_study) {
         init(m);
         eng.build(m);
         if (max_level > 0) ad.init_adapt(init);
-        std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4, 1.0, 5, 1e-3);
+        std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4);
         CellAdvance adv(m, eng, *ts);
         Field R;
         double S = eng.residual(m, m.U, R), t = 0.0, sum = 0.0;

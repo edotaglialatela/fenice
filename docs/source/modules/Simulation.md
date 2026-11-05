@@ -65,8 +65,8 @@ The AMR residual is the face-list engine of the [AMR]({{root}}modules/AMR.html) 
   rank 0. A Ctrl+C on any rank is agreed by all-reduce, so no rank is left waiting in a
   collective.
 
-The progress line reports step, time, $\Delta t$, $S_{\max}$ (and the BDF2 inner
-iterations or the number of AMR leaves) and the wall time. The final line gives the
+The progress line reports step, time, $\Delta t$, $S_{\max}$ (and the number of AMR
+leaves) and the wall time. The final line gives the
 time-loop duration.
 
 {{api}}

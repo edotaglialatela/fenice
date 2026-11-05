@@ -165,7 +165,6 @@ class SetupDialog(QDialog):
         self.eos_combo.currentTextChanged.connect(self._update_eos_ui)
         self.combo_testcase.currentTextChanged.connect(self._apply_test_case_defaults)
 
-        self.combo_time.currentTextChanged.connect(self._toggle_bdf2_inputs)
         self.combo_recon.currentTextChanged.connect(self._reconstruction_changed)
         self.combo_bo.currentTextChanged.connect(self._update_scheme_warning)
         self.combo_time.currentTextChanged.connect(self._update_scheme_warning)
@@ -334,7 +333,7 @@ class SetupDialog(QDialog):
         self.combo_riemann = QComboBox()
         self.combo_riemann.addItems(["HLLC", "HLLC (Low-Mach Thornber)", "HLLC (Preconditioned)"])
         self.combo_time = QComboBox()
-        self.combo_time.addItems(["Explicit Euler", "SSP Runge-Kutta 2", "SSP Runge-Kutta 3", "Runge-Kutta 4", "BDF2 Dual Time"])
+        self.combo_time.addItems(["Explicit Euler", "SSP Runge-Kutta 2", "SSP Runge-Kutta 3", "Runge-Kutta 4"])
         self.input_cfl = QLineEdit("0.5")
         self.combo_limiter = QComboBox()
         self.combo_limiter.addItems(["Van Leer", "MC", "Koren", "Minmod"])
@@ -358,15 +357,6 @@ class SetupDialog(QDialog):
         f4.addRow("Time integration:", self.combo_time)
         f4.addRow("", self.label_scheme_warning)
         f4.addRow("CFL number:", self.input_cfl)
-        self.label_dt_phys   = QLabel("Physical dt [s]:")
-        self.input_dt_phys   = QLineEdit("0.1")
-        self.label_max_inner = QLabel("Max inner iterations:")
-        self.input_max_inner = QLineEdit("50")
-        self.label_inner_tol = QLabel("Inner tol (relative):")
-        self.input_inner_tol = QLineEdit("1e-3")
-        f4.addRow(self.label_dt_phys,   self.input_dt_phys)
-        f4.addRow(self.label_max_inner, self.input_max_inner)
-        f4.addRow(self.label_inner_tol, self.input_inner_tol)
         g4.setLayout(f4)
         scroll_layout.addWidget(g4)
 
@@ -630,8 +620,6 @@ class SetupDialog(QDialog):
                 errors.append("WENO5-Z is serial for now (the MPI halo is two cells deep): use WENO3-Z or switch MPI off.")
             if time == "SSP Runge-Kutta 2":
                 errors.append(f"{name} cannot run with SSP Runge-Kutta 2 (rejected by the solver): use SSP Runge-Kutta 3 or Runge-Kutta 4.")
-            elif time == "BDF2 Dual Time":
-                errors.append(f"{name} is not available with BDF2 Dual Time: use SSP Runge-Kutta 3 or Runge-Kutta 4.")
             elif time == "Explicit Euler":
                 warnings.append(f"{name} with Explicit Euler is unstable at normal CFL (smoke test only): use SSP Runge-Kutta 3 or Runge-Kutta 4.")
         return errors, warnings
@@ -641,7 +629,7 @@ class SetupDialog(QDialog):
         recon = self._recon_value()
         bad = set()
         if recon in ("weno3", "weno5"):
-            bad |= {"Explicit Euler", "SSP Runge-Kutta 2", "BDF2 Dual Time"}
+            bad |= {"Explicit Euler", "SSP Runge-Kutta 2"}
         if self.check_amr.isChecked():
             bad.add("SSP Runge-Kutta 3")
         return bad
@@ -675,13 +663,6 @@ class SetupDialog(QDialog):
         self.label_bo.setVisible(recon != "first")
         self.combo_bo.setVisible(recon != "first")
         self._update_scheme_warning()
-
-    def _toggle_bdf2_inputs(self, text=""):
-        is_bdf2 = (text == "BDF2 Dual Time")
-        for w in (self.label_dt_phys, self.input_dt_phys,
-                  self.label_max_inner, self.input_max_inner,
-                  self.label_inner_tol, self.input_inner_tol):
-            w.setVisible(is_bdf2)
 
     def _toggle_hot_start_inputs(self, checked):
         for w in self._hot_start_sub_widgets:
@@ -769,9 +750,6 @@ class SetupDialog(QDialog):
             'ibm_cy': lambda v: self.input_cy.setText(str(v)),
             'muscl_limiter': lambda v: set_combo(self.combo_limiter, v),
             'boundary_order': lambda v: self.combo_bo.setCurrentIndex(1 if int(v) == 2 else 0),
-            'dt_phys':        lambda v: self.input_dt_phys.setText(str(v)),
-            'max_inner_iter': lambda v: self.input_max_inner.setText(str(v)),
-            'inner_tol_rel':  lambda v: self.input_inner_tol.setText(str(v)),
             'use_amr':                lambda v: self.check_amr.setChecked(bool(v)),
             'amr_max_level':          lambda v: self.input_amr_max_level.setText(str(v)),
             'amr_indicator':          lambda v: self.input_amr_indicator.setText(str(v)),
@@ -797,7 +775,6 @@ class SetupDialog(QDialog):
         self._update_bc_inputs()
         self._update_eos_ui(self.eos_combo.currentText())
         self._reconstruction_changed()
-        self._toggle_bdf2_inputs(self.combo_time.currentText())
         self._update_scheme_warning()
         self._toggle_hot_start_inputs(self.check_hot_start.isChecked())
         self._update_hot_start_target_info()
@@ -906,9 +883,6 @@ class SetupDialog(QDialog):
                 'muscl_limiter': self.combo_limiter.currentText(),
                 'reconstruction': "muscl" if self._recon_value() == "first" else self._recon_value(),
                 'boundary_order': self._boundary_order(),
-                'dt_phys':        float(self.input_dt_phys.text()),
-                'max_inner_iter': int(self.input_max_inner.text()),
-                'inner_tol_rel':  float(self.input_inner_tol.text()),
                 'use_hot_start': self.check_hot_start.isChecked(),
                 'hot_start_file': self.input_hot_start_file.text(),
                 'hot_start_src_nx': int(self.input_src_nx.text()) if self.input_src_nx.text() else 0,

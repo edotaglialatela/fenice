@@ -5,7 +5,7 @@ configurations covering every Riemann solver, limiter and time scheme, stiffened
 gas, gravity, periodic / inlet / outlet BCs, viscous flow, IBM, hot start and AMR
 with mixed levels.  The first 16 are states of the original Python solver (the
 reference implementation, retired on 2026-10-20), which the C++ solver reproduced
-bit for bit (BDF2 / mass-flow cases to ~1e-14).  Later cases (Taylor-Green,
+bit for bit (mass-flow cases to ~1e-14).  Later cases (Taylor-Green,
 isentropic vortex) were created from the C++ solver after validation against
 their exact solutions (see the fenice_tests checks of the same names).
 
@@ -51,7 +51,6 @@ CASES = {
     "shu_osher":           ("Shu-Osher Test", dict(nx=200, t_end=0.2)),
     "cavity_rk4_visc":     ("Lid Driven Cavity", dict(nx=20, ny=20, t_end=0.2, use_muscl=True)),
     "cavity_periodic_x":   ("Lid Driven Cavity", dict(nx=16, ny=12, t_end=0.1, bc_left="Periodic", bc_right="Periodic")),
-    "poiseuille_bdf2":     ("Poiseuille Flow", dict(nx=30, ny=10, t_end=2.0, time_scheme="BDF2 Dual Time")),
     "poiseuille_euler":    ("Poiseuille Flow", dict(nx=30, ny=10, t_end=1.0)),
     "cylinder_ibm_visc":   ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False)),
     "supersonic_ibm":      ("IBM Supersonic Flow over Cylinder", dict(nx=60, ny=60, Lx=4.0, Ly=4.0, ibm_cx=1.0, ibm_cy=2.0, t_end=0.1, use_mpi=False)),   # the geometry of the reference (the case is 8 x 8 now)
@@ -81,8 +80,6 @@ CASES = {
     "mms_walls":           ("Manufactured Solution Walls", dict(nx=24, ny=24, t_end=0.1)),
     "mms_unsteady_rk4":    ("Manufactured Solution Unsteady Euler", dict(nx=16, ny=16, t_end=0.1, time_scheme="Runge-Kutta 4")),
     "mms_unsteady_rk2":    ("Manufactured Solution Unsteady Euler", dict(nx=16, ny=16, t_end=0.1, time_scheme="SSP Runge-Kutta 2")),
-    "mms_unsteady_bdf2":   ("Manufactured Solution Unsteady Euler", dict(nx=16, ny=6, t_end=0.1, time_scheme="BDF2 Dual Time",
-                                                                         dt_phys=0.02, max_inner_iter=200, inner_tol_rel=1e-8)),
     "mms_outflow_xdecomp": ("Manufactured Solution Outflow", dict(nx=32, ny=6, t_end=0.1)),
     # Added 2026-10-20 (C++ references, validated against the exact solutions)
     "taylor_green_visc":   ("Taylor-Green Vortex", dict(nx=32, ny=32, t_end=0.5, mu=0.05)),
@@ -153,11 +150,11 @@ CASES = {
 }
 # Cases also run under MPI (AMR: replicated mesh, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
-MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodic_x", "poiseuille_bdf2",
+MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodic_x", "poiseuille_euler",
              "cylinder_ibm_visc", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
-             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk4", "mms_unsteady_rk2", "mms_unsteady_bdf2",
+             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk4", "mms_unsteady_rk2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
              "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2", "cavity3d_noslip_z_b2", "cavity_xdecomp_b2", "cavity3d_xdecomp_b2"]
 

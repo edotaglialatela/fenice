@@ -65,7 +65,7 @@ class Solution:
 
     unsteady (2-D periodic only): the waves of the solution travel (the time t enters their phases), the source gets
     the dU_m/dt term and its expressions use the variable `t`, which the solver evaluates at the time of every
-    stage; the initial state is the solution at t = 0. It verifies the time integration (stage times, BDF2)."""
+    stage; the initial state is the solution at t = 0. It verifies the time integration (stage times)."""
     dim: int = 2
     viscous: bool = True
     mu: float = 0.02

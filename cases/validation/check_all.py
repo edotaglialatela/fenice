@@ -43,6 +43,7 @@ def steps(args):
         ("regression 4 ranks", [PY, "cpp/tests/regression.py", "--mpi", "4"], {}, "quick"),
         ("amr_mpi", [PY, "cases/validation/amr/amr_mpi.py", "--check"], {}, "quick"),
         ("ibm_ghost", [PY, "cases/validation/features/ibm_ghost.py", "--check"], {}, "quick"),
+        ("postprocess", [PY, "cases/validation/features/postprocess.py", "--check"], {}, "quick"),
         ("mms quick", [PY, "cases/validation/verification/mms.py"], {}, "quick"),
         ("switch table", [PY, "cases/validation/check_switches.py"], {}, "quick"),
         ("geometry preview", [PY, "cases/validation/check_geometry.py"], {}, "quick"),

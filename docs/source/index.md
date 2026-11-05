@@ -14,7 +14,7 @@ domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz 
 * **Physics:** ideal and stiffened-gas EOS, Navier-Stokes viscous fluxes, body
   forces, and an immersed boundary method for cylinders, spheres and airfoils (NACA
   4-digit or any coordinate file), with lift / drag / moment monitoring.
-* **Time integration:** Explicit Euler, SSP-RK2, RK4, and BDF2 with dual time stepping.
+* **Time integration:** Explicit Euler, SSP-RK2, SSP-RK3 and RK4.
 * **Mesh:** uniform 2-D or 3-D Cartesian grids. Cell-based AMR (2-D only) refines single
   cells and adds subcycling, conservative flux replacement and 2:1 balance.
 * **I/O:** VTK output for ParaView, plus `.npz` checkpoints with restart and
@@ -50,7 +50,7 @@ $$\frac{\mathrm{d}\mathbf{U}_i}{\mathrm{d}t} = \mathcal{R}_i(\mathbf{U})
   = -\frac{1}{V_i}\sum_{f\in\partial i} \mathbf{F}^*_f\,A_f
   + \mathcal{R}^{\rm visc}_i + \mathbf{S}_i$$
 
-is integrated in time with an explicit or dual-time scheme. Here $\mathbf{F}^*_f$ is the
+is integrated in time with an explicit Runge-Kutta scheme. Here $\mathbf{F}^*_f$ is the
 Riemann-solver flux through face $f$ of area $A_f$, and $V_i$ is the cell volume (in 2-D,
 the face length and cell area). The z-momentum $\rho w$ is stored last so that a 2-D state
 keeps its original layout; in 2-D it stays exactly zero.

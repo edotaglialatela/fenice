@@ -319,7 +319,7 @@ TEST(celladvance_level0_steps_match_uniform_steps_bitwise) {
                     for (int c = 0; c < cm.num_leaves(); ++c) cm.U[c] = Uu[cm.cj[c] * u.nx + cm.ci[c]];
                     CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
                     eng.build(cm);
-                    std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.4, 1.0, 5, 1e-3);
+                    std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.4);
                     CellAdvance adv(cm, eng, *ts);
                     const double dt = 2e-3;
                     const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
@@ -347,7 +347,7 @@ TEST(celladvance_conserves_across_level_jumps_and_the_control_fails) {
             for (int c = 0; c < mm.num_leaves(); ++c) mm.U[c] = test_state(su.eos, mm.xc(c), mm.yc(c));
             CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
             eng.build(mm);
-            std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.4, 1.0, 5, 1e-3);
+            std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.4);
             CellAdvance adv(mm, eng, *ts);
             adv.flux_replacement = replace;
             Field R;
@@ -379,7 +379,7 @@ TEST(celladvance_free_stream_and_stage_times) {
         const Field U0 = m.U;
         CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
         eng.build(m);
-        std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.4, 1.0, 5, 1e-3);
+        std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.4);
         CellAdvance adv(m, eng, *ts);
         std::vector<std::pair<int, double>> seen;
         adv.stage_hook = [&](int l, double st) { seen.push_back({l, st}); };
@@ -425,7 +425,7 @@ TEST(celladvance_sod_on_a_static_refined_band) {
             m.U[c] = m.xc(c) < 0.5 ? su.eos.prim_to_cons({1.0, 0.0, 0.0, 1.0}) : su.eos.prim_to_cons({0.125, 0.0, 0.0, 0.1});
         CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
         eng.build(m);
-        std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4, 1.0, 5, 1e-3);
+        std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4);
         CellAdvance adv(m, eng, *ts);
         const double mass0 = cell_total(m, 0);
         Field R;

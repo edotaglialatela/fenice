@@ -16,7 +16,7 @@ overrides those (see [Parameters]({{root}}guide/parameters.html)).
 | Case (`--case`) | Validates | Page |
 |---|---|---|
 | `Sod Shock Tube` | Riemann solvers, limiters, MPI, AMR | [Sod]({{root}}cases/sod.html) |
-| `Poiseuille Flow` | Viscous fluxes, inlet / outlet BCs, BDF2 | [Poiseuille]({{root}}cases/poiseuille.html) |
+| `Poiseuille Flow` | Viscous fluxes, inlet / outlet BCs | [Poiseuille]({{root}}cases/poiseuille.html) |
 | `Lid Driven Cavity` | 2-D Navier-Stokes at Re = 400 (Ghia 1982) | [Cavity]({{root}}cases/cavity.html) |
 | `IBM Flow over Cylinder` | IBM, vortex shedding at Re = 100, hot start | [Cylinder]({{root}}cases/cylinder.html) |
 | `IBM Cylinder Low Blockage AMR` | Re = 100 in a box with 1.7 % blockage: AMR, ghost-cell wall, Strouhal number | [Cylinder, low blockage]({{root}}cases/cylinder-low-blockage.html) |

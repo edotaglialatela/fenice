@@ -60,7 +60,7 @@ python cpp\tests\regression.py --mpi 4       # 24 serial + 15 MPI runs vs refere
 
 `cpp/tests/reference/` stores final states for 24 configurations. Sixteen come from the
 original Python solver, which was the reference implementation until 2026-10-20; the C++
-solver reproduces them bit for bit (BDF2 / mass-flow cases to ~1e-14). Three more
+solver reproduces them bit for bit (mass-flow cases to ~1e-14). Three more
 (Taylor-Green, isentropic vortex) were added from the C++ solver after validation against
 their exact solutions, and five 3-D ones after the 3-D unit tests. MPI runs reproduce the
 serial runs exactly, in 2-D and 3-D.
