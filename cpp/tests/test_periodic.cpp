@@ -262,15 +262,9 @@ TEST(source_time_dependence_is_detected_by_identifier) {
     CHECK(unsteady("(t)"));
 }
 
-TEST(source_terms_are_rejected_where_unsupported) {
-    bool ibm_throws = false;
+TEST(source_terms_are_accepted_on_adaptive_meshes_and_with_the_ibm) {
     CHECK(params_for("Sod Shock Tube", {{"use_amr", "true"}, {"source_rho", "1"}}).use_source);   // sources work on adaptive meshes
-    try {
-        params_for("IBM Flow over Cylinder", {{"source_mx", "x"}});
-    } catch (const std::invalid_argument&) {
-        ibm_throws = true;
-    }
-    CHECK(ibm_throws);
+    CHECK(params_for("IBM Flow over Cylinder", {{"source_mx", "x"}}).use_source);                  // and with the IBM
     CHECK(!params_for("Sod Shock Tube", {}).use_source);
     CHECK(!params_for("Sod Shock Tube", {{"source_rho", "0.0"}}).use_source);   // a zero number is no source
 }
@@ -332,6 +326,37 @@ State smooth_3d(const EOS& eos, double x, double y, double z) {
                              100.0 + 2.0 * std::cos(x + y - z), 0.2 * std::sin(x) * std::cos(y + 0.4)});
 }
 }   // namespace
+
+namespace {
+Simulation ibm_source_run(const char* mx, const char* my) {
+    SimParams sp = params_for("IBM Flow over Cylinder", {{"nx", "40"}, {"ny", "20"}, {"time_scheme", "Explicit Euler"},
+                                                          {"source_mx", mx}, {"source_my", my}});
+    return run_case(sp, 1);
+}
+}   // namespace
+
+TEST(source_terms_with_the_ibm_act_on_the_fluid_and_leave_the_body_at_rest) {
+    // a zero expression changes nothing (bit for bit); a y-momentum source on the uniform stream adds dt * S to the far cells
+    // (twice the source gives twice the increment), and the solid cells are still at rest after the reset
+    const Simulation s0 = ibm_source_run("0", "0");
+    const Simulation sz = ibm_source_run("0*x", "0*y");
+    const Simulation s1 = ibm_source_run("0", "0.5");
+    const Simulation s2 = ibm_source_run("0", "1.0");
+    CHECK(sz.p.use_source && !s0.p.use_source);
+    bool same = true;
+    for (size_t c = 0; c < s0.U.size(); ++c)
+        for (int q = 0; q < kNVar; ++q) same = same && s0.U[c][q] == sz.U[c][q];
+    CHECK(same);
+    const Mesh& m = s0.mesh;
+    const size_t far = static_cast<size_t>(4 + (m.ny / 2) * m.nx);    // x = 0.45 (the cylinder is at x = 1), mid height: uniform flow
+    const double d1 = s1.U[far][2] - s0.U[far][2], d2 = s2.U[far][2] - s0.U[far][2];
+    CHECK(d1 > 0.0);
+    CHECK_NEAR(d2, 2.0 * d1, 1e-9 * d1);
+    // the centre of the cylinder (x = 1, y = 1 on 0.1-wide cells) is a deep solid cell
+    const size_t core = static_cast<size_t>(10 + 10 * m.nx);
+    CHECK(s2.ibm->mask()[core]);
+    CHECK(std::abs(s2.U[core][1]) < 1e-9 && std::abs(s2.U[core][2]) < 1e-9);
+}
 
 TEST(extrusion_matches_2d) {
     // A 2-D case extruded along a periodic z must reproduce the 2-D solution in every layer

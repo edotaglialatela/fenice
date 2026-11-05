@@ -53,6 +53,12 @@ CASES = {
     "cavity_periodic_x":   ("Lid Driven Cavity", dict(nx=16, ny=12, t_end=0.1, bc_left="Periodic", bc_right="Periodic")),
     "poiseuille_euler":    ("Poiseuille Flow", dict(nx=30, ny=10, t_end=1.0)),
     "cylinder_ibm_visc":   ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False)),
+    # source terms with the IBM (a streamwise and a cross-stream momentum source act on the fluid; the body stays at rest)
+    "cylinder_ibm_source":  ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False,
+                                                           source_mx="0.5*sin(2*pi*x/Lx)", source_my="0.3")),
+    "amr_cylinder_source":  ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False, use_amr=True,
+                                                           amr_max_level=1, amr_refine_every=5,
+                                                           source_mx="0.5*sin(2*pi*x/Lx)", source_my="0.3")),
     "supersonic_ibm":      ("IBM Supersonic Flow over Cylinder", dict(nx=60, ny=60, Lx=4.0, Ly=4.0, ibm_cx=1.0, ibm_cy=2.0, t_end=0.1, use_mpi=False)),   # the geometry of the reference (the case is 8 x 8 now)
     "hot_start_mapping":   ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.03, use_hot_start=True,
                                                    hot_start_file="{REF}/hot_source.npz", use_muscl=True)),
@@ -151,7 +157,7 @@ CASES = {
 # Cases also run under MPI (AMR: replicated mesh, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
 MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk3_visc", "cavity_periodic_x", "poiseuille_euler",
-             "cylinder_ibm_visc", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
+             "cylinder_ibm_visc", "cylinder_ibm_source", "amr_cylinder_source", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
              "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",

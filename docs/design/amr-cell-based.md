@@ -545,7 +545,7 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
   pre-refinements, the initial adaptation, the solid reset and the partition). The patch engine (`AMR.cpp/hpp`, `restrict_patch`, the patch fields of `CrossGhosts` and `ViscousFaceFluxes`,
   `patch_residual`, `amr_patch_nx/ny`, `amr_buffer_layers`) and the development driver `cell_amr_demo` are removed. Removed keys give an error that names the replacement.
 * Keys: `amr_max_level`, `amr_indicator` (variables joined by `+`), `amr_criterion`, `amr_refine_threshold` (0.15), `amr_derefine_threshold` (0.1, must not exceed the refine threshold),
-  `amr_diffusion`, `amr_refine_every`, `amr_init_levels`, `amr_refine_ibm`. Periodic and mass-flow boundaries and source terms (not with the IBM) are now allowed with AMR.
+  `amr_diffusion`, `amr_refine_every`, `amr_init_levels`, `amr_refine_ibm`. Periodic and mass-flow boundaries and source terms (also with the IBM) are now allowed with AMR.
 * Output: `.vtu` (single rank) or per-rank `.vtu` + `.pvtu` (`export_cells`), `AMR_Level` field; `fenice.read_vtu`. Checkpoint: leaf list, `U`, `t`, step, lagged wave-speed bound, `.pvd` collection;
   resume is bitwise, also with another rank count; hot start interpolates at the leaf centres. `dump_state` / `final.npz`: per-leaf `U` and `leaf_meta`.
 * **References.** The six AMR regression references were regenerated (their own commit) after the validation: each case against the uniform run at its finest level (relative L1 density difference

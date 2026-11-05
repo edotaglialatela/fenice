@@ -43,15 +43,16 @@ short alias shown in brackets.
 | `gx`, `gy` | `0.0`, `-9.81` | Body-force acceleration [m/s²] |
 | `gz` | `0.0` | Body-force acceleration along z [m/s²] (3-D only) |
 
-## Source terms (manufactured solutions)
+## Source terms
 
 The case file section `[source]`. The equations solved become $\partial U/\partial t + \nabla\cdot(F - F_v) = S$,
 with $U = [\rho, \rho u, \rho v, \rho E, \rho w]$. Each key is a number or an expression of `x`, `y`, `z` (cell
 centre), `pi`, `e`, the time `t` and the numeric run parameters, added to the residual of every stage. Without `t` it is
 evaluated once (steady); with `t` it is evaluated at the time of each stage of the time scheme, in absolute simulation
 time. They exist for code verification by the method of manufactured solutions, see
-[Manufactured solutions]({{root}}cases/manufactured-solution.html); the cases of that page set them. Not available
-with the immersed boundary.
+[Manufactured solutions]({{root}}cases/manufactured-solution.html); the cases of that page set them. They also run with the
+immersed boundary, uniform or adaptive, serial or on MPI ranks: like the body force they are added in every cell, and the solid
+cells are reset to rest after the step, so the source acts on the fluid only.
 
 | Key | Default | Meaning |
 |---|---|---|

@@ -297,7 +297,6 @@ SimParams SimParams::from(const Params& p) {
     if (s.nx <= 0 || s.ny <= 0 || s.nz <= 0) throw std::invalid_argument("nx, ny and nz must be positive");
     if (s.Lx <= 0 || s.Ly <= 0 || s.Lz <= 0) throw std::invalid_argument("Lx, Ly and Lz must be positive");
     if (s.use_amr && s.nz > 1) throw std::invalid_argument("AMR is 2-D only (nz must be 1 when use_amr is on)");
-    if (s.use_source && s.use_ibm) throw std::invalid_argument("source terms (source_*) are not supported with the IBM");
     {   // amr_indicator: variables joined by '+', each one of density, velocity, pressure
         const std::string& ind = s.amr_indicator;
         size_t b = 0;
