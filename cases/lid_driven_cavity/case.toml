@@ -27,7 +27,7 @@ p_out = 100.0
 
 [numerics]
 riemann_solver = "HLLC (Low-Mach Thornber)"
-time_scheme = "Runge-Kutta 4"
+time_scheme = "SSP Runge-Kutta 3"
 cfl = 0.4
 
 [run]

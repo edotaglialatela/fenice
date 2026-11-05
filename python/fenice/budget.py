@@ -28,7 +28,7 @@ def estimate(cells, steps, cells_per_s=DEFAULT_CELLS_PER_S, stages=1):
     """Estimated cost of a run: {"cell_updates", "core_hours", "tier"}.
 
     cells = nx*ny*nz (an AMR run: the expected leaf count); steps = the step count (from the CFL step and t_end);
-    stages = residual evaluations per step (Euler 1, SSP-RK2 2, RK4 4). The tier is the cheapest one that the estimate
+    stages = residual evaluations per step (Euler 1, SSP-RK2 2, SSP-RK3 3). The tier is the cheapest one that the estimate
     fits (quick: under 2 core-minutes, medium: under 2 core-hours = 30 min on 4 cores, else long)."""
     updates = float(cells) * float(steps) * stages
     hours = updates / cells_per_s / 3600.0

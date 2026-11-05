@@ -36,7 +36,6 @@ TimeSchemeType parse_time_scheme(const std::string& s_in) {
     if (s == "explicit euler" || s == "euler" || s == "explicit_euler") return TimeSchemeType::ExplicitEuler;
     if (s == "ssp runge-kutta 2" || s == "ssprk2" || s == "rk2") return TimeSchemeType::SSPRK2;
     if (s == "ssp runge-kutta 3" || s == "ssprk3" || s == "rk3") return TimeSchemeType::SSPRK3;
-    if (s == "runge-kutta 4" || s == "rk4") return TimeSchemeType::RungeKutta4;
     throw std::invalid_argument("Unknown time scheme: '" + s_in + "'");
 }
 
@@ -144,57 +143,10 @@ double SSPRK3::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
     return s;
 }
 
-// ---------------------------------------------------------------------------
-// Classical RK4
-// ---------------------------------------------------------------------------
-
-namespace {
-// U <- U + (dt/6)*(k1 + 2k2 + 2k3 + k4)
-void rk4_combine(Field& U, double dt, const Field& k1, const Field& k2, const Field& k3, const Field& k4) {
-    ProfileScope profile(Section::UpdateRk4Combine);
-    const int n = isize(U);
-    const double w = dt / 6.0;
-#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-    for (int c = 0; c < n; ++c)
-        for (int q = 0; q < kNVar; ++q) U[c][q] = U[c][q] + w * (k1[c][q] + 2.0 * k2[c][q] + 2.0 * k3[c][q] + k4[c][q]);
-}
-}   // namespace
-
-StepResult RungeKutta4::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max) {
-    stage_time = t;
-    const double s1 = res(U, R1_);
-    double dt = cfl * min_delta / (s1 + kDtEps);
-    dt = std::min(dt, t_max - t);
-    if (dt_max > 0.0) dt = std::min(dt, dt_max);
-    axpy(tmp_, U, 0.5 * dt, R1_);
-    stage_time = t + 0.5 * dt;
-    const double s2 = res(tmp_, R2_);
-    axpy(tmp_, U, 0.5 * dt, R2_);
-    const double s3 = res(tmp_, R3_);
-    axpy(tmp_, U, dt, R3_);
-    stage_time = t + dt;
-    const double s4 = res(tmp_, R4_);
-    rk4_combine(U, dt, R1_, R2_, R3_, R4_);
-    return {dt, std::max(std::max(s1, s2), std::max(s3, s4))};
-}
-
-double RungeKutta4::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
-    const double s = res(U, R1_);
-    axpy(tmp_, U, 0.5 * dt, R1_);
-    res(tmp_, R2_);
-    axpy(tmp_, U, 0.5 * dt, R2_);
-    res(tmp_, R3_);
-    axpy(tmp_, U, dt, R3_);
-    res(tmp_, R4_);
-    rk4_combine(U, dt, R1_, R2_, R3_, R4_);
-    return s;
-}
-
 std::unique_ptr<TimeScheme> make_time_scheme(TimeSchemeType type, double cfl) {
     switch (type) {
     case TimeSchemeType::SSPRK2: return std::make_unique<SSPRK2>(cfl);
     case TimeSchemeType::SSPRK3: return std::make_unique<SSPRK3>(cfl);
-    case TimeSchemeType::RungeKutta4: return std::make_unique<RungeKutta4>(cfl);
     default: return std::make_unique<ExplicitEuler>(cfl);
     }
 }

@@ -7,13 +7,13 @@ The periodic Euler solution "Manufactured Solution Unsteady Euler" has travellin
 phases) and a source term S = dU_m/dt + div(F(U_m)) that depends on t; the solver evaluates it at the time of every
 stage. The study verifies the time integration inside the whole solver (spatial scheme, limiter, boundary, source):
 
-1. The reference. RK4 with a very small step (CFL 0.0125) is the semi-discrete solution to within its own time error.
+1. The reference. SSP-RK3 with a very small step (CFL 0.00625) is the semi-discrete solution to within its own time error.
    Its error against the exact solution at t = 0.2 must fall on the grids 16^2, 32^2, 64^2: this is what catches a
    wrong dU_m/dt term in the generator or a wrong sign, which a self-convergence in time cannot see (the scheme
    would converge, to the wrong solution).
 2. Time convergence. On 32^2 cells the difference to that reference at t = 0.2 (L2 of the conserved state) for Explicit
-   Euler, SSP-RK2 and RK4 at CFL 0.4, 0.2, 0.1, 0.05, each with the first-order Godunov scheme in space and with MUSCL
-   (Van Leer). A wrong stage time costs one order (the source is then evaluated at the wrong time: RK2 and RK4 would
+   Euler, SSP-RK2 and SSP-RK3 at CFL 0.4, 0.2, 0.1, 0.05, each with the first-order Godunov scheme in space and with MUSCL
+   (Van Leer). A wrong stage time costs one order (the source is then evaluated at the wrong time: RK2 and RK3 would
    fall at 1), and the first-order-in-space runs have a smooth right-hand side, so the limiter's kinks cannot hide it.
 
 Expected, fixed before the first run (orders of the finest pair):
@@ -22,7 +22,7 @@ Expected, fixed before the first run (orders of the finest pair):
   refinement;
 * Explicit Euler in time: [0.9, 1.1] (both spatial schemes);
 * SSP-RK2: [1.8, 2.2] (both);
-* RK4: [3.5, 4.5] with first-order space; [2.0, 4.5] with MUSCL (the limiter is not smooth at extrema, which can
+* SSP-RK3: [2.5, 3.5] with first-order space; [2.0, 3.5] with MUSCL (the limiter is not smooth at extrema, which can
   reduce the order of a high-order scheme);
 
 Figure: mms_time.png; table: results/validation/mms_time/mms_time_table.md.
@@ -39,20 +39,16 @@ STUDY = "mms_time"
 CASE = "Manufactured Solution Unsteady Euler"
 T_END = 0.2
 N = 32
-REF_CFL = 0.0125
+REF_CFL = 0.00625
 CFLS = (0.4, 0.2, 0.1, 0.05)
 SPACE = {"1st order": ("use_muscl=false",), "MUSCL": ("use_muscl=true", "muscl_limiter=Van Leer")}
-RK = {"Explicit Euler": "Explicit Euler", "SSP-RK2": "SSP Runge-Kutta 2", "RK4": "Runge-Kutta 4"}
+RK = {"Explicit Euler": "Explicit Euler", "SSP-RK2": "SSP Runge-Kutta 2", "SSP-RK3": "SSP Runge-Kutta 3"}
 BANDS = {("Explicit Euler", "1st order"): (0.9, 1.1), ("Explicit Euler", "MUSCL"): (0.9, 1.1),
          ("SSP-RK2", "1st order"): (1.8, 2.2), ("SSP-RK2", "MUSCL"): (1.8, 2.2),
-         ("RK4", "1st order"): (3.5, 4.5), ("RK4", "MUSCL"): (2.0, 4.5)}
+         ("SSP-RK3", "1st order"): (2.5, 3.5), ("SSP-RK3", "MUSCL"): (2.0, 3.5)}
 REF_BANDS = {"1st order": 0.7, "MUSCL": 1.5}
-# Found outside the band by the first run; the band was not moved. RK4 reaches order 2, also with first-order space and
-# on 16^2, 32^2 and 64^2 (its error shrinks with h, its order does not): the right-hand side of the full scheme is not
-# smooth enough for a fourth-order integrator (the Einfeldt wave-speed bounds of HLLC are a min / max, and so is the
-# limiter), while the stage times themselves are verified exactly by the unit test time_dependent_source_stage_times.
-# A floor, set after the run, keeps a worse loss from passing.
-DOCUMENTED = {("RK4", "1st order"), ("RK4", "MUSCL")}
+# Combinations found outside their band, with the reason, and a floor that keeps a worse loss from passing (none yet).
+DOCUMENTED = set()
 FLOOR = 1.8
 
 
@@ -83,19 +79,19 @@ def main():
     sol = mms.Solution(2, False, unsteady=True)
     failed = False
 
-    print("[1/2] the reference (RK4, CFL %g) against the exact solution at t = %g ..." % (REF_CFL, T_END))
+    print("[1/2] the reference (SSP-RK3, CFL %g) against the exact solution at t = %g ..." % (REF_CFL, T_END))
     refs = {}
     for space, sets in SPACE.items():
         errs, grids = [], (16, 32, 64)
         for n in grids:
-            U = run(f"exact_{space.replace(' ', '')}_n{n}", args, n, "time_scheme=Runge-Kutta 4", "cfl=0.25", *sets)
+            U = run(f"exact_{space.replace(' ', '')}_n{n}", args, n, "time_scheme=SSP Runge-Kutta 3", "cfl=0.25", *sets)
             errs.append(diff(U, exact_state(sol, n)))
         o = observed_orders([1.0 / n for n in grids], errs)
         ok = bool(np.all(np.diff(errs) < 0) and o[-1] >= REF_BANDS[space])
         failed |= not ok
         print(f"      {space:9s} errors " + " ".join(f"{e:.3e}" for e in errs) + "   orders " +
               " ".join(f"{x:.2f}" for x in o) + f"   expected >= {REF_BANDS[space]} {'OK' if ok else 'FAIL'}")
-        refs[space] = run(f"ref_{space.replace(' ', '')}", args, N, "time_scheme=Runge-Kutta 4", f"cfl={REF_CFL}", *sets)
+        refs[space] = run(f"ref_{space.replace(' ', '')}", args, N, "time_scheme=SSP Runge-Kutta 3", f"cfl={REF_CFL}", *sets)
 
     print("[2/2] time convergence against the reference, %d^2 cells ..." % N)
     results, rows = {}, []
@@ -123,7 +119,7 @@ def main():
     (study.study_dir(STUDY) / "mms_time_table.md").write_text("\n".join(lines) + "\n", encoding="utf8")
 
     fig, axs = plt.subplots(1, 2, figsize=(12, 4.8), sharey=True)
-    colors = {"Explicit Euler": "C3", "SSP-RK2": "C0", "RK4": "C2"}
+    colors = {"Explicit Euler": "C3", "SSP-RK2": "C0", "SSP-RK3": "C2"}
     for ax, space in zip(axs, SPACE):
         for (name, sp_), (steps, errs) in results.items():
             if sp_ != space:
@@ -136,7 +132,7 @@ def main():
         ax.set_title(f"space: {space}")
         ax.set_xlabel("time step relative to the coarsest (CFL 0.4)")
         ax.grid(True, which="both", alpha=0.3)
-    axs[0].set_ylabel("$L_2$ difference to the RK4 reference at $t = 0.2$")
+    axs[0].set_ylabel("$L_2$ difference to the SSP-RK3 reference at $t = 0.2$")
     fig.suptitle("Order of accuracy in time: unsteady manufactured solution", fontsize=12)
     handles, labels = axs[0].get_legend_handles_labels()
     fig.tight_layout(rect=(0, 0, 0.89, 1))

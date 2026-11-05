@@ -26,7 +26,7 @@ cell field and a ghost ring instead of a padded copy and a primitive copy (`get_
 Ordered by measured wall-time share; bit-identity is kept unless stated.
 
 1. **Fuse the later Runge-Kutta stage updates into the residual.** The first stage cannot be fused (its `dt` needs the wave speed of the
-   whole sweep) and `axpy` is that stage (7 % of a step). Only the SSP-RK2 combine (5 % of a step; the RK3 / RK4 combines likewise)
+   whole sweep) and `axpy` is that stage (7 % of a step). Only the SSP-RK2 combine (5 % of a step; the RK3 combine likewise)
    can be applied row by row after the residual of that row, if the residual reads only the old stage values. Realistic gain 2-4 %;
    every residual path (MUSCL, first order, viscous accumulate, body force, sources, IBM) must write its rows first. Not worth the
    invasiveness on its own.

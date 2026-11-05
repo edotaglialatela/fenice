@@ -19,7 +19,7 @@ struct StepResult {
 };
 
 // Available time integrators.
-enum class TimeSchemeType { ExplicitEuler, SSPRK2, RungeKutta4, SSPRK3 };
+enum class TimeSchemeType { ExplicitEuler, SSPRK2, SSPRK3 };
 
 // Scheme from its GUI label ("SSP Runge-Kutta 2") or alias ("ssprk2").
 TimeSchemeType parse_time_scheme(const std::string& s);
@@ -53,7 +53,7 @@ public:
     double stage_time = 0.0;
 
 protected:
-    Field R1_, R2_, R3_, R4_, tmp_;
+    Field R1_, R2_, R3_, tmp_;
 };
 
 // First-order forward Euler: U^{n+1} = U^n + dt R(U^n).
@@ -83,16 +83,6 @@ public:
     double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
     std::vector<double> stage_weights() const override { return {1.0 / 6.0, 1.0 / 6.0, 2.0 / 3.0}; }
     std::vector<double> stage_offsets() const override { return {0.0, 1.0, 0.5}; }
-};
-
-// Classical four-stage Runge-Kutta, 4th order.
-class RungeKutta4 : public TimeScheme {
-public:
-    using TimeScheme::TimeScheme;
-    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max = 0.0) override;
-    double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
-    std::vector<double> stage_weights() const override { return {1.0 / 6.0, 1.0 / 3.0, 1.0 / 3.0, 1.0 / 6.0}; }
-    std::vector<double> stage_offsets() const override { return {0.0, 0.5, 0.5, 1.0}; }
 };
 
 // Factory: the integrator for `type`.

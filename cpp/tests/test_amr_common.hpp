@@ -208,7 +208,7 @@ struct CellSetup {
     }
 };
 
-inline const char* const kSchemeNames[3] = {"Explicit Euler", "SSP Runge-Kutta 2", "Runge-Kutta 4"};
+inline const char* const kSchemeNames[3] = {"Explicit Euler", "SSP Runge-Kutta 2", "SSP Runge-Kutta 3"};
 
 inline double cell_total(const CellMesh& m, int q) {
     double s = 0.0;

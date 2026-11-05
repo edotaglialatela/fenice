@@ -230,26 +230,26 @@ variable (in brackets), and the density error on the 128² grid; $t = 0.5$:
 | Walls, Euler | MUSCL VL, SSP-RK2 | Linf | -0.07, 0.31, 0.52 (u), 1.85e-02 | 2.01, 1.63, 1.47 (v), 5.06e-04 |
 | Walls, Euler | WENO3-Z, SSP-RK3 | L2 | 0.97, 1.10, 1.20 (u), 4.98e-04 | 2.14, 2.14, 2.45 (v), 5.11e-05 |
 | Walls, Euler | WENO3-Z, SSP-RK3 | Linf | -0.00, 0.34, 0.51 (u), 1.88e-02 | 1.62, 1.79, 1.78 (v), 3.22e-04 |
-| Walls, Euler | WENO5-Z, RK4 | L2 | 1.00, 1.12, 1.20 (u), 5.14e-04 | 2.17, 1.95, 1.99 (p), 4.36e-05 |
-| Walls, Euler | WENO5-Z, RK4 | Linf | 0.21, 0.38, 0.52 (u), 1.90e-02 | 1.55, 2.04, 1.95 (u), 2.36e-04 |
+| Walls, Euler | WENO5-Z, SSP-RK3 | L2 | 1.00, 1.12, 1.20 (u), 5.14e-04 | 2.17, 1.95, 1.99 (p), 4.36e-05 |
+| Walls, Euler | WENO5-Z, SSP-RK3 | Linf | 0.21, 0.38, 0.52 (u), 1.90e-02 | 1.55, 2.04, 1.95 (u), 2.36e-04 |
 | Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.61, 1.35, 1.09 (rho), 4.93e-04 | 2.40, 2.04, 1.95 (v), 6.62e-05 |
 | Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.79, 0.83, 0.83 (rho), 5.16e-03 | 2.64, 1.80, 1.90 (v), 3.73e-04 |
 | Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.80, 1.38, 1.04 (rho), 5.11e-04 | 2.54, 2.24, 2.03 (v), 4.74e-05 |
 | Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 1.11, 0.78, 0.74 (rho), 5.50e-03 | 1.96, 1.83, 1.86 (p), 4.54e-04 |
-| Walls, Navier-Stokes | WENO5-Z, RK4 | L2 | 1.21, 1.27, 1.02 (rho), 5.18e-04 | 1.87, 1.97, 2.00 (p), 2.86e-05 |
-| Walls, Navier-Stokes | WENO5-Z, RK4 | Linf | 0.61, 0.81, 0.73 (rho), 5.58e-03 | 1.93, 1.96, 1.99 (p), 6.95e-05 |
+| Walls, Navier-Stokes | WENO5-Z, SSP-RK3 | L2 | 1.21, 1.27, 1.02 (rho), 5.18e-04 | 1.87, 1.97, 2.00 (p), 2.86e-05 |
+| Walls, Navier-Stokes | WENO5-Z, SSP-RK3 | Linf | 0.61, 0.81, 0.73 (rho), 5.58e-03 | 1.93, 1.96, 1.99 (p), 6.95e-05 |
 | Outflow, Euler | MUSCL VL, SSP-RK2 | L2 | 1.88, 1.63, 1.23 (p), 2.78e-04 | 1.94, 1.50, 1.15 (v), 2.59e-04 |
 | Outflow, Euler | MUSCL VL, SSP-RK2 | Linf | 1.37, 1.00, 0.72 (p), 2.45e-03 | 1.84, 1.49, 0.90 (u), 1.41e-03 |
 | Outflow, Euler | WENO3-Z, SSP-RK3 | L2 | 1.38, 1.30, 1.35 (v), 1.64e-04 | 1.99, 2.15, 2.32 (u), 5.85e-05 |
 | Outflow, Euler | WENO3-Z, SSP-RK3 | Linf | 0.87, 1.13, 0.69 (p), 2.70e-03 | 1.60, 1.98, 1.83 (u), 4.85e-04 |
-| Outflow, Euler | WENO5-Z, RK4 | L2 | 1.10, 1.19, 1.16 (p), 1.88e-04 | 2.02, 1.98, 1.99 (u), 3.42e-05 |
-| Outflow, Euler | WENO5-Z, RK4 | Linf | 0.34, 0.56, 0.69 (p), 2.77e-03 | 1.87, 1.83, 1.96 (u), 1.26e-04 |
+| Outflow, Euler | WENO5-Z, SSP-RK3 | L2 | 1.10, 1.19, 1.16 (p), 1.87e-04 | 2.02, 1.98, 1.99 (u), 3.42e-05 |
+| Outflow, Euler | WENO5-Z, SSP-RK3 | Linf | 0.34, 0.56, 0.69 (p), 2.77e-03 | 1.87, 1.83, 1.96 (u), 1.26e-04 |
 | Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 2.10, 1.55, 1.01 (u), 1.66e-04 | 2.00, 1.47, 0.99 (u), 9.57e-05 |
 | Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 1.62, 1.18, 0.73 (u), 2.93e-03 | 1.58, 1.19, 0.76 (u), 7.13e-04 |
 | Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 2.17, 1.42, 1.20 (u), 1.85e-04 | 2.04, 1.71, 2.48 (u), 4.84e-05 |
 | Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.96, 0.79, 0.81 (rho), 3.37e-03 | 1.17, 2.04, 2.09 (p), 5.84e-04 |
-| Outflow, Navier-Stokes | WENO5-Z, RK4 | L2 | 1.39, 1.21, 1.06 (u), 1.88e-04 | 2.08, 2.02, 1.99 (rho), 1.94e-05 |
-| Outflow, Navier-Stokes | WENO5-Z, RK4 | Linf | 0.58, 0.79, 0.79 (rho), 3.44e-03 | 2.33, 1.78, 1.88 (v), 5.78e-05 |
+| Outflow, Navier-Stokes | WENO5-Z, SSP-RK3 | L2 | 1.39, 1.21, 1.06 (u), 1.88e-04 | 2.08, 2.02, 1.99 (rho), 1.94e-05 |
+| Outflow, Navier-Stokes | WENO5-Z, SSP-RK3 | Linf | 0.58, 0.79, 0.79 (rho), 3.44e-03 | 2.33, 1.78, 1.88 (v), 5.78e-05 |
 
 What it shows:
 
@@ -279,8 +279,8 @@ corners where two non-periodic sides meet.
 The steady source cannot test the time integration, so one more case has **travelling waves**: the time enters the
 phases of the solution, the source is $S = \partial U_m/\partial t + \nabla\cdot F(U_m)$ and its expressions use the
 variable `t`. The solver evaluates such a source at the **time of every stage**, in absolute simulation time (so a
-restarted run is unchanged): Explicit Euler at $t$, SSP-RK2 at $t$ and $t + \Delta t$, RK4 at $t$, twice
-$t + \Delta t/2$ and $t + \Delta t$. A source that does not use `t`
+restarted run is unchanged): Explicit Euler at $t$, SSP-RK2 at $t$ and $t + \Delta t$, SSP-RK3 at $t$,
+$t + \Delta t$ and $t + \Delta t/2$. A source that does not use `t`
 is still evaluated once.
 
 | Case (`--case`) | Equations | Default mesh |
@@ -289,12 +289,12 @@ is still evaluated once.
 
 The stage times are checked first by a **unit test** that does not depend on the spatial scheme: on a uniform state,
 with a cubic polynomial in $t$ as the density source, one step of each scheme must equal its own quadrature rule to
-$10^{-14}$ (Euler: $\Delta t\,f(t_0)$; SSP-RK2: the trapezoid rule; RK4: Simpson's rule, which integrates the cubic
+$10^{-14}$ (Euler: $\Delta t\,f(t_0)$; SSP-RK2: the trapezoid rule; SSP-RK3: Simpson's rule, which integrates the cubic
 exactly), starting from a non-zero
-$t_0$. Disabling the stage time of SSP-RK2 or RK4 makes it fail.
+$t_0$. Disabling the stage time of SSP-RK2 or SSP-RK3 makes it fail.
 
 `verification/mms_time.py` then measures the order on $32^2$ cells at $t = 0.2$, against a reference with a very
-small step (RK4 at CFL 0.0125), with first-order and with MUSCL space. The reference must itself converge to the
+small step (SSP-RK3 at CFL 0.00625), with first-order and with MUSCL space. The reference must itself converge to the
 exact solution as the mesh is refined, which is what catches a wrong $\partial U_m/\partial t$ term in the generator:
 a self-convergence in time alone would converge to the wrong solution. The expected orders were fixed before the
 first run.
@@ -310,19 +310,15 @@ first run.
 | Explicit Euler | MUSCL | 4.01e-03 | 1.52e-03 | 7.11e-04 | 3.48e-04 | 1.03 | [0.9, 1.1] | OK |
 | SSP-RK2 | 1st order | 1.55e-04 | 3.84e-05 | 9.56e-06 | 2.39e-06 | 2.00 | [1.8, 2.2] | OK |
 | SSP-RK2 | MUSCL | 1.30e-04 | 3.21e-05 | 8.01e-06 | 2.01e-06 | 2.00 | [1.8, 2.2] | OK |
-| RK4 | 1st order | 4.95e-07 | 8.89e-08 | 2.28e-08 | 5.49e-09 | 2.05 | [3.5, 4.5] | outside (explained) |
-| RK4 | MUSCL | 4.16e-06 | 8.67e-07 | 2.40e-07 | 6.60e-08 | 1.86 | [2.0, 4.5] | outside (explained) |
+| SSP-RK3 | 1st order | 7.38e-06 | 9.17e-07 | 1.16e-07 | 1.52e-08 | 2.92 | [2.5, 3.5] | OK |
+| SSP-RK3 | MUSCL | 1.73e-05 | 2.10e-06 | 3.66e-07 | 7.62e-08 | 2.26 | [2.0, 3.5] | OK |
 
 * **The reference is the solution of the equations.** Its error against the exact solution falls on 16², 32², 64²
   at 0.8 (first-order space) and 2.1 (MUSCL).
 * **Explicit Euler, SSP-RK2:** orders 1.0 and 2.0 for both spatial schemes, as expected.
-* **RK4 reaches order 2, not 4 (outside its band, explained, band not moved).** It does so with first-order space as
-  well, and on 16², 32² and 64² alike: the error shrinks with $h$ (3.6e-6, 5.0e-7, 7.5e-8) but the order does not
-  improve. The right-hand side of the full scheme is not smooth enough for a fourth-order integrator: the Einfeldt wave
-  speed bounds of HLLC are a $\min$ / $\max$ (and so are the limiters). This is consistent with the data, not proven;
-  the stage times of RK4 are verified exactly by the unit test above. A floor of 1.8, set after the run, keeps a worse
-  loss from passing. In practice RK4 is still far more accurate than SSP-RK2 at the same CFL (5·10⁻⁷ against
-  1.5·10⁻⁴ at CFL 0.4), but it does not gain four orders of accuracy.
+* **SSP-RK3:** order 3.0 and 2.9 with first-order space. With MUSCL the order falls from 3.0 (CFL 0.4 to 0.2) to 2.3 at the
+  finest pair, inside its band: the right-hand side with the limiter (a min / max, not smooth at extrema) limits the order
+  of a high-order integrator. This is consistent with the data, not proven.
 
 ## What it does not verify
 

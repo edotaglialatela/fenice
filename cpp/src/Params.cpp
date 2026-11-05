@@ -326,7 +326,7 @@ SimParams SimParams::from(const Params& p) {
             throw std::invalid_argument("reconstruction = weno5 is serial for now (an MPI halo is two cells deep, WENO5 reads three); use weno3 with MPI");
         if (ts == "ssp runge-kutta 2" || ts == "ssprk2" || ts == "rk2")
             throw std::invalid_argument("reconstruction = " + s.reconstruction + " is not used with SSP Runge-Kutta 2 (use SSP "
-                                        "Runge-Kutta 3 or Runge-Kutta 4)");
+                                        "Runge-Kutta 3)");
     }
     if (s.boundary_order != 1 && s.boundary_order != 2) throw std::invalid_argument("boundary_order must be 1 or 2");
     if (s.boundary_order == 2) {

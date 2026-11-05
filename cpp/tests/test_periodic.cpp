@@ -231,7 +231,7 @@ double f_poly(double t) { return 1.0 + 2.0 * t + 3.0 * t * t + 4.0 * t * t * t; 
 
 TEST(time_dependent_source_stage_times) {
     // Each scheme must evaluate the source at ITS stage times, started from an arbitrary absolute time t0 (resume):
-    // Euler at t0; SSP-RK2 (Heun) at t0 and t0 + dt, the trapezoid rule; RK4 at t0, twice t0 + dt/2, t0 + dt, which
+    // Euler at t0; SSP-RK2 (Heun) at t0 and t0 + dt, the trapezoid rule; SSP-RK3 at t0, t0 + dt, t0 + dt/2 with weights 1/6, 1/6, 2/3, which
     // is Simpson's rule. This is independent of the spatial scheme and of the limiter.
     const char* f = "1 + 2*t + 3*t*t + 4*t*t*t";
     const double t0 = 0.37;
@@ -240,7 +240,7 @@ TEST(time_dependent_source_stage_times) {
     CHECK_NEAR(rho - 1.0, dt * f_poly(t0), 1e-14);
     rho = density_after_step("SSP Runge-Kutta 2", f, t0, &dt);
     CHECK_NEAR(rho - 1.0, 0.5 * dt * (f_poly(t0) + f_poly(t0 + dt)), 1e-14);
-    rho = density_after_step("Runge-Kutta 4", f, t0, &dt);
+    rho = density_after_step("SSP Runge-Kutta 3", f, t0, &dt);
     CHECK_NEAR(rho - 1.0, dt / 6.0 * (f_poly(t0) + 4.0 * f_poly(t0 + 0.5 * dt) + f_poly(t0 + dt)), 1e-14);
     // Simpson integrates a cubic exactly: the step is the integral of f over [t0, t0 + dt]
     const auto F = [](double t) { return t + t * t + t * t * t + t * t * t * t; };

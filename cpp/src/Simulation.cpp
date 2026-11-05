@@ -505,7 +505,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         if (verbose && p.reconstruction != "muscl") std::printf("[SOLVER] %s reconstruction active\n", p.reconstruction.c_str());
         if (verbose && parse_time_scheme(p.time_scheme) == TimeSchemeType::ExplicitEuler)
             std::printf("[WARNING] MUSCL with Explicit Euler is unstable for smooth waves (amplitudes grow): "
-                        "use SSP Runge-Kutta 2 or Runge-Kutta 4\n");
+                        "use SSP Runge-Kutta 2 or 3\n");
     } else {
         muscl.reset();
         if (verbose) std::printf("[SOLVER] 1st-Order Spatial (Godunov) active\n");

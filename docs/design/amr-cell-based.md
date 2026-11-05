@@ -77,7 +77,7 @@ level jump uses its unreconstructed state; Morton keys for the domain decomposit
   level, with the coarse neighbour frozen at its start-of-step state (no time interpolation, like the reference design).
 * Flux replacement instead of reflux: the fluxes of a coarse-fine face are computed on the fine side at every fine stage and
   accumulated with the time-scheme stage weights `b_i` (new `TimeScheme::stage_weights()`: Euler `[1]`, SSP-RK2 `[1/2, 1/2]`,
-  RK4 `[1/6, 1/3, 1/3, 1/6]`) into a per-(coarse cell, side) register. The coarse cell uses the accumulated time-average
+  SSP-RK3 `[1/6, 1/6, 2/3]`) into a per-(coarse cell, side) register. The coarse cell uses the accumulated time-average
   flux for that side in every stage of its own advance, so the coarse update contains exactly the integral of the fine
   fluxes: conservation to roundoff for every scheme (the patch design is exact only for Explicit Euler).
 * **Plumbing to add (it does not exist on the AMR path):** `advance_fixed_dt` takes no current time and never sets
@@ -122,7 +122,7 @@ outlet (tangential derivatives from neighbours).
 1. All uniform references bitwise (the 32 non-AMR ones of the 38 in `regression.py`; the 6 AMR ones change, see below),
    serial and MPI.
 2. A tree with only level-0 leaves equals the uniform solver bitwise (residual and steps), for every BC type.
-3. Conservation to roundoff across level jumps, for Euler / SSP-RK2 / RK4, viscous included.
+3. Conservation to roundoff across level jumps, for Euler / SSP-RK2 / SSP-RK3, viscous included.
 4. MPI == serial bitwise for any rank count; results independent of the OpenMP thread count.
 5. `fp:precise`, no FMA contraction, `kOmpMinWork`, OpenMP 2.0 rules (thread-local max + critical).
 
@@ -139,7 +139,7 @@ body kept at max level (`amr_body_kept_at_max_level`), marking, buffer and the a
 | P0 | Baseline numbers from the patch AMR on `main` (cells, wall time, errors, MPI scaling) and the flagged-versus-held measurement | numbers recorded in section 5 of this document (`results/` is gitignored) |
 | P1 | Leaf arrays, keys, neighbour lookup, faces + CSR, refine/derefine, ripple 2:1 | tests: faces cover every side exactly, 2:1, conservative refine/derefine, Morton order |
 | P2 | Convective residual on faces (Godunov, MUSCL, all limiters, Riemann variants, all BC types incl. periodic) | level-0 tree == uniform residual bitwise; free stream across jumps exact; **wall-time gate (section 5)** |
-| P3 | Subcycling with flux replacement, stage weights | conservation to roundoff (Euler/RK2/RK4); level-0 steps == uniform steps; Sod vs exact |
+| P3 | Subcycling with flux replacement, stage weights | conservation to roundoff (Euler/RK2/RK3); level-0 steps == uniform steps; Sod vs exact |
 | P4 | Viscous, body force, sources, IBM, NRBC | same tests with physics; MMS on an adaptive grid (steady and unsteady) |
 | P5 | Indicator, buffer, balance, remesh, `amr_init_levels`, IBM body at max level, hot start | tests of marking/transfer; Sod and airfoil run |
 | P6 | MPI | bitwise vs serial on 1..7 ranks; per-level balance report |
@@ -255,7 +255,7 @@ history of the flagged region). The threshold is the user's decision (section 7,
 
 ## 10. P3 as built (`CellAdvance`, `cpp/include/fv/CellAdvance.hpp`)
 * `TimeScheme::stage_weights()` / `stage_offsets()` (new virtuals, shared code; the patch engine is untouched): Euler `[1]`/`[0]`, SSP-RK2
-  `[1/2,1/2]`/`[0,1]`, RK4 `[1/6,1/3,1/3,1/6]`/`[0,1/2,1/2,1]`. `advance_fixed_dt` is unchanged; `CellAdvance` sets `stage_time` itself
+  `[1/2,1/2]`/`[0,1]`, SSP-RK3 `[1/6,1/6,2/3]`/`[0,1,1/2]`. `advance_fixed_dt` is unchanged; `CellAdvance` sets `stage_time` itself
   in the residual callback (`t`, `t + 0.5 dt`, `t + dt`, as `step()` does), which is what the unsteady sources of P4 need.
 * `CellAdvance::step(dt, t)`: level l = one ODE system on its contiguous run of leaves, `advance_fixed_dt` on a copy of the slice, whose
   stage states are written into `mesh.U` for the neighbours, the final result copied back after the scheme returns. Finer level first,
@@ -268,11 +268,11 @@ history of the flagged region). The threshold is the user's decision (section 7,
   (through its virtual cells and the first-order stencil of its same-level faces) the finer leaves at the END of the coarse step. The fluxes at
   the jump are exact in the time average (register), the reconstruction stencils are not time-consistent. Measured on Sod with waves crossing the jumps
   (below): no visible effect on the error, no overshoot.
-* Tests: `celladvance_level0_steps_match_uniform_steps_bitwise` (Euler / RK2 / RK4, three boundary sets incl. periodic, 9x7 and 96x64, level-0
+* Tests: `celladvance_level0_steps_match_uniform_steps_bitwise` (Euler / RK2 / SSP-RK3, three boundary sets incl. periodic, 9x7 and 96x64, level-0
   and a `max_level = 2` mesh without refinement; 4 steps equal to `advance_fixed_dt` of the uniform solver bit for bit),
   `celladvance_conserves_across_level_jumps_and_the_control_fails` (random 3-level periodic mesh, 6 steps, relative error < 1e-13 for all three
   schemes; with the test hook that makes the coarse side read the last computed flux it is > 1e-8), `celladvance_free_stream_and_stage_times`
-  (state unchanged bitwise for Euler / RK2, 1e-14 for RK4 whose weights sum to 1 only up to rounding; the sequence of (level, stage time) equals the
+  (state unchanged bitwise for Euler / RK2, 1e-14 for SSP-RK3 whose weights sum to 1 only up to rounding; the sequence of (level, stage time) equals the
   expected recursion bitwise), `celladvance_sod_on_a_static_refined_band` (bands fixed beforehand: AMR error <= 1.6 x the uniform-200 error and
   < 0.5 x the uniform-50 error, against the exact Riemann solution). Measured: L1(rho) uniform 50 (200 cells) 9.96e-3, uniform 200 (3 200 cells) 2.910e-3,
   AMR base 50 + 2 levels in a static band (2 384 cells) 2.917e-3. Changing the register weight by 2 % makes three of the tests fail.
@@ -549,7 +549,7 @@ refinement follows shocks and contacts tightly without a separate buffer paramet
 * Output: `.vtu` (single rank) or per-rank `.vtu` + `.pvtu` (`export_cells`), `AMR_Level` field; `fenice.read_vtu`. Checkpoint: leaf list, `U`, `t`, step, lagged wave-speed bound, `.pvd` collection;
   resume is bitwise, also with another rank count; hot start interpolates at the leaf centres. `dump_state` / `final.npz`: per-leaf `U` and `leaf_meta`.
 * **References.** The six AMR regression references were regenerated (their own commit) after the validation: each case against the uniform run at its finest level (relative L1 density difference
-  of the AMR run / of the base mesh: sod_1st 3.3e-3 / 1.8e-2, sod_muscl_init 1.1e-3 / 1.3e-2, square_rk4 1.2e-2 / 5.0e-2, sod_few_roots 3.1e-3 / 3.8e-2, naca0012 1.9e-4 / 5.6e-4), the Sod and
+  of the AMR run / of the base mesh: sod_1st 3.3e-3 / 1.8e-2, sod_muscl_init 1.1e-3 / 1.3e-2, square_rk2 1.0e-2 / 5.0e-2, sod_few_roots 3.1e-3 / 3.8e-2, naca0012 1.9e-4 / 5.6e-4), the Sod and
   airfoil studies through the CLI, MPI == serial bitwise on 1-7 ranks and bitwise restart. The other 32 references are unchanged and match.
 * **Studies through the CLI.** Sod, 10x2 base, 4 levels, remeshed every 2 steps: 2 312 leaves, L1 1.51e-2 (uniform 160x32: 5 120 cells, 1.43e-2; uniform 80x16: 2.20e-2). With the default remesh
   interval (10) the contact is under-resolved (848 leaves, 2.6e-2, and the criterion hardly matters), so the study sets 2. Airfoil, 192x96 + 2 levels, t = 6: 23 526 leaves, 14.2 s, rms error of

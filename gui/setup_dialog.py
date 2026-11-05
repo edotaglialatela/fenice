@@ -333,7 +333,7 @@ class SetupDialog(QDialog):
         self.combo_riemann = QComboBox()
         self.combo_riemann.addItems(["HLLC", "HLLC (Low-Mach Thornber)", "HLLC (Preconditioned)"])
         self.combo_time = QComboBox()
-        self.combo_time.addItems(["Explicit Euler", "SSP Runge-Kutta 2", "SSP Runge-Kutta 3", "Runge-Kutta 4"])
+        self.combo_time.addItems(["Explicit Euler", "SSP Runge-Kutta 2", "SSP Runge-Kutta 3"])
         self.input_cfl = QLineEdit("0.5")
         self.combo_limiter = QComboBox()
         self.combo_limiter.addItems(["Van Leer", "MC", "Koren", "Minmod"])
@@ -611,7 +611,7 @@ class SetupDialog(QDialog):
             if self.check_amr.isChecked():
                 errors.append("2nd-order boundary faces are not available with AMR yet: use 1st-order boundary faces or switch AMR off.")
         if self.check_amr.isChecked() and time == "SSP Runge-Kutta 3":
-            errors.append("AMR does not support SSP Runge-Kutta 3 yet (use SSP Runge-Kutta 2 or Runge-Kutta 4).")
+            errors.append("AMR does not support SSP Runge-Kutta 3 yet (use SSP Runge-Kutta 2).")
         if recon in ("weno3", "weno5"):
             name = self.combo_recon.currentText().split(" (")[0]
             if self.check_amr.isChecked():
@@ -619,9 +619,9 @@ class SetupDialog(QDialog):
             if recon == "weno5" and self.check_mpi.isChecked():
                 errors.append("WENO5-Z is serial for now (the MPI halo is two cells deep): use WENO3-Z or switch MPI off.")
             if time == "SSP Runge-Kutta 2":
-                errors.append(f"{name} cannot run with SSP Runge-Kutta 2 (rejected by the solver): use SSP Runge-Kutta 3 or Runge-Kutta 4.")
+                errors.append(f"{name} cannot run with SSP Runge-Kutta 2 (rejected by the solver): use SSP Runge-Kutta 3.")
             elif time == "Explicit Euler":
-                warnings.append(f"{name} with Explicit Euler is unstable at normal CFL (smoke test only): use SSP Runge-Kutta 3 or Runge-Kutta 4.")
+                warnings.append(f"{name} with Explicit Euler is unstable at normal CFL (smoke test only): use SSP Runge-Kutta 3.")
         return errors, warnings
 
     def _bad_time_schemes(self):

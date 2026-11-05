@@ -32,7 +32,7 @@ GRIDS = (16, 32, 64, 128)
 SCHEMES = {
     "muscl": ("MUSCL VL, SSP-RK2", ["use_muscl=true", "muscl_limiter=Van Leer", "time_scheme=SSP Runge-Kutta 2"]),
     "weno3": ("WENO3-Z, SSP-RK3", ["use_muscl=true", "reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"]),
-    "weno5": ("WENO5-Z, RK4", ["use_muscl=true", "reconstruction=weno5", "time_scheme=Runge-Kutta 4"]),
+    "weno5": ("WENO5-Z, SSP-RK3", ["use_muscl=true", "reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3"]),
 }
 BAND_L2, BAND_LINF = 1.7, 1.3
 

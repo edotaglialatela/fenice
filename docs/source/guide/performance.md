@@ -76,7 +76,7 @@ Time-loop wall time on a 16-thread workstation.
 | IBM cylinder 400×200 | 20 | 0.529 s | 0.127 s | 0.151 s | 4.2× |
 | Supersonic IBM 400×400 | 20 | 0.667 s | 0.173 s | 0.185 s | 3.9× |
 | Shu-Osher 4000×2 | 200 | 0.367 s | 0.248 s | 0.097 s | 1.5× |
-| Lid cavity RK4 128×128 | 20 | 0.157 s | 0.031 s | 0.043 s | 5.1× |
+| Lid cavity SSP-RK3 128×128 | 20 | 0.095 s | 0.029 s | 0.029 s | 3.3× |
 
 The Shu-Osher mesh is small (8 000 cells), so thread fork/join overhead weighs more and it
 scales least with threads; MPI strips suit it better.

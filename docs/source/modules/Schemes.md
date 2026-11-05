@@ -137,8 +137,8 @@ to about 2.5 whatever the units of the variable. The reconstruction is dimension
 formal order of a multi-dimensional run is limited by the quadrature and by the nonlinear flux evaluation at the faces to second order, whatever the
 one-dimensional order; the higher order shows as a smaller error constant.
 
-**Measured** (1-D entropy wave with exact cell-average data, one period, RK4, observed order between successive meshes):
-`weno3` with `weno_epsilon = 1e-4` converges at 3.0; `weno5` at 5.0 (CFL 0.1; at CFL 0.5 with SSP-RK3 the time error takes over
+**Measured** (1-D entropy wave with exact cell-average data, one period, SSP-RK3, observed order between successive meshes, $16\to128$ cells):
+`weno3` with `weno_epsilon = 1e-4` converges at 3.0 on the coarsest pair and 3.4 to 4.3 on the finer ones; `weno5` at 5.0 (CFL 0.1; at CFL 0.5 the time error takes over
 and the order falls to 3). The 2-D isentropic vortex at $256^2$: density error $6.4\cdot10^{-5}$ with MUSCL (MC),
 $4.8\cdot10^{-5}$ with `weno3` and $2.1\cdot10^{-6}$ with `weno5`. The 3-D Taylor-Green vortex at $64^3$, Re 1600:
 peak dissipation $-10.8\,\%$ (MUSCL), $-14.1\,\%$ (`weno3`) and $-0.2\,\%$ (`weno5`) from the reference value 0.0127. `weno5` takes
@@ -151,8 +151,8 @@ about 2 to 4 times as long as MUSCL for the same run (it also uses a three-stage
 * Faces on a non-periodic physical boundary keep the first-order ghost states, as with MUSCL.
 * There is no positivity limiter. The strong-shock suite (Sod with a 1000:1 pressure ratio, the 123 problem, the near-vacuum tube,
   Mach 10, 20 and 100 tubes, the Mach 10 cylinder, the odd-even test) is passed by `weno3` at the suite's CFL (0.4 for the tubes and the odd-even test, the case's own value for the cylinder) and by `weno5` at CFL 0.3.
-  `weno5` with SSP-RK3 diverges on the near-vacuum tube at CFL 0.4 (it is stable up to 0.3, and with RK4 at 0.5), so
-  use a lower CFL or RK4 for problems that open a vacuum. A run whose state diverges stops with an error naming the step.
+  `weno5` with SSP-RK3 diverges on the near-vacuum tube at CFL 0.4 (it is stable up to 0.3), so
+  use a lower CFL for problems that open a vacuum. A run whose state diverges stops with an error naming the step.
 * Not available with AMR, and not with SSP-RK2 (the combination is rejected when the case is read).
 
 ### References

@@ -153,7 +153,7 @@ def main():
         profile_rows = []
         assumed_bytes = {"flux": 120, "padded copy": 120, "viscous conversion": 120,
                          "viscous sweep": 160, "update axpy": 160, "update SSP-RK2": 160,
-                         "update SSP-RK3": 160, "update RK4": 160}
+                         "update SSP-RK3": 160}
         for name in a.schemes:
             opts, _ = SCHEMES[name]
             for t in a.threads:

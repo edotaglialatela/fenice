@@ -42,14 +42,14 @@ except FileNotFoundError as e:
 CASES = {
     "sod_1st_euler":       ("Sod Shock Tube", dict(nx=100, ny=4, t_end=0.05)),
     "sod_muscl_vl_rk2":    ("Sod Shock Tube", dict(nx=100, ny=4, t_end=0.05, use_muscl=True, time_scheme="SSP Runge-Kutta 2")),
-    "sod_muscl_mc_rk4_lm": ("Sod Shock Tube", dict(nx=80, ny=4, t_end=0.05, use_muscl=True, muscl_limiter="MC",
-                                                   time_scheme="Runge-Kutta 4", riemann_solver="HLLC (Low-Mach Thornber)")),
+    "sod_muscl_mc_rk3_lm": ("Sod Shock Tube", dict(nx=80, ny=4, t_end=0.05, use_muscl=True, muscl_limiter="MC",
+                                                   time_scheme="SSP Runge-Kutta 3", riemann_solver="HLLC (Low-Mach Thornber)")),
     "sod_koren_precond":   ("Sod Shock Tube", dict(nx=80, ny=4, t_end=0.05, use_muscl=True, muscl_limiter="Koren",
                                                    riemann_solver="HLLC (Preconditioned)")),
     "sod_stiffened_grav":  ("Sod Shock Tube", dict(nx=60, ny=6, t_end=0.02, eos_type="Stiffened Gas", gamma=4.4,
                                                    p_inf=0.5, use_bodyforce=True, gx=0.3, gy=-1.0)),
     "shu_osher":           ("Shu-Osher Test", dict(nx=200, t_end=0.2)),
-    "cavity_rk4_visc":     ("Lid Driven Cavity", dict(nx=20, ny=20, t_end=0.2, use_muscl=True)),
+    "cavity_rk3_visc":     ("Lid Driven Cavity", dict(nx=20, ny=20, t_end=0.2, use_muscl=True)),
     "cavity_periodic_x":   ("Lid Driven Cavity", dict(nx=16, ny=12, t_end=0.1, bc_left="Periodic", bc_right="Periodic")),
     "poiseuille_euler":    ("Poiseuille Flow", dict(nx=30, ny=10, t_end=1.0)),
     "cylinder_ibm_visc":   ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False)),
@@ -62,9 +62,9 @@ CASES = {
     "amr_sod_muscl_init":  ("Sod Shock Tube", dict(nx=64, ny=16, Ly=0.25, t_end=0.15, use_amr=True,
                                                    amr_max_level=2, amr_refine_every=3, use_muscl=True,
                                                    amr_init_levels=2)),
-    "amr_square_rk4":      ("Sod Shock Tube", dict(Lx=1.0, Ly=1.0, nx=32, ny=32, t_end=0.4, use_amr=True,
+    "amr_square_rk2":      ("Sod Shock Tube", dict(Lx=1.0, Ly=1.0, nx=32, ny=32, t_end=0.4, use_amr=True,
                                                    amr_max_level=3, amr_refine_every=2, amr_init_levels=1,
-                                                   time_scheme="Runge-Kutta 4")),
+                                                   time_scheme="SSP Runge-Kutta 2")),
     # A tiny base mesh: under MPI most ranks own few or no leaves at the coarse levels (empty ranks, small halos)
     "amr_sod_few_roots":   ("Sod Shock Tube", dict(Lx=1.0, nx=32, ny=4, Ly=0.125, t_end=0.15, use_amr=True,
                                                    amr_max_level=3, amr_refine_every=2)),
@@ -78,7 +78,7 @@ CASES = {
     "mms_euler_xdecomp":   ("Manufactured Solution Euler", dict(nx=32, ny=6, t_end=0.1)),
     "mms_ns_3d":           ("Manufactured Solution 3D", dict(nx=12, ny=12, nz=12, t_end=0.05)),
     "mms_walls":           ("Manufactured Solution Walls", dict(nx=24, ny=24, t_end=0.1)),
-    "mms_unsteady_rk4":    ("Manufactured Solution Unsteady Euler", dict(nx=16, ny=16, t_end=0.1, time_scheme="Runge-Kutta 4")),
+    "mms_unsteady_rk3":    ("Manufactured Solution Unsteady Euler", dict(nx=16, ny=16, t_end=0.1, time_scheme="SSP Runge-Kutta 3")),
     "mms_unsteady_rk2":    ("Manufactured Solution Unsteady Euler", dict(nx=16, ny=16, t_end=0.1, time_scheme="SSP Runge-Kutta 2")),
     "mms_outflow_xdecomp": ("Manufactured Solution Outflow", dict(nx=32, ny=6, t_end=0.1)),
     # Added 2026-10-20 (C++ references, validated against the exact solutions)
@@ -120,11 +120,11 @@ CASES = {
     "riemann2d_c6_32":     ("riemann2d:6", dict(nx=32, ny=32, use_muscl=True, muscl_limiter="MC",
                                                time_scheme="SSP Runge-Kutta 2")),
     # WENO-Z reconstruction (order checked by the entropy-wave study; these pin the implementation): WENO3 in 2-D and 3-D
-    # (also on MPI ranks: the stencil is as deep as MUSCL's) and WENO5 (serial), with the SSP-RK3 / RK4 integrators
+    # (also on MPI ranks: the stencil is as deep as MUSCL's) and WENO5 (serial), with the SSP-RK3 integrator
     "vortex_weno3_rk3":    ("Isentropic Vortex", dict(nx=48, ny=48, t_end=1.0, use_muscl=True, reconstruction="weno3",
                                                   time_scheme="SSP Runge-Kutta 3", cfl=0.4)),
-    "vortex_weno5_rk4":    ("Isentropic Vortex", dict(nx=48, ny=48, t_end=1.0, use_muscl=True, reconstruction="weno5",
-                                                  time_scheme="Runge-Kutta 4", cfl=0.4, use_mpi=False)),
+    "vortex_weno5_rk3":    ("Isentropic Vortex", dict(nx=48, ny=48, t_end=1.0, use_muscl=True, reconstruction="weno5",
+                                                  time_scheme="SSP Runge-Kutta 3", cfl=0.4, use_mpi=False)),
     "tgv3d_weno3_rk3":     ("Taylor-Green Vortex 3D", dict(nx=16, ny=16, nz=16, t_end=1.0, use_muscl=True,
                                                        reconstruction="weno3", time_scheme="SSP Runge-Kutta 3", cfl=0.4)),
     "tgv3d_weno5_rk3":     ("Taylor-Green Vortex 3D", dict(nx=16, ny=16, nz=16, t_end=0.5, use_muscl=True,
@@ -140,9 +140,9 @@ CASES = {
     "cavity3d_noslip_z_b2": ("Lid Driven Cavity", dict(nx=10, ny=10, nz=6, Lz=1.0, t_end=0.1, bc_front="no_slip",
                                                   bc_back="no_slip", use_muscl=True, boundary_order=2)),
     "cavity_weno5_b2":    ("Lid Driven Cavity", dict(nx=20, ny=20, t_end=0.2, use_muscl=True, reconstruction="weno5",
-                                                 time_scheme="Runge-Kutta 4", boundary_order=2, use_mpi=False)),
+                                                 time_scheme="SSP Runge-Kutta 3", boundary_order=2, use_mpi=False)),
     "cavity3d_weno5_b2":  ("Lid Driven Cavity", dict(nx=12, ny=12, nz=8, Lz=1.0, t_end=0.1, bc_front="no_slip", bc_back="no_slip",
-                                                 use_muscl=True, reconstruction="weno5", time_scheme="Runge-Kutta 4",
+                                                 use_muscl=True, reconstruction="weno5", time_scheme="SSP Runge-Kutta 3",
                                                  boundary_order=2, use_mpi=False)),
     "cavity_xdecomp_b2":   ("Lid Driven Cavity", dict(nx=40, ny=6, t_end=0.1, use_muscl=True, boundary_order=2)),
     "cavity3d_xdecomp_b2": ("Lid Driven Cavity", dict(nx=24, ny=6, nz=6, Lz=1.0, t_end=0.1, bc_front="no_slip",
@@ -150,11 +150,11 @@ CASES = {
 }
 # Cases also run under MPI (AMR: replicated mesh, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
-MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk4_visc", "cavity_periodic_x", "poiseuille_euler",
+MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk3_visc", "cavity_periodic_x", "poiseuille_euler",
              "cylinder_ibm_visc", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
-             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk4", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk4", "mms_unsteady_rk2",
+             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
              "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2", "cavity3d_noslip_z_b2", "cavity_xdecomp_b2", "cavity3d_xdecomp_b2"]
 

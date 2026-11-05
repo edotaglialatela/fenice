@@ -574,12 +574,12 @@ TEST(time_schemes_linear_decay) {
         return 1.0;
     };
     const double exact = std::exp(-0.1);
-    for (TimeSchemeType tt : {TimeSchemeType::ExplicitEuler, TimeSchemeType::SSPRK2, TimeSchemeType::RungeKutta4}) {
+    for (TimeSchemeType tt : {TimeSchemeType::ExplicitEuler, TimeSchemeType::SSPRK2, TimeSchemeType::SSPRK3}) {
         auto ts = make_time_scheme(tt, 0.1);
         Field U(1, State{1, 1, 1, 1});
         const StepResult r = ts->step(U, res, 1.0, 0.0, 10.0);   // dt = cfl*min_delta/S = 0.1
         CHECK_NEAR(r.dt, 0.1, 1e-9);
-        const double tol = tt == TimeSchemeType::ExplicitEuler ? 1e-2 : (tt == TimeSchemeType::SSPRK2 ? 1e-3 : 1e-7);
+        const double tol = tt == TimeSchemeType::ExplicitEuler ? 1e-2 : (tt == TimeSchemeType::SSPRK2 ? 1e-3 : 1e-5);
         CHECK_NEAR(U[0][0], exact, tol);
     }
     // Step clamped to t_max
@@ -906,10 +906,10 @@ TEST(time_scheme_stages) {
     };
     Field U(2, State{1, 1, 1, 1});
     calls = 0;
-    const StepResult r4 = RungeKutta4(0.5).step(U, res, 1.0, 0.0, 10.0);
-    CHECK(calls == 4);
-    CHECK(r4.s_max == 3.0);                          // max over the stages
-    CHECK_NEAR(r4.dt, 0.5 / (1.0 + 1e-10), 1e-12);   // dt from the first stage
+    const StepResult r3 = SSPRK3(0.5).step(U, res, 1.0, 0.0, 10.0);
+    CHECK(calls == 3);
+    CHECK(r3.s_max == 3.0);                          // max over the stages
+    CHECK_NEAR(r3.dt, 0.5 / (1.0 + 1e-10), 1e-12);   // dt from the first stage
     calls = 0;
     SSPRK2(0.5).step(U, res, 1.0, 0.0, 10.0);
     CHECK(calls == 2);

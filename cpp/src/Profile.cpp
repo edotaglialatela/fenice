@@ -27,7 +27,7 @@ const char* section_name(Section s) {
                                           "share: engine",     "share: partition", "share: localize", "boundary",        "reconstruct",
                                           "flux",              "divergence",       "viscous",         "padded copy",     "padded corner fix",
                                           "viscous conversion", "viscous sweep",    "update axpy",     "update SSP-RK2",  "update SSP-RK3",
-                                          "update RK4",        "IBM forcing",      "body force",      "source",          "snapshot (VTK)",
+                                          "IBM forcing",      "body force",      "source",          "snapshot (VTK)",
                                           "checkpoint"};
     return names[static_cast<size_t>(s)];
 }

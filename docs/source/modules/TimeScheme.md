@@ -78,18 +78,6 @@ CFL limit as SSP-RK2 for the Euler step and is the integrator that goes with the
 ([Schemes]({{root}}modules/Schemes.html)): SSP-RK2 is second order in time and is refused with them. Three residual evaluations per step.
 The adaptive-mesh path does not take it yet.
 
-## RK4
-
-The classical four-stage scheme, 4th order in time:
-
-$$k_1 = \mathcal R(\mathbf U^n),\quad k_2 = \mathcal R\bigl(\mathbf U^n + \tfrac{\Delta t}2 k_1\bigr),\quad
-  k_3 = \mathcal R\bigl(\mathbf U^n + \tfrac{\Delta t}2 k_2\bigr),\quad k_4 = \mathcal R(\mathbf U^n + \Delta t\,k_3)$$
-
-$$\mathbf U^{n+1} = \mathbf U^n + \tfrac{\Delta t}{6}(k_1 + 2k_2 + 2k_3 + k_4)$$
-
-The linear-advection limit is $\mathrm{CFL} \le 2\sqrt2$; use $\mathrm{CFL} \le 1.2$ for
-compressible flow. RK4 costs four residual evaluations per step, against two for SSP-RK2.
-
 {{widget:timeScheme}}
 
 {{api}}

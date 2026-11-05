@@ -391,7 +391,7 @@ TEST(celladvance_free_stream_and_stage_times) {
         if (sc < 2)
             CHECK(drift == 0.0);   // zero residual in every stage: bitwise unchanged
         else
-            CHECK(drift < 1e-14);   // RK4's stage weights sum to 1 only up to rounding
+            CHECK(drift < 1e-14);   // the stage weights of SSP-RK3 sum to 1 only up to rounding
         // expected order of the stage evaluations: finer level first, two substeps, stage times as TimeScheme::step()
         const std::vector<double> off = ts->stage_offsets();
         std::vector<std::pair<int, double>> want;

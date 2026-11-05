@@ -28,7 +28,7 @@ GUI, validation scripts and full documentation.
 - **Physics:** ideal and stiffened-gas equations of state, Navier-Stokes viscous and heat
   fluxes, body forces, and an immersed boundary method (cylinder, sphere, or an airfoil from
   the NACA 4-digit formulas or a coordinate file), with lift / drag monitoring.
-- **Time integration:** Explicit Euler, SSP-RK2, SSP-RK3 and RK4.
+- **Time integration:** Explicit Euler, SSP-RK2 and SSP-RK3.
 - **Meshes:** uniform 2-D (`nz = 1`) or 3-D (`nz > 1`) grids, plus cell-based AMR in
   2-D with subcycling, conservative flux replacement and 2:1 balance.
 - **Boundary conditions:** slip and no-slip walls, moving walls, velocity and mass-flow

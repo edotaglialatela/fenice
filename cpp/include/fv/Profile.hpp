@@ -37,7 +37,6 @@ enum class Section {
     UpdateAxpy,         // time scheme: out = a + s * b
     UpdateSspCombine,   // time scheme: SSP-RK2 update
     UpdateSsp3Combine,  // time scheme: SSP-RK3 update
-    UpdateRk4Combine,   // time scheme: classical RK4 update
     IBMForcing,         // uniform mesh: immersed-boundary forcing of the input field
     BodyForce,          // uniform mesh: body force added to the residual
     Source,             // uniform mesh: source terms added to the residual
