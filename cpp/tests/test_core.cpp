@@ -1008,6 +1008,39 @@ TEST(checkpoint_edge_cases) {
     CHECK(c.load_hot_start(legacy).size() == 64);
 }
 
+TEST(npz_file_reads_chosen_rows_and_entries) {
+    const fs::path dir = tmp_dir() / "npzfile";
+    fs::create_directories(dir);
+    const std::string path = (dir / "a.npz").string();
+    std::vector<double> d(200 * 4);
+    for (size_t k = 0; k < d.size(); ++k) d[k] = 0.5 * static_cast<double>(k) + 1.0;
+    NpzArchive arch;
+    arch["U"] = NpyArray::from_doubles(d, {200, 4});
+    arch["t"] = NpyArray::from_double(2.5);
+    arch["step"] = NpyArray::from_int(17);
+    write_npz(path, arch);
+    const NpzFile f(path);
+    CHECK(f.has("U") && f.has("t") && !f.has("nothing"));
+    CHECK(f.read("t").scalar() == 2.5 && f.read("step").scalar() == 17.0);
+    CHECK(f.length("U") == 200);
+    const std::vector<int64_t> rows = {7, 8, 9, 3, 150, 151, 199, 0};   // runs and jumps, not sorted
+    int ncol = 0;
+    const std::vector<double> got = f.read_rows("U", rows, ncol);
+    CHECK(ncol == 4 && got.size() == rows.size() * 4);
+    bool same = true;
+    for (size_t k = 0; k < rows.size(); ++k)
+        for (int q = 0; q < 4; ++q) same = same && got[k * 4 + q] == d[static_cast<size_t>(rows[k]) * 4 + q];
+    CHECK(same);
+    CHECK(f.read("U").as_doubles() == d);
+    bool threw = false;
+    try {
+        f.read_rows("U", {200}, ncol);
+    } catch (const std::out_of_range&) {
+        threw = true;
+    }
+    CHECK(threw);
+}
+
 TEST(solution_mapping_properties) {
     const EOS eos = EOS::ideal(1.4);
     Field U(6 * 4);

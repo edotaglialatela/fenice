@@ -230,6 +230,14 @@ void CellParallel::build_share(const CellMesh& topo, const std::vector<int>& min
     }
 }
 
+void CellParallel::resume_share(const CellMesh& topo, const std::function<void(CellMesh&)>& fill) {
+    localized_ = false;
+    std::vector<int> mine;
+    owned_leaves(topo, mine);
+    build_share(topo, mine);
+    fill(mesh_);
+}
+
 int CellParallel::init_adapt(CellMesh& topo, CellAdaptor& ad, const std::function<void(CellMesh&)>& fill) {
     localized_ = false;
     std::vector<int> mine;

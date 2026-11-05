@@ -89,6 +89,29 @@ void write_npz(const std::string& path, const NpzArchive& arrays);
 // Reads archives written by numpy.savez (stored entries, zip64 aware).
 NpzArchive read_npz(const std::string& path);
 
+// An .npz file opened for reading parts of it: only the central directory is read; an entry, or chosen rows of a 2-D float64
+// entry, are read when asked (a restart of a distributed run reads the rows of its own leaves, not the whole state).
+class NpzFile {
+public:
+    explicit NpzFile(const std::string& path);
+    bool has(const std::string& key) const { return entries_.count(key) > 0; }
+    // The whole entry.
+    NpyArray read(const std::string& key) const;
+    // Length of the first axis of an entry (reads its header only).
+    int64_t length(const std::string& key) const;
+    // The rows `rows` (indices into the first axis, any order) of a 2-D float64 entry: ncol doubles per row, row after row, in the
+    // order of `rows`; ncol returns the number of columns.
+    std::vector<double> read_rows(const std::string& key, const std::vector<int64_t>& rows, int& ncol) const;
+
+private:
+    struct Entry {
+        uint64_t data = 0, size = 0;   // position and length of the .npy bytes in the file
+    };
+    const Entry& entry(const std::string& key) const;
+    std::string path_;
+    std::map<std::string, Entry> entries_;
+};
+
 // State field as an (n, ncomp) float64 array: ncomp = 4 ([rho, rho*u, rho*v, rho*E]) for
 // 2-D fields, kNVar (+ rho*w) for 3-D ones.
 NpyArray field_to_npy(const Field& U, int ncomp = 4);

@@ -707,4 +707,147 @@ NpzArchive read_npz(const std::string& path) {
     return out;
 }
 
+// ---------------------------------------------------------------------------
+// NpzFile: partial reads of an uncompressed archive
+// ---------------------------------------------------------------------------
+
+namespace {
+std::vector<uint8_t> read_at(std::ifstream& in, uint64_t off, uint64_t n, const std::string& path) {
+    std::vector<uint8_t> b(static_cast<size_t>(n));
+    in.clear();
+    in.seekg(static_cast<std::streamoff>(off), std::ios::beg);
+    if (n > 0) in.read(reinterpret_cast<char*>(b.data()), static_cast<std::streamsize>(n));
+    if (!in) throw std::runtime_error("Truncated npz file " + path);
+    return b;
+}
+}   // namespace
+
+NpzFile::NpzFile(const std::string& path) : path_(path) {
+    std::ifstream in(path, std::ios::binary);
+    if (!in) throw std::runtime_error("Cannot open " + path);
+    in.seekg(0, std::ios::end);
+    const uint64_t fsize = static_cast<uint64_t>(in.tellg());
+    if (fsize < 22) throw std::runtime_error("Not a zip archive: " + path);
+    const uint64_t tail = std::min<uint64_t>(fsize, 65557 + 22);
+    const std::vector<uint8_t> t = read_at(in, fsize - tail, tail, path);
+    size_t eocd = std::string::npos;
+    for (size_t k = t.size() - 22 + 1; k-- > 0;)
+        if (get(t, k, 4) == 0x06054b50) {
+            eocd = k;
+            break;
+        }
+    if (eocd == std::string::npos) throw std::runtime_error("No end-of-central-directory in " + path);
+    uint64_t entries = get(t, eocd + 10, 2), cd_size = get(t, eocd + 12, 4), cd_off = get(t, eocd + 16, 4);
+    if ((entries == 0xFFFF || cd_off == 0xFFFFFFFF) && eocd >= 20 && get(t, eocd - 20, 4) == 0x07064b50) {
+        const uint64_t z = get(t, eocd - 20 + 8, 8);
+        const std::vector<uint8_t> r = read_at(in, z, 56, path);
+        entries = get(r, 32, 8);
+        cd_size = get(r, 40, 8);
+        cd_off = get(r, 48, 8);
+    }
+    const std::vector<uint8_t> b = read_at(in, cd_off, cd_size, path);
+    size_t p = 0;
+    for (uint64_t e = 0; e < entries; ++e) {
+        if (get(b, p, 4) != 0x02014b50) throw std::runtime_error("Corrupt central directory in " + path);
+        const uint64_t method = get(b, p + 10, 2);
+        uint64_t csize = get(b, p + 20, 4), usize = get(b, p + 24, 4), loff = get(b, p + 42, 4);
+        const size_t nlen = static_cast<size_t>(get(b, p + 28, 2));
+        const size_t xlen = static_cast<size_t>(get(b, p + 30, 2));
+        const size_t clen = static_cast<size_t>(get(b, p + 32, 2));
+        const std::string name(reinterpret_cast<const char*>(&b[p + 46]), nlen);
+        size_t x = p + 46 + nlen;
+        const size_t xend = x + xlen;
+        while (x + 4 <= xend) {
+            const uint64_t id = get(b, x, 2), sz = get(b, x + 2, 2);
+            if (id == 0x0001) {
+                size_t y = x + 4;
+                if (usize == 0xFFFFFFFF) {
+                    usize = get(b, y, 8);
+                    y += 8;
+                }
+                if (csize == 0xFFFFFFFF) {
+                    csize = get(b, y, 8);
+                    y += 8;
+                }
+                if (loff == 0xFFFFFFFF) {
+                    loff = get(b, y, 8);
+                    y += 8;
+                }
+            }
+            x += 4 + static_cast<size_t>(sz);
+        }
+        if (method != 0) throw std::runtime_error("Compressed npz entries (np.savez_compressed) are not supported: " + name);
+        const std::vector<uint8_t> lh = read_at(in, loff, 30, path);
+        Entry en;
+        en.data = loff + 30 + get(lh, 26, 2) + get(lh, 28, 2);
+        en.size = csize;
+        if (en.data + en.size > fsize) throw std::runtime_error("Truncated npz entry " + name);
+        std::string key = name;
+        if (key.size() > 4 && key.compare(key.size() - 4, 4, ".npy") == 0) key.resize(key.size() - 4);
+        entries_[key] = en;
+        p += 46 + nlen + xlen + clen;
+    }
+}
+
+const NpzFile::Entry& NpzFile::entry(const std::string& key) const {
+    const auto it = entries_.find(key);
+    if (it == entries_.end()) throw std::out_of_range("No entry '" + key + "' in " + path_);
+    return it->second;
+}
+
+NpyArray NpzFile::read(const std::string& key) const {
+    const Entry& e = entry(key);
+    std::ifstream in(path_, std::ios::binary);
+    if (!in) throw std::runtime_error("Cannot open " + path_);
+    const std::vector<uint8_t> b = read_at(in, e.data, e.size, path_);
+    return parse_npy(b.data(), b.size());
+}
+
+namespace {
+// The .npy header of an entry: the array without data (descr, shape) and the offset of the data inside the entry.
+NpyArray npy_header(std::ifstream& in, uint64_t at, const std::string& path, uint64_t& data_off) {
+    const std::vector<uint8_t> h = read_at(in, at, 12, path);
+    if (std::memcmp(h.data(), "\x93NUMPY", 6) != 0) throw std::runtime_error("Not a .npy entry in " + path);
+    const uint64_t hlen = h[6] == 1 ? (h[8] | (h[9] << 8)) : (h[8] | (h[9] << 8) | (static_cast<uint64_t>(h[10]) << 16) | (static_cast<uint64_t>(h[11]) << 24));
+    const uint64_t off = h[6] == 1 ? 10 : 12;
+    data_off = off + hlen;
+    const std::vector<uint8_t> all = read_at(in, at, data_off, path);
+    return parse_npy(all.data(), all.size());
+}
+}   // namespace
+
+int64_t NpzFile::length(const std::string& key) const {
+    const Entry& e = entry(key);
+    std::ifstream in(path_, std::ios::binary);
+    if (!in) throw std::runtime_error("Cannot open " + path_);
+    uint64_t off = 0;
+    const NpyArray h = npy_header(in, e.data, path_, off);
+    return h.shape.empty() ? 1 : h.shape[0];
+}
+
+std::vector<double> NpzFile::read_rows(const std::string& key, const std::vector<int64_t>& rows, int& ncol) const {
+    const Entry& e = entry(key);
+    std::ifstream in(path_, std::ios::binary);
+    if (!in) throw std::runtime_error("Cannot open " + path_);
+    uint64_t off = 0;
+    const NpyArray h = npy_header(in, e.data, path_, off);
+    if (h.descr != "<f8" || h.shape.size() != 2) throw std::runtime_error("read_rows: '" + key + "' is not a 2-D float64 array");
+    ncol = static_cast<int>(h.shape[1]);
+    std::vector<double> out(rows.size() * static_cast<size_t>(ncol));
+    const uint64_t row_bytes = static_cast<uint64_t>(ncol) * 8;
+    size_t k = 0;
+    while (k < rows.size()) {
+        // a run of consecutive rows is one read
+        size_t m = k + 1;
+        while (m < rows.size() && rows[m] == rows[m - 1] + 1) ++m;
+        if (rows[k] < 0 || rows[m - 1] >= h.shape[0]) throw std::out_of_range("read_rows: a row outside '" + key + "'");
+        in.clear();
+        in.seekg(static_cast<std::streamoff>(e.data + off + static_cast<uint64_t>(rows[k]) * row_bytes), std::ios::beg);
+        in.read(reinterpret_cast<char*>(out.data() + k * static_cast<size_t>(ncol)), static_cast<std::streamsize>((m - k) * row_bytes));
+        if (!in) throw std::runtime_error("Truncated npz file " + path_);
+        k = m;
+    }
+    return out;
+}
+
 }   // namespace fv

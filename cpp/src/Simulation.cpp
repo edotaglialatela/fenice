@@ -763,7 +763,7 @@ void Simulation::initialize_field() {
         if (p.use_ibm) cell_engine->solid_reset(*cells, cells->U);
         mem_trace("init_adapt done");
     }
-    if (cell_par && !distributed_init) {
+    if (cell_par && !distributed_init && !share_resumed_) {
         cell_par->partition();
         print_halo_reach("initial mesh");
         if (!replicated_storage()) {
@@ -1652,13 +1652,51 @@ int Simulation::load_checkpoint() {
         std::printf("\n[WARNING] No checkpoint found in %s. Starting from zero.\n", path.c_str());
         return 0;
     }
-    const NpzArchive a = read_npz(path);
-    const bool adaptive_file = a.count("leaf_level") > 0;
+    const NpzFile file(path);
+    const bool adaptive_file = file.has("leaf_level");
+    // Several ranks keeping only their shares: the leaves (integers) give the topology every rank cuts its share from, and each rank
+    // reads only the state rows of its own leaves and their halo; the whole state and the whole mesh are never held
+    const bool share = adaptive_file && cells && cell_par && !replicated_storage();
+    NpzArchive a;
+    if (share) {
+        for (const char* key : {"t", "step", "S", "collection_time", "collection_file", "collection"})
+            if (file.has(key)) a[key] = file.read(key);
+    } else {
+        a = read_npz(path);
+    }
     if (adaptive_file != (cells != nullptr))
         throw std::runtime_error(std::string("The checkpoint ") + path + " is from " +
                                  (adaptive_file ? "an adaptive (AMR)" : "a uniform-mesh") + " run: resume it with use_amr " +
                                  (adaptive_file ? "on" : "off") + " (a uniform checkpoint can seed an AMR run with a hot start)");
-    if (cells) {
+    if (share) {
+        const auto ints = [&](const char* key) {
+            const std::vector<double> d = file.read(key).as_doubles();
+            return std::vector<int>(d.begin(), d.end());
+        };
+        {
+            std::vector<int> lv = ints("leaf_level"), li = ints("leaf_i"), lj = ints("leaf_j");
+            CellMesh topo(*cells);
+            topo.U = Field();
+            topo.set_faceless(true);
+            topo.assign_leaves(lv, li, lj, nullptr);   // sorts by (level, Morton) and checks that the leaves tile the domain
+            std::vector<int> file_row(static_cast<size_t>(topo.num_leaves()), -1);   // row of the checkpoint of each leaf of the topology
+            for (size_t r = 0; r < lv.size(); ++r) file_row[static_cast<size_t>(topo.find(lv[r], li[r], lj[r]))] = static_cast<int>(r);
+            lv = li = lj = std::vector<int>();
+            cell_par->resume_share(topo, [&](CellMesh& m) {
+                const size_t n = static_cast<size_t>(m.num_leaves());
+                std::vector<int64_t> rows(n);
+                for (size_t c = 0; c < n; ++c) rows[c] = file_row[static_cast<size_t>(topo.find(m.level[c], m.ci[c], m.cj[c]))];
+                int ncol = 0;
+                const std::vector<double> d = file.read_rows("U", rows, ncol);
+                if (ncol != 4 && ncol != kNVar) throw std::runtime_error("Expected an (n, 4) or (n, 5) state array");
+                m.U.assign(n, State{});
+                for (size_t c = 0; c < n; ++c)
+                    for (int q = 0; q < ncol; ++q) m.U[c][static_cast<size_t>(q)] = d[c * static_cast<size_t>(ncol) + static_cast<size_t>(q)];
+            });
+        }
+        share_resumed_ = true;
+        cell_speed_ = a.count("S") ? a.at("S").scalar() : 0.0;
+    } else if (cells) {
         const auto ints = [&](const char* key) {
             const std::vector<double> d = a.at(key).as_doubles();
             return std::vector<int>(d.begin(), d.end());

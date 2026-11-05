@@ -103,6 +103,9 @@ public:
     // refined to the initial levels); every rank builds its share of it directly, then the passes of CellAdaptor::init_adapt run
     // through remesh(), `fill` giving the initial condition on the share (all its leaves). Returns the number of passes.
     int init_adapt(CellMesh& topo, CellAdaptor& ad, const std::function<void(CellMesh&)>& fill);
+    // A resume without a whole mesh on any rank: `topo` is the faceless topology of the checkpoint's leaves; every rank builds its share
+    // of it (as init_adapt does) and `fill` sets the state of all the leaves of the share. No adaptation pass. Collective.
+    void resume_share(const CellMesh& topo, const std::function<void(CellMesh&)>& fill);
     // Test switches of remesh(): `shadow` makes the mesh and the engine of the whole new mesh after every remesh, cuts the share from
     // them and throws if the share built directly differs (mesh, tables, lists): O(N) per rank, for the tests only.
     // `first_extra`: rings added to the first reach tried (a negative one makes the retry run); `region_retries` counts the retries.
