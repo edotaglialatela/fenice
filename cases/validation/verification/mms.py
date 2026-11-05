@@ -157,7 +157,7 @@ def main():
     global GRIDS
     GRIDS = GRIDS_FULL if args.full else GRIDS_QUICK
     plt = study.use_style()
-    sols = [s for s in mms.default_solutions() if not s.unsteady]   # the unsteady one: mms_time.py
+    sols = [s for s in mms.default_solutions() if not s.unsteady and s.kind != "box"]   # unsteady: mms_time.py; box: mms_boundary.py
     failed = False
 
     print("[0/3] generator and case files ...")

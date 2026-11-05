@@ -42,6 +42,8 @@ stress cases give the same outcome as without it, and the Sod and Shu-Osher erro
 
 **Decision (2026-11-05):** D. No strong enough shocks in the cases of interest to enforce positivity; the guide keeps the CFL rule.
 
+**Estimate of the shock strength that would need it:** none within the range that matters. no shock is strong enough to need it. A shock of Mach 30000 into gas at rest (pressure ratio about 1e9) and a 1e10 pressure-ratio Sod tube keep rho and p positive and finite with MUSCL, `weno3` and `weno5` (the smallest pressure is 0.88 of the ambient one, an undershoot of `weno5`). What breaks a WENO scheme is an expansion into near-vacuum, not a shock: for two receding rarefactions with speed +-u, vacuum forms at u = 3.7 (for p = 0.4, rho = 1); `weno3` and MUSCL survive u = 20 (5.3 times that), `weno5` survives u = 8 (2.1 times) and diverges at u = 12 and 20 even at CFL 0.3. So the minimum strength is above Mach 3e4 (pressure ratio 1e9), far beyond any case of interest; the one real limit is a WENO5-Z run that expands into vacuum faster than about twice the vacuum-forming speed, which option B would address if it ever matters.
+
 ## 2. The corner where two walls meet
 
 **Result (2026-11-05).** `fenice.mms` has a `box` solution (left no-slip, right slip, bottom slip, top no-slip: the four corners are
