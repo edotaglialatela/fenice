@@ -616,8 +616,6 @@ class SetupDialog(QDialog):
         if self._boundary_order() == 2:
             if self.check_amr.isChecked():
                 errors.append("2nd-order boundary faces are not available with AMR yet: use 1st-order boundary faces or switch AMR off.")
-        if self.check_amr.isChecked() and time == "SSP Runge-Kutta 3":
-            errors.append("AMR does not support SSP Runge-Kutta 3 yet (use SSP Runge-Kutta 2).")
         if recon in ("weno3", "weno5"):
             name = self.combo_recon.currentText().split(" (")[0]
             if self.check_amr.isChecked():

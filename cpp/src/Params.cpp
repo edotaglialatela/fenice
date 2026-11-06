@@ -337,11 +337,6 @@ SimParams SimParams::from(const Params& p) {
         throw std::invalid_argument("amr_derefine_threshold must not exceed amr_refine_threshold (else a refined cell "
                                     "would be joined and refined again)");
     if (s.use_amr && s.amr_diffusion < 0) throw std::invalid_argument("amr_diffusion must be >= 0");
-    if (s.use_amr) {
-        const std::string ts = lower(s.time_scheme);
-        if (ts == "ssp runge-kutta 3" || ts == "ssprk3" || ts == "rk3")
-            throw std::invalid_argument("AMR does not support SSP Runge-Kutta 3 yet");
-    }
     const std::string eos = lower(s.eos_type);
     if (eos != "ideal gas" && eos != "stiffened gas")
         throw std::invalid_argument("Unknown eos_type: '" + s.eos_type + "' (use Ideal Gas or Stiffened Gas)");
