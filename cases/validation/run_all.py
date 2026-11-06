@@ -52,6 +52,7 @@ GROUPS = {
     },
     "benchmarks": {
         "shu_osher": (["benchmarks/shu_osher.py"], "quick", None),
+        "shu_osher_schemes": (["benchmarks/shu_osher_schemes.py"], "quick", None),
         "cavity": (["benchmarks/cavity.py"], "medium", 2.1),   # measured: 32 min on 4 threads (the 128^2 runs to t = 40 dominate)
         "taylor_green_3d": (["benchmarks/taylor_green_3d.py", "--grids", "32", "64", "96", "--vorticity-n", "96",
                              "--mpi", "16", "--q-animation"], "long", None),   # the settings of the docs figures
