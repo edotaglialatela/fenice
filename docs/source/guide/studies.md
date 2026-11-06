@@ -55,7 +55,10 @@ function of (UL, UR): no halo, no extra stencil, the same code in the uniform, a
 pass. A sweep over 0.2 to 5 showed that only 0.2 brought the first-order spread under one cell; larger thresholds leave the
 shock-face smear partly undissipated. The price: on meshes so coarse that a smooth flow changes pressure by 20 % per cell the
 sensor fires there too (the tiny regression meshes of the vortex and manufactured solutions moved by 1e-3 to 1e-1); on the
-validation meshes the observed orders are unchanged.
+validation meshes the observed orders are unchanged. The GUI exposes it as the checkbox "Shock-face dissipation" (on by default;
+unticked writes `shock_blend = 0`). Measured with it off: a blunt-body cylinder at Mach 10 and 20 (400 x 600, MUSCL, WENO3-Z) keeps a
+straight, symmetric bow shock, but the Woodward-Colella blast waves lose their self-convergence (rates 0.03 and 0.37 against 0.4
+required), so the default stays on.
 
 ## Analysis layer (Python, no solver change)
 

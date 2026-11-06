@@ -350,8 +350,14 @@ class SetupDialog(QDialog):
         self.combo_bo.setToolTip("Faces on a physical boundary (walls, inlets, outlets): first-order ghost state, or reconstructed "
                                  "through ghost layers (not with AMR).")
         self.label_bo = QLabel("Boundary faces:")
+        self.check_blend = QCheckBox("Shock-face dissipation")
+        self.check_blend.setChecked(True)
+        self.check_blend.setToolTip("Faces with a large pressure jump (shocks) blend the HLLC flux toward HLL, which cures odd-even "
+                                    "decoupling of shocks and helps strong-shock problems (shock_blend = 0.2). Untick to switch it off "
+                                    "(shock_blend = 0): sharper contacts on smooth flow, no cure for the instability.")
         f4.addRow(self.label_recon, self.combo_recon)
         f4.addRow(self.label_bo, self.combo_bo)
+        f4.addRow("", self.check_blend)
         f4.addRow(self.label_limiter, self.combo_limiter)
         f4.addRow("Riemann solver:", self.combo_riemann)
         f4.addRow("Time integration:", self.combo_time)
@@ -750,6 +756,7 @@ class SetupDialog(QDialog):
             'ibm_cy': lambda v: self.input_cy.setText(str(v)),
             'muscl_limiter': lambda v: set_combo(self.combo_limiter, v),
             'boundary_order': lambda v: self.combo_bo.setCurrentIndex(1 if int(v) == 2 else 0),
+            'shock_blend': lambda v: self.check_blend.setChecked(float(v) > 0),
             'use_amr':                lambda v: self.check_amr.setChecked(bool(v)),
             'amr_max_level':          lambda v: self.input_amr_max_level.setText(str(v)),
             'amr_indicator':          lambda v: self.input_amr_indicator.setText(str(v)),
@@ -883,6 +890,7 @@ class SetupDialog(QDialog):
                 'muscl_limiter': self.combo_limiter.currentText(),
                 'reconstruction': "muscl" if self._recon_value() == "first" else self._recon_value(),
                 'boundary_order': self._boundary_order(),
+                'shock_blend': 0.2 if self.check_blend.isChecked() else 0.0,
                 'use_hot_start': self.check_hot_start.isChecked(),
                 'hot_start_file': self.input_hot_start_file.text(),
                 'hot_start_src_nx': int(self.input_src_nx.text()) if self.input_src_nx.text() else 0,
