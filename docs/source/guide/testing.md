@@ -420,6 +420,39 @@ in a disposable checkout. A full run takes about 20 minutes.
 * **Of the 72 predictions, 22 did not hold** (the table in `results/validation/fault_injection/table.md` marks each one):
   the round-off defects were caught by more checks than predicted, and F03 and F11 by fewer or different ones.
 
+### Mutation study (`verification/mutation_study.py`)
+
+The twelve defects above were chosen by us. This script draws the defects at random: single-line mutants (an arithmetic operator swapped,
+a comparison moved across its boundary, `&&` <-> `||`) of eleven numerical sources, fixed seed, the first 60 that compile, each run through
+the same six checks. It edits the sources: run it in a git worktree (`--list` shows the drawn mutants without building, `--report` prints the
+statistics from `results.json`, `--resume` continues an interrupted run). About 3 hours.
+
+Hypotheses written before the run: (1) the bitwise checks kill more than the tolerance-based ones; (2) the convergence bands kill the
+fewest; (3) the survivors are mostly equivalent mutants.
+
+| check | killed (of 60) |
+|---|---:|
+| regression, serial | 29 |
+| regression, 4 ranks | 39 |
+| MMS convergence bands | 10 |
+| unit tests | 42 |
+| AMR 1-7 ranks + restart | 7 |
+| ghost-cell wall 1-7 ranks | 12 |
+| any | 52 (87 %) |
+
+* **(1) marginal.** Bitwise checks (unit, AMR, wall) kill 43, tolerance checks (regression, MMS) 39; 13 mutants only fall to a bitwise
+  check, 9 only to a tolerance one.
+* **(2) not as stated.** The MMS bands kill 10, more than the AMR comparison (7); the AMR and wall checks only exercise the adaptive and
+  immersed-boundary code. Unit tests (42) and the 4-rank regression (39) kill the most.
+* **(3) not supported.** The 8 survivors: `M016` changes only the memory estimate that is printed (no result depends on it); five are gaps:
+  `M008` (overlap test of the `amr_force_box` hook), `M029` (equality of two communication plans, made more lenient; the tests only assert
+  it is true), `M046` (remapping of the ghost-read pairs after a remesh), `M048` (kinetic-energy match of a moving-wall ghost, second-order
+  boundary), `M055` (wrap flag of the dilation of the refinement box on a non-periodic axis); `M009` (`d < 0` -> `d <= 0`, halo bookkeeping of
+  leaf 0) and `M042` (boundary faces of a uniform sweep taking the stencil path) are undecided, possibly equivalent, not proved.
+
+The table of every mutant is `results/validation/mutation_study/table.md`. A check that times out leaves its solver process running; the
+script kills the solver processes of the worktree after each mutant (a leftover one locked the executable and every later build failed).
+
 ### References
 
 * Roache, P. J. (2009). *Fundamentals of Verification and Validation*. Hermosa Publishers,

@@ -92,6 +92,18 @@ def restore(m):
     FI.git("checkout", "--", m["file"])
 
 
+def kill_strays():
+    """A check that times out kills its python child but not the fenice it started, which then locks the executable (every later
+    build fails at the link step). Kill the solver processes that run from this checkout's build folder."""
+    if os.name != "nt":
+        return
+    import subprocess
+    root = str(FI.BUILD).replace("'", "''")
+    ps = ("Get-CimInstance Win32_Process | Where-Object { $_.ExecutablePath -and $_.ExecutablePath.StartsWith('" + root + "') } | "
+          "ForEach-Object { Stop-Process -Id $_.ProcessId -Force }")
+    subprocess.run(["powershell", "-NoProfile", "-Command", ps], capture_output=True)
+
+
 def stats(results):
     done = {k: v for k, v in results.items() if "detectors" in v}
     keys = FI.KEYS
@@ -178,6 +190,7 @@ def main():
                 resf.write_text(json.dumps(results, indent=1), encoding="utf-8")
                 continue
             res = FI.detect(env, log)
+            kill_strays()
             restore(m)
             results[mid] = dict(detectors=res, file=f, line=no, a=x, b=y, old=old.strip(), new=m["new"].strip())
             compiled += 1
