@@ -92,6 +92,7 @@ struct SimParams {
     int amr_diffusion = 2;                  // smoothing iterations of the indicator
     int amr_refine_every, amr_init_levels;
     bool amr_refine_ibm = true;                      // keep the immersed body at the finest level
+    std::string amr_force_box;                       // "x0 x1 y0 y1": leaves overlapping this box stay at the finest level (empty: none)
     std::string amr_indicator = "density+velocity";   // variables of the indicator: density, velocity, pressure, joined by '+'
 
     // C++-only extras

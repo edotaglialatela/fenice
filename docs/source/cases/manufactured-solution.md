@@ -221,7 +221,7 @@ faces (MUSCL and WENO3-Z use two layers, WENO5-Z three; serial, threads and, for
 derivatives (for instance $\partial u/\partial x$ on a wall normal to $y$) are the tangential difference of the face values (ghost and
 cell average) instead of the first-cell value, which is $O(h)$ away from the wall, and the moving-wall viscous ghost keeps the
 interior internal energy (the default copies the total energy without following the momentum). A side that is periodic, an MPI
-interface or non-reflecting is unchanged, and the key is not available with AMR or with `use_muscl = false`.
+interface or non-reflecting is unchanged, and the key is not available with `use_muscl = false` (with AMR it is, for MUSCL and WENO3-Z).
 
 `cases/validation/verification/mms_boundary.py` repeats the study for the non-periodic solutions (walls, outflow and box, each as Euler and as
 Navier-Stokes, which separates the convective closure from the viscous one) with MUSCL, WENO3-Z and WENO5-Z; the tables
@@ -294,6 +294,56 @@ What it shows:
 What the cases leave untested: moving walls on the left/right, the inlets and the outlets (their ghost states set a value
 instead of mirroring one, so they are first order by construction and no manufactured solution matches them), the non-reflecting
 outlet, and a corner that meets a moving wall.
+
+### On an adaptive mesh
+
+`cases/validation/verification/mms_amr_boundary.py` runs the same solutions with `use_amr`, one level of refinement and a refined
+region that does not change in time (`amr_force_box`; the indicator thresholds are set so that nothing else is refined or joined): a
+strip across the domain whose two seams meet the walls (walls solution: in x; outflow: in y), and for the box solution a quarter of the
+domain with one corner in it. The level jump therefore touches the boundary faces, the first interior faces next to the wall, the leaves
+with a finer or coarser neighbour along the wall, and a corner. The errors are area-weighted over the leaves, and the orders are those of
+the base grid 16 → 32 → 64 (the refined part always has twice that resolution); $t = 0.5$. Bands fixed before the first run, for
+`boundary_order = 2` and the finest pair: $L_2$ at least 1.5 and $L_\infty$ at least 1.0 (the uniform bands, 1.7 and 1.3, less an allowance
+for the seam); the first-order columns are the baseline and have no band.
+
+| Solution | Scheme | Norm | `boundary_order = 1`: orders (16→32→64), finest error | `boundary_order = 2`: orders, finest error | leaves | band |
+|---|---|---|---|---|---|---|
+| Walls, Euler | MUSCL VL, SSP-RK2 | L2 | 1.06, 1.18 (u), 7.67e-04 | 2.17, 1.86 (rho), 3.37e-04 | 10240 | ok (1.5) |
+| Walls, Euler | MUSCL VL, SSP-RK2 | Linf | 0.27, 0.53 (u), 2.12e-02 | 2.09, 1.38 (p), 1.83e-03 | 10240 | ok (1.0) |
+| Walls, Euler | WENO3-Z, SSP-RK3 | L2 | 1.05, 1.15 (u), 7.72e-04 | 2.11, 1.90 (u), 2.92e-04 | 10240 | ok (1.5) |
+| Walls, Euler | WENO3-Z, SSP-RK3 | Linf | 0.37, 0.52 (u), 2.17e-02 | 1.77, 1.22 (u), 1.81e-03 | 10240 | ok (1.0) |
+| Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.57, 1.34 (rho), 8.22e-04 | 2.23, 1.83 (rho), 2.71e-04 | 10240 | ok (1.5) |
+| Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.63, 0.81 (rho), 9.09e-03 | 1.64, 1.61 (p), 1.47e-03 | 10240 | ok (1.0) |
+| Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.75, 1.37 (rho), 8.33e-04 | 2.31, 2.03 (u), 2.64e-04 | 10240 | ok (1.5) |
+| Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 1.04, 0.77 (rho), 9.14e-03 | 1.55, 1.56 (p), 1.88e-03 | 10240 | ok (1.0) |
+| Outflow, Euler | MUSCL VL, SSP-RK2 | L2 | 1.30, 1.26 (v), 4.40e-04 | 1.81, 1.50 (v), 3.67e-04 | 10240 | **below** (1.5) |
+| Outflow, Euler | MUSCL VL, SSP-RK2 | Linf | 0.37, 0.58 (v), 4.20e-03 | 1.71, 1.25 (v), 2.11e-03 | 10240 | ok (1.0) |
+| Outflow, Euler | WENO3-Z, SSP-RK3 | L2 | 1.26, 1.24 (v), 3.82e-04 | 1.76, 1.51 (p), 3.39e-04 | 10240 | ok (1.5) |
+| Outflow, Euler | WENO3-Z, SSP-RK3 | Linf | 0.41, 0.53 (v), 4.45e-03 | 1.58, 1.43 (v), 1.75e-03 | 10240 | ok (1.0) |
+| Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.87, 1.04 (u), 4.46e-04 | 1.67, 0.98 (u), 2.97e-04 | 10240 | **below** (1.5) |
+| Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 1.30, 0.78 (u), 5.63e-03 | 1.18, 0.84 (u), 1.49e-03 | 10240 | **below** (1.0) |
+| Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.62, 1.08 (u), 4.86e-04 | 1.26, 1.46 (u), 3.15e-04 | 10240 | **below** (1.5) |
+| Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.73, 0.79 (rho), 5.91e-03 | 0.58, 1.17 (u), 1.63e-03 | 10240 | ok (1.0) |
+| Box, Euler | MUSCL VL, SSP-RK2 | L2 | 1.52, 1.39 (u), 2.04e-03 | 2.06, 1.97 (v), 4.05e-04 | 7168 | ok (1.5) |
+| Box, Euler | MUSCL VL, SSP-RK2 | Linf | 0.70, 0.48 (v), 1.67e-02 | 1.52, 1.47 (u), 3.34e-03 | 7168 | ok (1.0) |
+| Box, Euler | WENO3-Z, SSP-RK3 | L2 | 1.52, 1.39 (u), 2.06e-03 | 2.10, 2.02 (v), 3.35e-04 | 7168 | ok (1.5) |
+| Box, Euler | WENO3-Z, SSP-RK3 | Linf | 0.81, 0.49 (v), 1.70e-02 | 1.77, 1.43 (u), 4.93e-03 | 7168 | ok (1.0) |
+| Box, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.38, 1.45 (rho), 2.49e-03 | 2.23, 1.93 (v), 2.68e-04 | 7168 | ok (1.5) |
+| Box, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.83, 0.96 (rho), 2.58e-02 | 1.34, 0.93 (rho), 4.63e-03 | 7168 | **below** (1.0) |
+| Box, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.44, 1.45 (rho), 2.51e-03 | 2.50, 1.95 (v), 2.90e-04 | 7168 | ok (1.5) |
+| Box, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.83, 0.95 (rho), 2.60e-02 | 1.93, 0.90 (rho), 5.10e-03 | 7168 | **below** (1.0) |
+
+* On the Euler solutions the second-order boundary faces raise the orders of the finest pair from 1.2 to 1.4 to 1.5 to 2.0 ($L_2$) and from
+  0.5 to 0.6 to 1.2 to 1.5 ($L_\infty$), with MUSCL and WENO3-Z alike, and lower the density error on the finest grid by a factor of 1.2
+  (outflow) to 5 (box), so the seam does not undo the closure: the ghost layers of a leaf next to a level jump are taken from the same
+  virtual or interpolated cell an interior face uses.
+* Six entries are **below** their band, all on the finest pair: the outflow solution with MUSCL ($L_2$ 1.50 on the Euler solution, which
+  prints as the band but is under it; $L_2$ 0.98 and $L_\infty$ 0.84 on Navier-Stokes) and with WENO3-Z ($L_2$ 1.46, Navier-Stokes), and the
+  Navier-Stokes box solution in $L_\infty$ (0.93 and 0.90). The uniform study shows the same slow layer on the outflow solution with MUSCL
+  (above); on the box solution the order of the second pair is lower than that of the first (1.3 and 1.9 on the first). They are reported,
+  not moved.
+* Level jumps themselves: the second-order faces use the coarse-fine closure unchanged (interpolated fine side, second-order coarse side),
+  so a seam in smooth flow costs the order of its interpolated and averaged values, and the orders above are those of the whole mesh.
 
 ## An unsteady solution: time accuracy
 

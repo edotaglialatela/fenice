@@ -50,7 +50,7 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& section_tab
         {"hot_start", {"use_hot_start", "hot_start_file", "hot_start_src_nx", "hot_start_src_ny"}},
         {"amr",
          {"use_amr", "amr_max_level", "amr_indicator", "amr_criterion", "amr_refine_threshold", "amr_derefine_threshold",
-          "amr_diffusion", "amr_refine_every", "amr_init_levels", "amr_refine_ibm"}},
+          "amr_diffusion", "amr_refine_every", "amr_init_levels", "amr_refine_ibm", "amr_force_box"}},
     };
     return t;
 }

@@ -88,7 +88,7 @@ override them. See the [BC formulas]({{root}}modules/Boundaries.html).
 | `muscl_limiter` | `Van Leer` | `Van Leer`, `MC`, `Koren`, `Minmod` (case-insensitive); read when `reconstruction = muscl` |
 | `reconstruction` | `muscl` | Face reconstruction of the 2nd-order path (`use_muscl = true`): `muscl` (limited, 2nd order), `weno3` (WENO3-Z, 3rd order) or `weno5` (WENO5-Z, 5th order). The WENO schemes need `time_scheme` `SSP Runge-Kutta 3` (SSP Runge-Kutta 2 is rejected), `weno3` also runs with AMR and MPI, `weno5` is serial (no MPI) and not available with AMR. See [Schemes]({{root}}modules/Schemes.html) |
 | `weno_epsilon` | `1e-6` | WENO smoothness-indicator regularisation, relative to the data of the stencil: $\varepsilon = \texttt{weno\_epsilon}\cdot\overline{c^2}$. Larger values weigh the stencils closer to the linear ones (more accurate at smooth extrema, less non-oscillatory) |
-| `boundary_order` | `1` | `1`: the faces on a physical boundary keep the first-order ghost state. `2`: they are reconstructed through ghost layers (the boundary condition's own extension), second order (`muscl`, `weno3`, `weno5`; not with AMR); on a viscous boundary face the cross derivatives are second order too, and the moving-wall ghost keeps the interior internal energy. See [manufactured solutions]({{root}}cases/manufactured-solution.html) |
+| `boundary_order` | `1` | `1`: the faces on a physical boundary keep the first-order ghost state. `2`: they are reconstructed through ghost layers (the boundary condition's own extension), second order (`muscl`, `weno3`, `weno5`; with AMR for `muscl` and `weno3`: a leaf on a physical side takes its ghost layers from its own state and from the leaf or virtual cell behind it); on a viscous boundary face the cross derivatives are second order too, and the moving-wall ghost keeps the interior internal energy. See [manufactured solutions]({{root}}cases/manufactured-solution.html) |
 | `time_scheme` | `Explicit Euler` | `Explicit Euler` [`euler`], `SSP Runge-Kutta 2` [`ssprk2`], `SSP Runge-Kutta 3` [`ssprk3`]. AMR runs accept all three |
 | `cfl` | `0.5` | CFL number |
 | `shock_blend` | `0.2` | Shock-face dissipation: a face whose pressure jump `abs(pR - pL) / min(pL, pR)` exceeds this blends its HLLC flux toward HLL (fully at twice the value). The sensor reads the face's own two states, so there is no extra stencil. 0 switches it off |
@@ -152,6 +152,7 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 | `amr_diffusion` | `2` | Smoothing iterations of the indicator: the refined band extends about this many cells beyond the flagged ones |
 | `amr_refine_every` | `10` | Remesh every N coarse steps |
 | `amr_init_levels` | `0` | Uniform pre-refinement levels at t = 0 |
+| `amr_force_box` | (empty) | `x0 x1 y0 y1`: the leaves that overlap this box stay at `amr_max_level` whatever the indicator says, a static refined region (a test hook: the orders of accuracy across a level jump are measured with it). Empty: none |
 | `amr_refine_ibm` | `true` | With `use_ibm`: leaves touching the body, and the cells around it that the solid reset uses, are refined to `amr_max_level` from t = 0 and never joined |
 
 {{api}}

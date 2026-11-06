@@ -348,7 +348,7 @@ class SetupDialog(QDialog):
         self.combo_bo = QComboBox()
         self.combo_bo.addItems(["1st order (default)", "2nd order (ghost layers)"])
         self.combo_bo.setToolTip("Faces on a physical boundary (walls, inlets, outlets): first-order ghost state, or reconstructed "
-                                 "through ghost layers (not with AMR).")
+                                 "through ghost layers.")
         self.label_bo = QLabel("Boundary faces:")
         self.check_blend = QCheckBox("Shock-face dissipation")
         self.check_blend.setChecked(True)
@@ -613,9 +613,6 @@ class SetupDialog(QDialog):
         """(errors, warnings) of the chosen reconstruction / time integration / AMR / MPI combination, as the solver sees it."""
         recon, time = self._recon_value(), self.combo_time.currentText()
         errors, warnings = [], []
-        if self._boundary_order() == 2:
-            if self.check_amr.isChecked():
-                errors.append("2nd-order boundary faces are not available with AMR yet: use 1st-order boundary faces or switch AMR off.")
         if recon in ("weno3", "weno5"):
             name = self.combo_recon.currentText().split(" (")[0]
             if recon == "weno5" and self.check_amr.isChecked():

@@ -28,7 +28,7 @@ WENO3-Z and three for WENO5-Z, and the boundary faces are reconstructed through 
 non-reflecting sides keep their treatment. For the viscous terms, `fix_frame_corners` (2-D, on the ghost ring) and
 `fix_padded_corners` (3-D) rebuild the corner (2-D) and edge (3-D) entries of the padded state as the boundary ghost of the neighbouring ghost entry, so the tangential differences on a
 boundary face see the wrapped, neighbour-rank or mirrored value; and the moving-wall ghost keeps the interior internal
-energy. Measured in [manufactured solutions]({{root}}cases/manufactured-solution.html).
+energy. The adaptive mesh does the same (MUSCL and WENO3-Z, viscous terms included): a leaf on a side takes its first ghost layer from its own state and the second from the leaf or virtual cell behind it. Measured in [manufactured solutions]({{root}}cases/manufactured-solution.html).
 
 A 2-D mesh has four sides (left, right, bottom, top). A 3-D mesh adds **front**
 ($z = 0$, `bc_front`) and **back** ($z = L_z$, `bc_back`), which default to periodic.

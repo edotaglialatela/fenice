@@ -255,7 +255,7 @@ private:
     int beyond(const CellMesh& m, int c, Face side, bool interpolate) const;
     void leaf_codes(const CellMesh& m, int c);   // nbr_raw_ and nbr_ of leaf c
     void face_stencil(const CellMesh& m, int f);   // stencil_ of face f
-    void eval_interp();
+    void eval_interp(const double* u_target);   // u_target: the mass-flow inlet velocity of each side (boundary_order = 2)
     void force_all(const CellMesh& m, const Field& U);   // every leaf (the full residual, whatever the partition)
     void size_work_arrays(const CellMesh& m);   // registers, viscous fluxes and cell quantities, sized for the mesh
     void rebuild_lists(const CellMesh& m, const Partition* part);

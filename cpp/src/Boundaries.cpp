@@ -249,6 +249,7 @@ State BoundaryManager::viscous_ghost(Face side, const State& in) const {
             g[1] = -in[1];
             g[2] = 2.0 * in[0] * v_in - in[2];
         }
+        if (params_.boundary_order == 2) match_kinetic_energy(g, in);
         break;
     default: break;
     }

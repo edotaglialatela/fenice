@@ -609,6 +609,11 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         cell_indicator.use_velocity = p.amr_indicator.find("velocity") != std::string::npos;
         cell_indicator.use_pressure = p.amr_indicator.find("pressure") != std::string::npos;
         cell_adaptor = std::make_unique<CellAdaptor>(*cells, *cell_engine, fluid, cell_indicator);
+        if (!p.amr_force_box.empty()) {
+            double b[4];
+            std::sscanf(p.amr_force_box.c_str(), "%lf%*[ ,]%lf%*[ ,]%lf%*[ ,]%lf", &b[0], &b[1], &b[2], &b[3]);
+            cell_adaptor->set_force_box(b[0], b[1], b[2], b[3]);
+        }
         if (p.use_ibm && p.amr_refine_ibm) {
             int margin = 2;   // the fringe the solid reset treats
             if (p.ibm_method == "ghost") {   // every ghost cell and the cells it reads (and the load probes) at the finest level

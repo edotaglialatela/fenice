@@ -12,7 +12,7 @@ What is wrong with the patch design (AMR.cpp, `Simulation::patch_residual`):
 1. Cells inside a refined patch are refined whether they need it or not (patch = 8x8 .. 16x16 cells).
 2. Every patch kernel looks up its ghost cells by geometry (`leaf_at`, `GridInterp2D`, `ghost_cell`) and has its own
    residual: two implementations of the physics (uniform `assemble`, AMR `patch_residual`) kept equal by tests.
-3. Physical edges go through a separate path in which the boundary face is first order (MUSCL stencil not upgraded).
+3. Physical edges go through a separate path in which the boundary face is first order (MUSCL stencil not upgraded); with `boundary_order = 2` they are reconstructed through ghost layers (section 21).
 4. Conservation across coarse-fine seams needs flux registers and is exact only for Explicit Euler (O(dt^2) otherwise).
 
 What the reference design does (a cell-based code whose source was read for this plan): a tree of cells plus an interface (face) list; each interface
@@ -68,7 +68,7 @@ level jump uses its unreconstructed state; Morton keys for the domain decomposit
     zero gradient at physical boundaries);
   - body force first, then source terms, in the residual.
   Consequence for the boundary: the AMR engine must first reproduce today's first-order boundary face (invariant 2). The
-  second-order boundary face is a later switch applied to **both** engines.
+  second-order boundary face is a later switch applied to **both** engines (done: section 21).
 * Viscous terms are already face-based in the solver (two-point normal derivative, cell-gradient average for the cross
   terms); they port directly, with the neighbour graph replacing the padded array.
 
@@ -613,3 +613,51 @@ body and the outlet, periodic viscous MMS, unsteady MMS) and of the 720x360 airf
 * **Open.** (a) incremental topology update (estimated -0.6 s of a 1.6 s serial remesh; the wave-speed bound 0.64 s and the indicator 0.28 s remain; done on branch `amr-optimisation`, see `docs/design/amr-optimisation.md`); (b) distributed storage and a local remesh with ghost layers
   (needed for a mesh that does not fit one node; the per-level partition must then be kept for the time stepping, so the topology of a rank would be its owned leaves plus the halo of each level and the remesh
   would exchange flags between neighbouring ranks); (c) a SIMD flux kernel (shared with the uniform solver; done on `amr-optimisation`).
+
+## 21. WENO3-Z and second-order boundary faces on the leaf engine (2026-11-06)
+
+`reconstruction = weno3` and `boundary_order = 2` run with AMR (`docs/proposals/amr-weno-boundary-order.md`, parts A and B).
+
+**WENO3-Z.** The four-cell stencil of a face is the one MUSCL reads, so only the formula changes: `MusclReconstruction::weno3_value`, the
+function the uniform reconstruction calls, runs in the scalar path of `CellFluxEngine::fluxes` (an interior face goes to
+`face_flux_batch` instead of `muscl_face_flux_batch`; a vector twin is left for when a profile asks for it). On a coarse-fine face both
+sides are WENO3-Z from the data the limited formula used: `weno3(c0, c1, c2)` against the interpolated coarse value on the fine side,
+`weno3(wb, wc, wf)` / `weno3(wf, wc, wb)` on the coarse side (`wf` the mean of the fine leaves). The interpolated value still uses the
+limited slopes of the coarse leaf.
+
+**Ghost layers.** The proposal's design (ghost rows in `W_`, a third kind of virtual cell) was not needed: a ghost state is a function of
+one cell, so it is evaluated where it is read, in `fluxes`, from `BoundaryManager::ghost_state` (the function `fill_ghost_slab` calls) and
+the primitive round trip of the uniform code (`cons_to_prim(ghost_state(.))`, no `prim_to_cons` between). No table, no rebuild rule, no
+change to `localize`. Three places read it:
+
+* a boundary face of leaf `c` on side `s`: the cells `(n1, c, g0, g1)` towards the boundary (mirrored on a low side), `g0 = G_s(U[c])`,
+  `g1 = G_s(U[n1])`, `n1 = nbr_[4c + (s ^ 1)]`, the leaf, mean-type or interpolated cell behind `c`. The tables already hold `n1` and
+  `mark_face` already marks all four neighbour codes of a boundary leaf, so `face_dependencies` and the halo are unchanged;
+* an interior face whose stencil replicates the leaf at a physical side (`stencil[0] == stencil[1]` and `nbr_` of that side is `-1`): the
+  replicated entry becomes `g0`; the same on the far side (`stencil[3] == stencil[2]`); on a coarse-fine face also the neighbours of the
+  coarse leaf (`wb`, `wf`);
+* the slopes of the coarse leaf in `eval_interp`, whose replicated entry at a physical side becomes the ghost too (so a seam that meets a
+  wall keeps the slope of the interpolated cell). A mass-flow side needs the inlet velocity there, so `prepare` takes `mass_flow_targets`
+  when `boundary_order = 2`.
+
+A periodic side has no ghost and a non-reflecting one keeps the first-order face. A side with a single cell (`n1 == -1`) falls back to the
+first-order face, as the uniform code does when the side is shorter than the layer depth.
+
+**Viscous.** A boundary face takes its cross derivatives from the tangential difference of the face values (ghost and cell average) of the
+two neighbours along the wall, as `NavierStokes` does with `boundary_order = 2`; the neighbour across a physical edge of the tangential side
+is the corner entry of the padded frame, which is always the left / right rule applied to the bottom / top ghost (it does not commute for a
+moving wall, so a y-face composes the two maps the other way round than an x-face). The moving-wall ghost of `viscous_ghost` keeps the
+interior internal energy with `boundary_order = 2`, like the padded state.
+
+**Tests.** `celladvance_level0_second_order_boundary_steps_match_uniform_steps_bitwise` (4 boundary sets incl. a mass-flow inlet and a
+periodic side, Euler / RK2 / RK3 with MUSCL and RK3 with WENO3-Z, four steps),
+`cellphys_viscous_second_order_boundary_matches_uniform_bitwise` (13 boundary sets, the wall kinds at the corners, MUSCL and
+WENO3-Z, 9x7 and 48x40), `celladvance_second_order_wall_faces_conserve_mass_and_energy_in_a_closed_box` (four slip walls, three levels,
+1e-13), the rank-emulation specs of `test_amr_distributed.cpp` (inviscid walls and inlet, mass flow with a non-reflecting side, a viscous
+cavity, 1 to 16 ranks with NaN-poisoned halos, with remeshing), and the regression cases `amr_bo2_walls`, `amr_bo2_weno3`, `amr_cavity_b2` (serial, 3 and 4 ranks
+bitwise). The order study is `cases/validation/verification/mms_amr_boundary.py`, with the static refined region of `amr_force_box`
+(`CellAdaptor::set_force_box`: leaves that overlap the box stay at the finest level); its table is in the page of the manufactured solutions.
+A lid-driven cavity (Re 400, MUSCL, SSP-RK3, t = 8) on a 16 x 16 base mesh with two levels (3 784 cells) and on the uniform 64 x 64 mesh
+differ from the uniform 128 x 128 solution by the same centreline error (4.4e-2 in u along x = 0.5 for both with `boundary_order = 2`, 4.3e-2
+for both with 1), so the adaptive mesh is as accurate as its uniform equivalent with either closure; the error at this resolution is that of
+the interior, not of the wall.

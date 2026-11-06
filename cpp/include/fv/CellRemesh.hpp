@@ -72,6 +72,12 @@ public:
     // Keep the immersed body, and `margin` finest-level cells around it (the fringe of the solid reset), on the finest
     // level: `factory` gives the body mask on any uniform mesh. Call before remesh / init_adapt.
     void set_body(std::function<ImmersedBoundary(const Mesh&)> factory, int margin = 2);
+    // Keep every leaf that overlaps the box [x0, x1] x [y0, y1] at the finest level, whatever the indicator says (a static refined
+    // region: a test hook for orders of accuracy across a level jump, `amr_force_box`). Call before remesh / init_adapt.
+    void set_force_box(double x0, double x1, double y0, double y1) {
+        box_ = {x0, x1, y0, y1};
+        has_box_ = true;
+    }
 
     // One adaptation of the leaves from the current state; the engine is rebuilt when the leaves changed.
     // Returns whether they did.  xi of the call is kept in last_xi (per leaf of the mesh BEFORE the call).
@@ -112,6 +118,8 @@ private:
     CellIndicator ind_;
     std::function<ImmersedBoundary(const Mesh&)> body_;
     int margin_ = 2;
+    std::array<double, 4> box_ = {0.0, 0.0, 0.0, 0.0};
+    bool has_box_ = false;
     std::vector<char> band_;   // body + margin on the uniform mesh of the finest level
 };
 

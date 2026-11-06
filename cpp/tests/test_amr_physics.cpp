@@ -35,6 +35,38 @@ TEST(cellphys_viscous_matches_uniform_bitwise) {
     CHECK(big.residual_equal());
 }
 
+TEST(cellphys_viscous_second_order_boundary_matches_uniform_bitwise) {
+    // boundary_order = 2: the corner entries of the tangential differences (BoundaryManager::fix_frame_corners) and the face values
+    // of the neighbours along a wall, on every combination of wall kinds, with MUSCL and WENO3-Z, on a small and a larger mesh
+    struct BCs {
+        const char *l, *r, *b, *t;
+    };
+    const BCs sets[] = {{"wall", "wall", "wall", "wall"},
+                        {"transmissive", "outlet", "no_slip", "moving_wall"},
+                        {"vel_inlet", "outlet", "wall", "transmissive"},
+                        {"massflow_inlet", "transmissive", "no_slip", "no_slip"},
+                        {"periodic", "periodic", "no_slip", "moving_wall"},
+                        {"moving_wall", "no_slip", "periodic", "periodic"},
+                        {"no_slip", "moving_wall", "moving_wall", "no_slip"},
+                        {"nonreflecting", "wall", "no_slip", "transmissive"},
+                        {"wall", "moving_wall", "wall", "wall"}, {"wall", "wall", "moving_wall", "wall"}, {"wall", "moving_wall", "moving_wall", "wall"},
+                        {"no_slip", "wall", "moving_wall", "wall"}, {"wall", "moving_wall", "no_slip", "wall"}};
+    int n = 0;
+    for (const BCs& bc : sets)
+        for (const char* rec : {"muscl", "weno3"})
+            for (const char* big : {"0", "1"}) {
+                ParityRig rig({{"nx", big[0] == '1' ? "48" : "9"}, {"ny", big[0] == '1' ? "40" : "7"}, {"bc_left", bc.l},
+                               {"bc_right", bc.r}, {"bc_bottom", bc.b}, {"bc_top", bc.t}, {"use_viscous", "true"}, {"mu", "0.05"},
+                               {"use_muscl", "true"}, {"reconstruction", rec}, {"boundary_order", "2"},
+                               {"time_scheme", "SSP Runge-Kutta 3"}});
+                const bool same = rig.residual_equal();
+                CHECK(same);
+                if (!same) std::printf("    viscous bo2 %s/%s/%s/%s %s big %s\n", bc.l, bc.r, bc.b, bc.t, rec, big);
+                ++n;
+            }
+    CHECK(n == 52);
+}
+
 TEST(cellphys_forces_and_sources_match_uniform_bitwise) {
     ParityRig bf({{"use_viscous", "true"}, {"mu", "0.03"}, {"use_bodyforce", "true"}, {"gx", "0.3"}, {"gy", "-0.7"},
                   {"bc_bottom", "no_slip"}, {"use_muscl", "true"}});

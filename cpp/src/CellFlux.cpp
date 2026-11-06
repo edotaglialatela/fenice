@@ -958,7 +958,9 @@ void CellFluxEngine::prepare(const CellMesh& m, const Field& U, int level) {
     }
     Vc_.resize(vroot_.size() + interp_.size());
     for (size_t v = 0; v < vroot_.size(); ++v) Vc_[v] = eval(*us_, vroot_[v]);
-    eval_interp();
+    double u_target[4] = {0.0, 0.0, 0.0, 0.0};   // mass-flow inlets: the ghost of a coarse leaf on such a side
+    if (!interp_.empty() && muscl_ && bc_.params().boundary_order == 2) mass_flow_targets(m, u_target);
+    eval_interp(u_target);
     if (muscl_) {
         if (level < 0)
             refresh_all(nleaf_);
@@ -967,9 +969,10 @@ void CellFluxEngine::prepare(const CellMesh& m, const Field& U, int level) {
     }
 }
 
-void CellFluxEngine::eval_interp() {
+void CellFluxEngine::eval_interp(const double* u_target) {
     if (interp_.empty()) return;
     const EOS& eos = eos_;
+    const bool bo2 = bc_.params().boundary_order == 2;
     const Limiter lim = muscl_->limiter();
     const size_t nm = vroot_.size();
     Wint_.resize(interp_.size());
@@ -977,12 +980,19 @@ void CellFluxEngine::eval_interp() {
         const InterpVirtual& iv = interp_[k];
         const int C = iv.coarse;
         const State Wc = eos.cons_to_prim((*us_)[C]);
-        const auto prim_at = [&](int code) { return code < 0 ? Wc : eos.cons_to_prim(cell_state(code)); };
+        // a side of the coarse leaf on a physical boundary: its own state (first order), or with boundary_order = 2 its ghost layer
+        const auto prim_at = [&](int code, int side) {
+            if (code >= 0) return eos.cons_to_prim(cell_state(code));
+            const Face fs = static_cast<Face>(side);
+            if (bo2 && bc_.type(fs) != BCType::Periodic && bc_.type(fs) != BCType::NonReflecting)
+                return eos.cons_to_prim(bc_.ghost_state(fs, (*us_)[C], u_target[side]));
+            return Wc;
+        };
         State sn{}, st{};
         for (int pass = 0; pass < 2; ++pass) {
             const int ax = pass == 0 ? iv.axis : 1 - iv.axis;
-            const State Wb = prim_at(nbr_raw_[static_cast<size_t>(4) * C + 2 * ax]);
-            const State Wf = prim_at(nbr_raw_[static_cast<size_t>(4) * C + 2 * ax + 1]);
+            const State Wb = prim_at(nbr_raw_[static_cast<size_t>(4) * C + 2 * ax], 2 * ax);
+            const State Wf = prim_at(nbr_raw_[static_cast<size_t>(4) * C + 2 * ax + 1], 2 * ax + 1);
             State& sl = pass == 0 ? sn : st;
             for (int q = 0; q < kNVar; ++q) sl[q] = apply_limiter(lim, Wc[q] - Wb[q], Wf[q] - Wc[q]);
         }
@@ -1061,6 +1071,29 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
         const double hs[3] = {m.dx(l), m.dy(l), 0.0};
         return bc_.nonreflecting_ghost(side, Ui, tg, hs);
     };
+    // boundary_order = 2: the faces on a physical side and the interior faces next to it are reconstructed through ghost layers (the
+    // boundary condition's own extension of the leaf, as BoundaryManager::fill_ghost_slab builds them). A periodic or non-reflecting
+    // side keeps the first-order treatment.
+    const bool bo2 = muscl_ && bc_.params().boundary_order == 2;
+    const bool weno3 = muscl_ && muscl_->scheme() == Reconstruction::Weno3;
+    const auto side_ok = [&](Face side) { return bc_.type(side) != BCType::Periodic && bc_.type(side) != BCType::NonReflecting; };
+    const auto ghost_w = [&](Face side, const State& Ui) {   // primitive ghost state of a cell next to `side`
+        return eos.cons_to_prim(bc_.ghost_state(side, Ui, u_target[static_cast<int>(side)]));
+    };
+    // the two face states from four consecutive primitive cells along the normal (the formulas of the interior faces)
+    const auto recon4 = [&](const State& a, const State& b, const State& c, const State& d, State& wl, State& wr) {
+        for (int q = 0; q < kNVar; ++q) {
+            const double c0 = a[q], c1 = b[q], c2 = c[q], c3 = d[q];
+            if (weno3) {
+                wl[q] = muscl_->weno3_value(c0, c1, c2);
+                wr[q] = muscl_->weno3_value(c3, c2, c1);
+            } else {
+                const double bb = c2 - c1;
+                wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, bb);
+                wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, bb);
+            }
+        }
+    };
 #pragma omp parallel if (nlist >= kOmpMinWork)
     {
         double local = 0.0;
@@ -1101,26 +1134,74 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                 const bool ghost_right = face.left >= 0;
                 const int c = ghost_right ? face.left : face.right;
                 const State Ui = U[c];
-                const State Ug = bc_.type(face.side) == BCType::NonReflecting
-                                     ? nrbc(c, face.side, Ui)
-                                     : bc_.ghost_state(face.side, Ui, u_target[static_cast<int>(face.side)]);
-                UL = ghost_right ? Ui : Ug;
-                UR = ghost_right ? Ug : Ui;
-                if (muscl_) {
-                    roundtrip(UL);
-                    roundtrip(UR);
+                int n1 = -1;   // the leaf (or virtual cell) behind the boundary leaf: the second ghost layer mirrors it
+                if (bo2 && side_ok(face.side)) {
+                    n1 = nbr_[static_cast<size_t>(4) * c + (static_cast<int>(face.side) ^ 1)];
+                    if (n1 == kOutside) throw std::logic_error("CellFluxEngine: a boundary face reads a leaf that is not in this rank's partial mesh");
+                }
+                if (n1 >= 0) {   // second-order boundary face: cells (n1, c, g0, g1) towards the boundary
+                    const State Un = cell_state(n1);
+                    const State Wc = eos.cons_to_prim(Ui), Wn = eos.cons_to_prim(Un);
+                    const State g0 = ghost_w(face.side, Ui), g1 = ghost_w(face.side, Un);
+                    State wl, wr;
+                    if (ghost_right)
+                        recon4(Wn, Wc, g0, g1, wl, wr);
+                    else
+                        recon4(g1, g0, Wc, Wn, wl, wr);
+                    UL = eos.prim_to_cons(wl);
+                    UR = eos.prim_to_cons(wr);
+                } else {
+                    const State Ug = bc_.type(face.side) == BCType::NonReflecting
+                                         ? nrbc(c, face.side, Ui)
+                                         : bc_.ghost_state(face.side, Ui, u_target[static_cast<int>(face.side)]);
+                    UL = ghost_right ? Ui : Ug;
+                    UR = ghost_right ? Ug : Ui;
+                    if (muscl_) {
+                        roundtrip(UL);
+                        roundtrip(UR);
+                    }
                 }
             } else if (!muscl_) {
                 UL = U[face.left];
                 UR = U[face.right];
             } else {
                 const std::array<int, 4>& s = stencil_[f];
-                const State &w0 = W_[s[0]], &w1 = W_[s[1]], &w2 = W_[s[2]], &w3 = W_[s[3]];
-                const bool weno3 = muscl_->scheme() == Reconstruction::Weno3;
+                // a stencil entry that replicates a leaf at a physical side is replaced by the ghost layer with boundary_order = 2
+                State gtmp0, gtmp3;
+                const State *p0 = &W_[s[0]], *p3 = &W_[s[3]];
+                bool wall = false;
+                if (bo2) {
+                    const Face back = face.axis == 0 ? Face::Left : Face::Bottom, fwd = face.axis == 0 ? Face::Right : Face::Top;
+                    if (s[0] == s[1] && nbr_[static_cast<size_t>(4) * s[1] + 2 * face.axis] == -1 && side_ok(back)) {
+                        gtmp0 = ghost_w(back, U[s[1]]);
+                        p0 = &gtmp0;
+                        wall = true;
+                    }
+                    if (s[3] == s[2] && nbr_[static_cast<size_t>(4) * s[2] + 2 * face.axis + 1] == -1 && side_ok(fwd)) {
+                        gtmp3 = ghost_w(fwd, U[s[2]]);
+                        p3 = &gtmp3;
+                        wall = true;
+                    }
+                }
+                const State &w0 = *p0, &w1 = W_[s[1]], &w2 = W_[s[2]], &w3 = *p3;
                 State wl, wr;
                 if (face.kind == CellFaceKind::CoarseFine) {
                     // the fine side is reconstructed against the (virtual) cell across the face, the coarse side is its cell state
                     const bool fine_left = m.level[face.left] > m.level[face.right];
+                    State gcb, gcf;   // the coarse leaf's ghost layers where it touches a physical side
+                    bool cgb = false, cgf = false;
+                    if (bo2 && coarse_side_second_order) {
+                        const int C = fine_left ? s[3] : s[0], ax = face.axis;
+                        const Face back = ax == 0 ? Face::Left : Face::Bottom, fwd = ax == 0 ? Face::Right : Face::Top;
+                        if (nbr_raw_[static_cast<size_t>(4) * C + 2 * ax] == -1 && side_ok(back)) {
+                            gcb = ghost_w(back, U[C]);
+                            cgb = true;
+                        }
+                        if (nbr_raw_[static_cast<size_t>(4) * C + 2 * ax + 1] == -1 && side_ok(fwd)) {
+                            gcf = ghost_w(fwd, U[C]);
+                            cgf = true;
+                        }
+                    }
                     for (int q = 0; q < kNVar; ++q) {
                         // coarse leaf C of the face: its state and its neighbours across the two sides along the normal
                         const int C = fine_left ? s[3] : s[0];
@@ -1128,8 +1209,8 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                         const int code_b = nbr_raw_[static_cast<size_t>(4) * C + 2 * ax];
                         const int code_f = nbr_raw_[static_cast<size_t>(4) * C + 2 * ax + 1];
                         const double wc = coarse_side_second_order ? W_[C][q] : 0.0;
-                        const double wb = !coarse_side_second_order ? 0.0 : (code_b < 0 ? wc : W_[code_b][q]);
-                        const double wf = !coarse_side_second_order ? 0.0 : (code_f < 0 ? wc : W_[code_f][q]);
+                        const double wb = !coarse_side_second_order ? 0.0 : (code_b < 0 ? (cgb ? gcb[q] : wc) : W_[code_b][q]);
+                        const double wf = !coarse_side_second_order ? 0.0 : (code_f < 0 ? (cgf ? gcf[q] : wc) : W_[code_f][q]);
                         if (fine_left) {
                             const double c0 = w0[q], c1 = w1[q], c2 = w2[q];
                             wl[q] = weno3 ? muscl_->weno3_value(c0, c1, c2) : c1 + 0.5 * apply_limiter(lim, c1 - c0, c2 - c1);
@@ -1142,11 +1223,8 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                             wr[q] = weno3 ? muscl_->weno3_value(c3, c2, c1) : c2 - 0.5 * apply_limiter(lim, c3 - c2, c2 - c1);
                         }
                     }
-                } else if (weno3) {   // an ordinary face under WENO3-Z: the same four cells, the scalar reconstruction
-                    for (int q = 0; q < kNVar; ++q) {
-                        wl[q] = muscl_->weno3_value(w0[q], w1[q], w2[q]);
-                        wr[q] = muscl_->weno3_value(w3[q], w2[q], w1[q]);
-                    }
+                } else if (weno3 || wall) {   // WENO3-Z, or a face with a ghost layer: the same four cells, the scalar reconstruction
+                    recon4(w0, w1, w2, w3, wl, wr);
                 } else {
                     for (int k = 0; k < 4; ++k) mst[4 * nm + k] = s[k];
                     max_[nm] = face.axis;
@@ -1331,6 +1409,7 @@ void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& f
     const double mu = ns.mu(), gamma = eos_.gamma;
     const double k_cond = eos_.transport_law().thermal_conductivity(mu, ns.prandtl());
     const Field& U = *us_;
+    const bool bo2 = bc_.params().boundary_order == 2;
     if (Fv_.size() != m.faces.size()) Fv_.resize(m.faces.size());
 #pragma omp parallel for schedule(static) if (nlist >= kOmpMinWork)
     for (int fi = 0; fi < nlist; ++fi) {
@@ -1360,9 +1439,41 @@ void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& f
                 TR = gT;
             }
             h = ax == 0 ? m.dx(lv) : m.dy(lv);
-            const double a = ax == 0 ? dudy_[c] : dudx_[c], b = ax == 0 ? dvdy_[c] : dvdx_[c];
-            ca = 0.5 * (a + a);
-            cb = 0.5 * (b + b);
+            if (bo2) {
+                // second-order boundary face: the cross derivatives are the tangential difference of the face values (ghost and
+                // cell average) of the two neighbours along the wall (BoundaryManager::fix_frame_corners for the uniform mesh). The
+                // neighbour across a physical edge of the tangential side (a corner) is the ghost of the leaf on that side, and its
+                // ghost is the corner entry of the padded frame.
+                const int tl = ax == 0 ? 2 : 0;   // tangential sides: bottom / top for an x-face, left / right for a y-face
+                const auto tface = [&](int side_index, double& fu, double& fv) {
+                    const int code = nbr_[static_cast<size_t>(4) * c + side_index];
+                    if (code == kOutside) throw std::logic_error("CellFluxEngine: a boundary face reads a leaf that is not in this rank's partial mesh");
+                    State in, gh;
+                    if (code >= 0) {
+                        in = cell_state(code);
+                        gh = bc_.viscous_ghost(face.side, in);
+                    } else {
+                        // the corner ghost is always the left / right rule applied to the bottom / top ghost (not symmetric for a
+                        // moving wall): an x-face has face.side = left / right, a y-face has it the other way round
+                        const Face ts = static_cast<Face>(side_index);
+                        in = bc_.viscous_ghost(ts, U[c]);
+                        gh = ax == 0 ? bc_.viscous_ghost(face.side, in) : bc_.viscous_ghost(ts, bc_.viscous_ghost(face.side, U[c]));
+                    }
+                    const State Wg = eos_.cons_to_prim(gh), Wi = eos_.cons_to_prim(in);
+                    fu = 0.5 * (Wg[1] + Wi[1]);
+                    fv = 0.5 * (Wg[2] + Wi[2]);
+                };
+                double ulo, vlo, uhi, vhi;
+                tface(tl, ulo, vlo);
+                tface(tl + 1, uhi, vhi);
+                const double h2 = 2.0 * (ax == 0 ? m.dy(lv) : m.dx(lv));
+                ca = (uhi - ulo) / h2;
+                cb = (vhi - vlo) / h2;
+            } else {
+                const double a = ax == 0 ? dudy_[c] : dudx_[c], b = ax == 0 ? dvdy_[c] : dvdx_[c];
+                ca = 0.5 * (a + a);
+                cb = 0.5 * (b + b);
+            }
         } else {
             const int L = face.left, R = face.right;
             uL = su_[L];

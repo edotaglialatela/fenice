@@ -405,6 +405,14 @@ void CellAdaptor::decide(int max_level, int level, int i, int j, double xi, doub
         refine = level < max_level;
         coarsen = 0;
     }
+    if (has_box_) {   // the leaf (level, i, j) overlaps the forced box
+        const double xa = mesh_.x0 + i * mesh_.dx(level), xb = xa + mesh_.dx(level);
+        const double ya = mesh_.y0 + j * mesh_.dy(level), yb = ya + mesh_.dy(level);
+        if (xb > box_[0] && xa < box_[1] && yb > box_[2] && ya < box_[3]) {
+            refine = level < max_level;
+            coarsen = 0;
+        }
+    }
 }
 
 void CellAdaptor::flags(const CellMesh& m, const Field& U, const std::vector<int>& which, std::vector<char>& refine,

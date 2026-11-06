@@ -336,6 +336,53 @@ TEST(celladvance_level0_steps_match_uniform_steps_bitwise) {
             }
 }
 
+TEST(celladvance_level0_second_order_boundary_steps_match_uniform_steps_bitwise) {
+    struct BCs {
+        const char *l, *r, *b, *t;
+    };
+    const BCs sets[] = {{"wall", "outlet", "no_slip", "moving_wall"}, {"periodic", "periodic", "wall", "wall"},
+                        {"transmissive", "vel_inlet", "periodic", "periodic"},
+                        {"massflow_inlet", "outlet", "wall", "no_slip"}};
+    for (int big = 0; big < 2; ++big)
+        for (const BCs& bc : sets)
+            for (int sc = 0; sc < 3; ++sc)
+              for (int rec = 0; rec < 2; ++rec) {
+                if (rec == 1 && sc != 2) continue;   // WENO3-Z runs with SSP-RK3 only
+                Simulation sim;
+                sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_left", bc.l},
+                                            {"bc_right", bc.r}, {"bc_bottom", bc.b}, {"bc_top", bc.t},
+                                            {"use_muscl", "true"}, {"boundary_order", "2"},
+                                            {"reconstruction", rec ? "weno3" : "muscl"}, {"time_scheme", kSchemeNames[sc]}}),
+                          false);
+                const Mesh& u = sim.mesh;
+                const bool px = sim.boundaries.type(Face::Left) == BCType::Periodic;
+                const bool py = sim.boundaries.type(Face::Bottom) == BCType::Periodic;
+                for (int max_level : {0, 2}) {   // 2: the recursion with nothing to recurse into
+                    CellMesh cm(u.Lx, u.Ly, u.nx, u.ny, max_level, px, py, u.x0, u.y0);
+                    Field Uu(static_cast<size_t>(u.num_cells()));
+                    for (int j = 0; j < u.ny; ++j)
+                        for (int i = 0; i < u.nx; ++i) Uu[j * u.nx + i] = test_state(sim.fluid, u.xc(i), u.yc(j));
+                    cm.U.resize(cm.num_leaves());
+                    for (int c = 0; c < cm.num_leaves(); ++c) cm.U[c] = Uu[cm.cj[c] * u.nx + cm.ci[c]];
+                    CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+                    eng.build(cm);
+                    std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.4);
+                    CellAdvance adv(cm, eng, *ts);
+                    const double dt = 2e-3;
+                    const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
+                    bool same = true;
+                    for (int k = 0; k < 4; ++k) {
+                        sim.scheme->advance_fixed_dt(Uu, res, dt);
+                        adv.step(dt, k * dt);
+                    }
+                    for (int c = 0; c < cm.num_leaves(); ++c)
+                        for (int q = 0; q < kNVar; ++q) same = same && cm.U[c][q] == Uu[cm.cj[c] * u.nx + cm.ci[c]][q];
+                    CHECK(same);
+                    if (!same) std::printf("    %s %s/%s/%s/%s big %d max_level %d\n", kSchemeNames[sc], bc.l, bc.r, bc.b, bc.t, big, max_level);
+                }
+            }
+}
+
 TEST(celladvance_level0_weno3_steps_match_uniform_steps_bitwise) {
     struct BCs {
         const char *l, *r, *b, *t;
@@ -410,6 +457,35 @@ TEST(celladvance_conserves_across_level_jumps_and_the_control_fails) {
         CHECK(without > 1e-8);   // negative control: the register is what conserves
         if (!(with < 1e-13) || !(without > 1e-8))
             std::printf("    %s: conservation error with replacement %.3e, without %.3e\n", kSchemeNames[sc], with, without);
+    }
+}
+
+TEST(celladvance_second_order_wall_faces_conserve_mass_and_energy_in_a_closed_box) {
+    // Four slip walls with ghost layers (boundary_order = 2), three levels with jumps that meet the walls: the mirrored face states
+    // carry no mass and no energy through a wall, so the totals stay constant to roundoff. Momentum is not conserved (wall pressure).
+    for (const Reconstruction rec : {Reconstruction::Muscl, Reconstruction::Weno3}) {
+        const int sc = 2;
+        CellSetup su(false, Limiter::VanLeer, rec);
+        su.bm.set_boundary_types(BCType::Wall, BCType::Wall, BCType::Wall, BCType::Wall);
+        BCParams bp;
+        bp.boundary_order = 2;
+        su.bm.set_params(bp);
+        CellMesh mm = random_adapted_mesh(false, false, 57u, 6);
+        CHECK(mm.level_begin[3] < mm.num_leaves());
+        mm.U.resize(mm.num_leaves());
+        for (int c = 0; c < mm.num_leaves(); ++c) mm.U[c] = test_state(su.eos, mm.xc(c), mm.yc(c));
+        CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
+        eng.build(mm);
+        std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.4);
+        CellAdvance adv(mm, eng, *ts);
+        Field R;
+        double S = eng.residual(mm, mm.U, R);
+        const double m0 = cell_total(mm, 0), e0 = cell_total(mm, 3);
+        for (int k = 0; k < 8; ++k) S = adv.step(0.4 * mm.dx(0) / S, k * 0.01);
+        const double dm = std::abs(cell_total(mm, 0) - m0) / m0, de = std::abs(cell_total(mm, 3) - e0) / e0;
+        CHECK(dm < 1e-13);
+        CHECK(de < 1e-13);
+        if (!(dm < 1e-13) || !(de < 1e-13)) std::printf("    %s: mass error %.3e, energy error %.3e\n", rec == Reconstruction::Muscl ? "MUSCL" : "WENO3-Z", dm, de);
     }
 }
 

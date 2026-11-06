@@ -174,6 +174,7 @@ Params baseline_defaults() {
         {"amr_refine_every", "10"},
         {"amr_init_levels", "0"},
         {"amr_refine_ibm", "true"},
+        {"amr_force_box", ""},
         {"amr_indicator", "density+velocity"},
         {"output_root", FV_PROJECT_ROOT "/results"},
         {"dump_state", ""},
@@ -287,6 +288,14 @@ SimParams SimParams::from(const Params& p) {
     s.amr_refine_every = std::max(1, p.integer("amr_refine_every", 10));
     s.amr_init_levels = p.integer("amr_init_levels", 0);
     s.amr_refine_ibm = p.flag("amr_refine_ibm");
+    s.amr_force_box = p.str("amr_force_box", "");
+    if (!s.amr_force_box.empty()) {
+        double b[4];
+        char extra = 0;
+        const int got = std::sscanf(s.amr_force_box.c_str(), "%lf%*[ ,]%lf%*[ ,]%lf%*[ ,]%lf %c", &b[0], &b[1], &b[2], &b[3], &extra);
+        if (got != 4 || !(b[1] > b[0]) || !(b[3] > b[2]))
+            throw std::invalid_argument("amr_force_box must be 'x0 x1 y0 y1' with x0 < x1 and y0 < y1; got '" + s.amr_force_box + "'");
+    }
     s.amr_indicator = lower(p.str("amr_indicator", "density+velocity"));
     s.output_root = p.str("output_root", "results");
     s.dump_state = p.str("dump_state");
@@ -330,7 +339,6 @@ SimParams SimParams::from(const Params& p) {
     if (s.boundary_order != 1 && s.boundary_order != 2) throw std::invalid_argument("boundary_order must be 1 or 2");
     if (s.boundary_order == 2) {
         if (!s.use_muscl) throw std::invalid_argument("boundary_order = 2 needs use_muscl = true (a reconstruction to extend to the boundary faces)");
-        if (s.use_amr) throw std::invalid_argument("boundary_order = 2 is not available with AMR yet");
     }
     if (s.use_amr && !(s.amr_criterion > 0.0)) throw std::invalid_argument("amr_criterion must be positive");
     if (!(s.amr_derefine_threshold <= s.amr_refine_threshold))

@@ -86,6 +86,7 @@ struct DistSpec {
     bool viscous, force, source, unsteady_source, body;
     unsigned seed;
     bool remesh;
+    int boundary_order = 1;   // 2: second-order boundary faces (ghost layers); inviscid only
 };
 
 // Everything one rank (or the serial reference) needs, built from the spec.
@@ -108,6 +109,7 @@ struct DistEnv {
         bp.v_in = 0.1;
         bp.rho_in = 1.1;
         bp.p_out = 17.0;
+        bp.boundary_order = sp.boundary_order;
         bm.set_params(bp);
         if (sp.viscous) ph.ns = &ns;
         if (sp.force) ph.body = &bf;
@@ -238,6 +240,9 @@ TEST(cellparallel_equals_serial_bitwise_for_any_rank_count) {
         {"walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 14u, true},
         {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, false},
         {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true},
+        {"second-order boundary faces, walls and inlet", false, false, {BCType::Wall, BCType::Outlet, BCType::MovingWall, BCType::VelInlet}, false, false, false, false, false, 17u, true, 2},
+        {"second-order boundary faces, mass flow, nrbc", false, false, {BCType::MassflowInlet, BCType::NonReflecting, BCType::Wall, BCType::Transmissive}, false, false, false, false, false, 18u, true, 2},
+        {"second-order boundary faces, viscous cavity", false, false, {BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::MovingWall}, true, false, false, false, false, 19u, true, 2},
     };
     for (const DistSpec& sp : specs) {
         const Field serial = run_distributed(sp, 0, 6);
@@ -265,6 +270,9 @@ TEST(cellparallel_localized_run_equals_serial_bitwise_and_keeps_only_its_halo) {
         {"walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 14u, true},
         {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, false},
         {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true},
+        {"second-order boundary faces, walls and inlet", false, false, {BCType::Wall, BCType::Outlet, BCType::MovingWall, BCType::VelInlet}, false, false, false, false, false, 17u, true, 2},
+        {"second-order boundary faces, mass flow, nrbc", false, false, {BCType::MassflowInlet, BCType::NonReflecting, BCType::Wall, BCType::Transmissive}, false, false, false, false, false, 18u, true, 2},
+        {"second-order boundary faces, viscous cavity", false, false, {BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::MovingWall}, true, false, false, false, false, 19u, true, 2},
     };
     int empty_levels = 0;
     for (const DistSpec& sp : specs) {
@@ -294,6 +302,9 @@ TEST(cellparallel_distributed_init_equals_serial_init_bitwise) {
         {"euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 11u, true},
         {"walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 14u, true},
         {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true},
+        {"second-order boundary faces, walls and inlet", false, false, {BCType::Wall, BCType::Outlet, BCType::MovingWall, BCType::VelInlet}, false, false, false, false, false, 17u, true, 2},
+        {"second-order boundary faces, mass flow, nrbc", false, false, {BCType::MassflowInlet, BCType::NonReflecting, BCType::Wall, BCType::Transmissive}, false, false, false, false, false, 18u, true, 2},
+        {"second-order boundary faces, viscous cavity", false, false, {BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::MovingWall}, true, false, false, false, false, 19u, true, 2},
         {"immersed body (ghost cells)", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 26u, true},
         {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, true},
     };
@@ -723,6 +734,9 @@ TEST(cellparallel_topology_free_remesh_equals_serial_bitwise) {
         {"viscous + force + source periodic", true, true, {per, per, per, per}, true, true, true, false, false, 12u, true},
         {"walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 14u, true},
         {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true},
+        {"second-order boundary faces, walls and inlet", false, false, {BCType::Wall, BCType::Outlet, BCType::MovingWall, BCType::VelInlet}, false, false, false, false, false, 17u, true, 2},
+        {"second-order boundary faces, mass flow, nrbc", false, false, {BCType::MassflowInlet, BCType::NonReflecting, BCType::Wall, BCType::Transmissive}, false, false, false, false, false, 18u, true, 2},
+        {"second-order boundary faces, viscous cavity", false, false, {BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::MovingWall}, true, false, false, false, false, 19u, true, 2},
         {"immersed body (ghost cells)", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 26u, true},
         {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, true},
         {"unsteady source, mixed", true, false, {per, per, BCType::NoSlip, BCType::MovingWall}, true, false, true, true, false, 13u, true},
