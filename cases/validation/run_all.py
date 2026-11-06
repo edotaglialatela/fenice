@@ -38,6 +38,7 @@ GROUPS = {
         "kelvin_helmholtz": (["verification/kelvin_helmholtz.py"], "quick", 0.01),   # A5: Kelvin-Helmholtz linear growth rate
         "implosions": (["verification/implosions.py"], "medium", 0.11),   # A7: Noh (exact) and Sedov (scaling), 2-D
         "blast_waves": (["verification/blast_waves.py"], "quick", 0.02),   # A2: Woodward-Colella blast waves, self-convergence
+        "blast_waves_weno": (["verification/blast_waves_weno.py"], "medium", 0.07),   # A2: blast waves with WENO3-Z against the MUSCL run
         "sod": (["verification/sod.py"], "quick", None),
         "shock_order": (["verification/shock_order.py"], "quick", None),   # order of accuracy at a shock (Sod, 100 to 1600 cells)
         "isentropic_vortex": (["verification/isentropic_vortex.py"], "quick", None),

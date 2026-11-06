@@ -51,6 +51,48 @@ jumps between them under the same perturbations: its distance to the reference's
 at 800, 0.0008 to 0.0073 at 1600). It converges in physical distance, not in a fixed number of cells, and is quantised to the cell
 centres of each grid. It is printed by the study and is not a pass or fail criterion.
 
+## WENO3-Z against the MUSCL run
+
+```powershell
+python cases\validation\verification\blast_waves_weno.py      # about 4 min on 2 threads
+```
+
+The study above uses MUSCL (MC limiter, SSP-RK2). `blast_waves_weno.py` repeats it with `reconstruction = weno3` and SSP-RK3
+(everything else unchanged: HLLC, `shock_blend = 0.2`, CFL 0.4) on 400, 800, 1600 cells and a 3200-cell WENO3-Z reference, and
+compares the solutions with the 800-cell MUSCL run. The bands are those of the MUSCL study (conservation 1e-11, positivity,
+self-convergence rate at least 0.4); the comparison with MUSCL is reported, not a band, because the two schemes are different.
+Differences are the mean $|\rho_a - \rho_b|$ after averaging both rows onto the coarser mesh.
+
+| WENO3-Z cells | L1 to its own 3200-cell reference | L1 to the MUSCL 800-cell run | conservation | min $\rho$, min $p$ |
+|---|---|---|---|---|
+| 400 | 0.103 | 0.069 | 9e-14 | 0.149, 18.9 |
+| 800 | 0.049 | 0.036 | 2e-13 | 0.147, 19.1 |
+| 1600 | 0.018 | 0.043 | 4e-13 | 0.146, 19.2 |
+
+The observed rates are 1.09 and 1.44 and the study passes. For reference, the MUSCL 800-cell run is 0.053 from its own 3200-cell
+reference, and the two 3200-cell references (WENO3-Z and MUSCL) differ by 0.013.
+
+<figure>
+<img src="{{root}}img/blast_waves_weno.png" alt="Blast waves: WENO3-Z on three meshes and the MUSCL 800-cell run">
+<figcaption>Density at t = 0.038 (left, and a zoom on the right) for WENO3-Z on 400, 800 and 1600 cells, MUSCL on 800 cells and
+both 3200-cell references; below, the density difference of WENO3-Z 800 and 1600 to MUSCL 800 (both averaged onto 800 cells) and
+of the two references.</figcaption>
+</figure>
+
+* At the same 800 cells WENO3-Z is slightly closer to its reference than MUSCL is to its own (0.049 against 0.053); the two
+  800-cell solutions differ from each other by 0.036, about as much as either differs from its reference, so at this
+  resolution the scheme is not what separates them from the converged answer, the mesh is. They disagree most at the density
+  peak ($x \approx 0.76$-$0.80$) and, less, at the left foot of the structure ($x \approx 0.6$), where WENO3-Z is steeper.
+* The distance of the 1600-cell WENO3-Z run to the 800-cell MUSCL run (0.043) is larger than at 800 cells because it is
+  dominated by the error of the 800-cell MUSCL run itself (0.053), not by a disagreement of the schemes: the references differ
+  by 0.013.
+* **Sensitivity.** The 1600-cell run and its reference were repeated with the CFL changed by 1e-12 (relative) in both
+  directions: the error is 0.017854, 0.017857 and 0.017858. The error does not jump between two values as the MUSCL error
+  does (0.020 or 0.034); with WENO3-Z at this resolution the study is insensitive to the perturbation. That is two perturbations
+  at one resolution, with the dissipation on only, a smaller sweep than the six runs of the MUSCL study.
+* The 1600-cell WENO3-Z error (0.018) is about that of the lower MUSCL value (0.020), so WENO3-Z lands where the better of the
+  two MUSCL outcomes does, without the other outcome appearing.
+
 ## References
 
 * Woodward, P. & Colella, P. (1984). The numerical simulation of two-dimensional fluid flow with strong shocks.
