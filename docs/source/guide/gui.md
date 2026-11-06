@@ -90,7 +90,7 @@ unchanged.
   faces on the physical boundaries; Riemann solver,
   time integration), output, and MPI rank count. Choosing a WENO reconstruction sets the time integration
   to SSP Runge-Kutta 3 and colours, with a tooltip, the integrators that do not suit it; a combination the solver refuses
-  (WENO with SSP Runge-Kutta 2 or AMR, WENO5 with MPI) is explained under the list and
+  (WENO with SSP Runge-Kutta 2, WENO5 with AMR or MPI) is explained under the list and
   blocked when the run is started. Explicit Euler with WENO is allowed with a warning.
   Setting **Nz > 1** makes the run 3-D and shows the z inputs: Lz, the front/back BCs and,
   when enabled, the body force gz. Nz = 1 is a 2-D run.

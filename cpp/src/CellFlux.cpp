@@ -1116,6 +1116,7 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
             } else {
                 const std::array<int, 4>& s = stencil_[f];
                 const State &w0 = W_[s[0]], &w1 = W_[s[1]], &w2 = W_[s[2]], &w3 = W_[s[3]];
+                const bool weno3 = muscl_->scheme() == Reconstruction::Weno3;
                 State wl, wr;
                 if (face.kind == CellFaceKind::CoarseFine) {
                     // the fine side is reconstructed against the (virtual) cell across the face, the coarse side is its cell state
@@ -1131,13 +1132,20 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                         const double wf = !coarse_side_second_order ? 0.0 : (code_f < 0 ? wc : W_[code_f][q]);
                         if (fine_left) {
                             const double c0 = w0[q], c1 = w1[q], c2 = w2[q];
-                            wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, c2 - c1);
-                            wr[q] = coarse_side_second_order ? wc - 0.5 * apply_limiter(lim, wf - wc, wc - wb) : w3[q];
+                            wl[q] = weno3 ? muscl_->weno3_value(c0, c1, c2) : c1 + 0.5 * apply_limiter(lim, c1 - c0, c2 - c1);
+                            wr[q] = !coarse_side_second_order ? w3[q]
+                                    : weno3 ? muscl_->weno3_value(wf, wc, wb) : wc - 0.5 * apply_limiter(lim, wf - wc, wc - wb);
                         } else {
                             const double c1 = w1[q], c2 = w2[q], c3 = w3[q];
-                            wl[q] = coarse_side_second_order ? wc + 0.5 * apply_limiter(lim, wc - wb, wf - wc) : w0[q];
-                            wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, c2 - c1);
+                            wl[q] = !coarse_side_second_order ? w0[q]
+                                    : weno3 ? muscl_->weno3_value(wb, wc, wf) : wc + 0.5 * apply_limiter(lim, wc - wb, wf - wc);
+                            wr[q] = weno3 ? muscl_->weno3_value(c3, c2, c1) : c2 - 0.5 * apply_limiter(lim, c3 - c2, c2 - c1);
                         }
+                    }
+                } else if (weno3) {   // an ordinary face under WENO3-Z: the same four cells, the scalar reconstruction
+                    for (int q = 0; q < kNVar; ++q) {
+                        wl[q] = muscl_->weno3_value(w0[q], w1[q], w2[q]);
+                        wr[q] = muscl_->weno3_value(w3[q], w2[q], w1[q]);
                     }
                 } else {
                     for (int k = 0; k < 4; ++k) mst[4 * nm + k] = s[k];

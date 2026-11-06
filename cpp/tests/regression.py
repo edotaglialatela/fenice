@@ -74,6 +74,9 @@ CASES = {
     "amr_square_rk3":      ("Sod Shock Tube", dict(Lx=1.0, Ly=1.0, nx=32, ny=32, t_end=0.4, use_amr=True,
                                                    amr_max_level=3, amr_refine_every=2, amr_init_levels=1,
                                                    use_muscl=True, time_scheme="SSP Runge-Kutta 3")),
+    "amr_weno3_rk3":       ("Sod Shock Tube", dict(Lx=1.0, Ly=1.0, nx=32, ny=32, t_end=0.4, use_amr=True,
+                                                   amr_max_level=3, amr_refine_every=2, amr_init_levels=1,
+                                                   use_muscl=True, reconstruction="weno3", time_scheme="SSP Runge-Kutta 3")),
     # A tiny base mesh: under MPI most ranks own few or no leaves at the coarse levels (empty ranks, small halos)
     "amr_sod_few_roots":   ("Sod Shock Tube", dict(Lx=1.0, nx=32, ny=4, Ly=0.125, t_end=0.15, use_amr=True,
                                                    amr_max_level=3, amr_refine_every=2)),
@@ -170,7 +173,7 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk3_visc", "cavity_periodi
              "cylinder_ibm_visc", "cylinder_ibm_source", "amr_cylinder_source", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
-             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_square_rk3", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "amr_hot_start_from_amr", "hot_start_from_amr", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
+             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_square_rk3", "amr_weno3_rk3", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "amr_hot_start_from_amr", "hot_start_from_amr", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
              "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2", "cavity3d_noslip_z_b2", "cavity_xdecomp_b2", "cavity3d_xdecomp_b2"]
 

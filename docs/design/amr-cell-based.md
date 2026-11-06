@@ -270,6 +270,7 @@ history of the flagged region). The threshold is the user's decision (section 7,
   (below): no visible effect on the error, no overshoot.
 * Tests: `celladvance_level0_steps_match_uniform_steps_bitwise` (Euler / RK2 / SSP-RK3, three boundary sets incl. periodic, 9x7 and 96x64, level-0
   and a `max_level = 2` mesh without refinement; 4 steps equal to `advance_fixed_dt` of the uniform solver bit for bit),
+  `celladvance_level0_weno3_steps_match_uniform_steps_bitwise` and `celladvance_weno3_conserves_across_level_jumps_and_the_control_fails` (the same two checks with WENO3-Z and SSP-RK3: on a coarse-fine face both sides are WENO3-Z from the cells the limited formula reads),
   `celladvance_conserves_across_level_jumps_and_the_control_fails` (random 3-level periodic mesh, 6 steps, relative error < 1e-13 for all three
   schemes; with the test hook that makes the coarse side read the last computed flux it is > 1e-8), `celladvance_free_stream_and_stage_times`
   (state unchanged bitwise for Euler / RK2, 1e-14 for SSP-RK3 whose weights sum to 1 only up to rounding; the sequence of (level, stage time) equals the

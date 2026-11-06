@@ -153,7 +153,13 @@ about 2 to 4 times as long as MUSCL for the same run (it also uses a three-stage
   Mach 10, 20 and 100 tubes, the Mach 10 cylinder, the odd-even test) is passed by `weno3` at the suite's CFL (0.4 for the tubes and the odd-even test, the case's own value for the cylinder) and by `weno5` at CFL 0.3.
   `weno5` with SSP-RK3 diverges on the near-vacuum tube at CFL 0.4 (it is stable up to 0.3), so
   use a lower CFL for problems that open a vacuum. A run whose state diverges stops with an error naming the step.
-* Not available with AMR, and not with SSP-RK2 (the combination is rejected when the case is read).
+* `weno5` is not available with AMR, and neither WENO scheme with SSP-RK2 (rejected when the case is read).
+* `weno3` runs on the adaptive mesh with the same four-cell stencil per face as MUSCL, so the halo, the virtual cells and the
+  flux registers are unchanged. On a coarse-fine face both sides are reconstructed with WENO-Z from the data the limited
+  formula uses: the fine side from its two fine cells and the interpolated coarse value, the coarse side from its own cell,
+  its neighbour away from the face and the mean of the fine leaves. The interpolated value itself still uses the limited
+  slopes of the coarse leaf, and those and the averaged values are second order. Measured on the Sod tube (base 50 cells, two levels, static refined band, SSP-RK3): the density L1 error is 2.972e-3, against 2.972e-3 on the uniform 200-cell grid and 1.05e-2 on the uniform 50-cell grid; with the band narrowed so that the waves cross the jumps, the error inside the window stays within 1.6 times the uniform-200 one. The transmissive ends of a WENO run leak about 1e-10 of the mass (the tails of the waves), also on a uniform grid.
+  The level-0 mesh equals the uniform solver bit for bit, and the state is the same on any number of ranks.
 
 ### References
 

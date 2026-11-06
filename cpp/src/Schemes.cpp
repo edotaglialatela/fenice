@@ -330,6 +330,8 @@ inline double weno5z(double c0, double c1, double c2, double c3, double c4, doub
 }
 }   // namespace
 
+double MusclReconstruction::weno3_value(double c0, double c1, double c2) const { return weno3z(c0, c1, c2, weno_eps_); }
+
 void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U, int nx, int ny, int nz, const Halos& h) const {
     constexpr int pad = 3;
     const int padz = nz > 1 ? pad : 0;

@@ -1,6 +1,6 @@
 # WENO and second-order boundary faces on the adaptive mesh
 
-Status: proposal, nothing implemented. SSP-RK3 with AMR is done (`f16cbd6`); what AMR still rejects (`Params.cpp`) is `reconstruction = weno3 | weno5` and `boundary_order = 2`. The method choices below are yours; each has a recommendation.
+Status: Part A (WENO3-Z, option A1) is implemented; B and C are proposals. SSP-RK3 with AMR is done (`f16cbd6`); what AMR still rejects (`Params.cpp`) is `reconstruction = weno3 | weno5` and `boundary_order = 2`. The method choices below are yours; each has a recommendation.
 
 Everything here comes from reading `CellFlux.cpp`, `CellFlux.hpp`, `Schemes.cpp`, `Boundaries.hpp` and `docs/design/amr-cell-based.md`; no number is measured yet. A first version of this file was reviewed against the code; the corrections are listed at the end.
 

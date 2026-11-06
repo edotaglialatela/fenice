@@ -199,8 +199,8 @@ struct CellSetup {
     RiemannSolver rs;
     MusclReconstruction mu;
     BoundaryManager bm;
-    CellSetup(bool periodic, Limiter lim = Limiter::VanLeer)
-        : rs(eos, RiemannType::HLLC), mu(eos, lim), bm(generate_cartesian_mesh(1.0, 1.0, 4, 4), eos) {
+    CellSetup(bool periodic, Limiter lim = Limiter::VanLeer, Reconstruction rec = Reconstruction::Muscl)
+        : rs(eos, RiemannType::HLLC), mu(eos, lim, rec), bm(generate_cartesian_mesh(1.0, 1.0, 4, 4), eos) {
         if (periodic)
             bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Periodic, BCType::Periodic);
         else

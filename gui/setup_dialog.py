@@ -618,8 +618,8 @@ class SetupDialog(QDialog):
                 errors.append("2nd-order boundary faces are not available with AMR yet: use 1st-order boundary faces or switch AMR off.")
         if recon in ("weno3", "weno5"):
             name = self.combo_recon.currentText().split(" (")[0]
-            if self.check_amr.isChecked():
-                errors.append(f"{name} is not available with AMR yet: use MUSCL or switch AMR off.")
+            if recon == "weno5" and self.check_amr.isChecked():
+                errors.append(f"{name} is not available with AMR yet: use WENO3-Z or MUSCL, or switch AMR off.")
             if recon == "weno5" and self.check_mpi.isChecked():
                 errors.append("WENO5-Z is serial for now (the MPI halo is two cells deep): use WENO3-Z or switch MPI off.")
             if time == "SSP Runge-Kutta 2":
