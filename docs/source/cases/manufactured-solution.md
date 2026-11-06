@@ -345,6 +345,44 @@ for the seam); the first-order columns are the baseline and have no band.
 * Level jumps themselves: the second-order faces use the coarse-fine closure unchanged (interpolated fine side, second-order coarse side),
   so a seam in smooth flow costs the order of its interpolated and averaged values, and the orders above are those of the whole mesh.
 
+## WENO-Z reconstruction on the periodic cases
+
+```powershell
+python casesalidationerification\mms_weno.py            # up to 64^2 / 48^3 (about 1.5 minutes)
+python casesalidationerification\mms_weno.py --full     # up to 128^2 / 96^3, and 256^2 for the diagnostic
+```
+
+The same three periodic solutions (Euler 2-D, Navier-Stokes 2-D and 3-D), grids, final time and error measures as above, with
+`reconstruction = weno3` or `weno5` and SSP-RK3 (the helpers of `mms.py` are reused; the non-periodic solutions are in the
+boundary studies). The bands were fixed in the script before the first run: $L_1$ and $L_2$ orders of the finest pair of grids
+between 1.8 and 2.5, $L_\infty$ between 1.5 and 2.5, in every variable, because the initial state and the sources are evaluated
+at the cell centres and the flux balance uses face-centre values, which makes this test second order whatever the reconstruction
+(the formal orders 3 and 5 are checked on the one-dimensional entropy wave with exact cell averages, see the Schemes page).
+Only an order below the lower bound, or a truncation error from the exact state that stops falling, fails the study.
+
+| scheme | orders of the finest pair (full grids), all variables, $L_1$ / $L_2$ / $L_\infty$ |
+|---|---|
+| WENO5-Z | 1.9 to 2.0 in every case, norm and variable (2.00 except Euler $L_\infty$, 1.91 to 1.96) |
+| WENO3-Z | 2.0 to 2.8; Euler 2-D up to 2.8, Navier-Stokes 3-D $L_\infty$ 2.0 to 2.6 |
+
+* **WENO5-Z behaves as predicted**: exactly second order, so the stencil, the periodic seams, the viscous terms and the 3-D
+  indexing lose no order, and the error is the cell-centre floor of the test.
+* **WENO3-Z does not behave as predicted.** Eight of its nine rows (case x norm) are above the upper bound of 2.5 in at least one
+  variable on the finest pair, and on the pair $128 	o 256$ of the 2-D cases the orders are 2.2 to 3.2. An order above the
+  expected one cannot hide a loss of order, so the study reports "above the band" and does not fail on it, but the prediction
+  that the order of this test is capped at two is wrong for WENO3-Z. No cause is established. A fit $e = a h^2 + b h^3$ does not
+  describe the errors (misfits 7 to 110 %); the difference between the WENO3-Z and WENO5-Z solutions falls at the same 2.3 to 2.8 as
+  the WENO3-Z error; and a sweep of `weno_epsilon` on the Navier-Stokes case gives, for the error of the whole conserved state,
+  order 1.96 and 1.98 on $128 	o 256$ for $arepsilon = 10^{-2}$ and $10^{-4}$ (the errors agree to 0.1 % at $256^2$) while the individual
+  variables are still above two. The truncation error from the exact state falls at 1.3 to 2.1 for WENO3-Z (on the finest pair 1.75 to 2.05) and at 1.8 to 2.7 for WENO5-Z.
+* Table: `results/validation/mms_weno/mms_weno_table.md`; figure below.
+
+<figure>
+<img src="{{root}}img/mms_weno.png" style="width:100%" alt="Manufactured solutions with WENO3-Z and WENO5-Z">
+<figcaption>Truncation error from the exact state, and $L_2$ and $L_\infty$ errors at $t = 0.5$ (worst variable) for WENO3-Z and
+WENO5-Z on the periodic solutions.</figcaption>
+</figure>
+
 ## An unsteady solution: time accuracy
 
 The steady source cannot test the time integration, so one more case has **travelling waves**: the time enters the

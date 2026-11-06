@@ -50,6 +50,7 @@ GROUPS = {
         "mms_time": (["verification/mms_time.py"], "quick", None),   # time order, unsteady manufactured solution (2 minutes)
         "mms": (["verification/mms.py"], "quick", None),   # manufactured solutions, 2-D and 3-D, up to 64^2 / 48^3
         "mms_full": (["verification/mms.py", "--full"], "long", None),   # up to 128^2 / 96^3 (about 20 minutes), as in the docs
+        "mms_weno": (["verification/mms_weno.py"], "quick", None),   # periodic manufactured solutions with WENO3-Z / WENO5-Z, up to 64^2 / 48^3
     },
     "benchmarks": {
         "shu_osher": (["benchmarks/shu_osher.py"], "quick", None),
