@@ -92,7 +92,7 @@ case's indicator, so the finest cells are those of $N$), MUSCL Van Leer and WENO
 $\sum|q - q_\mathrm{exact}| / \sum|q_\mathrm{exact}|$ at the cell centres against the exact solution; the table is committed as
 `sod_schemes.md` next to the script (absolute errors and the velocity too).
 
-| Scheme | relative $L_1$ of $ho$: 100 / 200 / 400 cells | orders | of $p$: 100 / 200 / 400 | orders | cells at 400 |
+| Scheme | relative $L_1$ of $\rho$: 100 / 200 / 400 cells | orders | of $p$: 100 / 200 / 400 | orders | cells at 400 |
 |---|---|---|---|---|---|
 | 1st order | 3.75e-02 / 2.39e-02 / 1.51e-02 | 0.65, 0.66 | 3.67e-02 / 2.21e-02 / 1.32e-02 | 0.73, 0.75 | 1600 |
 | MUSCL Minmod | 1.39e-02 / 7.55e-03 / 4.26e-03 | 0.88, 0.82 | 1.21e-02 / 6.09e-03 / 3.09e-03 | 0.99, 0.98 | 1600 |
