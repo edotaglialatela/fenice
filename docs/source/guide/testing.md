@@ -457,7 +457,8 @@ now also runs the ghost-cell wall (`M046`: no spec of that test used the ghost-c
 `moving_wall_ghost_has_the_pressure_of_the_interior_at_second_order` (`M048`: the mutated term is the one of the third velocity component, which is
 exactly zero in 2-D, so only a state with `w` different from zero reaches it) and `dilate_cells_equals_a_brute_force_dilation` (`M055`).
 The bitwise comparisons could not see `M029`, `M046` and `M048`: both sides call the same function, so a wrong function is wrong in both.
-`M009` and `M042` stay undecided.
+`M009` and `M042` stay undecided. Only the five new tests were run on the three remaining survivors (`M009`, `M016`, `M042`): none is caught, so the
+tally with the new tests is 57 of 60 (95 %); the other 52 results are those of the run above.
 
 The table of every mutant is `results/validation/mutation_study/table.md`. A check that times out leaves its solver process running; the
 script kills the solver processes of the worktree after each mutant (a leftover one locked the executable and every later build failed).
