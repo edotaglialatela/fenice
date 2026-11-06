@@ -10,12 +10,13 @@ reference of the same code (there is no exact solution). Bands, fixed before the
   3. self-convergence: the L1 density difference to the reference (the reference averaged onto the coarse cells) decreases
      with every refinement, with an observed rate of at least 0.4 between successive levels (a solution with shocks and
      contacts converges at about first order in L1);
-  4. the position of the density maximum differs from the reference's by at most 0.02 (a fifth of the first blast's width)
-     on every grid, and the difference in x does not grow with refinement by more than one cell of the finer grid (the peak
-     is a one-or-two-cell spike, its position converges in physical distance, not in cells; a band of 2 cells, the first
-     choice, was wrong for that reason; "does not grow" at all, the second choice, was wrong because the position of the
-     maximum is quantised to the cell centres of each grid: with shock_blend 0.2 it goes 0.0070, 0.0077, 0.0048 from 400 to 1600
-     cells, a growth of 0.0007 against a cell of 0.00125 at 800).
+The position of the density maximum is printed but is not a band. It was one (within 0.02 of the reference's, not growing by more
+than a cell of the finer grid), and it failed for a reason that is not the scheme: the maximum is a one-or-two-cell spike and two
+spikes have nearly the same height, so the argmax jumps between them under any perturbation. Repeating the whole study with the
+CFL changed by 1e-12 (rounding-level changes of the time step; six runs at shock_blend 0.2) gave a distance of 0.003 or 0.12 at 400
+cells, 0.006 to 0.009 at 800 and 0.0008 to 0.0073 at 1600. The same perturbations move the L1 error at 1600 cells between 0.020 and
+0.034 (two values, three runs each) and leave the observed rates at 0.63 or more (band 3), so the L1 bands hold at the
+default and the peak position is no basis for a pass or a fail.
 """
 import numpy as np
 
@@ -28,7 +29,6 @@ REFERENCE = 3200
 NY, LY = 4, 0.01
 CONSERVATION_BAND = 1e-11
 RATE_BAND = 0.4
-PEAK_BAND_X = 0.02
 
 
 def profile(run_dir, nx):
@@ -68,9 +68,8 @@ def main():
                "finite": finite, "peak_error_x": peak_x}
         res["pass_conservation"] = cons < CONSERVATION_BAND
         res["pass_positive"] = finite and res["rho_min"] > 0 and res["p_min"] > 0
-        res["pass_peak"] = peak_x <= PEAK_BAND_X
         peaks.append(peak_x)
-        ok &= res["pass_conservation"] and res["pass_positive"] and res["pass_peak"]
+        ok &= res["pass_conservation"] and res["pass_positive"]
         out["levels"][n] = res
         print(f"n={n:5d}  L1={e:.4e}  conservation={cons:.1e}  rho_min={res['rho_min']:.3g}  p_min={res['p_min']:.3g}  "
               f"peak off by {peak_x:.4f} in x")
@@ -79,8 +78,6 @@ def main():
     out["pass_rates"] = bool(all(e1 > e2 for e1, e2 in zip(errs, errs[1:])) and all(r >= RATE_BAND for r in rates))
     ok &= out["pass_rates"]
     print(f"observed rates {', '.join(f'{r:.2f}' for r in rates)}  (band >= {RATE_BAND})")
-    out["pass_peak_monotone"] = bool(all(a + 1.0 / n2 >= b for a, b, n2 in zip(peaks, peaks[1:], LEVELS[1:])))
-    ok &= out["pass_peak_monotone"]
     out["passed"] = bool(ok)
     fenice.write_summary(STUDY, out)
 
