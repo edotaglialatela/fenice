@@ -105,13 +105,13 @@ $\sum|q - q_\mathrm{exact}| / \sum|q_\mathrm{exact}|$ at the cell centres agains
 | AMR WENO3-Z | 1.21e-02 / 6.40e-03 / 3.83e-03 | 0.92, 0.74 | 1.13e-02 / 5.91e-03 / 3.08e-03 | 0.94, 0.94 | 574 |
 | published, second order (arXiv:1108.2876) | 1.3e-02 / 6.8e-03 / 3.4e-03 (variable not stated) | 0.93, 1.00 | | | |
 
-* **Order.** Every scheme sits at 0.8 to 1.0 in density and velocity (first order 0.65 to 0.8), the one the contact and the shock impose
+* **Order.** Every second-order scheme sits at 0.7 to 1.1 in density and 0.9 to 1.0 in pressure and velocity (first order 0.65 to 0.8), the one the contact and the shock impose
   whatever the formal order; the published second-order scheme shows the same (0.93, 1.0). Reconstruction changes the error constant, not the order.
 * **Magnitude.** The published values (1.3e-2, 6.8e-3, 3.4e-3) lie among ours: MUSCL Minmod gives 1.4e-2, 7.6e-3, 4.3e-3 in density and
-  1.2e-2, 6.1e-3, 3.1e-3 in pressure, the sharper limiters and WENO3-Z 0.7 to 0.8 of that, and WENO5-Z about half. The variable of the published
+  1.2e-2, 6.1e-3, 3.1e-3 in pressure, the sharper limiters and WENO3-Z 0.65 to 0.75 of that, and WENO5-Z about half. The variable of the published
   error is not stated, and its scheme, time step ($\Delta t = \Delta x^2$) and solver are not ours, so this is agreement of magnitude and order, not a reproduction.
-* **Ranking.** WENO5-Z is the most accurate on every grid, then MC, Koren, WENO3-Z and Van Leer (within 10 % of each other), Minmod, and the first-order scheme
-  with 2 to 3 times the error of the second-order ones.
+* **Ranking.** WENO5-Z is the most accurate on every grid, then MC, Koren, WENO3-Z and Van Leer (within about 10 % of each other), Minmod, and the first-order scheme
+  with 3.5 to 8.5 times the error of the second-order ones at 400 cells.
 * **Adaptive mesh.** With 568 to 574 cells instead of 1 600 at the finest, the adaptive runs have 1.2 to 1.3 times the error of the uniform grid of the same finest
   resolution (MUSCL Van Leer, density 3.45e-3 against 2.94e-3), at 36 % of the cells.
 
