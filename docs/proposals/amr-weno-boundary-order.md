@@ -1,8 +1,8 @@
 # WENO and second-order boundary faces on the adaptive mesh
 
-Status: Part A (WENO3-Z, option A1) and Part B (`boundary_order = 2`, inviscid and viscous) are implemented; C is a proposal. SSP-RK3 with AMR is done (`f16cbd6`); what AMR still rejects (`Params.cpp`) is `reconstruction = weno3 | weno5` and `boundary_order = 2`. The method choices below are yours; each has a recommendation.
+Status (2026-11-06): **Parts A and B are implemented and on main; Part C (WENO5-Z on the adaptive mesh) is deferred** and is the only open part. `reconstruction = weno3` and `boundary_order = 2` (inviscid and viscous) run with AMR, `weno5` is still rejected with AMR (`Params.cpp`). Decisions taken: A1 for the coarse-fine faces, interpolated or virtual cells behind a boundary leaf at a jump, the static-refinement hook (`amr_force_box`) added; decisions 3 and 5 are open. What was built and measured is in `docs/design/amr-cell-based.md` section 21 and on the manufactured-solutions page; this file keeps the original analysis, and the parts below are written as proposed.
 
-Everything here comes from reading `CellFlux.cpp`, `CellFlux.hpp`, `Schemes.cpp`, `Boundaries.hpp` and `docs/design/amr-cell-based.md`; no number is measured yet. A first version of this file was reviewed against the code; the corrections are listed at the end.
+The text below is the proposal as written before the work (present tense describes the code at that time). Everything here comes from reading `CellFlux.cpp`, `CellFlux.hpp`, `Schemes.cpp`, `Boundaries.hpp` and `docs/design/amr-cell-based.md`; no number is measured yet. A first version of this file was reviewed against the code; the corrections are listed at the end.
 
 ## What the adaptive residual looks like today
 
@@ -49,9 +49,9 @@ Further points, each with a proposed answer:
 * **Viscous terms.** On the uniform mesh a boundary face takes its cross derivatives from the tangential difference of the face values (ghost and cell average), and `fix_frame_corners` rebuilds the corner entries of the padded state. In the adaptive code the tangential neighbour code of the boundary leaf gives the neighbour's face value (its ghost state); at a corner the neighbour is itself across another physical side, and the order of the two maps matters for the bits: the uniform rule takes the cell in the ghost row (the bottom or top map applied to the cell) and then applies the left or right map to that. The adaptive code must compose them in the same order. At a tangential level jump along the wall the neighbour's value is the virtual cell's.
 * **The immersed boundary.** Unchanged: the ghost-cell wall already needs the finest level around the body, and the mask forcing does not touch the domain boundary.
 
-## Part C: WENO5-Z
+## Part C: WENO5-Z (deferred)
 
-Larger, and independent of B:
+Not started. Larger, and independent of B:
 
 * the stencil is six cells (`c-1 .. c4`), so `stencil_` widens from 4 to 6 entries, the virtual cells must exist two cells beyond the face on each side (a cell beyond a neighbour that is itself beyond a jump can be two levels away, which the recursive virtual cell already handles in principle), and the neighbour codes need a second ring;
 * the halo has to reach three leaves; whether `halo_reach` and the share construction raise it by themselves for a six-cell stencil is to be tested (see the guards above), not assumed. In the **uniform** solver WENO5 is serial because its MPI halo is two cells deep. If the adaptive path runs it on ranks, either the uniform path gets a three-deep halo too (a separate change in `Schemes`, whose size I have not looked at), or the two differ and the docs say so. I would give the uniform path the deeper halo.
@@ -79,11 +79,11 @@ Parts A and B are each a few days of work with their tests; C is larger and the 
 
 ## Decisions for you
 
-1. Coarse-fine faces with WENO: A1 (recommended) or A2.
-2. Boundary ghosts across a level jump: interpolated or virtual values as in the interior (recommended), or the first-order boundary face at those leaves.
+1. Coarse-fine faces with WENO: A1 (recommended) or A2. *Taken: A1.*
+2. Boundary ghosts across a level jump: interpolated or virtual values as in the interior (recommended), or the first-order boundary face at those leaves. *Taken: interpolated or virtual.*
 3. WENO5 on MPI: extend the uniform path to a three-deep halo as well (recommended), or only the adaptive one.
-4. The static-refinement test hook (a parameter that forces a refined box): yes or no.
-5. Whether to do C at all, given that B is the part that changes accuracy on real wall-bounded flows.
+4. The static-refinement test hook (a parameter that forces a refined box): yes or no. *Taken: yes, `amr_force_box`.*
+5. Whether to do C at all (*open, deferred*), given that B is the part that changes accuracy on real wall-bounded flows.
 
 ## Corrections made after review
 
