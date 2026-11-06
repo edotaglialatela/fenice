@@ -84,6 +84,37 @@ limiter 0.06 and the CFL number 0.005. Over the whole range the error falls as $
 (a fit through the A sample). Within this range the choice of limiter is worth about 6 % of the variance, the CFL number nothing. The default mode runs 64
 base points (320 runs, about half a minute); the intervals scale as $1/\sqrt{n}$.
 
+## Every scheme, and a published table
+
+`cases/validation/verification/sod_schemes.py` solves the standard problem ($t = 0.2$, HLLC, shock-face dissipation at its default) on
+100, 200 and 400 cells with first order, MUSCL with each limiter, WENO3-Z, WENO5-Z and, on the adaptive mesh (base $N/2$ plus one level, the
+case's indicator, so the finest cells are those of $N$), MUSCL Van Leer and WENO3-Z. The error is the relative $L_1$ norm
+$\sum|q - q_\mathrm{exact}| / \sum|q_\mathrm{exact}|$ at the cell centres against the exact solution; the table is committed as
+`sod_schemes.md` next to the script (absolute errors and the velocity too).
+
+| Scheme | relative $L_1$ of $ho$: 100 / 200 / 400 cells | orders | of $p$: 100 / 200 / 400 | orders | cells at 400 |
+|---|---|---|---|---|---|
+| 1st order | 3.75e-02 / 2.39e-02 / 1.51e-02 | 0.65, 0.66 | 3.67e-02 / 2.21e-02 / 1.32e-02 | 0.73, 0.75 | 1600 |
+| MUSCL Minmod | 1.39e-02 / 7.55e-03 / 4.26e-03 | 0.88, 0.82 | 1.21e-02 / 6.09e-03 / 3.09e-03 | 0.99, 0.98 | 1600 |
+| MUSCL Van Leer | 1.00e-02 / 5.32e-03 / 2.94e-03 | 0.91, 0.85 | 8.09e-03 / 4.04e-03 / 2.05e-03 | 1.00, 0.98 | 1600 |
+| MUSCL MC | 9.23e-03 / 4.81e-03 / 2.66e-03 | 0.94, 0.85 | 7.10e-03 / 3.56e-03 / 1.81e-03 | 1.00, 0.97 | 1600 |
+| MUSCL Koren | 9.66e-03 / 5.17e-03 / 2.93e-03 | 0.90, 0.82 | 7.38e-03 / 3.66e-03 / 1.87e-03 | 1.01, 0.97 | 1600 |
+| WENO3-Z | 1.04e-02 / 5.35e-03 / 2.90e-03 | 0.96, 0.88 | 8.79e-03 / 4.36e-03 / 2.20e-03 | 1.01, 0.99 | 1600 |
+| WENO5-Z | 7.19e-03 / 3.44e-03 / 1.77e-03 | 1.06, 0.96 | 5.50e-03 / 2.70e-03 / 1.37e-03 | 1.03, 0.98 | 1600 |
+| AMR MUSCL Van Leer | 1.26e-02 / 6.17e-03 / 3.45e-03 | 1.03, 0.84 | 1.13e-02 / 5.32e-03 / 2.71e-03 | 1.08, 0.97 | 568 |
+| AMR WENO3-Z | 1.21e-02 / 6.40e-03 / 3.83e-03 | 0.92, 0.74 | 1.13e-02 / 5.91e-03 / 3.08e-03 | 0.94, 0.94 | 574 |
+| published, second order (arXiv:1108.2876) | 1.3e-02 / 6.8e-03 / 3.4e-03 (variable not stated) | 0.93, 1.00 | | | |
+
+* **Order.** Every scheme sits at 0.8 to 1.0 in density and velocity (first order 0.65 to 0.8), the one the contact and the shock impose
+  whatever the formal order; the published second-order scheme shows the same (0.93, 1.0). Reconstruction changes the error constant, not the order.
+* **Magnitude.** The published values (1.3e-2, 6.8e-3, 3.4e-3) lie among ours: MUSCL Minmod gives 1.4e-2, 7.6e-3, 4.3e-3 in density and
+  1.2e-2, 6.1e-3, 3.1e-3 in pressure, the sharper limiters and WENO3-Z 0.7 to 0.8 of that, and WENO5-Z about half. The variable of the published
+  error is not stated, and its scheme, time step ($\Delta t = \Delta x^2$) and solver are not ours, so this is agreement of magnitude and order, not a reproduction.
+* **Ranking.** WENO5-Z is the most accurate on every grid, then MC, Koren, WENO3-Z and Van Leer (within 10 % of each other), Minmod, and the first-order scheme
+  with 2 to 3 times the error of the second-order ones.
+* **Adaptive mesh.** With 568 to 574 cells instead of 1 600 at the finest, the adaptive runs have 1.2 to 1.3 times the error of the uniform grid of the same finest
+  resolution (MUSCL Van Leer, density 3.45e-3 against 2.94e-3), at 36 % of the cells.
+
 ## Reference
 
 * Sod, G.A. (1978). A survey of several finite difference methods for systems of

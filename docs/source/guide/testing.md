@@ -166,6 +166,7 @@ accuracy are measured, not estimated.
 | Script | Compares |
 |---|---|
 | `sod.py` | Sod vs the exact Riemann solution; 1st vs 2nd order; the four limiters |
+| `sod_schemes.py` | Sod on 100 / 200 / 400 cells for every scheme (first order, four limiters, WENO3-Z, WENO5-Z, adaptive) against the exact solution and a published table ([page]({{root}}cases/sod.html)) |
 | `shock_order.py` | order of accuracy at a shock: Sod's problem on 100 to 1600 cells, $L_1$, $L_2$, $L_\infty$, shock position |
 | `isentropic_vortex.py` | isentropic-vortex convergence and limiter comparison |
 | `taylor_green.py` | Taylor-Green kinetic-energy decay and grid convergence |
