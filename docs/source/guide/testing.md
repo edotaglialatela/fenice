@@ -288,8 +288,14 @@ systematic refinement).</figcaption>
 | cavity, 1st order | $u_{\min}$ on $x = 0.5$ | -0.1982, -0.254, -0.2885 | 0.69 | 3 | 58.3 % | -0.3446 | 1.00 | Ghia (1982) -0.3273; fine - ref = +3.87e-02, inside the GCI band |
 | cavity, 1st order | $v_{\max}$ on $y = 0.5$ | 0.1934, 0.2426, 0.2716 | 0.76 | 1.25 | 19.2 % | 0.3133 | 1.00 | Ghia (1982) 0.302; fine - ref = -3.04e-02, inside the GCI band |
 | cavity, 1st order | $v_{\min}$ on $y = 0.5$ | -0.3193, -0.3829, -0.4177 | 0.87 | 1.25 | 12.6 % | -0.4597 | 1.00 | Ghia (1982) -0.4499; fine - ref = +3.22e-02, inside the GCI band |
-| IBM airfoil, Re = 1000 | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1492, 0.1791, 0.1713 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
-| IBM airfoil, Re = 1000 | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1091, 0.2923, 0.3622 | 1.39 | 3 | 35.8 % | 0.4054 | 1.00 | observed order 1.39 far from the formal 2: Fs = 3 |
+| IBM airfoil, Re = 1000 | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1791, 0.1713, 0.1776 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
+| IBM airfoil, Re = 1000 (coarser triplet) | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1492, 0.1791, 0.1713 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
+| IBM airfoil, ghost-cell wall | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1636, 0.177, 0.1831 | 1.13 | 3 | 8.46 % | 0.1883 | 1.00 | observed order 1.13 far from the formal 2: Fs = 3 |
+| IBM airfoil, ghost-cell wall (coarser triplet) | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1485, 0.1636, 0.177 | 0.17 | 3 | 185 % | 0.2864 | 1.00 | observed order 0.17 far from the formal 2: Fs = 3 |
+| IBM airfoil, Re = 1000 | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.2923, 0.3622, 0.4954 | -0.93 | 3 | - | - | - | apparent order -0.93 <= 0: the solutions do not converge on these grids, no GCI |
+| IBM airfoil, Re = 1000 (coarser triplet) | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1091, 0.2923, 0.3622 | 1.39 | 3 | 35.8 % | 0.4054 | 1.00 | observed order 1.39 far from the formal 2: Fs = 3 |
+| IBM airfoil, ghost-cell wall | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.5252, 0.3764, 0.513 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
+| IBM airfoil, ghost-cell wall (coarser triplet) | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1684, 0.5252, 0.3764 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
 | 3-D Taylor-Green, Re = 1600 | $E_k(20)/E_k(0)$ | 0.2312, 0.2064, 0.1883 | -0.41 | 3 | - | - | - | apparent order -0.41 <= 0: the solutions do not converge on these grids, no GCI |
 | 3-D Taylor-Green, Re = 1600 | peak $\varepsilon$ | 0.01102, 0.01132, 0.01248 | -3.70 | 3 | - | - | - | DNS 512$^3$ 0.0127; fine - ref = -2.17e-04, no GCI band |
 
@@ -303,9 +309,15 @@ What the table says:
   asymptotic range.
 * **Cavity, first order.** The apparent orders are 0.7 to 0.9 and the bands 12 to 58 %: the first-order scheme
   needs far finer grids, which is why the second-order scheme is the default.
-* **IBM airfoil.** The mean drag is not monotone over 192×96, 384×192, 768×384 and the mean lift converges at
-  order 1.4 with a 36 % band: a staircase body on an impulsive start is not in the asymptotic range on these
-  grids, and the table says so. The AMR run lies between the two finest uniform meshes.
+* **IBM airfoil.** Four grids, 192×96 to 1536×768, with the mask wall and with the ghost-cell wall; each quantity has two
+  triplets. With the mask wall the mean drag (0.1492, 0.1791, 0.1713, 0.1776) is not monotone, so there is no GCI, and the mean
+  lift (0.109, 0.292, 0.362, 0.495) rises with every refinement but by amounts that do not shrink: apparent order -0.93 on the
+  three finest grids, so the 36 % band of the three coarsest no longer stands and no band is claimed. With the ghost-cell wall the
+  mean drag (0.1485, 0.1636, 0.1770, 0.1831) is monotone: observed order 1.13 on the three finest grids, $F_s = 3$, GCI 8.5 %
+  around the extrapolated 0.188; on the three coarsest the order is 0.17, so the range is not asymptotic and the number is
+  indicative. The ghost-cell mean lift (0.168, 0.525, 0.376, 0.513) is not monotone. These are means over $2 \leq t \leq 6$ of an
+  impulsive start, not of a statistically steady flow; whether that window is what limits the lift was not tested. The AMR run
+  lies between the two finest uniform meshes.
 * **3-D Taylor-Green.** The energy at $t = 20$ and the peak dissipation do not converge on 32³, 64³ and 96³
   (negative apparent orders): the vortex is under-resolved, the peak rises towards the DNS value 0.0127
   (0.0125 at 96³) but no band can be given.

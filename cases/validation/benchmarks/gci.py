@@ -11,7 +11,7 @@ same ratio in every direction), not just a comparison with another result:
   centreline velocities on 32^2, 64^2, 128^2 (and 256^2 with --cavity-grids), for both orders, against
   Ghia, Ghia & Shin (1982);
 * IBM airfoil (NACA 0012, 10 degrees, Re = 1000): Cd and Cl averaged over 2 <= t <= 6 on 192 x 96,
-  384 x 192 and 768 x 384, plus the AMR run of airfoil_amr.py as an indicative extra point (an effective
+  384 x 192, 768 x 384 and 1536 x 768 with the mask wall and with the ghost-cell wall (two triplets each), plus the AMR run of airfoil_amr.py as an indicative extra point (an effective
   grid size from its cell count: changing thresholds is not a systematic refinement);
 * 3-D Taylor-Green vortex, Re = 1600: E_k(20)/E_k(0) and the peak dissipation on 32^3, 64^3, 96^3 (a
   variable ratio, solved iteratively), against the spectral DNS peak.
@@ -122,14 +122,17 @@ def cavity_rows(args):
 
 
 def airfoil_rows(args):
-    grids = [(192, 96), (384, 192), (768, 384)]
-    tags = ["uniform_coarse", "uniform_mid", "uniform_fine"]
+    grids = [(192, 96), (384, 192), (768, 384), (1536, 768)]
+    tags = ["uniform_coarse", "uniform_mid", "uniform_fine", "uniform_xfine"]
     common = (f"t_end={T_AIR[1]}", "monitor_interval=10", "save_interval=1000000000", "use_mpi=false")
-    loads = []
-    for (nx, ny), tag in zip(grids, tags):
+    loads, ghost = [], []
+    for (nx, ny), tag, gtag in zip(grids, tags, ("g_coarse", "g_mid", "g_fine", "g_xfine")):
         d = study.run_cached("airfoil_amr", tag, AIRFOIL, f"nx={nx}", f"ny={ny}", *common, force=False)
         m = fenice.read_monitor(study.case_output(d))
         loads.append((window_mean(m["t"], m["Cd"], *T_AIR), window_mean(m["t"], m["Cl"], *T_AIR)))
+        d = study.run_cached("airfoil_ghost", gtag, AIRFOIL, f"nx={nx}", f"ny={ny}", *common, "ibm_method=ghost", force=False)
+        m = fenice.read_monitor(study.case_output(d))
+        ghost.append((window_mean(m["t"], m["Cd"], *T_AIR), window_mean(m["t"], m["Cl"], *T_AIR)))
     amr = study.run_cached("airfoil_amr", "amr", AIRFOIL_AMR, *common, force=False)
     ma = fenice.read_monitor(study.case_output(amr))
     amr_loads = (window_mean(ma["t"], ma["Cd"], *T_AIR), window_mean(ma["t"], ma["Cl"], *T_AIR))
@@ -141,6 +144,7 @@ def airfoil_rows(args):
                 [x[k] for x in loads], 2)
         r.amr = (h_amr, amr_loads[k])
         rows.append(r)
+        rows.append(Row("IBM airfoil, ghost-cell wall", label, [12.0 / nx for nx, _ in grids], [x[k] for x in ghost], 2))
     return rows
 
 
