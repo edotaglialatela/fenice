@@ -205,6 +205,8 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
                 if (local) {
                     CHECK(m.partial);
                     CHECK(m.num_leaves() == par->held_count());
+                    for (const auto& pr : eng.ghost_reads())   // the ghost-wall pairs of the share index the share's leaves
+                        CHECK(pr.first >= 0 && pr.first < m.num_leaves() && pr.second >= 0 && pr.second < m.num_leaves());
                     for (int l = 0; l <= m.max_level; ++l)   // a level of the whole mesh this rank keeps no leaf of
                         if (par->level_present(l) && m.level_begin[l + 1] == m.level_begin[l]) ++empty[static_cast<size_t>(rank)];
                     par->globalize();
@@ -273,6 +275,7 @@ TEST(cellparallel_localized_run_equals_serial_bitwise_and_keeps_only_its_halo) {
         {"second-order boundary faces, walls and inlet", false, false, {BCType::Wall, BCType::Outlet, BCType::MovingWall, BCType::VelInlet}, false, false, false, false, false, 17u, true, 2},
         {"second-order boundary faces, mass flow, nrbc", false, false, {BCType::MassflowInlet, BCType::NonReflecting, BCType::Wall, BCType::Transmissive}, false, false, false, false, false, 18u, true, 2},
         {"second-order boundary faces, viscous cavity", false, false, {BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::MovingWall}, true, false, false, false, false, 19u, true, 2},
+        {"immersed body (ghost cells)", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 26u, true},
     };
     int empty_levels = 0;
     for (const DistSpec& sp : specs) {
@@ -1266,4 +1269,53 @@ TEST(remesh_tables_do_not_depend_on_the_thread_count) {
     CHECK(joins > 0);
     CHECK(bad == 0);
 #endif
+}
+
+TEST(cellparallel_same_lists_tells_a_different_plan_from_the_same_one) {
+    // same_lists is the check of the shadow remesh: it must be true for two plans built alike and false when the lists differ, also when the
+    // ownership and the held leaves are equal. The second plan is built with an engine without the immersed body, so its solid-reset
+    // lists are empty while the leaves each rank owns are the same.
+    const DistSpec sp = {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 16u, true};
+    const CellMesh base = random_adapted_mesh(sp.px, sp.py, sp.seed, 6);
+    const int R = 3;
+    FakeHub hub(R);
+    std::vector<int> same(static_cast<size_t>(R), -1), differ(static_cast<size_t>(R), -1), owner_equal(static_cast<size_t>(R), -1);
+    std::vector<std::string> error(static_cast<size_t>(R));
+    const auto body = [&](int rank) {
+        try {
+            DistEnv env(sp), env2(sp);
+            env2.ph.ibm_factory = nullptr;
+            CellMesh ma = base, mb = base, mc = base;
+            CellFluxEngine ea(env.eos, env.rs, &env.mu, env.bm), eb(env2.eos, env2.rs, &env2.mu, env2.bm), ec(env.eos, env.rs, &env.mu, env.bm);
+            ea.set_physics(env.ph);
+            eb.set_physics(env2.ph);
+            ec.set_physics(env.ph);
+            ea.build(ma);
+            eb.build(mb);
+            ec.build(mc);
+            CellParallel pa(ma, ea, hub.comm(rank)), pb(mb, eb, hub.comm(rank)), pc(mc, ec, hub.comm(rank));
+            pa.partition();
+            pb.partition();
+            pc.partition();
+            same[static_cast<size_t>(rank)] = pa.same_lists(pc);
+            differ[static_cast<size_t>(rank)] = pa.same_lists(pb);
+            bool eq = true;
+            for (int c = 0; c < ma.num_leaves(); ++c) eq = eq && pa.owner(c) == pb.owner(c) && pa.holds(c) == pb.holds(c);
+            owner_equal[static_cast<size_t>(rank)] = eq;
+        } catch (const std::exception& e) {
+            error[static_cast<size_t>(rank)] = e.what();
+        }
+    };
+    std::vector<std::thread> threads;
+    for (int r = 0; r < R; ++r) threads.emplace_back(body, r);
+    for (std::thread& th : threads) th.join();
+    int different = 0;
+    for (int r = 0; r < R; ++r) {
+        if (!error[static_cast<size_t>(r)].empty()) std::printf("    rank %d: %s\n", r, error[static_cast<size_t>(r)].c_str());
+        CHECK(error[static_cast<size_t>(r)].empty());
+        CHECK(same[static_cast<size_t>(r)] == 1);
+        if (owner_equal[static_cast<size_t>(r)] == 1) CHECK(differ[static_cast<size_t>(r)] == 0);
+        different += differ[static_cast<size_t>(r)] == 0 ? 1 : 0;
+    }
+    CHECK(different > 0);
 }

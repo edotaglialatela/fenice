@@ -1164,3 +1164,33 @@ TEST(env_switches_are_a_closed_table) {
     set_env(f, had_f ? saved_f.c_str() : nullptr);
     set_env("FENICE_CASES", had_c ? saved_c.c_str() : nullptr);
 }
+
+TEST(moving_wall_ghost_has_the_pressure_of_the_interior_at_second_order) {
+    // The ghost of a moving wall flips and shifts the momentum; with boundary_order = 2 its total energy follows, so that the ghost has
+    // the pressure of the interior cell (copying E would put a jump of the order of the kinetic-energy difference across the wall).
+    // With boundary_order = 1 the energy is copied. Every side, an interior state with all three velocity components (the w term of the energy is zero in 2-D, so only a 3-D state tests it).
+    const EOS eos = EOS::ideal(1.4);
+    const Mesh m = generate_cartesian_mesh(1.0, 1.0, 4, 4);
+    const State in = eos.prim_to_cons({1.3, 0.7, -0.4, 0.9, 0.5});
+    const double p_in = eos.cons_to_prim(in)[3];
+    for (const int order : {1, 2})
+        for (const Face side : {Face::Left, Face::Right, Face::Bottom, Face::Top}) {
+            BoundaryManager bm(m, eos);
+            bm.set_boundary_types(BCType::Wall, BCType::Wall, BCType::Wall, BCType::Wall);
+            bm.set_type(side, BCType::MovingWall);
+            BCParams bp;
+            bp.u_in = 1.5;
+            bp.v_in = -0.8;
+            bp.boundary_order = order;
+            bm.set_params(bp);
+            const State gv = bm.viscous_ghost(side, in), gs = bm.ghost_state(side, in);
+            CHECK(gv[0] == in[0] && gs[0] == in[0]);
+            CHECK_NEAR(eos.cons_to_prim(gs)[3], p_in, 1e-12);   // the first-order ghost state is built from the primitives
+            if (order == 2) {
+                CHECK_NEAR(eos.cons_to_prim(gv)[3], p_in, 1e-12);
+                CHECK(gv[3] != in[3]);   // the energy did change: the ghost moves
+            } else {
+                CHECK(gv[3] == in[3]);   // the viscous ghost of the first-order boundary copies E
+            }
+        }
+}

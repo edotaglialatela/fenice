@@ -617,3 +617,74 @@ TEST(cellremesh_sod_indicator_study) {
         }
 }
 
+
+TEST(forced_box_refines_the_leaves_it_overlaps_and_only_those_regions) {
+    // amr_force_box (the test hook of the accuracy studies): on a uniform state the indicator never refines, so every refined leaf is
+    // forced. A leaf that overlaps the box (open intersection) must reach the finest level; the far part of the mesh must stay coarse.
+    CellSetup su(false);
+    const int maxl = 2;
+    CellMesh m(2.0, 1.0, 16, 8, maxl);
+    CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
+    CellIndicator ind;
+    CellAdaptor ad(m, eng, su.eos, ind);
+    const double bx0 = 0.5, bx1 = 0.8, by0 = 0.25, by1 = 0.5;
+    ad.set_force_box(bx0, bx1, by0, by1);
+    const auto fill = [&](CellMesh& mm) {
+        mm.U.resize(mm.num_leaves());
+        for (int c = 0; c < mm.num_leaves(); ++c) mm.U[c] = su.eos.prim_to_cons({1.0, 0.0, 0.0, 1.0});
+    };
+    fill(m);
+    eng.build(m);
+    for (int k = 0; k <= maxl + 1; ++k) {
+        ad.remesh();
+        fill(m);
+    }
+    int overlapping = 0, far_coarse = 0;
+    for (int c = 0; c < m.num_leaves(); ++c) {
+        const double xa = m.xc(c) - 0.5 * m.dx(m.level[c]), xb = m.xc(c) + 0.5 * m.dx(m.level[c]);
+        const double ya = m.yc(c) - 0.5 * m.dy(m.level[c]), yb = m.yc(c) + 0.5 * m.dy(m.level[c]);
+        if (xb > bx0 && xa < bx1 && yb > by0 && ya < by1) {
+            ++overlapping;
+            CHECK(m.level[c] == maxl);
+        }
+        if (xa > 1.2 || ya > 0.8) far_coarse += m.level[c] == 0 ? 1 : 0;
+    }
+    CHECK(overlapping > 0);
+    CHECK(far_coarse > 0);   // a mutated overlap test (|| for &&) forces the whole mesh to the finest level
+    CHECK(m.num_leaves() < 16 * 8 * 4 * 4 / 4);
+}
+
+TEST(dilate_cells_equals_a_brute_force_dilation) {
+    // The box of cells within r (Chebyshev distance, wrapping on a periodic axis) of the seeds, against a plain loop over the cells; the
+    // wrap must happen on a periodic axis only, also when the box spans the whole axis (seeds at both edges of a walled one).
+    std::mt19937 rng(7);
+    const int NX = 11, NY = 9;
+    long long compared = 0;
+    for (int trial = 0; trial < 400; ++trial) {
+        const bool px = trial & 1, py = trial & 2;
+        const int r = 1 + static_cast<int>(rng() % 3);
+        std::vector<std::array<int, 2>> seeds;
+        if (trial < 4) {   // seeds at both edges of x on different rows
+            seeds = {{0, 2}, {NX - 1, 6}};
+        } else {
+            const int ns = 1 + static_cast<int>(rng() % 4);
+            for (int s = 0; s < ns; ++s) seeds.push_back({static_cast<int>(rng() % NX), static_cast<int>(rng() % NY)});
+        }
+        const CellBox b = dilate_cells(seeds, NX, NY, r, px, py);
+        const auto near = [&](int a, int s, int N, bool per) {
+            int d = std::abs(a - s);
+            if (per) d = std::min(d, N - d);
+            return d <= r;
+        };
+        for (int j = 0; j < NY; ++j)
+            for (int i = 0; i < NX; ++i) {
+                bool want = false;
+                for (const auto& s : seeds) want = want || (near(i, s[0], NX, px) && near(j, s[1], NY, py));
+                const bool inside = i >= b.i0 && i < b.i0 + b.w && j >= b.j0 && j < b.j0 + b.h;
+                const bool got = inside && b.g[static_cast<size_t>(j - b.j0) * b.w + (i - b.i0)];
+                CHECK(got == want);
+                ++compared;
+            }
+    }
+    CHECK(compared == 400LL * NX * NY);
+}

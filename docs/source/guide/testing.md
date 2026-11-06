@@ -450,6 +450,15 @@ fewest; (3) the survivors are mostly equivalent mutants.
   boundary), `M055` (wrap flag of the dilation of the refinement box on a non-periodic axis); `M009` (`d < 0` -> `d <= 0`, halo bookkeeping of
   leaf 0) and `M042` (boundary faces of a uniform sweep taking the stencil path) are undecided, possibly equivalent, not proved.
 
+**Gaps closed.** One unit test per gap, each checked by rebuilding with the survivor and seeing the test fail:
+`forced_box_refines_the_leaves_it_overlaps_and_only_those_regions` (`M008`), `cellparallel_same_lists_tells_a_different_plan_from_the_same_one`
+(`M029`), the ghost-read pairs of every localized share in `cellparallel_localized_run_equals_serial_bitwise_and_keeps_only_its_halo`, which
+now also runs the ghost-cell wall (`M046`: no spec of that test used the ghost-cell wall before),
+`moving_wall_ghost_has_the_pressure_of_the_interior_at_second_order` (`M048`: the mutated term is the one of the third velocity component, which is
+exactly zero in 2-D, so only a state with `w` different from zero reaches it) and `dilate_cells_equals_a_brute_force_dilation` (`M055`).
+The bitwise comparisons could not see `M029`, `M046` and `M048`: both sides call the same function, so a wrong function is wrong in both.
+`M009` and `M042` stay undecided.
+
 The table of every mutant is `results/validation/mutation_study/table.md`. A check that times out leaves its solver process running; the
 script kills the solver processes of the worktree after each mutant (a leftover one locked the executable and every later build failed).
 
