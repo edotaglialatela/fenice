@@ -1,6 +1,7 @@
 """Locate and run the fenice executable."""
 import os
 import subprocess
+import sys
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]   # repository root (python/fenice/solver.py)
@@ -55,4 +56,11 @@ def run(case, *sets, out_root=None, mpi=0, dump=None, threads=None, check=True, 
     else:
         cmd += ["--set", "use_mpi=false"]
     flags = subprocess.BELOW_NORMAL_PRIORITY_CLASS if polite and os.name == "nt" else 0
-    return subprocess.run(cmd, check=check, capture_output=capture, text=True, creationflags=flags)
+    res = subprocess.run(cmd, check=False, capture_output=capture, text=True, creationflags=flags)
+    if check and res.returncode != 0:   # the captured output is what says why: show its tail before raising
+        for name, text in (("stdout", res.stdout), ("stderr", res.stderr)):
+            if text:
+                tail = chr(10).join(text.splitlines()[-40:])
+                print(f"--- {name} (last 40 lines) of the failed run ---" + chr(10) + tail, file=sys.stderr)
+        res.check_returncode()
+    return res
