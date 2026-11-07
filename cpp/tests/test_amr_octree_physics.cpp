@@ -999,14 +999,7 @@ void refine_for_ghost_wall(CellMesh& m, const ImmersedBoundary& geo, int rounds)
     const double reach = 6.0 * std::max({m.dx(M), m.dy(M), m.dz(M)});
     for (int r = 0; r < rounds; ++r) {
         std::vector<char> f(static_cast<size_t>(m.num_leaves()), 0);
-        for (int c = 0; c < m.num_leaves(); ++c) {
-            const int l = m.level[c];
-            const double half = 0.5 * std::sqrt(m.dx(l) * m.dx(l) + m.dy(l) * m.dy(l) + m.dz(l) * m.dz(l));
-            double wx, wy, wz, nx, ny, nz;
-            geo.closest_wall_point3(m.xc(c), m.yc(c), m.zc(c), wx, wy, wz, nx, ny, nz);
-            const double d = std::sqrt((m.xc(c) - wx) * (m.xc(c) - wx) + (m.yc(c) - wy) * (m.yc(c) - wy) + (m.zc(c) - wz) * (m.zc(c) - wz));
-            f[c] = d <= half + reach;
-        }
+        for (int c = 0; c < m.num_leaves(); ++c) f[c] = near_body_surface(geo, m, m.level[c], m.ci[c], m.cj[c], m.ck[c], reach);
         m.adapt(f);
     }
 }

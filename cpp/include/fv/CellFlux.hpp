@@ -68,6 +68,12 @@ double viscous_cell_speed(const EOS& eos, double mu, double k_cond, const State&
 double viscous_speed_range(const EOS& eos, double mu, double k_cond, const State* U, const int* level, const double* dx_of_level,
                            const double* dy_of_level, int cb, int ce);
 
+// 3-D immersed body: true if a cell of the finest level of `m` inside the cell (level, i, j, k) has its centre within `reach` of the
+// body's surface (the distance to ImmersedBoundary::closest_wall_point3). A parent is near iff one of its children is, so the rule is
+// consistent across levels; the recursion is pruned with the distance's Lipschitz bound (only cells near the surface are visited).
+// The body band of the remesh (CellAdaptor) and the readiness of the ghost-cell wall use it with the same reach.
+bool near_body_surface(const ImmersedBoundary& body, const CellMesh& m, int level, int i, int j, int k, double reach);
+
 // Stencils, boundary closure and face fluxes of a CellMesh; see the file header.
 class CellFluxEngine {
 public:

@@ -3,7 +3,8 @@
 //
 // Indicator (docs/design/amr-cell-based.md section 11):
 // It is evaluated level by level on the cells of each level (the leaves of that level and the split ancestors of the deeper
-// leaves, a split cell holding the mean of its children), so a parent has its own xi at the parent level:
+// leaves, a split cell holding the mean of its children: 4 in 2-D, 8 in 3-D, which has 6 sides and a periodic z), so a parent has
+// its own xi at the parent level:
 //   1. xi = 0 in every cell of the level.
 //   2. For every interface of the level (two cells of the level, or a cell and a coarser leaf) and every enabled variable
 //      (density, pressure, velocity magnitude), with c_l, c_r the values on its two sides: m = max(min(|c_l|, |c_r|), floor),
@@ -44,9 +45,10 @@ struct CellIndicator {
 
     // The smoothing of step 3: interfaces {a, b} between two cells of the level, or {a, -1} between a cell and a coarser leaf.
     void diffuse(std::vector<double>& xi, const std::vector<std::array<int, 2>>& interfaces) const;
-    // The same smoothing gathered per cell (and parallel): nbr[4 c + s] is the cell across side s of cell c in the same level,
-    // -1 if a coarser leaf lies there, -2 if nothing does. Gives the same bits as diffuse() on the interfaces of that table.
-    void diffuse_cells(std::vector<double>& xi, const std::vector<int>& nbr) const;
+    // The same smoothing gathered per cell (and parallel): nbr[sides c + s] is the cell across side s of cell c in the same level,
+    // -1 if a coarser leaf lies there, -2 if nothing does (sides: 4 in 2-D, 6 in 3-D). Gives the same bits as diffuse() on the
+    // interfaces of that table.
+    void diffuse_cells(std::vector<double>& xi, const std::vector<int>& nbr, int sides = 4) const;
     // Per leaf of `mesh`: its xi at its own level, and the xi of its parent cell at the parent level (1e300 at level 0).
     struct Result {
         std::vector<double> xi, xi_parent;
@@ -71,11 +73,19 @@ public:
 
     // Keep the immersed body, and `margin` finest-level cells around it (the fringe of the solid reset), on the finest
     // level: `factory` gives the body mask on any uniform mesh. Call before remesh / init_adapt.
+    // 3-D: no mask of the finest level; a leaf is in the band when a finest cell inside it has its centre within `margin` finest widths
+    // (the largest of dx, dy, dz) of the body's surface (near_body_surface): a shell of `margin` cells on both sides of the surface (the
+    // deep interior of the body is not kept at the finest level). The ghost-cell wall is ready with margin 6 (its own rule).
     void set_body(std::function<ImmersedBoundary(const Mesh&)> factory, int margin = 2);
     // Keep every leaf that overlaps the box [x0, x1] x [y0, y1] at the finest level, whatever the indicator says (a static refined
     // region: a test hook for orders of accuracy across a level jump, `amr_force_box`). Call before remesh / init_adapt.
     void set_force_box(double x0, double x1, double y0, double y1) {
-        box_ = {x0, x1, y0, y1};
+        box_ = {x0, x1, y0, y1, -1e300, 1e300};
+        has_box_ = true;
+    }
+    // The same in 3-D with the z range [z0, z1].
+    void set_force_box3(double x0, double x1, double y0, double y1, double z0, double z1) {
+        box_ = {x0, x1, y0, y1, z0, z1};
         has_box_ = true;
     }
 
@@ -108,9 +118,9 @@ public:
 
 private:
     void build_band();
-    bool in_body_band(int level, int i, int j);
+    bool in_body_band(int level, int i, int j, int k);
     // refine / coarsen of one leaf from its indicator values and the body band
-    void decide(int max_level, int level, int i, int j, double xi, double xi_parent, char& refine, char& coarsen);
+    void decide(int max_level, int level, int i, int j, int k, double xi, double xi_parent, char& refine, char& coarsen);
 
     CellMesh& mesh_;
     CellFluxEngine& engine_;
@@ -118,9 +128,10 @@ private:
     CellIndicator ind_;
     std::function<ImmersedBoundary(const Mesh&)> body_;
     int margin_ = 2;
-    std::array<double, 4> box_ = {0.0, 0.0, 0.0, 0.0};
+    std::array<double, 6> box_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     bool has_box_ = false;
-    std::vector<char> band_;   // body + margin on the uniform mesh of the finest level
+    std::vector<char> band_;   // body + margin on the uniform mesh of the finest level (2-D)
+    std::shared_ptr<ImmersedBoundary> band_geo_;   // 3-D: the body built once on the base mesh (its geometry)
 };
 
 }   // namespace fv

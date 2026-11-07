@@ -247,7 +247,7 @@ the validation. The flux kernels, the time recursion, the registers and the Riem
 | Q2 | `CellFluxEngine` convective residual in 3-D: stencils with virtual cells of 8, the 3-D jump closure (b)+(c), boundary ghosts on six sides, WENO3-Z, `boundary_order = 2`; the 2-D per-leaf cost gate | level-0 3-D == uniform 3-D bitwise; free stream exact; the near-jump order table; **2-D per-leaf cost within 5 %**. **Done 2026-11-07, section 13** |
 | Q3 | `CellAdvance`: 4 registers per coarse side; subcycling in 3-D | conservation for the three schemes; level-0 steps == uniform 3-D steps; permutation Sod; the z-invariant check. **Done 2026-11-07, section 14** |
 | Q4 | Physics: viscous 3-D family (and AVX2 twin), body force, sources, NRBC with two tangential directions, mass-flow inlet; **the IBM redesign** (per-leaf classification, the ghost table from the band leaves) | bitwise level-0 tests with each physics; MMS on an adapted 3-D mesh; IBM masks equal to the uniform ones on the same cells; ghost wall equal to the uniform 3-D ghost wall. **Done 2026-11-07, section 15** |
-| Q5 | Indicator, flags, remesh, initial adaptation, body band, hot starts in 3-D (serial and OpenMP, through the whole-mesh `CellMesh::adapt` that stays as the oracle) | indicator equals a structured 6-neighbour implementation; remesh deterministic, idempotent, conservative; a 3-D Sod and Taylor-Green with AMR against uniform |
+| Q5 | Indicator, flags, remesh, initial adaptation, body band, hot starts in 3-D (serial and OpenMP, through the whole-mesh `CellMesh::adapt` that stays as the oracle) | indicator equals a structured 6-neighbour implementation; remesh deterministic, idempotent, conservative; a 3-D Sod and Taylor-Green with AMR against uniform. **Done 2026-11-07, section 16** |
 | Q6 | MPI: partition per level, halo lists, registers, region boxes and 26 rings in the topology-free remesh; **the CLI opens** (`use_amr` with `nz > 1`) | serial == 1-7 ranks bitwise (FakeHub and real MPI); the halo-reach guard; thread independence; memory per rank |
 | Q7 | I/O (hexahedra, 3-D `leaf_meta`, checkpoint, readers), parameters, GUI keys, docs, CI, the 3-D regression references | restart bitwise; docs and parameters in sync; CI green |
 | Q8 | Performance and the deferred 3-D validation: cost per accuracy against uniform 3-D on the sphere and the 3-D Taylor-Green; scaling; `auto` choosing the ghost wall in 3-D if the evidence supports it | report; the user decides what ships |
@@ -691,8 +691,9 @@ centres `x0_box + (i + 0.5) dx` are not the bits of `x0 + (I0 + i + 0.5) dx`. As
    (about 1290^3; checked, the mask forcing stays above it).
 2. The engine (`map_ghost_cells_3d`, after every build) passes the solid finest leaves in cell order. The wall is active when (a) no coarser leaf
    comes within reach of the surface: every cell the wall reads has its centre within 6 finest widths of the wall (a ghost cell within 2 sqrt 3,
-   an image point at most 4 cells out and its interpolation cells within sqrt 3), so a leaf is clear when the distance of its centre to
-   `closest_wall_point3` exceeds its half diagonal plus 6 h_max; then every ghost cell of the uniform table is a candidate and the table is the
+   an image point at most 4 cells out and its interpolation cells within sqrt 3), so no coarser leaf may hold a finest cell whose centre
+   is within 6 h_max of the wall (`near_body_surface`, the rule of the body band, section 16; Q4e first used the leaf's bounding sphere, which
+   is stricter and is not consistent across levels); then every ghost cell of the uniform table is a candidate and the table is the
    uniform one; and (b) every cell the table reads is a finest leaf. Otherwise the mask forcing stays (as in 2-D). The body is built once on the
    base mesh (`ibm_geo_`), the table is rebuilt with the mesh (O(solid finest leaves)).
 3. Tests: the sparse table equals the dense one (ghost cells, ratios, reads, the filled states bit for bit; candidates = the solid cells, and a
@@ -714,3 +715,50 @@ centres `x0_box + (i + 0.5) dx` are not the bits of `x0 + (I0 + i + 0.5) dx`. As
 The AVX2 twin of the 3-D viscous kernels (the "keep it only if faster" rule needs a measurement on real 3-D runs: Q8); `face_dependencies`
 already marks the six neighbours of both cells (gradients, `boundary_order = 2` tangential faces, outlet tangents) through the generic `ns_` loops,
 but it is untested in 3-D until Q6; the ghost wall on a rank's share (Q6).
+
+## 16. Phase Q5 as built (2026-11-07): indicator, remesh, body band and hot-start helpers in 3-D
+
+### 16.1 What changed
+* **Indicator** (`CellIndicator::evaluate`): the cells of a level are the leaves and the split ancestors (the mean of 8 children in 3-D, in
+  the order of CellMesh's merge), keyed by `morton_key3`, six sides, periodic z, a dense per-level table while it is small; the smoothing
+  (`diffuse_cells`) takes the number of sides. The 2-D expressions (key, mean of 4, 4 sides) are kept verbatim on their own branch.
+  The diffusion coefficient stays 0.1 (decision D5 (a)): a cell now has six neighbours, so the band of a flagged front is wider than in 2-D.
+* **Adaptor** (`CellAdaptor`): decisions with k; `set_force_box3` (the 2-D box spans all z); the join count uses 2^D - 1 leaves per merge.
+* **Body band in 3-D**: no mask of the finest level. A leaf is in the band when a finest cell inside it has its centre within `margin` finest
+  widths (h_max) of the surface: `near_body_surface` (CellFlux.hpp), recursive, pruned with the Lipschitz bound of the distance, so only
+  cells near the surface are visited. A shell of `margin` cells on both sides of the surface is kept at the finest level; the deep interior of
+  the body is not (2-D keeps the whole body). The ghost-cell wall's readiness rule (15.6) uses the same function with reach 6 h_max, so a
+  band of margin 6 makes the wall ready by construction.
+  **Finding:** the first version tested the leaf's bounding sphere (distance of its centre against half diagonal + margin). A parent could
+  then be in the band while none of its children is: the children were joined and the parent refined again, so `init_adapt` never reached a
+  fixed point (18-80 band leaves left one level short after the pass limit). The rule must be consistent across levels (a parent is in the
+  band iff one of its children is), as the 2-D bitmap is; `near_body_surface` is. Fixed before anything was committed.
+* **Hot-start helpers**: `GridInterp3D` (the arithmetic of `map_solution_3d`, sampled at leaf centres) and `leaves_to_uniform_3d`. Wiring the
+  3-D hot start into `Simulation` waits for the CLI (Q6/Q7).
+* `CellIndicator::region` (the distributed remesh) throws on a 3-D mesh: Q6.
+
+### 16.2 Tests (`cpp/tests/test_amr_octree_remesh.cpp`, 7 tests)
+* `cellindicator3d_matches_a_brute_force_oracle`: xi and xi_parent of every leaf against an independent implementation (level cells by
+  walking up from the leaves, split values by recursion, neighbours across sides or the covering coarser leaf, the interface smoothing):
+  random octrees and a level-0 one, periodic and not, density + pressure (+ velocity): to 1e-12.
+* `cellremesh3d_step_is_stable_conservative_and_deterministic`: init_adapt twice gives the same leaves and states; remeshing a static field
+  changes nothing; a moving field is followed with the five totals conserved to 1e-12; the incrementally rebuilt engine equals a fresh build.
+* `cellremesh3d_forced_box_refines_the_leaves_it_overlaps_and_only_those`, `hot_start_helpers_3d` (GridInterp3D == map_solution_3d bit for
+  bit; leaves_to_uniform_3d keeps the totals and rejects a set of leaves that does not cover the domain).
+* `cellremesh3d_keeps_the_body_band_on_the_finest_level`: sphere and extruded NACA, margin 2 and 6: after init_adapt (within max_level + 1
+  passes) every leaf with a finest cell within the margin (brute force over the finest cells) is at the finest level, none far from it is,
+  a further remesh changes nothing, and with margin 6 the ghost-cell wall is ready.
+* `cellremesh3d_dynamic_sod_follows_the_waves` (bands of the 2-D test, fixed before the run, all pass): base 50 x 2 x 2, two levels, remesh
+  every 4 coarse steps: L1(rho) 3.26e-3 against 2.95e-3 for the uniform 200 (band 1.6x) and 1.01e-2 for the uniform 50; mean 2104 leaves of
+  the 12 800 of the finest level (band 0.6x); the shock at the finest level; mass to 1e-12.
+* `cellremesh3d_taylor_green_against_uniform`: the 3-D Taylor-Green vortex is active everywhere (section 11: an octree needs 0.99 of the
+  uniform cells; a correctness case). With the indicator every leaf is refined (criteria 0.1 - 0.8 alike: the velocity floor near the
+  stagnation points, then the smoothing) and the run equals the uniform 24^3 one to 7e-8 (its other time steps); a static box over half the
+  domain gives 0.70 of the uniform 12^3 velocity difference with 0.56 of the 24^3 leaves. History: the first version expected the indicator
+  to refine part of the domain and held a band on the uniform runs' kinetic energy that was wrong as a measure; the test was rewritten as
+  stated in its comment.
+* Unit tests 182/182, 29 s (a brute-force topology oracle on 10k leaves cost 25 s and was dropped from the remesh test: Q1 covers it).
+
+### 16.3 Not in Q5
+The distributed remesh and the partition in 3-D (Q6, with the 26-neighbour region boxes and `region`); the 3-D hot start inside `Simulation`
+and the CLI (Q6/Q7); the deep body interior at the finest level (not kept in 3-D, by design).

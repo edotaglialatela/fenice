@@ -81,6 +81,68 @@ Field leaves_to_uniform(const Field& U, const std::vector<int>& level, const std
     return out;
 }
 
+State GridInterp3D::operator()(double x, double y, double z) const {
+    // the expressions of map_solution_3d
+    auto locate = [](const std::vector<double>& g, double v, int& i, double& t) {
+        const int n = static_cast<int>(g.size());
+        if (n < 2) {
+            i = 0;
+            t = 0.0;
+            return;
+        }
+        i = static_cast<int>(std::lower_bound(g.begin(), g.end(), v) - g.begin()) - 1;
+        i = std::min(std::max(i, 0), n - 2);
+        t = (v - g[i]) / (g[i + 1] - g[i]);
+    };
+    const int nx_c = static_cast<int>(xs_.size()), ny_c = static_cast<int>(ys_.size()), nz_c = static_cast<int>(zs_.size());
+    int ix, iy, iz;
+    double tx, ty, tz;
+    locate(xs_, x, ix, tx);
+    locate(ys_, y, iy, ty);
+    locate(zs_, z, iz, tz);
+    const int ix1 = nx_c > 1 ? ix + 1 : ix, iy1 = ny_c > 1 ? iy + 1 : iy, iz1 = nz_c > 1 ? iz + 1 : iz;
+    State out{};
+    for (int c = 0; c < 8; ++c) {
+        const int a = (c & 4) ? iz1 : iz, b = (c & 2) ? iy1 : iy, d = (c & 1) ? ix1 : ix;
+        const double w = ((c & 4) ? tz : 1 - tz) * ((c & 2) ? ty : 1 - ty) * ((c & 1) ? tx : 1 - tx);
+        const State& v = v_[(static_cast<size_t>(a) * ny_c + b) * nx_c + d];
+        for (int q = 0; q < kNVar; ++q) out[q] += v[q] * w;
+    }
+    return out;
+}
+
+Field leaves_to_uniform_3d(const Field& U, const std::vector<int>& level, const std::vector<int>& ci, const std::vector<int>& cj,
+                           const std::vector<int>& ck, int nx_base, int ny_base, int nz_base, int& nx_out, int& ny_out, int& nz_out) {
+    if (U.size() != level.size() || ci.size() != level.size() || cj.size() != level.size() || ck.size() != level.size())
+        throw std::runtime_error("leaves_to_uniform_3d: the leaf arrays have different lengths");
+    int top = 0;
+    for (int l : level) top = std::max(top, l);
+    if (top > 20) throw std::runtime_error("leaves_to_uniform_3d: more than 20 refinement levels");
+    nx_out = nx_base << top;
+    ny_out = ny_base << top;
+    nz_out = nz_base << top;
+    const size_t n = static_cast<size_t>(nx_out) * static_cast<size_t>(ny_out) * static_cast<size_t>(nz_out);
+    Field out(n, State{});
+    std::vector<char> seen(n, 0);
+    for (size_t c = 0; c < level.size(); ++c) {
+        if (level[c] < 0) throw std::runtime_error("leaves_to_uniform_3d: a negative level");
+        const int w = 1 << (top - level[c]);
+        const int i0 = ci[c] * w, j0 = cj[c] * w, k0 = ck[c] * w;
+        if (ci[c] < 0 || cj[c] < 0 || ck[c] < 0 || i0 + w > nx_out || j0 + w > ny_out || k0 + w > nz_out)
+            throw std::runtime_error("leaves_to_uniform_3d: a leaf lies outside the base mesh of the checkpoint");
+        for (int k = k0; k < k0 + w; ++k)
+            for (int j = j0; j < j0 + w; ++j)
+                for (int i = i0; i < i0 + w; ++i) {
+                    const size_t q = (static_cast<size_t>(k) * ny_out + j) * nx_out + i;
+                    out[q] = U[c];
+                    seen[q] = 1;
+                }
+    }
+    for (char s : seen)
+        if (!s) throw std::runtime_error("leaves_to_uniform_3d: the leaves of the checkpoint do not cover the domain");
+    return out;
+}
+
 Field map_solution(const Field& U_coarse, int nx_c, int ny_c, int nx_f, int ny_f, double Lx, double Ly) {
     const double dx_c = Lx / nx_c, dy_c = Ly / ny_c;
     const double dx_f = Lx / nx_f, dy_f = Ly / ny_f;

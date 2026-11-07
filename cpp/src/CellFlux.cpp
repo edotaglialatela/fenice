@@ -982,6 +982,23 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
     ghost_ready_ = true;
 }
 
+bool near_body_surface(const ImmersedBoundary& body, const CellMesh& m, int level, int i, int j, int k, double reach) {
+    const int M = m.max_level;
+    const double dx = m.dx(level), dy = m.dy(level), dz = m.dz(level);
+    const double x = (i + 0.5) * dx + m.x0, y = (j + 0.5) * dy + m.y0, z = (k + 0.5) * dz + m.z0;
+    double wx, wy, wz, nx, ny, nz;
+    body.closest_wall_point3(x, y, z, wx, wy, wz, nx, ny, nz);
+    const double d = std::sqrt((x - wx) * (x - wx) + (y - wy) * (y - wy) + (z - wz) * (z - wz));
+    if (level == M) return d <= reach;
+    // the finest centres inside lie within (half diagonal of the cell - half diagonal of a finest cell) of its centre
+    const double span = 0.5 * std::sqrt(dx * dx + dy * dy + dz * dz) -
+                        0.5 * std::sqrt(m.dx(M) * m.dx(M) + m.dy(M) * m.dy(M) + m.dz(M) * m.dz(M));
+    if (d - span > reach) return false;
+    for (int q = 0; q < 8; ++q)
+        if (near_body_surface(body, m, level + 1, 2 * i + (q & 1), 2 * j + ((q >> 1) & 1), 2 * k + ((q >> 2) & 1), reach)) return true;
+    return false;
+}
+
 void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m) {
     // The ghost-cell wall on octree leaves (docs/design/amr-octree.md 15.6): the table of the uniform finest level built sparsely
     // from the solid finest leaves, active when it is that table bit for bit and every cell it reads is a finest leaf.
@@ -990,18 +1007,11 @@ void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m) {
     const ImmersedBoundary& geo = *ibm_geo_;
     // 1) no coarser leaf near the surface: a ghost cell (solid, a fluid cell within two finest cells) or a cell its image point reads
     // could lie in it. Every cell the wall reads has its centre within 6 finest widths of the wall (a ghost cell within 2 sqrt 3, an
-    // image point at most 4 cells out and its interpolation cells within sqrt 3 of it); a leaf is clear when the distance of its
-    // centre to the closest wall point exceeds its half diagonal plus that reach.
+    // image point at most 4 cells out and its interpolation cells within sqrt 3 of it): a coarser leaf must hold no finest cell whose
+    // centre is that near (near_body_surface, the rule of the body band with margin 6).
     const double reach = 6.0 * std::max({hf[0], hf[1], hf[2]});
-    for (int c = 0; c < m.level_begin[M]; ++c) {
-        const int l = m.level[c];
-        const double x = m.xc(c), y = m.yc(c), z = m.zc(c);
-        const double half = 0.5 * std::sqrt(m.dx(l) * m.dx(l) + m.dy(l) * m.dy(l) + m.dz(l) * m.dz(l));
-        double wx, wy, wz, nx, ny, nz;
-        geo.closest_wall_point3(x, y, z, wx, wy, wz, nx, ny, nz);
-        const double d = std::sqrt((x - wx) * (x - wx) + (y - wy) * (y - wy) + (z - wz) * (z - wz));
-        if (d <= half + reach) return;   // not (yet) refined around the body: the mask forcing stays
-    }
+    for (int c = 0; c < m.level_begin[M]; ++c)
+        if (near_body_surface(geo, m, m.level[c], m.ci[c], m.cj[c], m.ck[c], reach)) return;   // not (yet) refined: the mask stays
     // 2) the table from the solid finest leaves, in cell order of the finest level
     if (static_cast<long long>(NX) * NY * NZ > 2147483647LL) return;
     std::vector<int> cand;
