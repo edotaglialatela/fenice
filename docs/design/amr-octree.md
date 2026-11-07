@@ -1,9 +1,9 @@
 # 3-D adaptive mesh refinement (octree leaves): design and plan
 
-Status: **proposal, nothing implemented.** Written 2026-11-07 after a read of the 2-D leaf engine (`docs/design/amr-cell-based.md`,
-`amr-distributed.md`), a grep inventory of its source and the residual of the 3-D uniform solver. Every number that was not
-measured is marked *(estimate)*. The decisions are in section 8: no code is written before the user has answered them, and each phase
-of section 7 ends with a stop for the user's go-ahead, as the 2-D rebuild did.
+Status: **decisions answered, phase Q0 (measurements) done; no engine code yet.** Written 2026-11-07 after a read of the 2-D leaf engine
+(`docs/design/amr-cell-based.md`, `amr-distributed.md`), a grep inventory of its source and the residual of the 3-D uniform solver. Every
+number that was not measured is marked *(estimate)*. The decisions are in section 8 (the user took every recommendation, 2026-11-07); the Q0
+numbers are in section 11. Each phase of section 7 ends with a stop for the user's go-ahead, as the 2-D rebuild did.
 
 This is phase P9 of `amr-cell-based.md` (the 3-D octree) and the "dimension-agnostic layer" of section 3.7 of `amr-distributed.md`.
 
@@ -242,7 +242,7 @@ the validation. The flux kernels, the time recursion, the registers and the Riem
 
 | Phase | Content | Acceptance |
 |---|---|---|
-| Q0 | Measurements, no engine change: the 2-D baseline of record (bench, goldens, memory); the 3-D uniform costs of the target cases (sphere Re 20-100, 3-D Taylor-Green) and the leaf counts an octree would need for them (an offline estimate from the uniform solution, as P0 did); the halo fraction of Morton blocks in 3-D on a proxy; the decision on the two expression families | numbers in this document; D1-D9 answered |
+| Q0 | Measurements, no engine change: the 2-D baseline of record (bench, goldens, memory); the 3-D uniform costs of the target cases (sphere Re 20-100, 3-D Taylor-Green) and the leaf counts an octree would need for them (an offline estimate from the uniform solution, as P0 did); the halo fraction of Morton blocks in 3-D on a proxy; the decision on the two expression families | numbers in this document; D1-D9 answered. **Done 2026-11-07, section 11** |
 | Q1 | Dimension layer (key arithmetic, children, 26 offsets, key ranges of a region) and `CellMesh` in 2-D and 3-D: leaves, faces, side lists (1 or 4), balance, adapt (refine to 8, merge, ripple); the brute-force oracle in both dimensions | oracle tests in 2-D (existing ones unchanged) and 3-D; golden dumps of 2-D equal |
 | Q2 | `CellFluxEngine` convective residual in 3-D: stencils with virtual cells of 8, the 3-D jump closure (b)+(c), boundary ghosts on six sides, WENO3-Z, `boundary_order = 2`; the 2-D per-leaf cost gate | level-0 3-D == uniform 3-D bitwise; free stream exact; the near-jump order table; **2-D per-leaf cost within 5 %** |
 | Q3 | `CellAdvance`: 4 registers per coarse side; subcycling in 3-D | conservation for the three schemes; level-0 steps == uniform 3-D steps; permutation Sod; the z-invariant check |
@@ -258,18 +258,20 @@ before Q1.
 
 ## 8. Decisions for the user
 
-| # | Question | Options | Recommendation |
+Answered by the user on 2026-11-07: **every recommendation is taken** (last column). D5 is settled by the Q0 measurement (section 11.4).
+
+| # | Question | Options | Decided |
 |---|---|---|---|
-| D1 | Architecture | A1 runtime `dim_` + templated key layer; A2 template everything; A3 separate 3-D engine | A1, with the 5 % gate in Q2 |
-| D2 | Expression families | D2a keep the 2-D kernels and add the 3-D ones (3-D level-0 bitwise vs 3-D uniform, 2-D untouched); D2b one family, 2-D regenerated | D2a |
-| D3 | Key | 64-bit, 21 bits per axis in 3-D; 128-bit | 64-bit |
-| D4 | 2:1 balance in 3-D | all 26 neighbours; face + edge; face only | all 26 first |
-| D5 | Indicator diffusion in 3-D | keep 0.1 per face; scale by 4/6; new parameter | keep, measure the band on a plane shock, then decide together |
-| D6 | IBM in the octree | per-leaf distance classification and distributed ghost table (4.9); mask only in the first release | the classification (the uniform per-level mask is not possible in 3-D) |
-| D7 | Order of the MPI work | single-rank phases first (Q1-Q5 test through the whole-mesh adapt) and the CLI opens at Q6; or distributed from the first phase | single-rank first, CLI at Q6 |
-| D8 | Closure and indicator defaults | carry over unchanged ((b)+(c) closure, criterion 0.1, density + velocity, parent-level join), verified in 3-D by the order table | carry over, verify |
-| D9 | First-release scope | WENO3-Z and `boundary_order = 2` included (they are in the engine); WENO5 stays out as in 2-D; no surface samples in 3-D (as for the uniform ghost wall); hot start from a uniform checkpoint included | as listed |
-| D10 | Stop rule | go/no-go in Q0 on the leaf-count estimate and at the end of each phase | as in the 2-D rebuild |
+| D1 | Architecture | A1 runtime `dim_` + templated key layer; A2 template everything; A3 separate 3-D engine | **A1**, with the 5 % gate in Q2 (protocol in 11.5) |
+| D2 | Expression families | D2a keep the 2-D kernels and add the 3-D ones (3-D level-0 bitwise vs 3-D uniform, 2-D untouched); D2b one family, 2-D regenerated | **D2a** |
+| D3 | Key | 64-bit, 21 bits per axis in 3-D; 128-bit | **64-bit** |
+| D4 | 2:1 balance in 3-D | all 26 neighbours; face + edge; face only | **all 26** (costs < 0.2 % of the leaves on the sphere, 11.2) |
+| D5 | Indicator diffusion in 3-D | keep 0.1 per face; scale by 4/6; new parameter | **(a) keep 0.1**: a plane front gives the same band in 2-D and 3-D (11.4) |
+| D6 | IBM in the octree | per-leaf distance classification and distributed ghost table (4.9); mask only in the first release | **the classification** |
+| D7 | Order of the MPI work | single-rank phases first (Q1-Q5 test through the whole-mesh adapt) and the CLI opens at Q6; or distributed from the first phase | **single-rank first, CLI at Q6** |
+| D8 | Closure and indicator defaults | carry over unchanged ((b)+(c) closure, criterion 0.1, density + velocity, parent-level join), verified in 3-D by the order table | **carry over, verify** |
+| D9 | First-release scope | WENO3-Z and `boundary_order = 2` included (they are in the engine); WENO5 stays out as in 2-D; no surface samples in 3-D (as for the uniform ghost wall); hot start from a uniform checkpoint included | **as listed** |
+| D10 | Stop rule | go/no-go in Q0 on the leaf-count estimate and at the end of each phase | **as in the 2-D rebuild**; the Q0 verdict is in 11.1 |
 
 ## 9. Risks
 
@@ -288,4 +290,126 @@ before Q1.
 * The viscous padded-state and `CrossGhosts` rules of the 3-D path, the edge/corner composition of `boundary_order = 2` in 3-D, and the 3-D
   `NrbcTangent` plumbing are described by their role, not read in detail; Q2 and Q4 read them first and extend section 4.4.
 * The inventory counts are a first-pass `grep`; they bound the work, they do not measure it.
-* The leaf count of an octree on the target cases, the 3-D halo fraction on real partitions and the 3-D memory per leaf are estimates until Q0.
+* The 3-D memory per leaf and the 3-D per-leaf cost of the face engine remain estimates until Q2-Q4 (there is no 3-D engine to measure).
+  The leaf counts and the halo fractions were measured offline in Q0 (section 11); they are the engine's rules applied to uniform
+  solutions, not runs of an engine.
+
+## 11. Phase Q0 results (2026-11-07)
+
+Binary of record: `main` at `e5bc73f` (no engine change in Q0), release build, Ryzen 7 7800X3D (8 cores, 16 logical), 31 GB. The binaries
+are kept in `results/validation/amr_octree_q0/bin/` (with `COMMIT.txt`) so that Q1-Q2 compare against the same build. Script:
+`cases/validation/amr/octree_q0.py` (stages `run`, `estimate`, `halo`, `cost`, `bench`; each writes `summary.json` under
+`results/validation/amr_octree_q0/<stage>/`).
+
+### 11.1 Verdict (D10)
+
+| target | octree leaves / uniform cells | work ratio sum N_l 2^l / (N_u 2^M) | verdict |
+|---|---:|---:|---|
+| sphere Re 20, `max_level` 2 (base 5 cells/D, finest 20) | 0.18 | 0.16 | **go** |
+| sphere Re 20, `max_level` 1 | 0.25 | 0.20 | go |
+| sphere Re 100, `max_level` 2 | 0.24 | 0.23 | **go** |
+| sphere Re 100, `max_level` 1 | 0.31 | 0.26 | go |
+| 3-D Taylor-Green 96^3, `max_level` 1 or 2, default indicator | 0.994 (time mean; never below 0.935) | 0.994 | **no-go** as a performance case |
+| the same, criterion 0.3 | 0.87 (time mean; 1.0 at t = 9.3) | 0.86 | no-go |
+
+The gate of section 7 (an octree needing more than about half the uniform cells does not pay) is passed by the sphere at both Reynolds numbers
+and both depths, with margin, and failed by the Taylor-Green vortex at any setting: the vortex fills the periodic box and the default
+indicator flags nearly every cell from t = 0 (raising the criterion to 0.3 does not change that past the start). The 3-D Taylor-Green stays in
+the plan as a **correctness** case (level-0 and z-invariant oracles, Q2-Q3), not as a cost case in Q8. **Recommendation: go to Q1**, with the
+sphere (external flow with a body and a wake) as the performance target.
+
+Projected wall-time gain on the sphere *(estimate)*: work ratio x per-leaf cost ratio of the face engine. The 2-D ratio measured today is 1.39
+(11.5; the 3-D one is unknown until Q2), so the residual cost is 0.22-0.32 of the uniform run at `max_level` 2 (a gain of about 3-4.5x) and 0.27-0.37
+at `max_level` 1, before the remesh (2.4 % of the run in 2-D at 1 thread, `bench_cellflux`). Memory: 106 k leaves at 2-2.5 kB *(estimate, 4.12)*
+= 210-265 MB against 497 MB measured for the uniform 432 k cells.
+
+Limits of the estimate: one end state per case (both sphere flows are steady; the history of the start-up is not counted); every level of the
+hierarchy evaluated on the whole restricted grid (the engine sees a coarser leaf's value where a level is absent: it moves where the band ends by
+a cell, not its size); the sphere sits in a 6 x 3 x 3 channel with 8.7 % blockage, so the far field, the part an octree coarsens, is small (a
+larger domain only lowers the ratios); the finest resolution is 20 cells per diameter, the one the uniform fields exist at.
+
+### 11.2 Leaf counts per level (sphere, ghost-wall band of 6 finest cells, 26-neighbour balance)
+
+| case | M | level 0 | level 1 | level 2 | total | uniform |
+|---|---|---:|---:|---:|---:|---:|
+| Re 20 | 1 | 46 376 | 60 992 | | 107 368 | 432 000 |
+| Re 20 | 2 | 4 264 | 12 264 | 60 992 | 77 520 | 432 000 |
+| Re 100 | 1 | 42 436 | 92 512 | | 134 948 | 432 000 |
+| Re 100 | 2 | 4 191 | 8 908 | 92 512 | 105 611 | 432 000 |
+
+* The finest level holds 79-88 % of the leaves: the body band and the wake decide the cost, so the band width matters more than the coarse levels.
+  Band of 2 (mask) instead of 6 (ghost wall): 0.175 / 0.234 instead of 0.179 / 0.244 (Re 20 / 100, M = 2).
+* **D4:** the 26-neighbour ripple adds at most 0.2 % of the leaves (Re 20, M = 2: 77 520 against 77 380 without balance; Re 100: 105 611 against
+  105 415). Full balance costs nothing measurable here.
+* The fields are `results/validation/ibm_sphere/ghost_20` (Re 20) and a new uniform run at Re 100 (ghost wall, 120 x 60 x 60, t = 30, 11 060 steps,
+  Cd settled at 1.364, 643 s on 16 threads).
+* The same flows on their mid-plane z = cz as 2-D quadtrees give 0.40-0.53 of the uniform cells: the third dimension roughly halves the ratio
+  for a compact body, as expected.
+
+### 11.3 Halo fraction (Morton blocks of equal leaf count per level; halo = leaves of other ranks within r rings, 26 or 8 directions)
+
+| mesh | leaves per rank | r = 2: mean / max | r = 3: mean / max |
+|---|---:|---:|---:|
+| uniform 2-D 2048^2 on 32 ranks (compact blocks) | 131 072 | 0.020 / 0.024 | 0.029 / 0.035 |
+| uniform 3-D 128^3 on 16 ranks (compact blocks) | 131 072 | 0.163 / 0.196 | 0.250 / 0.301 |
+| 2-D airfoil 720 x 360 after 50 steps (golden dump, 3 levels), 16 ranks | 16 763 | 0.099 / 0.260 | 0.155 / 0.429 |
+| 3-D sphere Re 20 estimate (M = 2), 4 ranks | 19 380 | 0.937 / 1.307 | 1.506 / 2.073 |
+| the same, 8 / 16 ranks | 9 690 / 4 845 | 1.73 / 2.65, 2.64 / 4.21 | 2.90 / 4.06, 4.79 / 7.26 |
+
+* Compact blocks: 3-D costs 8x the halo of 2-D at equal leaves per rank (the estimate of 4.10 said about 10x: 2.5 % and 26 %; measured 2.0 % and
+  16 %).
+* Real trees: at equal leaves per rank (about 17-19 k) the 3-D sphere has 9x the halo of the 2-D airfoil (mean), and **about 3x what a compact
+  3-D block of that size would have** (0.31): the per-level partition cuts each level separately, so a rank's share of a small level is a thin,
+  scattered piece of the Morton curve. On this mesh a rank would hold as many halo leaves as owned ones from 4 ranks on.
+* Consequence for Q6 (not decided now): 3-D MPI needs about 10^5 leaves per rank and per level, or a partition that is not cut per level (one
+  Morton curve over all levels with work weights 2^l). The single-rank phases (D7) do not depend on it.
+
+### 11.4 Indicator diffusion (D5)
+
+Plane fronts (density jump, periodic 64^d grid; refined band width in cells per front cell): aligned 2.00 in 2-D and 2.00 in 3-D with 0.1 and with
+0.1 x 4/6; front diagonal in two axes 2.27 / 2.26 (0.1) and 1.97 / 1.97 (4/6); diagonal in three axes 2.23 (0.1) and 2.22 (4/6) in 3-D. The third pair of faces
+raises xi but **does not widen the band** of a plane front; the coefficient changes 2-D and 3-D alike. On the sphere, 4/6 saves 4-7 % of the leaves (Re 20,
+M = 2: 0.167 against 0.179). Decision (a), keep 0.1, as recommended: no 3-D-specific constant. The z-invariant oracle still fixes the leaves with
+`amr_force_box`, because xi differs (not the flags of a plane front, but the values).
+
+### 11.5 2-D baseline of record
+
+* **Golden dumps:** `results/validation/amr_octree_q0/golden_q0/` (`golden.py dump`, the ten adaptive runs, 49 files), every run equal to its 1-thread run.
+  Every later phase runs `golden.py compare results/validation/amr_octree_q0/golden_q0 NEW` (policy of 5.4).
+* **`bench_cellflux 768 384 20`**, 5 interleaved repeats (ns per cell and residual, min / max):
+
+  | | 1 thread | 8 threads |
+  |---|---|---|
+  | uniform `Simulation::residual`, 294 912 cells | 51.6 / 52.8 | 8.1 / 8.7 |
+  | face engine, level-0 same mesh | **72.6** / 73.7 (1.39-1.41x of uniform) | 11.1 / 16.2 |
+  | face engine, adapted (68 283 leaves) | 74.6 / 78.3 | 13.6 / 18.5 |
+  | stencil build (ms) | 9.2 / 9.7 | 3.4 / 4.2 |
+
+  The uniform kernel has become 2.7x faster since the P2 gate of `amr-cell-based.md` section 9 (139 -> 52 ns/cell, the fused uniform residual among
+  the later changes; not bisected) and the face engine 1.7x (124 -> 73), so the face engine now costs **1.4x the uniform kernel per cell** at level 0
+  (it was 0.9x). This is the factor of 11.1; closing that gap is a 2-D optimisation, outside this plan.
+* **Protocol of the Q2 5 % gate:** `bench_cellflux 768 384 20`, the Q0 binary and the new one interleaved, 5 repeats each, 1 thread, compare the
+  minima of the level-0 face engine (spread 1.5 % at 1 thread, so 5 % is resolvable). At 8 threads the spread is 36-78 % on this machine: the
+  8-thread figure is reported, not gated. Nothing else may run on the machine meanwhile.
+* **Memory:** `amr_memory.py --only airfoil_720 --ranks 1`: 268 209 leaves after 50 steps, resident 266 MB at the end and 358 MB at the peak (1.0 /
+  1.34 kB per leaf), tables mesh 87 + engine 184 MB.
+
+### 11.6 3-D uniform cost (the solver the octree competes with)
+
+`octree_q0.py cost`: wall time of 40 minus 20 steps (setup removed), min of 3, no output, peak working set:
+
+| case | cells | 1 thread | 8 threads | 16 threads | peak memory |
+|---|---:|---:|---:|---:|---:|
+| sphere Re 100, 20 cells/D, ghost wall (SSP-RK2, MUSCL, viscous) | 432 000 | 437 ns/cell/step | 140 | 131 | 498 MB (1.2 kB/cell) |
+| the same, mask | 432 000 | 449 | 147 | 136 | 498 MB |
+| Taylor-Green 64^3 (case defaults) | 262 144 | 500 | 116 | 98 | 264-296 MB |
+| Taylor-Green 96^3 | 884 736 | 487 | 129 | 120 | 967 MB (1.15 kB/cell) |
+
+The ghost wall costs the same as the mask (3 %). The sphere scales 3.1x from 1 to 8 threads (Taylor-Green 3.8x): the 3-D uniform path is
+memory-bound on this machine, which an octree with fewer cells also helps. A steady sphere at Re 100 takes 11 060 steps, about 10 min on 16 threads;
+at Re 20, 22 292 steps.
+
+### 11.7 Expression families (D2)
+
+Decided D2a: the 2-D kernels stay; the 3-D family is new and checked bitwise against `viscous_residual_3d` and the 3-D divergence loop at level 0.
+No measurement was needed for it in Q0.
