@@ -688,6 +688,72 @@ TEST(ibm_ghost_cells_reproduce_a_linear_wall_profile) {
     CHECK(threw);
 }
 
+TEST(ibm_ghost_cells_of_a_sphere_reproduce_a_linear_field) {
+    // 3-D sphere on a mesh with different spacings: with density and pressure uniform and a velocity linear in space, the trilinear
+    // image state is exact, so every ghost state is the reflection of the analytic velocity at its image point (no-slip: -ratio u;
+    // slip: the normal part reflected). The image point is on the normal through the ghost cell, di = dg / ratio beyond the wall.
+    const EOS eos = EOS::ideal(1.4);
+    const Mesh m = generate_cartesian_mesh_3d(1.0, 1.2, 0.9, 40, 48, 30);
+    const double R = 0.25, cx = 0.5, cy = 0.6, cz = 0.45;
+    const double a[3] = {0.3, -0.2, 0.15}, B[3][3] = {{0.4, 0.1, -0.2}, {-0.3, 0.2, 0.25}, {0.05, -0.15, 0.3}};
+    const auto vel = [&](double x, double y, double z, double* u) {
+        for (int q = 0; q < 3; ++q) u[q] = a[q] + B[q][0] * x + B[q][1] * y + B[q][2] * z;
+    };
+    for (const bool slip : {false, true}) {
+        ImmersedBoundary ib(m, "Sphere", R, cx, cy, 1.0, 1.0, cz);
+        ib.enable_ghost_cells(m, slip);
+        CHECK(ib.ghost_cells());
+        CHECK(ib.ghost_count() > 200);
+        Field U(static_cast<size_t>(m.num_cells()));
+        for (int k = 0; k < m.nz; ++k)
+            for (int j = 0; j < m.ny; ++j)
+                for (int i = 0; i < m.nx; ++i) {
+                    double u[3];
+                    vel(m.xc(i), m.yc(j), m.zc(k), u);
+                    U[m.cell(i, j, k)] = eos.prim_to_cons({1.2, u[0], u[1], 2.0, u[2]});
+                }
+        const Field U0 = U;
+        ib.apply_forcing(U, eos);
+        const std::vector<int> cells = ib.ghost_cell_list();
+        const std::vector<double> ratios = ib.ghost_ratios();
+        std::vector<int> reads(static_cast<size_t>(m.num_cells()), 0);
+        for (const auto& pr : ib.ghost_reads()) ++reads[static_cast<size_t>(pr.first)];
+        double worst = 0.0;
+        int checked = 0;
+        for (size_t q = 0; q < cells.size(); ++q) {
+            const int c = cells[q];
+            if (reads[static_cast<size_t>(c)] != 8) continue;   // a solid cell dropped from the stencil: not exact
+            const int i = c % m.nx, j = (c / m.nx) % m.ny, k = c / (m.nx * m.ny);
+            const double dx = m.xc(i) - cx, dy = m.yc(j) - cy, dz = m.zc(k) - cz, r = std::sqrt(dx * dx + dy * dy + dz * dz);
+            const double n[3] = {dx / r, dy / r, dz / r}, dg = R - r, di = dg / ratios[q];
+            CHECK(dg > 0.0 && ratios[q] > 0.0 && ratios[q] <= 1.0);
+            double ui[3];
+            vel(cx + (R + di) * n[0], cy + (R + di) * n[1], cz + (R + di) * n[2], ui);
+            const double un = ui[0] * n[0] + ui[1] * n[1] + ui[2] * n[2];
+            const State W = eos.cons_to_prim(U[c]);
+            const double got[3] = {W[1], W[2], W[4]};
+            for (int d = 0; d < 3; ++d) {
+                const double want = slip ? ui[d] - (1.0 + ratios[q]) * un * n[d] : -ratios[q] * ui[d];
+                worst = std::max(worst, std::abs(got[d] - want));
+            }
+            worst = std::max({worst, std::abs(W[0] - 1.2), std::abs(W[3] - 2.0)});
+            ++checked;
+        }
+        CHECK(checked > 100);
+        CHECK(worst < 1e-10);
+        if (worst >= 1e-10) std::printf("    slip %d: worst ghost error %.3e over %d ghosts\n", slip, worst, checked);
+        // the cells that are not ghosts keep their state outside the body, the deep solid cells are at rest
+        for (int c = 0; c < m.num_cells(); ++c) {
+            if (!ib.mask()[c]) { CHECK(U[c][0] == U0[c][0]); continue; }
+        }
+    }
+    // a sphere in a 2-D mesh is a circle: the ghost wall of a 2-D "Sphere" works and has no z-component
+    const Mesh m2 = generate_cartesian_mesh(1.0, 1.0, 40, 40);
+    ImmersedBoundary circ(m2, "Sphere", 0.2, 0.5, 0.5, 1.0, 1.0);
+    circ.enable_ghost_cells(m2, true);
+    CHECK(circ.ghost_count() > 20);
+}
+
 TEST(ibm_curvature_corrects_the_ghost_pressure_on_a_curved_wall) {
     // Supersonic vortex around a cylinder (u_theta = A/r, isentropic, Mach 2.25 at the wall): the exact pressure grows outwards with
     // dp/dr = rho u^2 / r, which the zero-gradient ghost state ignores. With the correction the ghost pressure follows the exact

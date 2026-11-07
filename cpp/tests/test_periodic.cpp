@@ -370,6 +370,9 @@ TEST(extrusion_matches_2d) {
         {"Lid Driven Cavity", {{"nx", "12"}, {"ny", "12"}, {"use_muscl", "true"}}, 20},
         {"Poiseuille Flow", {{"nx", "16"}, {"ny", "8"}}, 30},
         {"IBM Flow over Cylinder", {{"ibm_method", "mask"}, {"nx", "40"}, {"ny", "20"}, {"use_mpi", "false"}}, 10},
+        {"IBM Flow over Cylinder", {{"ibm_method", "ghost"}, {"nx", "40"}, {"ny", "20"}, {"use_mpi", "false"}}, 10},   // sharp wall, no-slip
+        {"IBM Supersonic Flow over Cylinder", {{"ibm_method", "ghost"}, {"nx", "40"}, {"ny", "40"}, {"use_mpi", "false"}}, 10},   // slip
+        {"IBM Airfoil", {{"ibm_method", "ghost"}, {"nx", "96"}, {"ny", "48"}, {"use_mpi", "false"}}, 10},   // polygon
         {"Isentropic Vortex", {{"nx", "20"}, {"ny", "20"}}, 10},
     };
     for (const Case& c : cases) {

@@ -1,6 +1,6 @@
 """Ghost-cell (sharp-interface) IBM wall: MPI against serial, bit for bit.
 
-    python cases/validation/features/ibm_ghost.py --check     # serial against 2 to 7 MPI ranks, nine cases
+    python cases/validation/features/ibm_ghost.py --check     # serial against 2 to 7 MPI ranks, twelve cases
     python cases/validation/features/ibm_ghost.py --loads     # cylinder Re = 40: monitor loads against a control volume (hours)
 
 Runs short ibm_method = ghost cases serially and on 2 to 7 MPI ranks and compares the final states bit for bit, and the loads
@@ -31,6 +31,12 @@ CHECK_CASES = {   # name: (case, overrides)
                                                "max_steps=30"]),
     "supersonic": ("IBM Supersonic Flow over Cylinder", ["nx=100", "ny=100", "max_steps=30"]),
     "airfoil": ("IBM Airfoil", ["nx=192", "ny=96", "max_steps=20"]),
+    # 3-D: a sphere (trilinear image points over eight cells, fetched across strips), no-slip and slip, and the cylinder along z
+    "sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=64", "ny=32", "nz=16", "Lz=1.0",
+                                            "bc_front=wall", "bc_back=wall", "max_steps=15"]),
+    "sphere3d_slip": ("IBM Supersonic Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=2.0", "ibm_radius=0.8", "nx=48", "ny=72", "nz=16",
+                                                            "Lz=4.0", "bc_front=wall", "bc_back=wall", "max_steps=15"]),
+    "cylinder3d": ("IBM Flow over Cylinder", ["nx=100", "ny=50", "nz=6", "Lz=2.0", "max_steps=15"]),
     # ibm_curvature (slip walls): the curvature of each ghost cell is geometry only, the correction reads the image point
     "supersonic_curv": ("IBM Supersonic Flow over Cylinder", ["ibm_curvature=true", "nx=100", "ny=100", "max_steps=30"]),
     "naca_slip_curv": ("IBM Airfoil", ["use_viscous=false", "reynolds=0", "ibm_curvature=true", "nx=192", "ny=96", "max_steps=20"]),

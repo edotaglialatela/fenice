@@ -60,6 +60,14 @@ CASES = {
                                                            amr_max_level=1, amr_refine_every=5,
                                                            source_mx="0.5*sin(2*pi*x/Lx)", source_my="0.3")),
     "supersonic_ibm":      ("IBM Supersonic Flow over Cylinder", dict(nx=60, ny=60, Lx=4.0, Ly=4.0, ibm_cx=1.0, ibm_cy=2.0, t_end=0.1, use_mpi=False)),   # the geometry of the reference (the case is 8 x 8 now)
+    # the sharp ghost wall (the default of 2-D bodies since the references above pin the mask): no-slip cylinder, slip Mach 2 cylinder,
+    # polygon airfoil, and the 3-D sphere with trilinear image points
+    "cylinder_ibm_ghost":  ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False, ibm_method="ghost")),
+    "supersonic_ibm_ghost": ("IBM Supersonic Flow over Cylinder", dict(nx=60, ny=60, Lx=4.0, Ly=4.0, ibm_cx=1.0, ibm_cy=2.0, t_end=0.1, use_mpi=False,
+                                                                     ibm_method="ghost")),
+    "naca0012_ibm_ghost":  ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.1, use_mpi=False, ibm_method="ghost")),
+    "sphere3d_ibm_ghost":  ("IBM Flow over Cylinder", dict(nx=48, ny=24, nz=12, Lz=1.0, t_end=0.03, use_mpi=False, ibm_method="ghost",
+                                                       ibm_shape="Sphere", ibm_cz=0.5, ibm_radius=0.3, bc_front="wall", bc_back="wall")),
     "hot_start_mapping":   ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.03, use_hot_start=True,
                                                    hot_start_file="{REF}/hot_source.npz", use_muscl=True)),
     "amr_sod_1st":         ("Sod Shock Tube", dict(Lx=2.0, nx=128, ny=16, Ly=0.25, t_end=0.2, use_amr=True,
@@ -186,6 +194,7 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk3_visc", "cavity_periodi
              "cylinder_ibm_visc", "cylinder_ibm_source", "amr_cylinder_source", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
+             "cylinder_ibm_ghost", "supersonic_ibm_ghost", "naca0012_ibm_ghost", "sphere3d_ibm_ghost",
              "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_square_rk3", "amr_weno3_rk3", "amr_bo2_walls", "amr_bo2_weno3", "amr_cavity_b2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "amr_hot_start_from_amr", "hot_start_from_amr", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
              "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2", "cavity3d_noslip_z_b2", "cavity_xdecomp_b2", "cavity3d_xdecomp_b2"]

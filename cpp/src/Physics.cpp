@@ -883,9 +883,26 @@ void ImmersedBoundary::closest_wall_point(double x, double y, double& wx, double
     }
 }
 
+void ImmersedBoundary::closest_wall_point3(double x, double y, double z, double& wx, double& wy, double& wz, double& nx, double& ny,
+                                           double& nz) const {
+    if (shape_ == Shape::Ball) {
+        const double dx = x - cx_, dy = y - cy_, dz = z - cz_, d = std::sqrt(dx * dx + dy * dy + dz * dz);
+        nx = d > 0.0 ? dx / d : 1.0;
+        ny = d > 0.0 ? dy / d : 0.0;
+        nz = d > 0.0 ? dz / d : 0.0;
+        wx = cx_ + r_ * nx;
+        wy = cy_ + r_ * ny;
+        wz = cz_ + r_ * nz;
+        return;
+    }
+    closest_wall_point(x, y, wx, wy, nx, ny);   // cylinder / section extruded along z
+    wz = z;
+    nz = 0.0;
+}
+
 State ImmersedBoundary::Probe::at(const CellState& in, const EOS& eos) const {
     State r{};
-    for (int k = 0; k < 4; ++k) {
+    for (int k = 0; k < 8; ++k) {
         if (w[k] == 0.0) continue;
         const State W = eos.cons_to_prim(in(cell[k]));
         for (int q = 0; q < kNVar; ++q) r[q] += w[k] * W[q];
@@ -893,7 +910,29 @@ State ImmersedBoundary::Probe::at(const CellState& in, const EOS& eos) const {
     return r;
 }
 
-bool ImmersedBoundary::make_probe(const Mesh& m, double x, double y, Probe& pr) const {
+bool ImmersedBoundary::make_probe3(const Mesh& m, double x, double y, double z, Probe& pr) const {
+    // trilinear in the eight cell centres around (x, y, z); solid cells are left out and the weights renormalised
+    const double fx = (x - m.x0) / m.dx - 0.5, fy = (y - m.y0) / m.dy - 0.5, fz = (z - m.z0) / m.dz - 0.5;
+    int i0 = static_cast<int>(std::floor(fx)), j0 = static_cast<int>(std::floor(fy)), k0 = static_cast<int>(std::floor(fz));
+    i0 = std::min(std::max(i0, 0), m.nx - 2);
+    j0 = std::min(std::max(j0, 0), m.ny - 2);
+    k0 = std::min(std::max(k0, 0), m.nz - 2);
+    const double tx = std::min(1.0, std::max(0.0, fx - i0)), ty = std::min(1.0, std::max(0.0, fy - j0)),
+                 tz = std::min(1.0, std::max(0.0, fz - k0));
+    double sum = 0.0;
+    for (int q = 0; q < 8; ++q) {
+        const int di = q & 1, dj = (q >> 1) & 1, dk = (q >> 2) & 1;
+        const double w = (di ? tx : 1 - tx) * (dj ? ty : 1 - ty) * (dk ? tz : 1 - tz);
+        pr.cell[q] = m.cell(i0 + di, j0 + dj, k0 + dk);
+        pr.w[q] = mask_[pr.cell[q]] ? 0.0 : w;
+        sum += pr.w[q];
+    }
+    if (sum < 1e-6) return false;
+    for (double& v : pr.w) v /= sum;
+    return true;
+}
+
+bool ImmersedBoundary::make_probe(const Mesh& m, double x, double y, Probe& pr, int layer) const {
     // bilinear in the four cell centres around (x, y); solid cells are left out and the weights renormalised
     double fx = (x - m.x0) / m.dx - 0.5, fy = (y - m.y0) / m.dy - 0.5;
     int i0 = static_cast<int>(std::floor(fx)), j0 = static_cast<int>(std::floor(fy));
@@ -904,7 +943,7 @@ bool ImmersedBoundary::make_probe(const Mesh& m, double x, double y, Probe& pr) 
     const double w[4] = {(1 - tx) * (1 - ty), tx * (1 - ty), (1 - tx) * ty, tx * ty};
     double sum = 0.0;
     for (int k = 0; k < 4; ++k) {
-        pr.cell[k] = m.cell(ci[k], cj[k]);
+        pr.cell[k] = m.cell(ci[k], cj[k], layer);
         pr.w[k] = mask_[pr.cell[k]] ? 0.0 : w[k];
         sum += pr.w[k];
     }
@@ -927,10 +966,11 @@ double ImmersedBoundary::wall_curvature(double wx, double wy, double nx, double 
 }
 
 void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip, bool curvature) {
-    if (m.is3d() || shape_ == Shape::None || shape_ == Shape::Ball)
-        throw std::invalid_argument("ibm_method = ghost: 2-D cylinder or airfoil bodies only (for now)");
-    const int nx = m.nx, ny = m.ny;
-    const double h = std::max(m.dx, m.dy);
+    if (shape_ == Shape::None || (shape_ == Shape::Ball && !m.is3d()))
+        throw std::invalid_argument("ibm_method = ghost: cylinder, airfoil (2-D, or extruded in 3-D) or sphere bodies only");
+    const bool d3 = m.is3d(), ball = shape_ == Shape::Ball;
+    const int nx = m.nx, ny = m.ny, nz = m.nz;
+    const double h = ball ? std::max({m.dx, m.dy, m.dz}) : std::max(m.dx, m.dy);   // an extruded body: the in-plane cell size (dz can be huge)
     slip_ = slip;
     curvature_ = curvature;
     ghost_.clear();
@@ -938,37 +978,54 @@ void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip, bool curvatu
     ghost_mask_.assign(mask_.size(), 0);
     // the image (resp. probe) point lies at least 1.5 cells into the fluid, so its four interpolation cells are fluid cells
     // on a flat or convex wall; further out where they are not (concave corners, thin trailing edges)
-    const auto probe_out = [&](double wx, double wy, double nxw, double nyw, double d0, double& d, Probe& pr) {
+    const auto probe_out = [&](double wx, double wy, double nxw, double nyw, double d0, double& d, Probe& pr, int layer) {
         for (d = std::max(d0, 1.5 * h); d <= 4.0 * h + 1e-12; d += 0.5 * h)
-            if (make_probe(m, wx + d * nxw, wy + d * nyw, pr)) return true;
+            if (make_probe(m, wx + d * nxw, wy + d * nyw, pr, layer)) return true;
         return false;
     };
-    for (int j = 0; j < ny; ++j)
-        for (int i = 0; i < nx; ++i) {
-            const int c = m.cell(i, j);
-            if (!mask_[c]) continue;
-            bool near = false;   // a fluid cell within two cells (MUSCL stencils, viscous gradients) reads this one
-            for (int dj = -2; dj <= 2 && !near; ++dj)
-                for (int di = -2; di <= 2 && !near; ++di) {
-                    const int ii = i + di, jj = j + dj;
-                    if (ii >= 0 && ii < nx && jj >= 0 && jj < ny && !mask_[m.cell(ii, jj)]) near = true;
-                }
-            if (!near) continue;
-            Ghost g;
-            g.cell = c;
-            double wx, wy;
-            closest_wall_point(m.xc(i), m.yc(j), wx, wy, g.nx, g.ny);
-            const double dg = std::sqrt((m.xc(i) - wx) * (m.xc(i) - wx) + (m.yc(j) - wy) * (m.yc(j) - wy));
-            double di;
-            if (!probe_out(wx, wy, g.nx, g.ny, dg, di, g.image))
-                throw std::runtime_error("ibm_method = ghost: no fluid cells around the image point of cell (" + std::to_string(i) +
-                                         ", " + std::to_string(j) + "); refine the mesh near the body");
-            g.ratio = dg / di;
-            g.span = dg + di;
-            if (curvature_ && slip_) g.kappa = wall_curvature(wx, wy, g.nx, g.ny, 1.5 * h);
-            ghost_.push_back(g);
-            ghost_mask_[c] = 1;
-        }
+    // a sphere: the image point lies between layers (trilinear over eight cells); the other bodies are the same in every layer,
+    // so the image point is that of the 2-D run, taken in the ghost cell's own layer (the same bits per layer)
+    const auto probe_out3 = [&](double wx, double wy, double wz, double nxw, double nyw, double nzw, double d0, double& d, Probe& pr) {
+        for (d = std::max(d0, 1.5 * h); d <= 4.0 * h + 1e-12; d += 0.5 * h)
+            if (make_probe3(m, wx + d * nxw, wy + d * nyw, wz + d * nzw, pr)) return true;
+        return false;
+    };
+    const int dkmax = d3 ? 2 : 0;
+    for (int k = 0; k < nz; ++k)
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i) {
+                const int c = m.cell(i, j, k);
+                if (!mask_[c]) continue;
+                bool near = false;   // a fluid cell within two cells (MUSCL stencils, viscous gradients) reads this one
+                for (int dk = -dkmax; dk <= dkmax && !near; ++dk)
+                    for (int dj = -2; dj <= 2 && !near; ++dj)
+                        for (int di = -2; di <= 2 && !near; ++di) {
+                            const int ii = i + di, jj = j + dj, kk = k + dk;
+                            if (ii >= 0 && ii < nx && jj >= 0 && jj < ny && kk >= 0 && kk < nz && !mask_[m.cell(ii, jj, kk)]) near = true;
+                        }
+                if (!near) continue;
+                Ghost g;
+                g.cell = c;
+                double wx, wy, wz = 0.0;
+                if (ball)
+                    closest_wall_point3(m.xc(i), m.yc(j), m.zc(k), wx, wy, wz, g.nx, g.ny, g.nz);
+                else
+                    closest_wall_point(m.xc(i), m.yc(j), wx, wy, g.nx, g.ny);
+                const double ez = ball ? m.zc(k) - wz : 0.0;
+                const double dg = std::sqrt((m.xc(i) - wx) * (m.xc(i) - wx) + (m.yc(j) - wy) * (m.yc(j) - wy) + ez * ez);
+                double di;
+                const bool found = ball ? probe_out3(wx, wy, wz, g.nx, g.ny, g.nz, dg, di, g.image)
+                                        : probe_out(wx, wy, g.nx, g.ny, dg, di, g.image, k);
+                if (!found)
+                    throw std::runtime_error("ibm_method = ghost: no fluid cells around the image point of cell (" + std::to_string(i) +
+                                             ", " + std::to_string(j) + (d3 ? ", " + std::to_string(k) : std::string()) +
+                                             "); refine the mesh near the body");
+                g.ratio = dg / di;
+                g.span = dg + di;
+                if (curvature_ && slip_) g.kappa = wall_curvature(wx, wy, g.nx, g.ny, 1.5 * h);
+                ghost_.push_back(g);
+                ghost_mask_[c] = 1;
+            }
     // surface samples for the loads, at most half a cell apart
     const auto add_point = [&](double wx, double wy, double nxw, double nyw, double ds) {
         SurfacePoint sp;
@@ -977,10 +1034,12 @@ void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip, bool curvatu
         sp.nx = nxw;
         sp.ny = nyw;
         sp.ds = ds;
-        if (!probe_out(wx, wy, nxw, nyw, 0.0, sp.d, sp.probe)) return;
+        if (!probe_out(wx, wy, nxw, nyw, 0.0, sp.d, sp.probe, 0)) return;
         if (make_probe(m, wx + 2.0 * sp.d * nxw, wy + 2.0 * sp.d * nyw, sp.probe2)) surface_.push_back(sp);
     };
-    if (shape_ == Shape::Circle) {
+    if (d3) {
+        // no surface samples in 3-D: the monitor loads are the momentum flux into the solid cells
+    } else if (shape_ == Shape::Circle) {
         const double pi = std::acos(-1.0);
         const int n = std::max(64, static_cast<int>(std::ceil(2.0 * pi * r_ / (0.5 * h))));
         for (int k = 0; k < n; ++k) {
@@ -1048,7 +1107,8 @@ void ImmersedBoundary::fill_ghost_cells(const CellIndex& local, const CellState&
         dst[static_cast<size_t>(k)] = local(g.cell);
         if (dst[static_cast<size_t>(k)] < 0) continue;
         State W = g.image.at(in, eos);
-        const double un = W[1] * g.nx + W[2] * g.ny;
+        const bool d3 = nz_ > 1;   // the 2-D lines stay as they were (no extra zero terms: the bits of the 2-D run are fixed)
+        const double un = d3 ? W[1] * g.nx + W[2] * g.ny + W[4] * g.nz : W[1] * g.nx + W[2] * g.ny;
         if (curvature_ && slip_ && g.kappa != 0.0) {   // normal momentum at the wall: p grows outwards by rho kappa u_t^2
             const double tx = W[1] - un * g.nx, ty = W[2] - un * g.ny;
             const double pi = W[3], pinf = eos.p_inf;
@@ -1061,15 +1121,17 @@ void ImmersedBoundary::fill_ghost_cells(const CellIndex& local, const CellState&
             W[0] *= std::pow((pg + pinf) / (pi + pinf), 1.0 / eos.gamma);   // constant entropy along the normal
             W[3] = pg;
         }
-        double ux, uy;
+        double ux, uy, uz = 0.0;
         if (slip_) {   // tangential velocity kept, normal velocity reflected through zero at the wall
             ux = W[1] - un * g.nx - g.ratio * un * g.nx;
             uy = W[2] - un * g.ny - g.ratio * un * g.ny;
+            if (d3) uz = W[4] - un * g.nz - g.ratio * un * g.nz;
         } else {   // whole velocity through zero at the wall
             ux = -g.ratio * W[1];
             uy = -g.ratio * W[2];
+            if (d3) uz = -g.ratio * W[4];
         }
-        val[static_cast<size_t>(k)] = eos.prim_to_cons({W[0], ux, uy, W[3], 0.0});
+        val[static_cast<size_t>(k)] = eos.prim_to_cons({W[0], ux, uy, W[3], uz});
     }
     for (int k = 0; k < ng; ++k)
         if (dst[static_cast<size_t>(k)] >= 0) U[static_cast<size_t>(dst[static_cast<size_t>(k)])] = val[static_cast<size_t>(k)];
@@ -1082,7 +1144,7 @@ double ImmersedBoundary::memory_bytes() const {
 std::vector<std::pair<int, int>> ImmersedBoundary::ghost_reads() const {
     std::vector<std::pair<int, int>> v;
     for (const Ghost& g : ghost_)
-        for (int k = 0; k < 4; ++k)
+        for (int k = 0; k < 8; ++k)
             if (g.image.w[k] != 0.0) v.push_back({g.cell, g.image.cell[k]});
     return v;
 }
@@ -1090,6 +1152,12 @@ std::vector<std::pair<int, int>> ImmersedBoundary::ghost_reads() const {
 std::vector<int> ImmersedBoundary::ghost_cell_list() const {
     std::vector<int> v;
     for (const Ghost& g : ghost_) v.push_back(g.cell);
+    return v;
+}
+
+std::vector<double> ImmersedBoundary::ghost_ratios() const {
+    std::vector<double> v;
+    for (const Ghost& g : ghost_) v.push_back(g.ratio);
     return v;
 }
 
@@ -1121,7 +1189,7 @@ std::vector<int> ImmersedBoundary::ghost_inputs(const CellIndex& local) const {
     std::vector<int> v;
     for (const Ghost& g : ghost_)
         if (local(g.cell) >= 0)
-            for (int k = 0; k < 4; ++k)
+            for (int k = 0; k < 8; ++k)
                 if (g.image.w[k] != 0.0) v.push_back(g.image.cell[k]);
     return v;
 }
@@ -1130,7 +1198,7 @@ std::vector<int> ImmersedBoundary::surface_inputs(int part, int parts) const {
     std::vector<int> v;
     for (size_t k = static_cast<size_t>(part); k < surface_.size(); k += static_cast<size_t>(parts))
         for (const Probe* pr : {&surface_[k].probe, &surface_[k].probe2})
-            for (int q = 0; q < 4; ++q)
+            for (int q = 0; q < 8; ++q)
                 if (pr->w[q] != 0.0) v.push_back(pr->cell[q]);
     return v;
 }

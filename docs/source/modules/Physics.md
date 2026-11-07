@@ -123,10 +123,13 @@ identical for any number of ranks. The 3-D fringe test also looks at the z-neigh
 
 ### Ghost-cell wall (`ibm_method = ghost`)
 
-An alternative to the forcing and the reset above (2-D cylinder and airfoil bodies, uniform or AMR, serial, OpenMP or MPI). The
+An alternative to the forcing and the reset above, and the default for 2-D bodies (`ibm_method = auto`; in 3-D `auto` still picks the mask, and the
+ghost wall is asked for with `ibm_method = ghost`). It exists for the cylinder and the airfoil (2-D, uniform or AMR, or extruded along z in 3-D) and for the
+3-D sphere, serial, OpenMP or MPI. The
 solid cells that the fluid stencils read (a fluid cell within two cells) become **ghost cells**. For each one the closest point
 of the true surface and the outward normal are found, and the ghost cell is mirrored across the wall to an **image point** at
-least 1.5 cells into the fluid, where the state is interpolated bilinearly from the surrounding fluid cells. The ghost state makes
+least 1.5 cells into the fluid, where the state is interpolated bilinearly from the surrounding fluid cells (a body extruded along z: in the layer of
+the ghost cell, so every layer is the 2-D run; a sphere: trilinearly over the eight cells around the image point, the solid ones left out). The ghost state makes
 the wall condition hold on the real surface:
 
 * density and pressure equal those of the image point (zero normal gradient);
@@ -137,6 +140,7 @@ m ghost}/d_{
 m image})\,\mathbf u_{
 m image}$; slip (inviscid): only the normal component is reflected.
 
+In 3-D the velocity has three components: slip removes only the normal part (a spanwise velocity along an extruded body survives), no-slip scales all three.
 The deeper solid cells stay at rest and are reset to the reference state each step (energy from the EOS). The wall position is
 exact, so the staircase waves disappear and the solution converges much faster with the grid: on a cylinder at Re = 40 the drag
 is within 0.15 % of its converged value at 20 cells per diameter, where the mask needs about four times the resolution per
@@ -144,7 +148,23 @@ direction (`docs/proposals/ibm-wall-treatment.md` has the study). The monitor's 
 cells, as with the mask (below); `ImmersedBoundary::surface_loads` integrates the true surface from probes at $d$ and $2d$ along the
 normal (for surface distributions; that integral is 1-3 % low).
 Under MPI each rank fills its own ghost cells and fetches the few cells of other strips their image points read, so the result is
-identical for any number of ranks; with AMR the finest-level band around the body is widened to the ghost stencils.
+identical for any number of ranks (also in 3-D); with AMR (2-D) the finest-level band around the body is widened to the ghost stencils.
+In 3-D there are no surface samples (`surface_loads` is zero): the monitor loads are the momentum flux into the solid cells, which is dimension independent.
+
+**Curvature correction (`ibm_curvature`, 2-D slip walls).** The zero normal gradient of the pressure is a first-order error on a curved wall, where
+the normal momentum equation gives $\partial p/\partial n = \rho\,\kappa\,u_t^2$ ($\kappa$: curvature of the wall, positive for a convex body; $1/R$ for a
+cylinder, estimated from the turning of the normal over three cells for a polygon). With `ibm_curvature = true` the ghost pressure is
+$p_{\rm image} - \rho\,\kappa\,u_t^2\,(d_{\rm image} + d_{\rm ghost})$, limited to a factor 0.5 to 2, and the density follows constant entropy along the normal. The
+balance holds where the flow follows the wall, so the correction is weighted by $\max(0, 1 - |u_n|/(0.2\,|u_t|))$ at the image point: unweighted, the
+bow shock of an impulsively started Mach 2 cylinder stays pinned to the wall. It is opt-in, rejected in 3-D, and leaves flat walls unchanged.
+
+**Evidence.** Mach 2 flow along a 10 degree wedge (`verification/ibm_wedge.py`, exact oblique shock, faces inclined to the grid): the pressure error of the
+ghost wall is 2.3e-2, 7.7e-4 and 6.3e-5 at 50, 100 and 200 cells per unit length (order 3.6), that of the mask 6.3e-2, 4.2e-2 and 3.2e-2 with a density
+deficit that grows with the mesh. The supersonic vortex around a cylinder (`verification/ibm_vortex.py`, exact solution): the ghost wall's pressure error
+falls only as $h^1$ (2.3e-2 at 160 cells per radius), with the correction it is 8.7e-4 and falls as $h^{1.5}$. Neither the mask nor the ghost wall is
+conservative: in a closed inviscid box the fluid mass drifts by about 0.2 % by $t=4$ (mask loses, ghost gains). In 3-D the evidence is the exactness of the
+trilinear image state on a linear field (unit test), the equality of extruded bodies with the 2-D run, bitwise MPI equality, and the self-convergence of
+the sphere's drag (`features/ibm_sphere.py`: Cd 3.29 and 3.39 with the mask, 3.46 and 3.51 with the ghost wall at 10 and 20 cells per diameter, so the change between the meshes is 0.09 against 0.05; weak evidence, with no exact reference); a broader 3-D validation is left until 3-D AMR exists.
 
 ### Loads on the body
 

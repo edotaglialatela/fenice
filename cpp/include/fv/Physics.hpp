@@ -168,7 +168,10 @@ public:
     // wall from an image point in the fluid (bilinear in the fluid cells around it): density and pressure with zero normal
     // gradient, the velocity reflected (no-slip) or only its normal component (slip), so the wall condition holds on the
     // body's surface, not on a staircase. From then on apply_forcing fills the ghost cells (and stops the deeper solid cells)
-    // and apply_solid_reset does the same plus the deep-solid reset (energy from the EOS). Throws for a mask-only body or 3-D.
+    // and apply_solid_reset does the same plus the deep-solid reset (energy from the EOS). Throws for a mask-only body.
+    // 3-D: a sphere (trilinear image points over eight cells), or the infinite cylinder / extruded section (the 2-D image point of the
+    // ghost cell's own layer, so each layer equals the 2-D run bit for bit); no surface samples (surface_loads is zero), the monitor loads
+    // come from the momentum flux into the solid cells; ibm_curvature is 2-D only.
     // curvature (slip wall only): the ghost pressure follows the normal momentum equation at the wall, dp/dn = rho kappa u_t^2 (kappa:
     // curvature of the wall, positive for a convex body), and the density follows constant entropy along the normal, instead of a zero
     // normal gradient of both; without it a curved wall carries a first-order pressure error.
@@ -198,6 +201,8 @@ public:
     // (ghost cell, cell it reads) pairs, the ghost cells, and every cell the ghost fill and the surface loads read.
     std::vector<std::pair<int, int>> ghost_reads() const;
     std::vector<int> ghost_cell_list() const;
+    // Per ghost cell (same order): distance ghost-wall over distance image-wall (the ghost state scales the image state by minus this).
+    std::vector<double> ghost_ratios() const;
     std::vector<int> referenced_cells() const;
     // Bytes of the mask and the ghost-cell tables.
     double memory_bytes() const;
@@ -210,6 +215,8 @@ public:
     std::vector<int> surface_inputs(int part, int parts) const;
     // Closest point of the body surface to (x, y) and the outward unit normal there (2-D; geometry constructors only).
     void closest_wall_point(double x, double y, double& wx, double& wy, double& nx, double& ny) const;
+    // The same in 3-D: a sphere, or a cylinder / section extruded along z (then wz = z and the normal has no z-component).
+    void closest_wall_point3(double x, double y, double z, double& wx, double& wy, double& wz, double& nx, double& ny, double& nz) const;
 
 private:
     int nx_ = 0, ny_ = 0, nz_ = 1;
@@ -221,14 +228,14 @@ private:
     Polygon2D poly_;
     // ghost-cell wall: interpolation of the primitive state at a point from up to four fluid cells
     struct Probe {
-        int cell[4] = {0, 0, 0, 0};
-        double w[4] = {0.0, 0.0, 0.0, 0.0};
+        int cell[8] = {0, 0, 0, 0, 0, 0, 0, 0};       // 2-D (and bodies extruded along z): the first four, bilinear in the layer
+        double w[8] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0};   // sphere: all eight, trilinear
         State at(const CellState& in, const EOS& eos) const;
     };
     struct Ghost {
         int cell = 0;
         double ratio = 0.0;   // distance ghost-wall / distance image-wall (Dirichlet values scale by -ratio)
-        double nx = 0.0, ny = 0.0;
+        double nx = 0.0, ny = 0.0, nz = 0.0;
         double kappa = 0.0, span = 0.0;   // wall curvature (convex > 0) and distance image-ghost along the normal
         Probe image;
     };
@@ -240,7 +247,8 @@ private:
     std::vector<Ghost> ghost_;
     std::vector<SurfacePoint> surface_;
     std::vector<char> ghost_mask_;
-    bool make_probe(const Mesh& m, double x, double y, Probe& pr) const;
+    bool make_probe(const Mesh& m, double x, double y, Probe& pr, int layer = 0) const;   // bilinear in the layer `layer`
+    bool make_probe3(const Mesh& m, double x, double y, double z, Probe& pr) const;       // trilinear (sphere)
     double wall_curvature(double wx, double wy, double nx, double ny, double w) const;   // signed, convex > 0   // false: no fluid cell around (x, y)
 };
 

@@ -378,12 +378,11 @@ SimParams SimParams::from(const Params& p) {
     if (s.ibm_method != "auto" && s.ibm_method != "mask" && s.ibm_method != "ghost")
         throw std::invalid_argument("Unknown ibm_method: '" + s.ibm_method + "' (use auto, mask or ghost)");
     if (s.ibm_method == "auto")   // the sharp wall wherever it exists (2-D cylinder / airfoil, AMR with the body band), else the mask
-        s.ibm_method = (s.nz > 1 || shape == "sphere" || (s.use_amr && !s.amr_refine_ibm)) ? "mask" : "ghost";
+        s.ibm_method = (s.nz > 1 || (s.use_amr && !s.amr_refine_ibm)) ? "mask" : "ghost";
     if (s.use_ibm && s.ibm_method == "ghost") {
-        if (s.nz > 1) throw std::invalid_argument("ibm_method = ghost is 2-D only (for now)");
+        if (s.nz > 1 && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is 2-D only (for now)");
         if (s.use_amr && !s.amr_refine_ibm)
             throw std::invalid_argument("ibm_method = ghost with AMR needs amr_refine_ibm = true (the body at the finest level)");
-        if (shape == "sphere") throw std::invalid_argument("ibm_method = ghost: use ibm_shape = Cylinder in 2-D");
     }
     if (s.reynolds < 0.0) throw std::invalid_argument("reynolds must be >= 0 (0: use mu)");
     if (s.reynolds > 0.0) {
