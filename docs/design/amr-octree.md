@@ -245,7 +245,7 @@ the validation. The flux kernels, the time recursion, the registers and the Riem
 | Q0 | Measurements, no engine change: the 2-D baseline of record (bench, goldens, memory); the 3-D uniform costs of the target cases (sphere Re 20-100, 3-D Taylor-Green) and the leaf counts an octree would need for them (an offline estimate from the uniform solution, as P0 did); the halo fraction of Morton blocks in 3-D on a proxy; the decision on the two expression families | numbers in this document; D1-D9 answered. **Done 2026-11-07, section 11** |
 | Q1 | Dimension layer (key arithmetic, children, 26 offsets, key ranges of a region) and `CellMesh` in 2-D and 3-D: leaves, faces, side lists (1 or 4), balance, adapt (refine to 8, merge, ripple); the brute-force oracle in both dimensions | oracle tests in 2-D (existing ones unchanged) and 3-D; golden dumps of 2-D equal. **Done 2026-11-07, section 12** |
 | Q2 | `CellFluxEngine` convective residual in 3-D: stencils with virtual cells of 8, the 3-D jump closure (b)+(c), boundary ghosts on six sides, WENO3-Z, `boundary_order = 2`; the 2-D per-leaf cost gate | level-0 3-D == uniform 3-D bitwise; free stream exact; the near-jump order table; **2-D per-leaf cost within 5 %**. **Done 2026-11-07, section 13** |
-| Q3 | `CellAdvance`: 4 registers per coarse side; subcycling in 3-D | conservation for the three schemes; level-0 steps == uniform 3-D steps; permutation Sod; the z-invariant check |
+| Q3 | `CellAdvance`: 4 registers per coarse side; subcycling in 3-D | conservation for the three schemes; level-0 steps == uniform 3-D steps; permutation Sod; the z-invariant check. **Done 2026-11-07, section 14** |
 | Q4 | Physics: viscous 3-D family (and AVX2 twin), body force, sources, NRBC with two tangential directions, mass-flow inlet; **the IBM redesign** (per-leaf classification, the ghost table from the band leaves) | bitwise level-0 tests with each physics; MMS on an adapted 3-D mesh; IBM masks equal to the uniform ones on the same cells; ghost wall equal to the uniform 3-D ghost wall |
 | Q5 | Indicator, flags, remesh, initial adaptation, body band, hot starts in 3-D (serial and OpenMP, through the whole-mesh `CellMesh::adapt` that stays as the oracle) | indicator equals a structured 6-neighbour implementation; remesh deterministic, idempotent, conservative; a 3-D Sod and Taylor-Green with AMR against uniform |
 | Q6 | MPI: partition per level, halo lists, registers, region boxes and 26 rings in the topology-free remesh; **the CLI opens** (`use_amr` with `nz > 1`) | serial == 1-7 ranks bitwise (FakeHub and real MPI); the halo-reach guard; thread independence; memory per rank |
@@ -547,3 +547,67 @@ Read in `Simulation::assemble_3d`, `MusclReconstruction::reconstruct_3d` / the f
   `ibm_ghost.py --check`, MMS, post-processing): all passed.
 * **Not in Q2:** time stepping on a 3-D tree (`CellAdvance`, registers of 4 per coarse side, the subcycled conservation and the time-run order: Q3),
   the physics of Q4, anything 3-D in the CLI.
+
+## 14. Phase Q3 as built (2026-11-07): subcycled time stepping on octree leaves
+
+### 14.1 What changed in the solver: nothing
+`CellAdvance` (recursion, stage times, stage copies) and the register code of `CellFluxEngine` contain no 2-D assumption: a register is one
+slot per coarse-fine face (`reg_slot_`, the faces of a level consecutive), so a coarse side with four fine faces has four registers, each
+accumulated with `0.5 b_i F` by the fine level's stages (`accumulate_registers`), and the 3-D gather of Q2 already reads the register of a finer
+face (`f.level > level[c]`) and sums the four in pairs. `force_state` / `force_level` are no-ops without a body. Q3 is therefore tests only;
+no file under `cpp/src` or `cpp/include` changed, so the 2-D bits (goldens, regression) cannot move.
+
+### 14.2 Tests (`cpp/tests/test_amr_octree_advance.cpp`, 8 tests, about 3 s)
+The 3-D helpers of the Q2 file (`setup_3d`, `octree_of`, `test_state3`, `random_adapt`) moved to `test_amr_common.hpp`, with `cell_total_nd`
+(volume-weighted totals of all five components).
+* `celladvance3d_level0_steps_match_uniform_steps_bitwise`: a level-0 octree (max_level 0, and 2: the recursion with nothing to recurse into)
+  stepped by `CellAdvance` against the 3-D uniform solver's own time scheme, **bit for bit** (state and returned speed): 3 boundary sets (all six
+  types, periodic on 1-2 axes) x first order / MUSCL `boundary_order` 1, 2 with Euler, SSP-RK2, SSP-RK3 / WENO3-Z `boundary_order` 1, 2 with
+  SSP-RK3: 66 cases; plus a 24 x 20 x 10 mesh (above `kOmpMinWork`) with MUSCL MC and WENO3-Z.
+* `celladvance3d_fully_refined_mesh_equals_the_finer_uniform_mesh`: every leaf at level 1 equals the level-0 octree of 2n^3 stepped with two
+  substeps of dt/2, bit for bit (walls + `boundary_order` 2 MUSCL RK3, periodic WENO3-Z RK3, first-order Euler).
+* `celladvance3d_conserves_across_level_jumps_and_the_control_fails`: random octree on a periodic 8 x 6 x 6 base, all three levels present
+  (about 100 / 1300 / 300 leaves), 600-700 coarse-fine faces normal to each axis; the five totals (rho w included) after 6 steps:
+
+  | | error with replacement | without (control) |
+  |---|---|---|
+  | first order, Euler | 3.0e-15 | 1.6e-4 |
+  | MUSCL, Euler / RK2 / RK3 | 1.9e-15 / 4.3e-15 / 4.5e-15 | 9.3e-5 / 1.8e-4 / 1.8e-4 |
+  | WENO3-Z, RK3 | 2.6e-15 | 2.4e-4 |
+
+  (On the 4 x 3 x 3 base of the Q2 rig the 26-neighbour balance refines every base cell, level 0 is empty and only one jump is nested; hence the
+  larger base.)
+* `celladvance3d_second_order_wall_faces_conserve_mass_and_energy_in_a_closed_box`: six slip walls with ghost layers, three levels: mass and
+  energy to 4e-15 (MUSCL and WENO3-Z, RK3).
+* `celladvance3d_free_stream_and_stage_times`: a uniform state with w != 0 stays bitwise (Euler, RK2; RK3 < 1e-14, its weights sum to 1 up to
+  rounding); the stage evaluations come finer level first, two substeps, with `TimeScheme::step()`'s stage times.
+* `celladvance3d_invariant_axis_run_equals_the_2d_engine` (**the z-invariant check**, and the same along x and y): the extruded 2-D adapted tree of
+  the Q2 invariance test, advanced 8 steps with one fixed dt by the 3-D and the 2-D `CellAdvance`: states equal to 1.1e-15 - 2.4e-15 of each
+  component's scale (band 1e-12), the a-momentum exactly 0; first order Euler, MUSCL RK2, MUSCL + `boundary_order` 2 RK3, WENO3-Z RK3, three
+  axes, over 1000 coarse-fine faces normal to the in-plane axes.
+* `celladvance3d_sod_along_each_axis_on_a_static_refined_band` (**permutation Sod**): long axis of 50 base cells, two transverse periodic axes of
+  2 cells, band [0.2, 0.92] at level 2 (9328 leaves), SSP-RK2 + MUSCL to t = 0.2 with the dt sequence of the 2-D run. Bands fixed before the run:
+  each axis equals the 2-D run to 1e-12 (measured 1.1e-14), the transverse momenta exactly 0, mass to 1e-12 (1.7e-13), L1(rho) against the exact
+  solution below half the uniform-50 one (2.96e-3 against 1.01e-2), no overshoot. **The x, y and z runs are equal to each other bit for bit**
+  (transverse differences are exact zeros, and the axis code is the same).
+* `celladvance3d_near_jump_time_study`: the time-run question of 13.3. A density wave rho = 1 + 0.1 sum sin(2 pi (x_a - u_a t)), u = (1, 0.5,
+  0.25), p = 1, advected through the box [0.25, 0.75]^d refined one level, t = 0.25, SSP-RK2 + MUSCL Van Leer, CFL 0.4 of `dt_length`, L1 against
+  the exact cell averages; near = within 2 base widths of the box surface, far = coarse leaves more than 3 widths outside. Bands fixed before the
+  first run: (0) uniform order (16 -> 32) >= 1.5 in both dimensions; (1) 3-D adaptive order >= 2-D - 0.3; (2) 3-D near-jump order >= 2-D - 0.3;
+  (3) adaptive / uniform-base ratio at 32 in 3-D <= 1.2x the 2-D one. All pass:
+
+  | | uniform n = 8 / 16 / 32 | orders | adaptive | orders | near jump | orders | adaptive / uniform at 32 (all, near, far) |
+  |---|---|---|---|---|---|---|---|
+  | 2-D | 1.05e-2 / 4.02e-3 / 1.20e-3 | 1.39, 1.74 | 9.46e-3 / 3.52e-3 / 1.05e-3 | 1.43, 1.75 | 9.46e-3 / 3.00e-3 / 8.44e-4 | 1.66, 1.83 | 0.87, 0.91, 0.98 |
+  | 3-D | 1.11e-2 / 4.12e-3 / 1.24e-3 | 1.44, 1.73 | 1.07e-2 / 3.88e-3 / 1.17e-3 | 1.46, 1.73 | 1.07e-2 / 3.37e-3 / 9.80e-4 | 1.67, 1.78 | 0.94, 0.91, 0.99 |
+
+  **Finding:** the residual's O(1) truncation error at a jump (13.3) does not cost the solution its order: the error near the jumps converges
+  like the rest (1.8 in both dimensions; consistent with the jump being a set of measure O(h), not proven here), and the
+  adaptive run is never worse than the uniform base mesh. In 3-D the gain of one refined box is smaller (0.94 against 0.87) because the box
+  holds 1/8 of the volume against 1/4; per leaf the 3-D closure behaves as the 2-D one. (At n = 8 every leaf is within 2 widths of the box.)
+
+### 14.3 Gates
+* Unit tests 156/156 (the 8 new ones included); no solver file changed, so the regression references and the 2-D golden dumps are untouched by
+  construction (the goldens were not rerun).
+* **Not in Q3:** the physics of Q4 (viscous, body force, sources, IBM, mass flow, NRBC are still rejected by `build()` on a 3-D mesh), the
+  indicator and remesh in 3-D (Q5), MPI (Q6), anything 3-D in the CLI.

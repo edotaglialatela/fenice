@@ -7,52 +7,6 @@
 
 namespace {
 
-// Smooth 3-D state with every velocity component nonzero (primitive [rho, u, v, p, w])
-State test_state3(const EOS& eos, double x, double y, double z) {
-    return eos.prim_to_cons({1.0 + 0.1 * std::sin(1.3 * x) * std::cos(0.9 * y) * std::cos(0.7 * z + 0.2),
-                             1.0 + 0.2 * std::sin(0.7 * y + 0.3 * z), 0.15 * std::cos(1.1 * x - 0.4 * z),
-                             17.0 + 0.5 * std::cos(0.6 * x + 0.4 * y + 0.5 * z), 0.12 * std::sin(0.8 * x + 0.5 * y)});
-}
-
-// A 3-D Simulation of the face-engine rig (Sod defaults, 9 x 7 x 5 cells unless overridden) with the six boundary types.
-void setup_3d(Simulation& sim, const std::array<const char*, 6>& bc, std::vector<std::pair<const char*, const char*>> kv) {
-    std::vector<std::pair<const char*, const char*>> all = {{"nz", "5"},          {"Lz", "0.9"},        {"bc_left", bc[0]},
-                                                           {"bc_right", bc[1]},  {"bc_bottom", bc[2]}, {"bc_top", bc[3]},
-                                                           {"bc_front", bc[4]},  {"bc_back", bc[5]}};
-    all.insert(all.end(), kv.begin(), kv.end());
-    Params p = baseline_defaults();
-    p.merge(get_test_case("Sod Shock Tube").defaults);
-    p.set("test_case", "Sod Shock Tube");
-    p.set("output_root", tmp_dir().string());
-    p.set("use_mpi", "false");
-    for (const auto& e : std::vector<std::pair<const char*, const char*>>{{"nx", "9"}, {"ny", "7"}, {"Lx", "1.7"}, {"Ly", "1.1"},
-                                                                         {"u_in", "0.7"}, {"v_in", "0.2"}, {"rho_in", "1.2"},
-                                                                         {"p_out", "1.3"}})
-        p.set(e.first, e.second);
-    for (const auto& e : all) p.set(e.first, e.second);
-    sim.setup(SimParams::from(p), false);
-}
-
-bool periodic_axis(const Simulation& sim, int a) { return sim.boundaries.type(static_cast<Face>(2 * a)) == BCType::Periodic; }
-
-CellMesh octree_of(const Simulation& sim, int max_level) {
-    const Mesh& u = sim.mesh;
-    return CellMesh::make_3d(u.Lx, u.Ly, u.Lz, u.nx, u.ny, u.nz, max_level, periodic_axis(sim, 0), periodic_axis(sim, 1),
-                             periodic_axis(sim, 2), u.x0, u.y0, u.z0);
-}
-
-void random_adapt(CellMesh& m, unsigned seed, int rounds, int pr = 15, int pc = 30) {
-    std::mt19937 rng(seed);
-    for (int round = 0; round < rounds; ++round) {
-        std::vector<char> r(static_cast<size_t>(m.num_leaves())), c(static_cast<size_t>(m.num_leaves()));
-        for (int k = 0; k < m.num_leaves(); ++k) {
-            r[k] = static_cast<int>(rng() % 100) < pr;
-            c[k] = static_cast<int>(rng() % 100) < pc;
-        }
-        m.adapt(r, c);
-    }
-}
-
 double max_abs(const Field& R, int q) {
     double s = 0.0;
     for (const State& r : R) s = std::max(s, std::abs(r[q]));
