@@ -168,9 +168,9 @@ TEST(cellflux_level0_matches_uniform_residual_bitwise) {
     struct Scheme {
         const char *muscl, *limiter, *riemann;
     };
-    const Scheme schemes[] = {{"false", "Van Leer", "HLLC"},    {"true", "Van Leer", "HLLC"},
-                              {"true", "Minmod", "HLLC"},       {"true", "MC", "lowmach"},
-                              {"true", "Koren", "preconditioned"}};
+    const Scheme schemes[] = {{"none", "Van Leer", "HLLC"},     {"muscl", "Van Leer", "HLLC"},
+                              {"muscl", "Minmod", "HLLC"},      {"muscl", "MC", "lowmach"},
+                              {"muscl", "Koren", "preconditioned"}};
     int n_cases = 0;
     for (const BCs& bc : sets)
         for (const Scheme& sc : schemes) {
@@ -179,7 +179,7 @@ TEST(cellflux_level0_matches_uniform_residual_bitwise) {
                                         {"bc_right", bc.r},
                                         {"bc_bottom", bc.b},
                                         {"bc_top", bc.t},
-                                        {"use_muscl", sc.muscl},
+                                        {"reconstruction", sc.muscl},
                                         {"muscl_limiter", sc.limiter},
                                         {"riemann_solver", sc.riemann}}),
                       false);
@@ -212,7 +212,7 @@ TEST(cellflux_level0_matches_uniform_residual_bitwise) {
     for (const BCs& bc : {BCs{"wall", "outlet", "no_slip", "moving_wall"}, BCs{"periodic", "periodic", "wall", "wall"}}) {
         Simulation sim;
         sim.setup(cell_flux_params({{"nx", "96"}, {"ny", "64"}, {"bc_left", bc.l}, {"bc_right", bc.r}, {"bc_bottom", bc.b},
-                                    {"bc_top", bc.t}, {"use_muscl", "true"}, {"muscl_limiter", "MC"}}),
+                                    {"bc_top", bc.t}, {"reconstruction", "muscl"}, {"muscl_limiter", "MC"}}),
                   false);
         const Mesh& u = sim.mesh;
         CellMesh cm(u.Lx, u.Ly, u.nx, u.ny, 0, sim.boundaries.type(Face::Left) == BCType::Periodic, false, u.x0, u.y0);
@@ -305,7 +305,7 @@ TEST(celladvance_level0_steps_match_uniform_steps_bitwise) {
                 Simulation sim;
                 sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_left", bc.l},
                                             {"bc_right", bc.r}, {"bc_bottom", bc.b}, {"bc_top", bc.t},
-                                            {"use_muscl", "true"}, {"time_scheme", kSchemeNames[sc]}}),
+                                            {"reconstruction", "muscl"}, {"time_scheme", kSchemeNames[sc]}}),
                           false);
                 const Mesh& u = sim.mesh;
                 const bool px = sim.boundaries.type(Face::Left) == BCType::Periodic;
@@ -351,8 +351,7 @@ TEST(celladvance_level0_second_order_boundary_steps_match_uniform_steps_bitwise)
                 Simulation sim;
                 sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_left", bc.l},
                                             {"bc_right", bc.r}, {"bc_bottom", bc.b}, {"bc_top", bc.t},
-                                            {"use_muscl", "true"}, {"boundary_order", "2"},
-                                            {"reconstruction", rec ? "weno3" : "muscl"}, {"time_scheme", kSchemeNames[sc]}}),
+                                            {"boundary_order", "2"}, {"reconstruction", rec ? "weno3" : "muscl"}, {"time_scheme", kSchemeNames[sc]}}),
                           false);
                 const Mesh& u = sim.mesh;
                 const bool px = sim.boundaries.type(Face::Left) == BCType::Periodic;
@@ -395,7 +394,7 @@ TEST(celladvance_level0_weno3_steps_match_uniform_steps_bitwise) {
                 Simulation sim;
                 sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_left", bc.l},
                                             {"bc_right", bc.r}, {"bc_bottom", bc.b}, {"bc_top", bc.t},
-                                            {"use_muscl", "true"}, {"reconstruction", "weno3"}, {"time_scheme", kSchemeNames[sc]}}),
+                                            {"reconstruction", "weno3"}, {"time_scheme", kSchemeNames[sc]}}),
                           false);
                 const Mesh& u = sim.mesh;
                 const bool px = sim.boundaries.type(Face::Left) == BCType::Periodic;

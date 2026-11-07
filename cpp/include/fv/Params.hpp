@@ -76,11 +76,15 @@ struct SimParams {
     bool ibm_curvature = false;  // ghost wall, slip only: curvature pressure correction (dp/dn = rho kappa u_t^2)
     std::string ibm_method;      // auto (default: ghost where it exists, else mask), mask (cell-centred forcing) or ghost (sharp wall, 2-D)
     double reynolds;             // > 0: sets mu = rho_in u_in L / reynolds (L: chord or diameter)
-    bool use_muscl;
-    std::string muscl_limiter;
+    std::string muscl_limiter;   // limiter of reconstruction = muscl
     double weno_epsilon = 1e-6;   // WENO smoothness-indicator regularisation, relative to the stencil data (eps = weno_epsilon * mean(c^2))
     int boundary_order = 2;   // 2 (default): physical-boundary faces are reconstructed through ghost layers; 1: they keep the first-order ghost states (always 1 with a first-order scheme)
-    std::string reconstruction = "muscl";   // muscl (default), weno3 or weno5: the face reconstruction when use_muscl is on
+    // Face reconstruction: none (default: first order, the cell states), muscl (limited, 2nd order), weno3 or weno5
+    std::string reconstruction = "none";
+    // True if the input set the retired key use_muscl (read as an alias of reconstruction; Simulation::setup prints a note)
+    bool use_muscl_alias = false;
+    // A reconstruction is used (anything but none): the second-order path
+    bool reconstructs() const { return reconstruction != "none"; }
     double shock_blend = 0.2;   // > 0: faces whose pressure jump |pR - pL| / min(pL, pR) exceeds it blend HLLC toward HLL (0: off)
     bool use_hot_start;
     std::string hot_start_file;

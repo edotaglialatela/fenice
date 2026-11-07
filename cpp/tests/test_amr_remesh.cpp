@@ -476,7 +476,7 @@ TEST(cellremesh_step_is_stable_conservative_and_deterministic) {
 
 TEST(cellremesh_keeps_the_immersed_body_on_the_finest_level) {
     ParityRig rig({{"nx", "36"}, {"ny", "24"}, {"use_ibm", "true"}, {"ibm_shape", "Cylinder"}, {"ibm_radius", "0.25"},
-                   {"ibm_cx", "0.8"}, {"ibm_cy", "0.55"}, {"use_muscl", "true"}},
+                   {"ibm_cx", "0.8"}, {"ibm_cy", "0.55"}, {"reconstruction", "muscl"}},
                   2);
     CellMesh& m = *rig.cm;
     CellIndicator ind;

@@ -41,7 +41,7 @@ T_END = 0.2
 N = 32
 REF_CFL = 0.00625
 CFLS = (0.4, 0.2, 0.1, 0.05)
-SPACE = {"1st order": ("use_muscl=false",), "MUSCL": ("use_muscl=true", "muscl_limiter=Van Leer")}
+SPACE = {"1st order": ("reconstruction=none",), "MUSCL": ("reconstruction=muscl", "muscl_limiter=Van Leer")}
 RK = {"Explicit Euler": "Explicit Euler", "SSP-RK2": "SSP Runge-Kutta 2", "SSP-RK3": "SSP Runge-Kutta 3"}
 BANDS = {("Explicit Euler", "1st order"): (0.9, 1.1), ("Explicit Euler", "MUSCL"): (0.9, 1.1),
          ("SSP-RK2", "1st order"): (1.8, 2.2), ("SSP-RK2", "MUSCL"): (1.8, 2.2),

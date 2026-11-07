@@ -156,9 +156,8 @@ Params baseline_defaults() {
         {"ibm_method", "auto"},
         {"ibm_curvature", "false"},
         {"reynolds", "0"},
-        {"use_muscl", "false"},
         {"muscl_limiter", "Van Leer"},
-        {"reconstruction", "muscl"},
+        {"reconstruction", "none"},
         {"weno_epsilon", "1e-6"},
         {"boundary_order", "2"},
         {"shock_blend", "0.2"},
@@ -271,9 +270,19 @@ SimParams SimParams::from(const Params& p) {
     s.ibm_method = lower(p.str("ibm_method", "auto"));
     s.ibm_curvature = p.flag("ibm_curvature");
     s.reynolds = p.num("reynolds", 0.0);
-    s.use_muscl = p.flag("use_muscl");
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
-    s.reconstruction = lower(p.str("reconstruction", "muscl"));
+    s.reconstruction = lower(p.str("reconstruction", "none"));
+    if (p.has("use_muscl")) {   // the retired switch of the second-order path, read with its old meaning
+        s.use_muscl_alias = true;
+        if (!p.flag("use_muscl")) {
+            if (s.reconstruction == "weno3" || s.reconstruction == "weno5")
+                throw std::invalid_argument("use_muscl = false contradicts reconstruction = " + s.reconstruction +
+                                            " (use_muscl is retired: remove it and set reconstruction alone)");
+            s.reconstruction = "none";   // use_muscl = false with reconstruction = muscl (its old default) was first order
+        } else if (s.reconstruction == "none") {
+            s.reconstruction = "muscl";
+        }
+    }
     s.weno_epsilon = p.num("weno_epsilon", 1e-6);
     s.boundary_order = p.integer("boundary_order", 2);
     s.shock_blend = p.num("shock_blend", 0.2);
@@ -324,13 +333,10 @@ SimParams SimParams::from(const Params& p) {
                                         "'+' (e.g. density+velocity); got '" + ind + "'");
     }
     if (!(s.weno_epsilon >= 0.0)) throw std::invalid_argument("weno_epsilon must be >= 0");
-    if (s.reconstruction != "muscl" && s.reconstruction != "weno3" && s.reconstruction != "weno5")
-        throw std::invalid_argument("reconstruction must be muscl, weno3 or weno5; got '" + s.reconstruction + "'");
-    if (s.reconstruction != "muscl") {
+    if (s.reconstruction != "none" && s.reconstruction != "muscl" && s.reconstruction != "weno3" && s.reconstruction != "weno5")
+        throw std::invalid_argument("reconstruction must be none, muscl, weno3 or weno5; got '" + s.reconstruction + "'");
+    if (s.reconstruction == "weno3" || s.reconstruction == "weno5") {
         const std::string ts = lower(s.time_scheme);
-        if (!s.use_muscl)
-            throw std::invalid_argument("reconstruction = " + s.reconstruction + " needs use_muscl = true (the switch of the "
-                                        "second-order path)");
         if (s.use_amr && s.reconstruction == "weno5") throw std::invalid_argument("reconstruction = weno5 is not available with AMR yet (weno3 is)");
         if (s.reconstruction == "weno5" && s.use_mpi)
             throw std::invalid_argument("reconstruction = weno5 is serial for now (an MPI halo is two cells deep, WENO5 reads three); use weno3 with MPI");
@@ -340,7 +346,7 @@ SimParams SimParams::from(const Params& p) {
     }
     if (s.boundary_order != 1 && s.boundary_order != 2) throw std::invalid_argument("boundary_order must be 1 or 2");
     // a first-order scheme has no reconstruction to extend to the boundary faces: the order is then 1 whatever was asked
-    if (s.boundary_order == 2 && !s.use_muscl) s.boundary_order = 1;
+    if (s.boundary_order == 2 && !s.reconstructs()) s.boundary_order = 1;
     if (s.use_amr && !(s.amr_criterion > 0.0)) throw std::invalid_argument("amr_criterion must be positive");
     if (!(s.amr_derefine_threshold <= s.amr_refine_threshold))
         throw std::invalid_argument("amr_derefine_threshold must not exceed amr_refine_threshold (else a refined cell "

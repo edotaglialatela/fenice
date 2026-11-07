@@ -58,7 +58,7 @@ bc_top = "wall"
 
 [numerics]
 riemann_solver = "HLLC"
-use_muscl = true
+reconstruction = "muscl"
 time_scheme = "SSP Runge-Kutta 2"
 cfl = 0.5
 
@@ -108,14 +108,14 @@ case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 | `[physics]` | `use_viscous`, `mu`, `pr`, `use_bodyforce`, `gx`, `gy`, `gz` |
 | `[source]` | `source_rho`, `source_mx`, `source_my`, `source_mz`, `source_E` (expressions, for manufactured solutions) |
 | `[boundaries]` | `bc_left`, `bc_right`, `bc_bottom`, `bc_top`, `bc_front`, `bc_back`, `u_in`, `v_in`, `rho_in`, `p_out`, `*_table` |
-| `[numerics]` | `riemann_solver`, `use_muscl`, `muscl_limiter`, `reconstruction`, `weno_epsilon`, `boundary_order`, `time_scheme`, `cfl` |
+| `[numerics]` | `riemann_solver`, `reconstruction`, `muscl_limiter`, `weno_epsilon`, `boundary_order`, `time_scheme`, `cfl` |
 | `[run]` | `t_end`, `save_interval`, `write_interval_time`, `dt_max`, `monitor_interval`, `max_steps`, `resume`, `output_root`, `dump_state` |
 | `[parallel]` | `use_mpi`, `n_cpus` |
 | `[ibm]` | `use_ibm`, `ibm_shape`, `ibm_radius`, `ibm_cx`, `ibm_cy`, `ibm_cz` |
 | `[hot_start]` | `use_hot_start`, `hot_start_file`, `hot_start_src_nx`, `hot_start_src_ny` |
 | `[amr]` | `use_amr`, `amr_*` |
 
-Values use TOML types: numbers (`nx = 200`, `mu = 2.5e-3`), booleans (`use_muscl = true`)
+Values use TOML types: numbers (`nx = 200`, `mu = 2.5e-3`), booleans (`use_viscous = true`)
 and strings (`riemann_solver = "HLLC"`). The boundary conditions come from the case file
 (and `--config` / `--set`) only: no case forces its own in code.
 

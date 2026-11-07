@@ -42,7 +42,7 @@ from fenice.convergence import observed_orders
 import mms_time as base   # the helpers of mms_time.py (this folder)
 
 STUDY = "mms_time_weno"
-W3, W5 = ("use_muscl=true", "reconstruction=weno3"), ("use_muscl=true", "reconstruction=weno5")
+W3, W5 = ("reconstruction=weno3"), ("reconstruction=weno5")
 # (label, settings, banded): the default-epsilon WENO5-Z row is reported, not banded (see the docstring)
 SPACE = [("WENO3-Z", W3, True), ("WENO5-Z", W5, False), ("WENO5-Z, eps 1e-2", W5 + ("weno_epsilon=1e-2",), True)]
 RK3 = "time_scheme=SSP Runge-Kutta 3"

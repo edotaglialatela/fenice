@@ -29,8 +29,8 @@ import mms as M   # the periodic-solution study: centres, primitive, VARS, T_END
 STUDY = "mms_amr_boundary"
 GRIDS = (16, 32, 64)
 SCHEMES = {
-    "muscl": ("MUSCL VL, SSP-RK2", ["use_muscl=true", "muscl_limiter=Van Leer", "time_scheme=SSP Runge-Kutta 2"]),
-    "weno3": ("WENO3-Z, SSP-RK3", ["use_muscl=true", "reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"]),
+    "muscl": ("MUSCL VL, SSP-RK2", ["reconstruction=muscl", "muscl_limiter=Van Leer", "time_scheme=SSP Runge-Kutta 2"]),
+    "weno3": ("WENO3-Z, SSP-RK3", ["reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"]),
 }
 BAND_L2, BAND_LINF = 1.5, 1.0
 BOX = {"walls": "0.25 0.75 0 1", "outflow": "0 1 0.25 0.75", "box": "0 0.5 0 0.5"}

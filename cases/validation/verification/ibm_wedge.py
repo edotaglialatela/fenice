@@ -51,7 +51,7 @@ rho_in = 1.0
 p_out = {p}
 [numerics]
 riemann_solver = "HLLC"
-use_muscl = true
+reconstruction = "muscl"
 muscl_limiter = "Minmod"
 time_scheme = "SSP Runge-Kutta 2"
 cfl = 0.4

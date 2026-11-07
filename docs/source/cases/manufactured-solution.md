@@ -221,7 +221,7 @@ faces (MUSCL and WENO3-Z use two layers, WENO5-Z three; serial, threads and, for
 derivatives (for instance $\partial u/\partial x$ on a wall normal to $y$) are the tangential difference of the face values (ghost and
 cell average) instead of the first-cell value, which is $O(h)$ away from the wall, and the moving-wall viscous ghost keeps the
 interior internal energy (the default copies the total energy without following the momentum). A side that is periodic, an MPI
-interface or non-reflecting is unchanged, and the key is not available with `use_muscl = false` (with AMR it is, for MUSCL and WENO3-Z).
+interface or non-reflecting is unchanged, and the key is not available with `reconstruction = none` (with AMR it is, for MUSCL and WENO3-Z).
 
 `cases/validation/verification/mms_boundary.py` repeats the study for the non-periodic solutions (walls, outflow and box, each as Euler and as
 Navier-Stokes, which separates the convective closure from the viscous one) with MUSCL, WENO3-Z and WENO5-Z; the tables

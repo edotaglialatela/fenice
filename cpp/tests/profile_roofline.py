@@ -22,9 +22,9 @@ if not EXE.exists():
 
 # (label, --set options, stages per step)
 SCHEMES = {
-    "euler 1st":      (["use_muscl=false", "use_viscous=false", "time_scheme=Explicit Euler"], 1),
-    "muscl rk2":      (["use_muscl=true",  "use_viscous=false", "time_scheme=SSP Runge-Kutta 2"], 2),
-    "muscl rk2 visc": (["use_muscl=true",  "use_viscous=true",  "time_scheme=SSP Runge-Kutta 2"], 2),
+    "euler 1st":      (["reconstruction=none", "use_viscous=false", "time_scheme=Explicit Euler"], 1),
+    "muscl rk2":      (["reconstruction=muscl",  "use_viscous=false", "time_scheme=SSP Runge-Kutta 2"], 2),
+    "muscl rk2 visc": (["reconstruction=muscl",  "use_viscous=true",  "time_scheme=SSP Runge-Kutta 2"], 2),
 }
 BYTES_PER_STATE = 5 * 8   # State is five doubles in 2-D too
 

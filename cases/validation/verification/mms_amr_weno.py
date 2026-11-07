@@ -57,8 +57,8 @@ import mms as M   # the periodic-solution study: primitive, VARS, T_END
 
 STUDY = "mms_amr_weno"
 SCHEMES = {
-    "WENO3-Z": ["use_muscl=true", "reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"],
-    "MUSCL": ["use_muscl=true", "muscl_limiter=Van Leer", "time_scheme=SSP Runge-Kutta 2"],
+    "WENO3-Z": ["reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"],
+    "MUSCL": ["reconstruction=muscl", "muscl_limiter=Van Leer", "time_scheme=SSP Runge-Kutta 2"],
 }
 BOX = "0.25 0.75 0.25 0.75"
 FROZEN = ["use_amr=true", "amr_max_level=1", "amr_refine_threshold=1e9", "amr_derefine_threshold=1e9", "amr_refine_every=1000000",

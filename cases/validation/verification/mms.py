@@ -39,7 +39,7 @@ T_END = 0.5
 GRIDS_FULL = {2: (16, 32, 64, 128), 3: (12, 24, 48, 96)}
 GRIDS_QUICK = {2: (16, 32, 64), 3: (12, 24, 48)}
 GRIDS = GRIDS_QUICK
-SCHEMES = {"MUSCL": "true", "1st order": "false"}
+SCHEMES = {"MUSCL": "muscl", "1st order": "none"}
 NORMS = ("L1", "L2", "Linf")
 BANDS = {"1st order": {"L1": (0.9, 1.1), "L2": (0.9, 1.1), "Linf": (0.9, 1.1)},
          "MUSCL": {"L1": (1.5, 2.5), "L2": (1.5, 2.5), "Linf": (1.0, 2.5)}}
@@ -127,7 +127,7 @@ def transcription(sol, args):
 
 def run_error(sol, n, scheme, args):
     d = study.run_cached(STUDY, f"{sol.folder()}_{scheme.replace(' ', '')}_n{n}", sol.name(), *grid_sets(sol, n),
-                         f"t_end={T_END}", "save_interval=1000000000", f"use_muscl={SCHEMES[scheme]}",
+                         f"t_end={T_END}", "save_interval=1000000000", f"reconstruction={SCHEMES[scheme]}",
                          mpi=args.mpi, force=args.force)
     U = fenice.read_dump(d / "final.npz")["U"]
     got = primitive(U, sol.gamma, sol.dim)
@@ -145,7 +145,7 @@ def run_error(sol, n, scheme, args):
 def residual(sol, n, scheme, args):
     d = study.run_cached(STUDY, f"resid_{sol.folder()}_{scheme.replace(' ', '')}_n{n}", sol.name(), *grid_sets(sol, n),
                          "time_scheme=Explicit Euler", "max_steps=1", "save_interval=1000000000",
-                         f"use_muscl={SCHEMES[scheme]}", mpi=args.mpi, force=args.force)
+                         f"reconstruction={SCHEMES[scheme]}", mpi=args.mpi, force=args.force)
     dump = fenice.read_dump(d / "final.npz")
     r = (dump["U"] - exact_conservative(sol, n)) / float(dump["t"])
     return float(np.sqrt(np.mean(r ** 2)))

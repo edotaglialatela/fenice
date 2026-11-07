@@ -26,7 +26,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QF
 from gui.solver import ROOT_DIR, amr_gui_defaults, available_cases, case_defaults, save_case
 from gui.theme import COLORS
 
-_BOOL_KEYS = {"use_viscous", "use_bodyforce", "resume", "use_mpi", "use_ibm", "use_muscl", "use_hot_start", "use_amr"}
+_BOOL_KEYS = {"use_viscous", "use_bodyforce", "resume", "use_mpi", "use_ibm", "use_hot_start", "use_amr"}
 
 
 def _gui_values(params):
@@ -590,24 +590,24 @@ class SetupDialog(QDialog):
         self._update_dim_inputs()
 
     # reconstruction choices (label -> value of the `reconstruction` key) and the rules the solver enforces (Params.cpp)
-    _RECON_LABELS = {"1st order (Godunov)": "first", "MUSCL (limited, 2nd order)": "muscl",
+    _RECON_LABELS = {"1st order (Godunov)": "none", "MUSCL (limited, 2nd order)": "muscl",
                      "WENO3-Z (3rd order)": "weno3", "WENO5-Z (5th order)": "weno5"}
-    _TIME_FOR = {"first": "Explicit Euler", "muscl": "SSP Runge-Kutta 2", "weno3": "SSP Runge-Kutta 3", "weno5": "SSP Runge-Kutta 3"}
+    _TIME_FOR = {"none": "Explicit Euler", "muscl": "SSP Runge-Kutta 2", "weno3": "SSP Runge-Kutta 3", "weno5": "SSP Runge-Kutta 3"}
 
     def _recon_value(self):
-        """first | muscl | weno3 | weno5"""
+        """none | muscl | weno3 | weno5: the value of the `reconstruction` key"""
         return self._RECON_LABELS.get(self.combo_recon.currentText(), "muscl")
 
-    def _set_recon(self, use_muscl, reconstruction):
-        """Select the drop-down entry for the solver's (use_muscl, reconstruction) pair."""
-        value = "first" if not use_muscl else str(reconstruction).lower()
+    def _set_recon(self, reconstruction):
+        """Select the drop-down entry of the solver's `reconstruction` value."""
+        value = str(reconstruction).lower()
         label = next((k for k, v in self._RECON_LABELS.items() if v == value), None)
         if label is not None:
             self.combo_recon.setCurrentText(label)
 
     def _boundary_order(self):
         """1 or 2; the option exists only with a reconstruction."""
-        return 2 if self._recon_value() != "first" and self.combo_bo.currentIndex() == 0 else 1
+        return 2 if self._recon_value() != "none" and self.combo_bo.currentIndex() == 0 else 1
 
     def _scheme_problems(self):
         """(errors, warnings) of the chosen reconstruction / time integration / AMR / MPI combination, as the solver sees it."""
@@ -661,8 +661,8 @@ class SetupDialog(QDialog):
             self._time_auto_set = False
         self.label_limiter.setVisible(recon == "muscl")
         self.combo_limiter.setVisible(recon == "muscl")
-        self.label_bo.setVisible(recon != "first")
-        self.combo_bo.setVisible(recon != "first")
+        self.label_bo.setVisible(recon != "none")
+        self.combo_bo.setVisible(recon != "none")
         self._update_scheme_warning()
 
     def _toggle_hot_start_inputs(self, checked):
@@ -765,8 +765,8 @@ class SetupDialog(QDialog):
         defaults = {**defaults, **amr_gui_defaults(name)}   # the AMR starting values, unless the case sets its own
         for key, value in defaults.items():
             if key in setters: setters[key](value)
-        if 'use_muscl' in defaults:   # the two solver keys are one drop-down: use_muscl = false is the 1st-order choice
-            self._set_recon(bool(defaults['use_muscl']), defaults.get('reconstruction', 'muscl'))
+        if 'reconstruction' in defaults:   # one drop-down: none is the 1st-order choice
+            self._set_recon(defaults['reconstruction'])
 
     def _apply_initial_defaults(self):
         self._apply_test_case_defaults(self.combo_testcase.currentText())
@@ -881,9 +881,8 @@ class SetupDialog(QDialog):
                 'use_ibm': self.check_ibm.isChecked(), 'ibm_shape': self.combo_shape.currentText(),
                 'ibm_radius': float(self.input_radius.text()), 'ibm_cx': float(self.input_cx.text()),
                 'ibm_cy': float(self.input_cy.text()),
-                'use_muscl': self._recon_value() != "first",
                 'muscl_limiter': self.combo_limiter.currentText(),
-                'reconstruction': "muscl" if self._recon_value() == "first" else self._recon_value(),
+                'reconstruction': self._recon_value(),
                 'boundary_order': self._boundary_order(),
                 'shock_blend': 0.2 if self.check_blend.isChecked() else 0.0,
                 'use_hot_start': self.check_hot_start.isChecked(),

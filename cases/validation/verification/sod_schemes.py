@@ -30,15 +30,15 @@ PUBLISHED = {100: 1.3e-2, 200: 6.8e-3, 400: 3.4e-3}
 T_END = 0.2
 RK2, RK3 = "time_scheme=SSP Runge-Kutta 2", "time_scheme=SSP Runge-Kutta 3"
 SCHEMES = [
-    ("1st order", ["use_muscl=false", RK2], False),
-    ("MUSCL Minmod", ["use_muscl=true", "muscl_limiter=Minmod", RK2], False),
-    ("MUSCL Van Leer", ["use_muscl=true", "muscl_limiter=Van Leer", RK2], False),
-    ("MUSCL MC", ["use_muscl=true", "muscl_limiter=MC", RK2], False),
-    ("MUSCL Koren", ["use_muscl=true", "muscl_limiter=Koren", RK2], False),
-    ("WENO3-Z", ["use_muscl=true", "reconstruction=weno3", RK3], False),
-    ("WENO5-Z", ["use_muscl=true", "reconstruction=weno5", RK3], False),
-    ("AMR MUSCL Van Leer", ["use_muscl=true", "muscl_limiter=Van Leer", RK2], True),
-    ("AMR WENO3-Z", ["use_muscl=true", "reconstruction=weno3", RK3], True),
+    ("1st order", ["reconstruction=none", RK2], False),
+    ("MUSCL Minmod", ["reconstruction=muscl", "muscl_limiter=Minmod", RK2], False),
+    ("MUSCL Van Leer", ["reconstruction=muscl", "muscl_limiter=Van Leer", RK2], False),
+    ("MUSCL MC", ["reconstruction=muscl", "muscl_limiter=MC", RK2], False),
+    ("MUSCL Koren", ["reconstruction=muscl", "muscl_limiter=Koren", RK2], False),
+    ("WENO3-Z", ["reconstruction=weno3", RK3], False),
+    ("WENO5-Z", ["reconstruction=weno5", RK3], False),
+    ("AMR MUSCL Van Leer", ["reconstruction=muscl", "muscl_limiter=Van Leer", RK2], True),
+    ("AMR WENO3-Z", ["reconstruction=weno3", RK3], True),
 ]
 
 

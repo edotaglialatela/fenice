@@ -31,11 +31,11 @@ from fenice.exact import riemann
 STUDY = "stress_shocks"
 GAMMA = 1.4
 CONSERVATION_BAND = 1e-10
-SCHEMES = {"godunov": ["use_muscl=false"],
-           "muscl": ["use_muscl=true", "muscl_limiter=MC", "time_scheme=SSP Runge-Kutta 2"],
-           "weno3": ["use_muscl=true", "reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"],
+SCHEMES = {"godunov": ["reconstruction=none"],
+           "muscl": ["reconstruction=muscl", "muscl_limiter=MC", "time_scheme=SSP Runge-Kutta 2"],
+           "weno3": ["reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"],
            # WENO5 with SSP-RK3 is stable up to CFL 0.3 on the near-vacuum tube (0.4 diverges)
-           "weno5": ["use_muscl=true", "reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3", "cfl=0.3"]}
+           "weno5": ["reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3", "cfl=0.3"]}
 NX, NY = 400, 4
 
 

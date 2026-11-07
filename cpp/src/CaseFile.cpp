@@ -39,8 +39,9 @@ const std::vector<std::pair<std::string, std::vector<std::string>>>& section_tab
         {"boundaries",
          {"bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back", "u_in", "v_in", "rho_in", "p_out",
           "u_in_table", "v_in_table", "rho_in_table", "p_out_table", "nrbc_sigma", "nrbc_beta"}},
+        // use_muscl: the retired switch of the second-order path, still read as an alias of reconstruction (SimParams::from)
         {"numerics",
-         {"riemann_solver", "use_muscl", "muscl_limiter", "reconstruction", "weno_epsilon", "boundary_order", "time_scheme", "cfl", "shock_blend"}},
+         {"riemann_solver", "reconstruction", "muscl_limiter", "weno_epsilon", "boundary_order", "time_scheme", "cfl", "shock_blend", "use_muscl"}},
         {"run",
          {"t_end", "save_interval", "write_interval_time", "dt_max", "monitor_interval", "max_steps", "resume", "output_root", "dump_state",
           "vtk_format"}},

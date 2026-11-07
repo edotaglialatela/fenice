@@ -72,7 +72,7 @@ TEST(cellflux3d_level0_matches_uniform_residual_bitwise) {
     struct Scheme {
         const char *muscl, *limiter, *riemann, *recon;
     };
-    const Scheme schemes[] = {{"false", "Van Leer", "HLLC", "muscl"},     {"true", "Van Leer", "HLLC", "muscl"},
+    const Scheme schemes[] = {{"false", "Van Leer", "HLLC", "none"},     {"true", "Van Leer", "HLLC", "muscl"},
                               {"true", "Minmod", "HLLC", "muscl"},        {"true", "MC", "lowmach", "muscl"},
                               {"true", "Koren", "preconditioned", "muscl"}, {"true", "Van Leer", "HLLC", "weno3"}};
     int n_cases = 0;
@@ -82,7 +82,7 @@ TEST(cellflux3d_level0_matches_uniform_residual_bitwise) {
                 if (std::string(sc.muscl) == "false" && std::string(bo) == "2") continue;
                 Simulation sim;
                 setup_3d(sim, bc,
-                         {{"use_muscl", sc.muscl}, {"muscl_limiter", sc.limiter}, {"riemann_solver", sc.riemann},
+                         {{"muscl_limiter", sc.limiter}, {"riemann_solver", sc.riemann},
                           {"reconstruction", sc.recon}, {"boundary_order", bo}});
                 const Mesh& u = sim.mesh;
                 CellMesh cm = octree_of(sim, 0);
@@ -112,7 +112,7 @@ TEST(cellflux3d_level0_matches_uniform_residual_bitwise) {
     for (const BCs& bc : {BCs{"wall", "outlet", "no_slip", "moving_wall", "transmissive", "wall"},
                           BCs{"periodic", "periodic", "wall", "wall", "periodic", "periodic"}}) {
         Simulation sim;
-        setup_3d(sim, bc, {{"nx", "24"}, {"ny", "20"}, {"nz", "10"}, {"use_muscl", "true"}, {"muscl_limiter", "MC"}});
+        setup_3d(sim, bc, {{"nx", "24"}, {"ny", "20"}, {"nz", "10"}, {"reconstruction", "muscl"}, {"muscl_limiter", "MC"}});
         const Mesh& u = sim.mesh;
         CellMesh cm = octree_of(sim, 0);
         CHECK(cm.num_leaves() >= kOmpMinWork);
@@ -140,7 +140,7 @@ TEST(cellflux3d_invariant_axis_equals_the_2d_engine) {
     struct Scheme {
         const char *muscl, *recon, *bo;
     };
-    const Scheme schemes[] = {{"false", "muscl", "1"}, {"true", "muscl", "1"}, {"true", "muscl", "2"}, {"true", "weno3", "2"}};
+    const Scheme schemes[] = {{"false", "none", "1"}, {"true", "muscl", "1"}, {"true", "muscl", "2"}, {"true", "weno3", "2"}};
     int checked_jumps = 0;
     for (int a = 0; a < 3; ++a) {
         const int p = a == 0 ? 1 : 0, q = a == 2 ? 1 : 2;   // the in-plane axes (2-D x <- p, 2-D y <- q)
@@ -150,7 +150,7 @@ TEST(cellflux3d_invariant_axis_equals_the_2d_engine) {
         for (const Scheme& sc : schemes) {
             Simulation s2;
             s2.setup(cell_flux_params({{"bc_left", bc2[0]}, {"bc_right", bc2[1]}, {"bc_bottom", bc2[2]}, {"bc_top", bc2[3]},
-                                       {"use_muscl", sc.muscl}, {"reconstruction", sc.recon}, {"boundary_order", sc.bo}}),
+                                       {"reconstruction", sc.recon}, {"boundary_order", sc.bo}}),
                      false);
             // the 3-D problem: axis p carries the 2-D x data, q the 2-D y data, a is periodic
             std::array<const char*, 6> bc3;
@@ -172,7 +172,7 @@ TEST(cellflux3d_invariant_axis_equals_the_2d_engine) {
             Simulation s3;
             setup_3d(s3, bc3,
                      {{"nx", n3[0].c_str()}, {"ny", n3[1].c_str()}, {"nz", n3[2].c_str()}, {"Lx", L3[0].c_str()}, {"Ly", L3[1].c_str()},
-                      {"Lz", L3[2].c_str()}, {"use_muscl", sc.muscl}, {"reconstruction", sc.recon}, {"boundary_order", sc.bo}});
+                      {"Lz", L3[2].c_str()}, {"reconstruction", sc.recon}, {"boundary_order", sc.bo}});
             // the 2-D tree, then its extrusion
             CellMesh m2(L2[0], L2[1], n2[0], n2[1], 2, false, false, s2.mesh.x0, s2.mesh.y0);
             random_adapt(m2, 41u + static_cast<unsigned>(a), 4, 18, 20);
@@ -246,8 +246,7 @@ TEST(cellflux3d_free_stream_is_exact_across_level_jumps) {
                 const bool muscl = std::string(recon) != "none";
                 if (!muscl && std::string(bo) == "2") continue;
                 Simulation sim;
-                setup_3d(sim, bc, {{"nx", "4"}, {"ny", "3"}, {"nz", "3"}, {"use_muscl", muscl ? "true" : "false"},
-                                   {"reconstruction", muscl ? recon : "muscl"}, {"muscl_limiter", "Koren"}, {"boundary_order", bo}});
+                setup_3d(sim, bc, {{"nx", "4"}, {"ny", "3"}, {"nz", "3"}, {"reconstruction", recon}, {"muscl_limiter", "Koren"}, {"boundary_order", bo}});
                 CellMesh m = octree_of(sim, 2);
                 random_adapt(m, 900u, 4);
                 int jumps = 0;
@@ -283,8 +282,7 @@ TEST(cellflux3d_residual_is_conservative_on_adapted_meshes) {
     const BCs per = {"periodic", "periodic", "periodic", "periodic", "periodic", "periodic"};
     for (int cfg = 0; cfg < 4; ++cfg) {
         Simulation sim;
-        setup_3d(sim, per, {{"nx", "4"}, {"ny", "3"}, {"nz", "3"}, {"use_muscl", cfg < 3 ? "true" : "false"},
-                            {"reconstruction", cfg == 2 ? "weno3" : "muscl"}, {"muscl_limiter", "MC"},
+        setup_3d(sim, per, {{"nx", "4"}, {"ny", "3"}, {"nz", "3"}, {"reconstruction", cfg == 2 ? "weno3" : (cfg < 3 ? "muscl" : "none")}, {"muscl_limiter", "MC"},
                             {"riemann_solver", cfg % 2 ? "lowmach" : "HLLC"}});
         CellMesh m = octree_of(sim, 2);
         random_adapt(m, 300u + static_cast<unsigned>(cfg), 4);
@@ -310,7 +308,7 @@ TEST(cellflux3d_incremental_build_equals_full_build_and_threads_agree) {
     using BCs = std::array<const char*, 6>;
     Simulation sim;
     setup_3d(sim, BCs{"transmissive", "wall", "periodic", "periodic", "wall", "outlet"},
-             {{"nx", "6"}, {"ny", "6"}, {"nz", "5"}, {"use_muscl", "true"}, {"boundary_order", "2"}});
+             {{"nx", "6"}, {"ny", "6"}, {"nz", "5"}, {"reconstruction", "muscl"}, {"boundary_order", "2"}});
     CellMesh m = octree_of(sim, 2);
     CellFluxEngine inc(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
     inc.build(m);
@@ -383,12 +381,12 @@ void truncation_errors(int dim, int n, double& near, double& far, bool refine = 
     if (dim == 2) {
         sim.setup(cell_flux_params({{"nx", ns.c_str()}, {"ny", ns.c_str()}, {"Lx", "4"}, {"Ly", "4"}, {"bc_left", "transmissive"},
                                     {"bc_right", "transmissive"}, {"bc_bottom", "transmissive"}, {"bc_top", "transmissive"},
-                                    {"use_muscl", "true"}, {"muscl_limiter", "Van Leer"}}),
+                                    {"reconstruction", "muscl"}, {"muscl_limiter", "Van Leer"}}),
                   false);
     } else {
         setup_3d(sim, {"transmissive", "transmissive", "transmissive", "transmissive", "transmissive", "transmissive"},
                  {{"nx", ns.c_str()}, {"ny", ns.c_str()}, {"nz", ns.c_str()}, {"Lx", "4"}, {"Ly", "4"}, {"Lz", "4"},
-                  {"use_muscl", "true"}, {"muscl_limiter", "Van Leer"}});
+                  {"reconstruction", "muscl"}, {"muscl_limiter", "Van Leer"}});
     }
     CellMesh m = dim == 2 ? CellMesh(4.0, 4.0, n, n, 1, false, false, sim.mesh.x0, sim.mesh.y0) : octree_of(sim, 1);
     const auto centre = [&](int c, double x[3]) {   // relative to the origin of the mesh: the field and the box live on [0, 4]^d
@@ -483,7 +481,7 @@ TEST(cellflux3d_level_pieces_equal_the_whole_residual) {
     for (const char* recon : {"muscl", "weno3"}) {
         Simulation sim;
         setup_3d(sim, BCs{"transmissive", "wall", "periodic", "periodic", "wall", "outlet"},
-                 {{"nx", "5"}, {"ny", "4"}, {"nz", "4"}, {"use_muscl", "true"}, {"reconstruction", recon}, {"boundary_order", "2"}});
+                 {{"nx", "5"}, {"ny", "4"}, {"nz", "4"}, {"reconstruction", recon}, {"boundary_order", "2"}});
         CellMesh m = octree_of(sim, 2);
         for (const double frac : {0.6, 0.3}) {   // a level-1 region and a level-2 one inside it: all three levels present
             std::vector<char> r(static_cast<size_t>(m.num_leaves()));
@@ -531,9 +529,9 @@ TEST(cellflux3d_rejects_what_it_does_not_do_yet) {
         return false;
     };
     const BCs walls = {"wall", "wall", "wall", "wall", "wall", "wall"};
-    CHECK(!throws(walls, {{"use_muscl", "true"}}));
-    CHECK(throws(walls, {{"use_muscl", "true"}, {"use_viscous", "true"}, {"mu", "0.01"}}));
-    CHECK(throws(BCs{"massflow_inlet", "outlet", "wall", "wall", "wall", "wall"}, {{"use_muscl", "true"}}));
-    CHECK(throws(BCs{"wall", "nonreflecting", "wall", "wall", "wall", "wall"}, {{"use_muscl", "true"}}));
-    CHECK(throws(walls, {{"use_muscl", "true"}, {"reconstruction", "weno5"}}));
+    CHECK(!throws(walls, {{"reconstruction", "muscl"}}));
+    CHECK(throws(walls, {{"reconstruction", "muscl"}, {"use_viscous", "true"}, {"mu", "0.01"}}));
+    CHECK(throws(BCs{"massflow_inlet", "outlet", "wall", "wall", "wall", "wall"}, {{"reconstruction", "muscl"}}));
+    CHECK(throws(BCs{"wall", "nonreflecting", "wall", "wall", "wall", "wall"}, {{"reconstruction", "muscl"}}));
+    CHECK(throws(walls, {{"reconstruction", "weno5"}}));
 }

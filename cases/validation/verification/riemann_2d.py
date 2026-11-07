@@ -33,7 +33,7 @@ CONFIGS = {
 }
 SYMMETRIC = (3, 4)   # 12 is not: its NW and SE densities differ (0.5313, 1.0)
 BAND_SYMMETRY, BAND_RATE, BAND_AMR = 1e-9, 0.3, 0.75
-MUSCL = ("use_muscl=true", "muscl_limiter=MC", "time_scheme=SSP Runge-Kutta 2")
+MUSCL = ("reconstruction=muscl", "muscl_limiter=MC", "time_scheme=SSP Runge-Kutta 2")
 
 
 def config_case(k):

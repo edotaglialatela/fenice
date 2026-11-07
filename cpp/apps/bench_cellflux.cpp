@@ -39,7 +39,7 @@ int main(int argc, char** argv) {
     p.set("bc_right", "transmissive");
     p.set("bc_bottom", "wall");
     p.set("bc_top", "wall");
-    p.set("use_muscl", "true");
+    p.set("reconstruction", "muscl");
     p.set("muscl_limiter", "Van Leer");
     Simulation sim;
     sim.setup(SimParams::from(p), false);

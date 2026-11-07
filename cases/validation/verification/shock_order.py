@@ -39,8 +39,8 @@ STUDY, CASE = "shock_order", "Sod Shock Tube"
 GRIDS = (100, 200, 400, 800, 1600)
 NY = 4
 T_END = 0.2
-SCHEMES = {"Godunov": ("use_muscl=false",),
-           "MUSCL": ("use_muscl=true", "time_scheme=SSP Runge-Kutta 2", "muscl_limiter=Van Leer")}
+SCHEMES = {"Godunov": ("reconstruction=none",),
+           "MUSCL": ("reconstruction=muscl", "time_scheme=SSP Runge-Kutta 2", "muscl_limiter=Van Leer")}
 PLATEAU = (0.74, 0.82)
 # entries found outside their band by the first run; the band was not moved (see the shock-order docs section)
 DOCUMENTED = {("MUSCL", "u", "L1")}

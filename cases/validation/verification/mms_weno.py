@@ -43,8 +43,8 @@ import mms as base   # the helpers of mms.py (this folder)
 
 STUDY = "mms_weno"
 T_END = base.T_END
-SCHEMES = {"WENO3-Z": ["use_muscl=true", "reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"],
-           "WENO5-Z": ["use_muscl=true", "reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3"]}
+SCHEMES = {"WENO3-Z": ["reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"],
+           "WENO5-Z": ["reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3"]}
 BANDS = {"L1": (1.8, 2.5), "L2": (1.8, 2.5), "Linf": (1.5, 2.5)}
 NORMS = ("L1", "L2", "Linf")
 VARS = base.VARS

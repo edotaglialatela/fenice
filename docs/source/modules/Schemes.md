@@ -115,7 +115,7 @@ With limiting it is TVD and drops locally to 1st order at extrema.
 
 ## WENO-Z reconstruction
 
-`reconstruction = weno3` or `weno5` (with `use_muscl = true`) replaces the limited linear reconstruction by a
+`reconstruction = weno3` or `weno5` replaces the limited linear reconstruction by a
 weighted combination of candidate stencils whose weights fall to zero across a discontinuity. The primitive
 variables are reconstructed component by component, as MUSCL does, and the rest of the face update (Riemann solver, shock blend,
 time integration) is unchanged. The WENO-Z weights (Borges et al. 2008) are

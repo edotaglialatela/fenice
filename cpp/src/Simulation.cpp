@@ -498,7 +498,11 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     if (verbose && rt == RiemannType::PreconditionedHLLC)
         std::printf("[SOLVER] Preconditioned HLLC active (Weiss-Smith 1995, Ma_cut=0.1)\n");
 
-    if (p.use_muscl) {
+    if (verbose && p.use_muscl_alias)
+        std::printf("[PARAMS] use_muscl is retired: read as reconstruction = %s (set reconstruction alone: none, muscl, weno3 "
+                    "or weno5)\n",
+                    p.reconstruction.c_str());
+    if (p.reconstructs()) {
         muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter), parse_reconstruction(p.reconstruction), p.weno_epsilon);
         if (verbose && p.reconstruction == "muscl")
             std::printf("[SOLVER] 2nd-Order MUSCL active (Limiter: %s)\n", p.muscl_limiter.c_str());
@@ -2429,7 +2433,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     lm.dy = mesh.dy;
     lm.dz = mesh.dz;
     std::unique_ptr<MusclReconstruction> local_muscl;
-    if (p.use_muscl)
+    if (p.reconstructs())
         local_muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter), parse_reconstruction(p.reconstruction),
                                                             p.weno_epsilon);
 

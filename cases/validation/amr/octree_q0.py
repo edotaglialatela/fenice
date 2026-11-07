@@ -67,7 +67,7 @@ rho_in = 1.0
 p_out = {p}
 [numerics]
 riemann_solver = "HLLC (Low-Mach Thornber)"
-use_muscl = true
+reconstruction = "muscl"
 muscl_limiter = "Van Leer"
 time_scheme = "SSP Runge-Kutta 2"
 cfl = 0.5

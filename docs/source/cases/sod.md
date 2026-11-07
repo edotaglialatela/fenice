@@ -17,7 +17,7 @@ boundaries and slip walls at the bottom and top, so the problem stays one-dimens
 
 ```powershell
 build\release\fenice.exe --case "Sod Shock Tube"
-build\release\fenice.exe --case "Sod Shock Tube" --set use_muscl=true --set time_scheme=ssprk2
+build\release\fenice.exe --case "Sod Shock Tube" --set reconstruction=muscl --set time_scheme=ssprk2
 python cases\validation\verification\sod.py           # exact solution, orders, limiters
 python cases\validation\amr\sod_amr.py       # AMR vs uniform meshes
 ```

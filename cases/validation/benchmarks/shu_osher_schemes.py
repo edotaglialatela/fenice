@@ -19,10 +19,10 @@ STUDY, CASE = "shu_osher_schemes", "Shu-Osher Test"
 GRIDS, N_REF, L = [200, 400, 800, 1600], 6400, 10.0
 RK2, RK3 = "time_scheme=SSP Runge-Kutta 2", "time_scheme=SSP Runge-Kutta 3"
 SCHEMES = {   # label: (tag, sets, colour, marker)
-    "MUSCL Minmod": ("Minmod", ("use_muscl=true", "muscl_limiter=Minmod", RK2), "#2980b9", "s"),
-    "MUSCL MC": ("MC", ("use_muscl=true", "muscl_limiter=MC", RK2), "#c0392b", "o"),
-    "WENO3-Z": ("WENO3Z", ("use_muscl=true", "reconstruction=weno3", RK3), "#27ae60", "^"),
-    "WENO5-Z": ("WENO5Z", ("use_muscl=true", "reconstruction=weno5", RK3), "#8e44ad", "D"),
+    "MUSCL Minmod": ("Minmod", ("reconstruction=muscl", "muscl_limiter=Minmod", RK2), "#2980b9", "s"),
+    "MUSCL MC": ("MC", ("reconstruction=muscl", "muscl_limiter=MC", RK2), "#c0392b", "o"),
+    "WENO3-Z": ("WENO3Z", ("reconstruction=weno3", RK3), "#27ae60", "^"),
+    "WENO5-Z": ("WENO5Z", ("reconstruction=weno5", RK3), "#8e44ad", "D"),
 }
 
 
@@ -35,8 +35,8 @@ def main():
         z = fenice.read_dump(d / "final.npz")
         return z["U"][:, 0].reshape(2, n).mean(axis=0)
 
-    ref = {"MC": rho("ref_mc_n6400", N_REF, ("use_muscl=true", "muscl_limiter=MC", RK2)),
-           "WENO5-Z": rho("ref_weno5_n6400", N_REF, ("use_muscl=true", "reconstruction=weno5", RK3, "cfl=0.3"))}
+    ref = {"MC": rho("ref_mc_n6400", N_REF, ("reconstruction=muscl", "muscl_limiter=MC", RK2)),
+           "WENO5-Z": rho("ref_weno5_n6400", N_REF, ("reconstruction=weno5", RK3, "cfl=0.3"))}
     xr = (np.arange(N_REF) + 0.5) * L / N_REF
     prof, err = {}, {}
     rows = ["| scheme | reference | " + " | ".join(str(n) for n in GRIDS) + " | orders |", "|---|---|" + "---|" * (len(GRIDS) + 1)]

@@ -299,13 +299,13 @@ TEST(uniform_flow_is_preserved) {
     // A uniform free stream with zero-gradient BCs must give a zero residual
     // for every Riemann solver, with/without MUSCL and viscous fluxes.
     for (const char* rs : {"HLLC", "HLLC (Low-Mach Thornber)", "HLLC (Preconditioned)"})
-        for (const char* muscl : {"false", "true"})
+        for (const char* muscl : {"none", "muscl"})
             for (const char* visc : {"false", "true"}) {
                 Simulation sim;
                 sim.setup(params_for("Sod Shock Tube", {{"nx", "12"},
                                                         {"ny", "8"},
                                                         {"riemann_solver", rs},
-                                                        {"use_muscl", muscl},
+                                                        {"reconstruction", muscl},
                                                         {"use_viscous", visc},
                                                         {"bc_left", "transmissive"},
                                                         {"bc_right", "transmissive"},

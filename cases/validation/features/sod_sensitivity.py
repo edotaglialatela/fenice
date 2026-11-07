@@ -35,7 +35,7 @@ STUDY, CASE = "sod_sensitivity", "Sod Shock Tube"
 LIMITERS = ["Minmod", "Van Leer", "MC", "Koren"]
 NY = 4
 BOUNDS = {"cfl": (0.2, 0.8), "log2_nx": (math.log2(50), math.log2(400)), "limiter": (0.0, 4.0)}
-BASE = ("use_muscl=true", "time_scheme=SSP Runge-Kutta 2", f"ny={NY}", "save_interval=1000000000")
+BASE = ("reconstruction=muscl", "time_scheme=SSP Runge-Kutta 2", f"ny={NY}", "save_interval=1000000000")
 BAND_ST_NX, BAND_ST_CFL, BAND_ST_LIM, BAND_SUM, BAND_WIDTH_C = 0.80, 0.10, 0.30, (0.80, 1.10), 5.0   # width = C / sqrt(n)
 
 

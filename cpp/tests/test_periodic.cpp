@@ -68,11 +68,11 @@ TEST(periodic_translation_invariance) {
     // A periodic domain has no special place: shifting the initial field by whole cells
     // must shift the solution exactly, with MUSCL and viscous terms on or off.
     const int nx = 16, ny = 12, sx = 5, sy = 3;
-    for (const char* muscl : {"false", "true"})
+    for (const char* muscl : {"none", "muscl"})
         for (const char* visc : {"false", "true"}) {
             const SimParams sp =
                 params_for("Taylor-Green Vortex",
-                           {{"nx", "16"}, {"ny", "12"}, {"use_muscl", muscl}, {"use_viscous", visc}, {"mu", "0.05"}});
+                           {{"nx", "16"}, {"ny", "12"}, {"reconstruction", muscl}, {"use_viscous", visc}, {"mu", "0.05"}});
             Simulation s;
             s.setup(sp, false);
             Field U(nx * ny);
@@ -366,8 +366,8 @@ TEST(extrusion_matches_2d) {
         int steps;
     };
     const std::vector<Case> cases = {
-        {"Sod Shock Tube", {{"nx", "40"}, {"ny", "4"}, {"use_muscl", "true"}, {"time_scheme", "ssprk2"}}, 15},
-        {"Lid Driven Cavity", {{"nx", "12"}, {"ny", "12"}, {"use_muscl", "true"}}, 20},
+        {"Sod Shock Tube", {{"nx", "40"}, {"ny", "4"}, {"reconstruction", "muscl"}, {"time_scheme", "ssprk2"}}, 15},
+        {"Lid Driven Cavity", {{"nx", "12"}, {"ny", "12"}, {"reconstruction", "muscl"}}, 20},
         {"Poiseuille Flow", {{"nx", "16"}, {"ny", "8"}}, 30},
         {"IBM Flow over Cylinder", {{"ibm_method", "mask"}, {"nx", "40"}, {"ny", "20"}, {"use_mpi", "false"}}, 10},
         {"IBM Flow over Cylinder", {{"ibm_method", "ghost"}, {"nx", "40"}, {"ny", "20"}, {"use_mpi", "false"}}, 10},   // sharp wall, no-slip

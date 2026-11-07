@@ -5,7 +5,7 @@
 //
 // Examples
 //   fenice --case "Sod Shock Tube"
-//   fenice --case "Shu-Osher Test" --set nx=2000 --set use_muscl=true
+//   fenice --case "Shu-Osher Test" --set nx=2000 --set reconstruction=muscl
 //   fenice --config run.cfg               (as written by the GUI launcher)
 //   mpiexec -n 8 fenice --case "IBM Supersonic Flow over Cylinder"
 #include <csignal>
@@ -62,7 +62,7 @@ void usage() {
                 "  --save-case TARGET save the resolved run (case + --config + --set) as a new case and exit;\n"
                 "                     TARGET is a case name (written under cases/) or a folder path\n"
                 "  --case-name NAME   [case] name for --save-case (default: from TARGET)\n"
-                "Keys: nx, ny, t_end, use_muscl, bc_left, ... (see the Parameters page of the docs),\n"
+                "Keys: nx, ny, t_end, reconstruction, bc_left, ... (see the Parameters page of the docs),\n"
                 "plus output_root, dump_state and max_steps.\n");
 }
 

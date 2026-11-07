@@ -104,7 +104,7 @@ def cavity_rows(args):
         for n in args.cavity_grids:
             d = study.run_cached("cavity", f"n{n}_o{order}", CAVITY, f"nx={n}", f"ny={n}", "t_end=40",
                                  "save_interval=1000000000", "monitor_interval=50",
-                                 f"use_muscl={'true' if order == 2 else 'false'}", mpi=args.mpi, force=False)
+                                 f"reconstruction={'muscl' if order == 2 else 'none'}", mpi=args.mpi, force=False)
             u, v = fields(d / "final.npz", n)
             y, uc, vc = centrelines(u, v, n)
             data[n] = {"psi": extremum_2d(stream_function(u, n)), "u_min": extremum_1d(y, uc, "min"),

@@ -48,19 +48,66 @@ TEST(boundary_order_default) {
         for (const auto& kv : sets) p.set(kv.first, kv.second);
         return SimParams::from(p).boundary_order;
     };
-    CHECK(order_of({{"use_muscl", "true"}}) == 2);
-    CHECK(order_of({{"use_muscl", "true"}, {"reconstruction", "weno3"}, {"time_scheme", "SSP Runge-Kutta 3"}}) == 2);
-    CHECK(order_of({{"use_muscl", "true"}, {"reconstruction", "weno5"}, {"time_scheme", "SSP Runge-Kutta 3"}}) == 2);
-    CHECK(order_of({{"use_muscl", "true"}, {"use_amr", "true"}}) == 2);
-    CHECK(order_of({{"use_muscl", "true"}, {"boundary_order", "1"}}) == 1);
-    CHECK(order_of({{"use_muscl", "false"}}) == 1);
-    CHECK(order_of({{"use_muscl", "false"}, {"boundary_order", "2"}}) == 1);
+    CHECK(order_of({{"reconstruction", "muscl"}}) == 2);
+    CHECK(order_of({{"reconstruction", "weno3"}, {"time_scheme", "SSP Runge-Kutta 3"}}) == 2);
+    CHECK(order_of({{"reconstruction", "weno5"}, {"time_scheme", "SSP Runge-Kutta 3"}}) == 2);
+    CHECK(order_of({{"reconstruction", "muscl"}, {"use_amr", "true"}}) == 2);
+    CHECK(order_of({{"reconstruction", "muscl"}, {"boundary_order", "1"}}) == 1);
+    CHECK(order_of({{"reconstruction", "none"}}) == 1);
+    CHECK(order_of({{"reconstruction", "none"}, {"boundary_order", "2"}}) == 1);
     CHECK(order_of({}) == 1);   // the baseline scheme is first order
     bool threw = false;
     try {
-        order_of({{"use_muscl", "true"}, {"boundary_order", "3"}});
+        order_of({{"reconstruction", "muscl"}, {"boundary_order", "3"}});
     } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);
+}
+
+// reconstruction is the one key of the face reconstruction (none, muscl, weno3, weno5); the retired use_muscl is read as an alias
+// with its old meaning, so every old input means what it meant: false (with reconstruction absent or its old default muscl) is first
+// order, true with reconstruction absent is muscl, true with a reconstruction keeps it, false with a WENO scheme is an error as before.
+TEST(use_muscl_is_read_as_reconstruction) {
+    auto rec = [](std::initializer_list<std::pair<const char*, const char*>> sets, bool* alias = nullptr) {
+        Params p = baseline_defaults();
+        p.set("time_scheme", "SSP Runge-Kutta 3");
+        for (const auto& kv : sets) p.set(kv.first, kv.second);
+        const SimParams s = SimParams::from(p);
+        if (alias) *alias = s.use_muscl_alias;
+        return s.reconstruction;
+    };
+    bool alias = true;
+    CHECK(rec({}, &alias) == "none" && !alias);
+    CHECK(rec({{"reconstruction", "WENO3"}}, &alias) == "weno3" && !alias);
+    CHECK(rec({{"use_muscl", "false"}}, &alias) == "none" && alias);
+    CHECK(rec({{"use_muscl", "false"}, {"reconstruction", "muscl"}}) == "none");
+    CHECK(rec({{"use_muscl", "true"}}) == "muscl");
+    CHECK(rec({{"use_muscl", "true"}, {"reconstruction", "weno5"}}) == "weno5");
+    CHECK(rec({{"use_muscl", "true"}, {"reconstruction", "muscl"}}) == "muscl");
+    const auto throws = [&](std::initializer_list<std::pair<const char*, const char*>> sets) {
+        try {
+            rec(sets);
+        } catch (const std::invalid_argument&) {
+            return true;
+        }
+        return false;
+    };
+    CHECK(throws({{"use_muscl", "false"}, {"reconstruction", "weno3"}}));
+    CHECK(throws({{"reconstruction", "muscl3"}}));
+    CHECK(!throws({{"reconstruction", "none"}}));
+    // the reconstruction (not the alias) decides the scheme the solver builds
+    Simulation sim;
+    Params p = baseline_defaults();
+    p.merge(get_test_case("Sod Shock Tube").defaults);
+    p.set("test_case", "Sod Shock Tube");
+    p.set("output_root", tmp_dir().string());
+    p.set("use_mpi", "false");
+    p.set("use_muscl", "true");
+    sim.setup(SimParams::from(p), false);
+    CHECK(sim.muscl != nullptr && sim.p.reconstruction == "muscl");
+    p.set("use_muscl", "false");
+    Simulation first;
+    first.setup(SimParams::from(p), false);
+    CHECK(first.muscl == nullptr && first.p.reconstruction == "none");
 }
 
 // Bad --set / --config values fail up front instead of being silently ignored or truncated.

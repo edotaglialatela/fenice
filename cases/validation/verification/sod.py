@@ -16,7 +16,7 @@ from fenice.exact import riemann
 
 STUDY, CASE = "sod", "Sod Shock Tube"
 LIMITERS = ["Minmod", "Van Leer", "MC", "Koren"]
-MUSCL = ("use_muscl=true", "time_scheme=SSP Runge-Kutta 2")
+MUSCL = ("reconstruction=muscl", "time_scheme=SSP Runge-Kutta 2")
 
 
 def profile(run_dir, nx=200, ny=20):

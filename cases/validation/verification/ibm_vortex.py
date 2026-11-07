@@ -48,7 +48,7 @@ bc_bottom = "transmissive"
 bc_top = "transmissive"
 [numerics]
 riemann_solver = "HLLC"
-use_muscl = true
+reconstruction = "muscl"
 muscl_limiter = "Van Leer"
 time_scheme = "SSP Runge-Kutta 2"
 cfl = 0.4

@@ -40,7 +40,7 @@ V_SUSPECT = np.isclose(GHIA_X, 0.9063)
 def run(n, order, args):
     d = study.run_cached(STUDY, f"n{n}_o{order}", CASE, f"nx={n}", f"ny={n}", "t_end=40",
                          "save_interval=1000000000", "monitor_interval=50",
-                         f"use_muscl={'true' if order == 2 else 'false'}", mpi=args.mpi, force=args.force)
+                         f"reconstruction={'muscl' if order == 2 else 'none'}", mpi=args.mpi, force=args.force)
     return d / "final.npz"
 
 
