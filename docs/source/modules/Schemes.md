@@ -141,8 +141,10 @@ one-dimensional order; the higher order shows as a smaller error constant.
 `weno3` with `weno_epsilon = 1e-4` converges at 3.0 on the coarsest pair and 3.4 to 4.3 on the finer ones; `weno5` at 5.0 (CFL 0.1; at CFL 0.5 the time error takes over
 and the order falls to 3). The 2-D isentropic vortex at $256^2$: density error $6.4\cdot10^{-5}$ with MUSCL (MC),
 $4.8\cdot10^{-5}$ with `weno3` and $2.1\cdot10^{-6}$ with `weno5`. The 3-D Taylor-Green vortex at $64^3$, Re 1600:
-peak dissipation $-10.8\,\%$ (MUSCL), $-14.1\,\%$ (`weno3`) and $-0.2\,\%$ (`weno5`) from the reference value 0.0127. `weno5` takes
-about 2 to 4 times as long as MUSCL for the same run (it also uses a three-stage time scheme). `weno3` is not more accurate than MUSCL on the turbulent case.
+peak dissipation $-10.8\,\%$ (MUSCL), $-14.1\,\%$ (`weno3`) and $-0.2\,\%$ (`weno5`) from the reference value 0.0127; at $32^3$ the three
+give $-13.3\,\%$, $-5.4\,\%$ and $-8.8\,\%$, so the `weno3` error is not monotone in the resolution and a single peak value is a trend, not a convergence
+result. `weno5` takes about 3 to 5 times as long as MUSCL on one thread for the same run (it also uses a three-stage time scheme): 2.7 on this case,
+4.8 on the vortex at $256^2$ (table in [Performance]({{root}}guide/performance.html)). `weno3` is not more accurate than MUSCL on the turbulent case.
 
 **Limits.**
 

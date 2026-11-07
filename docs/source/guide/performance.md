@@ -84,6 +84,25 @@ scales least with threads; MPI strips suit it better.
 On a MacBook Air (Apple M4, 10 threads), which runs the scalar kernels, supersonic IBM 400×400 takes
 0.138 s on 10 OpenMP threads, and the IBM cylinder 400×200 0.125 s on 4 MPI ranks.
 
+## Cost of the reconstructions
+
+Wall time of the whole run on a 44-thread workstation (gcc, OpenMP, one process), cases as in the validation studies: the 2-D isentropic vortex
+over one period (`nx = ny = 256`, 65 536 cells) and the 3-D Taylor-Green vortex at Re 1600 on $64^3$ to $t = 20$.
+MUSCL uses the MC limiter with SSP-RK2, the WENO schemes SSP-RK3, CFL 0.5.
+
+| Case | scheme | 1 thread | 44 threads | 44 threads vs 1 | $L_2$ density error / peak $arepsilon$ |
+|---|---|---:|---:|---:|---|
+| vortex $256^2$ | MUSCL (MC) | 27.0 s | 2.6 s | 10.4× | $6.4\cdot10^{-5}$ |
+| vortex $256^2$ | `weno3` | 76.1 s | 10.0 s | 7.6× | $4.8\cdot10^{-5}$ |
+| vortex $256^2$ | `weno5` | 130.7 s | 33.3 s | 3.9× | $2.1\cdot10^{-6}$ |
+| Taylor-Green $64^3$ | MUSCL (MC) | 798 s | 125 s | 6.4× | 0.01133 |
+| Taylor-Green $64^3$ | `weno3` | 1525 s | 239 s | 6.4× | 0.01091 |
+| Taylor-Green $64^3$ | `weno5` | 2126 s | 260 s | 8.2× | 0.01267 |
+
+`weno3` costs about 2 to 3 times and `weno5` about 3 to 5 times the MUSCL run on one thread (the 2-D mesh is small, and `weno5` scales least on it). The error is what the extra cost buys: on the smooth vortex `weno5` reaches at
+$128^2$ (16.1 s on one thread) an error below that of MUSCL at $256^2$ (27.0 s), so for a given error it is the cheaper scheme there;
+the Taylor-Green reference peak is 0.0127. The thread count never changes the result: all runs above are bitwise equal on 1 and 44 threads.
+
 ## Practical notes
 
 * The final line of a run reports the **time-loop** duration. Snapshots are binary VTK
