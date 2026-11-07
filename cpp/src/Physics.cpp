@@ -708,12 +708,7 @@ ImmersedBoundary::ImmersedBoundary(const Mesh& mesh, const std::string& shape, d
     r_ = radius;
     for (int k = 0; k < nz_; ++k)
         for (int j = 0; j < ny_; ++j)
-            for (int i = 0; i < nx_; ++i) {
-                const double dxc = mesh.xc(i) - cx, dyc = mesh.yc(j) - cy;
-                const double r2 =
-                    sphere ? dxc * dxc + dyc * dyc + (mesh.zc(k) - cz) * (mesh.zc(k) - cz) : dxc * dxc + dyc * dyc;
-                mask_[mesh.cell(i, j, k)] = std::sqrt(r2) <= radius;
-            }
+            for (int i = 0; i < nx_; ++i) mask_[mesh.cell(i, j, k)] = solid_at(mesh.xc(i), mesh.yc(j), mesh.zc(k));
 }
 
 ImmersedBoundary::ImmersedBoundary(const Mesh& mesh, const Polygon2D& section, double rho_ref, double p_ref)
@@ -728,12 +723,32 @@ ImmersedBoundary::ImmersedBoundary(const Mesh& mesh, const Polygon2D& section, d
         y0 = std::min(y0, p[1]);
         y1 = std::max(y1, p[1]);
     }
+    px0_ = x0;
+    px1_ = x1;
+    py0_ = y0;
+    py1_ = y1;
     for (int j = 0; j < ny_; ++j)
         for (int i = 0; i < nx_; ++i) {
-            const double x = mesh.xc(i), y = mesh.yc(j);
-            if (x < x0 || x > x1 || y < y0 || y > y1 || !section.contains(x, y)) continue;
+            if (!solid_at(mesh.xc(i), mesh.yc(j), 0.0)) continue;
             for (int k = 0; k < nz_; ++k) mask_[mesh.cell(i, j, k)] = 1;
         }
+}
+
+bool ImmersedBoundary::solid_at(double x, double y, double z) const {
+    switch (shape_) {
+    case Shape::Ball: {
+        const double dxc = x - cx_, dyc = y - cy_;
+        const double r2 = dxc * dxc + dyc * dyc + (z - cz_) * (z - cz_);
+        return std::sqrt(r2) <= r_;
+    }
+    case Shape::Circle: {
+        const double dxc = x - cx_, dyc = y - cy_;
+        const double r2 = dxc * dxc + dyc * dyc;
+        return std::sqrt(r2) <= r_;
+    }
+    case Shape::Polygon: return !(x < px0_ || x > px1_ || y < py0_ || y > py1_ || !poly_.contains(x, y));
+    default: throw std::logic_error("ImmersedBoundary::solid_at: the body has no geometry (a mask only)");
+    }
 }
 
 int ImmersedBoundary::solid_count() const {

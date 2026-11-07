@@ -484,8 +484,8 @@ TEST(cellflux3d_rejects_what_it_does_not_do_yet) {
     };
     const BCs walls = {"wall", "wall", "wall", "wall", "wall", "wall"};
     CHECK(!throws(walls, {{"reconstruction", "muscl"}}));
-    CHECK(throws(walls, {{"reconstruction", "muscl"}, {"use_viscous", "true"}, {"mu", "0.01"}}));
-    CHECK(throws(BCs{"massflow_inlet", "outlet", "wall", "wall", "wall", "wall"}, {{"reconstruction", "muscl"}}));
-    CHECK(throws(BCs{"wall", "nonreflecting", "wall", "wall", "wall", "wall"}, {{"reconstruction", "muscl"}}));
+    CHECK(!throws(walls, {{"reconstruction", "muscl"}, {"use_viscous", "true"}, {"mu", "0.01"}}));   // since Q4
+    CHECK(!throws(BCs{"massflow_inlet", "outlet", "wall", "wall", "wall", "wall"}, {{"reconstruction", "muscl"}}));   // since Q4
+    CHECK(!throws(BCs{"wall", "nonreflecting", "wall", "wall", "wall", "wall"}, {{"reconstruction", "muscl"}}));
     CHECK(throws(walls, {{"reconstruction", "weno5"}}));
 }

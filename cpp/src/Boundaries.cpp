@@ -256,6 +256,24 @@ State BoundaryManager::viscous_ghost(Face side, const State& in) const {
     return g;
 }
 
+State BoundaryManager::viscous_ghost_3d(Face side, const State& c) const {
+    State gh = c;   // zero-gradient copy, then the momentum rules of padded_3d (the same expressions)
+    const double uw[3] = {params_.u_in, params_.v_in, 0.0};   // moving-wall velocity
+    const int d = face_axis(side);
+    switch (type(side)) {
+    case BCType::NoSlip:
+        for (int q : kMom) gh[q] = -c[q];
+        break;
+    case BCType::Wall: gh[kMom[d]] = -c[kMom[d]]; break;
+    case BCType::MovingWall:
+        for (int t = 0; t < 3; ++t) gh[kMom[t]] = (t == d) ? -c[kMom[t]] : 2.0 * c[0] * uw[t] - c[kMom[t]];
+        if (params_.boundary_order == 2) match_kinetic_energy(gh, c);
+        break;
+    default: break;
+    }
+    return gh;
+}
+
 void BoundaryManager::apply_side(const Field& U, Field& UL, Field& UR, Face side, const TangentialHalos* th) const {
     const int n = mesh_.boundary_count(side);
     if (n == 0) return;

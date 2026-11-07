@@ -217,6 +217,11 @@ public:
     void closest_wall_point(double x, double y, double& wx, double& wy, double& nx, double& ny) const;
     // The same in 3-D: a sphere, or a cylinder / section extruded along z (then wz = z and the normal has no z-component).
     void closest_wall_point3(double x, double y, double z, double& wx, double& wy, double& wz, double& nx, double& ny, double& nz) const;
+    // True for a body built from its geometry (a shape or a polygon), false for a mask-only one.
+    bool has_geometry() const { return shape_ != Shape::None; }
+    // The test the mask is made of: whether a cell centred at (x, y, z) is solid (z is read by the sphere only); the mask of
+    // any mesh is this test at its cell centres (the adaptive mesh classifies its leaves with it). Throws for a mask-only body.
+    bool solid_at(double x, double y, double z) const;
 
 private:
     int nx_ = 0, ny_ = 0, nz_ = 1;
@@ -226,6 +231,7 @@ private:
     enum class Shape { None, Circle, Ball, Polygon } shape_ = Shape::None;
     double cx_ = 0.0, cy_ = 0.0, cz_ = 0.0, r_ = 0.0;
     Polygon2D poly_;
+    double px0_ = 0.0, px1_ = 0.0, py0_ = 0.0, py1_ = 0.0;   // bounding box of the polygon (the far cells skip the inside test)
     // ghost-cell wall: interpolation of the primitive state at a point from up to four fluid cells
     struct Probe {
         int cell[8] = {0, 0, 0, 0, 0, 0, 0, 0};       // 2-D (and bodies extruded along z): the first four, bilinear in the layer

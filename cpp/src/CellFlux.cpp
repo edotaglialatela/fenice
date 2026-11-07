@@ -82,6 +82,12 @@ void CellFluxEngine::size_work_arrays(const CellMesh& m) {
     if (phys_.ns) Fv_.resize(m.faces.size());
     else Fv_ = Field();
     for (std::vector<double>* a : {&su_, &sv_, &sT_, &dudx_, &dudy_, &dvdx_, &dvdy_}) a->resize(static_cast<size_t>(nleaf_));
+    for (std::vector<double>* a : {&sw_, &dudz_, &dvdz_, &dwdx_, &dwdy_, &dwdz_}) {
+        if (dim_ == 3 && phys_.ns)
+            a->resize(static_cast<size_t>(nleaf_));
+        else
+            std::vector<double>().swap(*a);
+    }
 }
 
 void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
@@ -94,13 +100,8 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
         (m.dim == 3 && per(Face::Front, Face::Back) != m.periodic_z))
         throw std::invalid_argument("CellFluxEngine: the periodic axes of the mesh and the boundary types differ");
     if (m.dim == 3) {   // what the octree engine does not do yet (docs/design/amr-octree.md, phase Q4)
-        if (phys_.ns || phys_.body || phys_.rhs_sources || phys_.source || has_body())
-            throw std::invalid_argument("CellFluxEngine: viscous terms, body forces, sources and immersed bodies are not available on a "
-                                        "3-D adaptive mesh yet");
-        for (const Face s : kAllFaces3D)
-            if (bc_.type(s) == BCType::MassflowInlet || bc_.type(s) == BCType::NonReflecting)
-                throw std::invalid_argument("CellFluxEngine: mass-flow inlets and non-reflecting outlets are not available on a 3-D "
-                                            "adaptive mesh yet");
+        if (has_body() && phys_.ibm_ghost)
+            throw std::invalid_argument("CellFluxEngine: the ghost-cell wall is not available on a 3-D adaptive mesh yet (ibm_method = mask)");
         if (muscl_ && muscl_->scheme() == Reconstruction::Weno5)
             throw std::invalid_argument("CellFluxEngine: WENO5-Z is not available on an adaptive mesh");
     }
@@ -232,7 +233,24 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
     // immersed body: mask of every leaf from the uniform mask of its level (a leaf kept by the adapt keeps its value)
     std::vector<char> old_solid;
     old_solid.swap(solid_);
-    if (has_body()) {
+    if (has_body() && m.dim == 3) {
+        // per-leaf classification by the centre test of the body's geometry (the uniform mask is that test at the cell centres)
+        if (!ibm_geo_) {
+            ibm_geo_ = std::make_shared<ImmersedBoundary>(
+                phys_.ibm_factory(generate_cartesian_mesh_3d(m.Lx, m.Ly, m.Lz, m.nx, m.ny, m.nz, m.x0, m.y0, m.z0)));
+            if (!ibm_geo_->has_geometry())
+                throw std::invalid_argument("CellFluxEngine: a 3-D adaptive mesh needs a body built from its geometry (a mask-only body)");
+            ibm_rho_ref_ = ibm_geo_->rho_ref();
+            ibm_p_ref_ = ibm_geo_->p_ref();
+        }
+        solid_.assign(static_cast<size_t>(nleaf_), 0);
+        const ImmersedBoundary& ib = *ibm_geo_;
+#pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
+        for (int c = 0; c < nleaf_; ++c)
+            solid_[c] = inc && m.prev_leaf[c] >= 0 ? old_solid[static_cast<size_t>(m.prev_leaf[c])]
+                                                   : static_cast<char>(ib.solid_at(m.xc(c), m.yc(c), m.zc(c)));
+        forced_.resize(static_cast<size_t>(nleaf_));
+    } else if (has_body()) {
         level_mask_.resize(static_cast<size_t>(m.max_level) + 1);
         solid_.assign(static_cast<size_t>(nleaf_), 0);
         for (int l = 0; l <= m.max_level; ++l) {
@@ -272,14 +290,15 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
             else
                 fresh.push_back(c);
         }
-        std::vector<double> xs(fresh.size()), ys(fresh.size());
+        std::vector<double> xs(fresh.size()), ys(fresh.size()), zs(m.dim == 3 ? fresh.size() : 0);
         for (size_t k = 0; k < fresh.size(); ++k) {
             xs[k] = m.xc(fresh[k]);
             ys[k] = m.yc(fresh[k]);
+            if (m.dim == 3) zs[k] = m.zc(fresh[k]);
         }
         Field sv(fresh.size());
         evaluate_source_points(*phys_.source_mesh, *phys_.source, 0.0, xs.data(), ys.data(), static_cast<int>(fresh.size()),
-                               sv.data());
+                               sv.data(), m.dim == 3 ? zs.data() : nullptr);
         for (size_t k = 0; k < fresh.size(); ++k) src_[static_cast<size_t>(fresh[k])] = sv[k];
     } else {
         src_.resize(static_cast<size_t>(nleaf_));
@@ -293,18 +312,21 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
         mf_weight_[s].clear();
         if (s >= ns_) continue;
         if (bc_.type(static_cast<Face>(s)) != BCType::MassflowInlet) continue;
-        std::vector<std::pair<long long, int>> order;
+        // in the order of the uniform solver's boundary cells: the second transverse position (3-D) major, the first minor
+        std::vector<std::pair<std::pair<long long, long long>, int>> order;
         int fine = 0;
         for (size_t f = 0; f < m.faces.size(); ++f) {
             const CellFace& face = m.faces[f];
             if (face.kind != CellFaceKind::Boundary || face.side != static_cast<Face>(s)) continue;
-            order.push_back({static_cast<long long>(face.tpos) << (m.max_level - face.level), static_cast<int>(f)});
+            const int sh = m.max_level - face.level;
+            order.push_back({{static_cast<long long>(face.tpos2) << sh, static_cast<long long>(face.tpos) << sh}, static_cast<int>(f)});
             fine = std::max(fine, face.level);
         }
         std::sort(order.begin(), order.end());
         for (const auto& o : order) {
             mf_face_[s].push_back(o.second);
-            mf_weight_[s].push_back(static_cast<double>(1 << (fine - m.faces[o.second].level)));
+            // the finer faces a face covers: 2 per level in 2-D, 4 in 3-D
+            mf_weight_[s].push_back(static_cast<double>(1 << ((m.dim - 1) * (fine - m.faces[o.second].level))));
         }
     }
     built_mesh_ = &m;
@@ -841,7 +863,7 @@ void CellFluxEngine::memory_bytes(double& per_leaf, double& uniform) const {
                container_bytes(dvdy_) + container_bytes(solid_) + container_bytes(fine_leaf_) + container_bytes(ghost_reads_leaf_) +
                container_bytes(ghost_leaf_mask_) + container_bytes(held_mask_) + container_bytes(src_);
     for (int s = 0; s < 6; ++s) per_leaf += container_bytes(mf_face_[s]) + container_bytes(mf_weight_[s]);
-    uniform = container_bytes(level_mask_) + (ghost_ib_ ? ghost_ib_->memory_bytes() : 0.0);
+    uniform = container_bytes(level_mask_) + (ghost_ib_ ? ghost_ib_->memory_bytes() : 0.0) + (ibm_geo_ ? ibm_geo_->memory_bytes() : 0.0);
 }
 
 void CellFluxEngine::face_dependencies(const CellMesh& m, int f, std::vector<char>& mask) const {
@@ -859,13 +881,14 @@ void CellFluxEngine::mass_flow_dependencies(const CellMesh& m, std::vector<char>
 
 void CellFluxEngine::update_source(const CellMesh& m, int cb, int ce) {
     if (!phys_.source) return;
-    std::vector<double> xs(static_cast<size_t>(ce - cb)), ys(xs.size());
+    std::vector<double> xs(static_cast<size_t>(ce - cb)), ys(xs.size()), zs(m.dim == 3 ? xs.size() : 0);
     for (int c = cb; c < ce; ++c) {
         xs[static_cast<size_t>(c - cb)] = m.xc(c);
         ys[static_cast<size_t>(c - cb)] = m.yc(c);
+        if (m.dim == 3) zs[static_cast<size_t>(c - cb)] = m.zc(c);
     }
     evaluate_source_points(*phys_.source_mesh, *phys_.source, phys_.source_unsteady ? stage_time : 0.0, xs.data(),
-                           ys.data(), ce - cb, &src_[static_cast<size_t>(cb)]);
+                           ys.data(), ce - cb, &src_[static_cast<size_t>(cb)], m.dim == 3 ? zs.data() : nullptr);
 }
 
 void CellFluxEngine::force_state(const CellMesh& m, const Field& U) {
@@ -1094,9 +1117,11 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
     auto nrbc = [&](int c, Face side, const State& Ui) {
         BoundaryManager::NrbcTangent tg;
         const int axis = face_axis(side), l = m.level[c];
-        for (int t = 0; t < 2; ++t) {
+        const int nbase[3] = {m.nx, m.ny, m.nz};
+        for (int t = 0; t < dim_; ++t) {   // the tangential axes, in the order of the uniform solver
             if (t == axis) continue;
-            const int cl = nbr_[static_cast<size_t>(4) * c + 2 * t], ch = nbr_[static_cast<size_t>(4) * c + 2 * t + 1];
+            if (dim_ == 3 && l == 0 && nbase[t] == 1) continue;   // a single cell across: no tangential difference (as the uniform solver)
+            const int cl = nbr_[static_cast<size_t>(ns_) * c + 2 * t], ch = nbr_[static_cast<size_t>(ns_) * c + 2 * t + 1];
             double span = 2.0;
             if (cl < 0) span -= 1.0;
             if (ch < 0) span -= 1.0;
@@ -1106,7 +1131,7 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
             tg.Whi[t] = ch < 0 ? eos.cons_to_prim(Ui) : eos.cons_to_prim(cell_state(ch));
             tg.span[t] = span;
         }
-        const double hs[3] = {m.dx(l), m.dy(l), 0.0};
+        const double hs[3] = {m.dx(l), m.dy(l), dim_ == 3 ? m.dz(l) : 0.0};
         return bc_.nonreflecting_ghost(side, Ui, tg, hs);
     };
     // boundary_order = 2: the faces on a physical side and the interior faces next to it are reconstructed through ghost layers (the
@@ -1367,6 +1392,10 @@ constexpr int kViscBlock = 256;   // list entries per block of the viscous loops
 
 #ifdef FV_SIMD_AVX2
 void CellFluxEngine::cell_quantities(const CellMesh& m, const std::vector<int>& cells) {
+    if (dim_ == 3) {
+        cell_quantities_3d(m, cells);
+        return;
+    }
     const EOS& eos = eos_;
     const Field& U = *us_;
     const int n = static_cast<int>(cells.size());
@@ -1409,6 +1438,10 @@ void CellFluxEngine::cell_quantities(const CellMesh& m, const std::vector<int>& 
 #else
 // Without the vector kernels (non-x86, FV_NO_SIMD): the original loop
 void CellFluxEngine::cell_quantities(const CellMesh& m, const std::vector<int>& cells) {
+    if (dim_ == 3) {
+        cell_quantities_3d(m, cells);
+        return;
+    }
     const EOS& eos = eos_;
     const Field& U = *us_;
     const int n = static_cast<int>(cells.size());
@@ -1442,6 +1475,10 @@ void CellFluxEngine::cell_quantities(const CellMesh& m, const std::vector<int>& 
 #endif
 
 void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& faces) {
+    if (dim_ == 3) {
+        viscous_fluxes_3d(m, faces);
+        return;
+    }
     const int nlist = static_cast<int>(faces.size());
     const NavierStokes& ns = *phys_.ns;
     const double mu = ns.mu(), gamma = eos_.gamma;
@@ -1543,6 +1580,7 @@ void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& f
 
 #ifdef FV_SIMD_AVX2
 double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
+    if (dim_ == 3) return viscous_speed_3d(m, cb, ce);
     const NavierStokes& ns = *phys_.ns;
     const double mu = ns.mu(), gamma = eos_.gamma;
     const double k_cond = eos_.transport_law().thermal_conductivity(mu, ns.prandtl());
@@ -1567,6 +1605,7 @@ double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
 }
 #else
 double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
+    if (dim_ == 3) return viscous_speed_3d(m, cb, ce);
     const NavierStokes& ns = *phys_.ns;
     const double mu = ns.mu(), gamma = eos_.gamma;
     const double k_cond = eos_.transport_law().thermal_conductivity(mu, ns.prandtl());
@@ -1594,36 +1633,225 @@ double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
 }
 #endif
 
+// --- 3-D viscous terms: the expressions of NavierStokes::viscous_residual_3d (a level-0 octree gives its bits) ---
+
+void CellFluxEngine::cell_quantities_3d(const CellMesh& m, const std::vector<int>& cells) {
+    const EOS& eos = eos_;
+    const Field& U = *us_;
+    const int n = static_cast<int>(cells.size());
+    double* const G[3][3] = {{dudx_.data(), dudy_.data(), dudz_.data()},
+                             {dvdx_.data(), dvdy_.data(), dvdz_.data()},
+                             {dwdx_.data(), dwdy_.data(), dwdz_.data()}};
+    double* const vel[3] = {su_.data(), sv_.data(), sw_.data()};
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+    for (int k = 0; k < n; ++k) {
+        const int c = cells[static_cast<size_t>(k)];
+        const int l = m.level[c];
+        const State& Ui = U[c];
+        const State W = eos.cons_to_prim(Ui);
+        State nb[6];   // the six neighbours (the diffusive ghost at a physical edge): the padded state of the uniform solver
+        for (int s = 0; s < 6; ++s) {
+            const int code = nbr_[static_cast<size_t>(6) * c + s];
+            nb[s] = code >= 0 ? cell_state(code) : bc_.viscous_ghost_3d(static_cast<Face>(s), Ui);
+        }
+        const double h[3] = {m.dx(l), m.dy(l), m.dz(l)};
+        State grad[3];   // central differences of the conservative state (compute_gradients_3d)
+        for (int b = 0; b < 3; ++b)
+            for (int q = 0; q < kNVar; ++q) grad[b][q] = (nb[2 * b + 1][q] - nb[2 * b][q]) / (2.0 * h[b]);
+        const double rho = W[0];
+        sT_[c] = W[3] / rho;
+        for (int a = 0; a < 3; ++a) {
+            const double ua = W[kMom[a]];
+            vel[a][c] = ua;
+            for (int b = 0; b < 3; ++b) G[a][b][c] = (grad[b][kMom[a]] - ua * grad[b][0]) / rho;
+        }
+    }
+}
+
+void CellFluxEngine::viscous_fluxes_3d(const CellMesh& m, const std::vector<int>& faces) {
+    const int nlist = static_cast<int>(faces.size());
+    const NavierStokes& ns = *phys_.ns;
+    const double mu = ns.mu();
+    const double k_cond = eos_.transport_law().thermal_conductivity(mu, ns.prandtl());
+    const Field& U = *us_;
+    const bool bo2 = bc_.params().boundary_order == 2;
+    if (Fv_.size() != m.faces.size()) Fv_.resize(m.faces.size());
+    const double* const G[3][3] = {{dudx_.data(), dudy_.data(), dudz_.data()},
+                                   {dvdx_.data(), dvdy_.data(), dvdz_.data()},
+                                   {dwdx_.data(), dwdy_.data(), dwdz_.data()}};
+    const double* const vel[3] = {su_.data(), sv_.data(), sw_.data()};
+    // the cross terms (a, b) = du_a / dx_b of a face normal to axis d, in the order of the uniform solver (CrossGhosts order)
+    static const int kPairs[3][4][2] = {{{0, 1}, {1, 1}, {2, 2}, {0, 2}}, {{0, 0}, {1, 0}, {2, 2}, {1, 2}}, {{0, 0}, {1, 1}, {2, 0}, {2, 1}}};
+    const auto hsz = [&](int axis, int l) { return axis == 0 ? m.dx(l) : (axis == 1 ? m.dy(l) : m.dz(l)); };
+#pragma omp parallel for schedule(static) if (nlist >= kOmpMinWork)
+    for (int fi = 0; fi < nlist; ++fi) {
+        const int f = faces[static_cast<size_t>(fi)];
+        const CellFace& face = m.faces[f];
+        const int d = face.axis, lv = face.level;
+        double vL[3], vR[3], TL, TR, h;
+        double Gc[3][3] = {};
+        if (face.kind == CellFaceKind::Boundary) {
+            const bool ghost_left = face.left < 0;
+            const int c = ghost_left ? face.right : face.left;
+            const State g = eos_.cons_to_prim(bc_.viscous_ghost_3d(face.side, U[c]));
+            const double gT = g[3] / g[0];
+            for (int a = 0; a < 3; ++a) {
+                (ghost_left ? vL : vR)[a] = g[kMom[a]];
+                (ghost_left ? vR : vL)[a] = vel[a][c];
+            }
+            TL = ghost_left ? gT : sT_[c];
+            TR = ghost_left ? sT_[c] : gT;
+            h = hsz(d, lv);
+            if (bo2) {
+                // second-order boundary face: d u_a / d x_b is the tangential difference of the face values (ghost and cell average)
+                // of the two neighbours along b. Across a physical edge along b the neighbour is the b-ghost of the leaf and its
+                // d-ghost is the edge entry of the padded state (BoundaryManager::fix_padded_corners: the rule of the lower axis
+                // applied to the face ghost of the other one).
+                double fval[6][3] = {};
+                for (int b = 0; b < 3; ++b) {
+                    if (b == d) continue;
+                    for (int hi = 0; hi < 2; ++hi) {
+                        const int si = 2 * b + hi;
+                        const int code = nbr_[static_cast<size_t>(6) * c + si];
+                        if (code == kOutside) throw std::logic_error("CellFluxEngine: a boundary face reads a leaf that is not in this rank's partial mesh");
+                        State in, gh;
+                        if (code >= 0) {
+                            in = cell_state(code);
+                            gh = bc_.viscous_ghost_3d(face.side, in);
+                        } else {
+                            const Face ts = static_cast<Face>(si);
+                            in = bc_.viscous_ghost_3d(ts, U[c]);
+                            gh = d < b ? bc_.viscous_ghost_3d(face.side, in) : bc_.viscous_ghost_3d(ts, bc_.viscous_ghost_3d(face.side, U[c]));
+                        }
+                        const State Wg = eos_.cons_to_prim(gh), Wi = eos_.cons_to_prim(in);
+                        for (int a = 0; a < 3; ++a) fval[si][a] = 0.5 * (Wg[kMom[a]] + Wi[kMom[a]]);
+                    }
+                }
+                for (const auto& pr : kPairs[d]) {
+                    const int a = pr[0], b = pr[1];
+                    Gc[a][b] = (fval[2 * b + 1][a] - fval[2 * b][a]) / (2.0 * hsz(b, lv));
+                }
+            } else {
+                for (const auto& pr : kPairs[d]) {
+                    const double x = G[pr[0]][pr[1]][c];
+                    Gc[pr[0]][pr[1]] = 0.5 * (x + x);
+                }
+            }
+        } else {
+            const int L = face.left, R = face.right;
+            for (int a = 0; a < 3; ++a) {
+                vL[a] = vel[a][L];
+                vR[a] = vel[a][R];
+            }
+            TL = sT_[L];
+            TR = sT_[R];
+            h = 0.5 * (hsz(d, m.level[L]) + hsz(d, m.level[R]));
+            for (const auto& pr : kPairs[d]) Gc[pr[0]][pr[1]] = 0.5 * (G[pr[0]][pr[1]][L] + G[pr[0]][pr[1]][R]);
+        }
+        double Gn[3], vf[3];
+        for (int a = 0; a < 3; ++a) {
+            Gn[a] = (vR[a] - vL[a]) / h;
+            vf[a] = 0.5 * (vL[a] + vR[a]);
+        }
+        const double dT = (TR - TL) / h;
+        double tau[3];
+        for (int a = 0; a < 3; ++a) {
+            if (a == d) {
+                double others = 0.0;
+                for (int o = 0; o < 3; ++o)
+                    if (o != d) others += Gc[o][o];
+                tau[a] = mu * (kMuDiag * Gn[d] - kMuOff * others);
+            } else {
+                tau[a] = mu * (Gn[a] + Gc[d][a]);   // du_a/dx_d + du_d/dx_a
+            }
+        }
+        const double q_d = -k_cond * dT;
+        const double area = face.length;
+        Fv_[f] = {0.0, tau[0] * area, tau[1] * area, (vf[0] * tau[0] + vf[1] * tau[1] + vf[2] * tau[2] - q_d) * area, tau[2] * area};
+    }
+}
+
+double CellFluxEngine::viscous_speed_3d(const CellMesh& m, int cb, int ce) const {
+    const NavierStokes& ns = *phys_.ns;
+    const double mu = ns.mu(), gamma = eos_.gamma;
+    const double k_cond = eos_.transport_law().thermal_conductivity(mu, ns.prandtl());
+    const Field& U = *us_;
+    double s_max = 0.0;
+#pragma omp parallel if (ce - cb >= kOmpMinWork)
+    {
+        double local = 0.0;
+#pragma omp for schedule(static) nowait
+        for (int c = cb; c < ce; ++c) {
+            const int l = m.level[c];
+            const double dx = m.dx(l), dy = m.dy(l), dz = m.dz(l);
+            // the time-step length of the leaf, 2 / sum 1/h (Simulation::dt_length), and sum 1/h^2 (viscous_residual_3d)
+            const double inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy) + 1.0 / (dz * dz);
+            const double L = 2.0 / (1.0 / dx + 1.0 / dy + 1.0 / dz);
+            const State W = eos_.cons_to_prim(U[c]);
+            const double rho = W[0];
+            const double nu_eff = std::max((4.0 / 3.0) * (mu / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
+            const double s = std::max({std::abs(W[1]), std::abs(W[2]), std::abs(W[4])}) + eos_.sound_speed(W[3], rho) +
+                             2.0 * L * inv_h2 * nu_eff;
+            local = std::max(local, s);
+        }
+#pragma omp critical(fv_cellvisc_speed3)
+        s_max = std::max(s_max, local);
+    }
+    return s_max;
+}
+
 void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Field& R) {
     R.resize(static_cast<size_t>(ce - cb));
     const bool visc = phys_.ns != nullptr;
     const Field& U = *us_;
     if (phys_.source && phys_.source_unsteady) update_source(m, cb, ce);
-    if (dim_ == 3) {   // convective only (build rejects the other terms in 3-D)
+    if (dim_ == 3) {   // convective, viscous (build rejects the other terms in 3-D until they are generalised)
 #pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
         for (int c = cb; c < ce; ++c) {
-            // side integrals: sum of (face flux * face area), one face or four (summed in pairs, in slot order: a fixed order)
-            State G[6];
+            // side integrals: sum of (face flux * face area), one face or four (summed in pairs, in slot order: a fixed order);
+            // the viscous face fluxes are stored times the area already
+            State G[6], H[6];
             for (int s = 0; s < 6; ++s) {
                 const int b = m.side_ptr[6 * c + s], e = m.side_ptr[6 * c + s + 1];
-                State part[4];
+                State part[4], vpart[4];
                 for (int k = b; k < e; ++k) {
                     const int fi = m.side_face[k];
                     const CellFace& f = m.faces[fi];
                     const bool reg = replace && f.level > m.level[c];
                     const State& Fk = reg ? reg_[static_cast<size_t>(reg_slot_[static_cast<size_t>(fi)])] : F_[fi];
                     for (int q = 0; q < kNVar; ++q) part[k - b][q] = Fk[q] * f.length;
+                    if (visc) vpart[k - b] = reg ? regv_[static_cast<size_t>(reg_slot_[static_cast<size_t>(fi)])] : Fv_[fi];
                 }
-                if (e - b == 1)
+                if (e - b == 1) {
                     G[s] = part[0];
-                else
+                    if (visc) H[s] = vpart[0];
+                } else {
                     for (int q = 0; q < kNVar; ++q) G[s][q] = (part[0][q] + part[1][q]) + (part[2][q] + part[3][q]);
+                    if (visc)
+                        for (int q = 0; q < kNVar; ++q) H[s][q] = (vpart[0][q] + vpart[1][q]) + (vpart[2][q] + vpart[3][q]);
+                }
             }
             const double inv_vol = 1.0 / m.volume(c);   // the uniform solver's 1 / cell_volume()
             State& r = R[c - cb];
             for (int q = 0; q < kNVar; ++q)
                 r[q] = (((0.0 - (G[1][q] - G[0][q])) - (G[3][q] - G[2][q])) - (G[5][q] - G[4][q])) * inv_vol;
+            if (visc)   // NavierStokes::viscous_residual_3d, accumulated
+                for (int q = 0; q < kNVar; ++q)
+                    r[q] += (((0.0 + (H[1][q] - H[0][q])) + (H[3][q] - H[2][q])) + (H[5][q] - H[4][q])) * inv_vol;
+            if (!phys_.rhs_sources && phys_.body) {
+                const ConstantBodyForce& bf = *phys_.body;
+                r[1] += U[c][0] * bf.gx;
+                r[2] += U[c][0] * bf.gy;
+                r[3] += U[c][1] * bf.gx + U[c][2] * bf.gy;
+                if (bf.gz != 0.0) {
+                    r[3] += U[c][4] * bf.gz;
+                    r[4] += U[c][0] * bf.gz;
+                }
+            }
+            if (!phys_.rhs_sources && phys_.source)
+                for (int q = 0; q < kNVar; ++q) r[q] += src_[c][q];
         }
+        if (phys_.rhs_sources) phys_.rhs_sources->apply_adaptive(m, U, R, cb, ce, stage_time, phys_.source ? &src_ : nullptr);
         return;
     }
 #pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
@@ -1764,19 +1992,23 @@ void CellFluxEngine::solid_reset(const CellMesh& m, Field& U) const {
     std::vector<char> fringe(static_cast<size_t>(N), 0);
     // Neumann condition: a solid leaf next to fluid copies rho / p from it; passes right, left, top, bottom (later
     // passes win), each reading the original rho / p; no pull across a domain edge, periodic or not. A finer
-    // neighbour contributes the mean of its fluid leaves.
-    for (const Face side : {Face::Right, Face::Left, Face::Top, Face::Bottom}) {
+    // neighbour contributes the mean of its fluid leaves. 3-D: then back, front (as the uniform solver), up to four finer leaves.
+    const Face passes[6] = {Face::Right, Face::Left, Face::Top, Face::Bottom, Face::Back, Face::Front};
+    for (int pi = 0; pi < (m.dim == 3 ? 6 : 4); ++pi) {
+        const Face side = passes[pi];
         for (int c = 0; c < N; ++c) {
             if (!solid_[c] || (!owned_mask_.empty() && !owned_mask_[c])) continue;
             const int l = m.level[c];
             const bool edge = (side == Face::Right && m.ci[c] + 1 == m.nx_at(l)) ||
                               (side == Face::Left && m.ci[c] == 0) ||
-                              (side == Face::Top && m.cj[c] + 1 == m.ny_at(l)) || (side == Face::Bottom && m.cj[c] == 0);
+                              (side == Face::Top && m.cj[c] + 1 == m.ny_at(l)) || (side == Face::Bottom && m.cj[c] == 0) ||
+                              (side == Face::Back && m.ck[c] + 1 == m.nz_at(l)) || (side == Face::Front && m.ck[c] == 0);
             if (edge) continue;
             const CellNeighbour nb = m.neighbour(c, side);
             double sr = 0.0, sp = 0.0;
             int cnt = 0;
-            for (const int n : {nb.a, nb.b}) {
+            const int fine[4] = {nb.a, nb.b, m.dim == 3 ? nb.c : -1, m.dim == 3 ? nb.d : -1};
+            for (const int n : fine) {
                 if (n < 0 || solid_[n]) continue;
                 sr += rho[n];
                 sp += p[n];

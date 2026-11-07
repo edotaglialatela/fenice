@@ -246,7 +246,7 @@ the validation. The flux kernels, the time recursion, the registers and the Riem
 | Q1 | Dimension layer (key arithmetic, children, 26 offsets, key ranges of a region) and `CellMesh` in 2-D and 3-D: leaves, faces, side lists (1 or 4), balance, adapt (refine to 8, merge, ripple); the brute-force oracle in both dimensions | oracle tests in 2-D (existing ones unchanged) and 3-D; golden dumps of 2-D equal. **Done 2026-11-07, section 12** |
 | Q2 | `CellFluxEngine` convective residual in 3-D: stencils with virtual cells of 8, the 3-D jump closure (b)+(c), boundary ghosts on six sides, WENO3-Z, `boundary_order = 2`; the 2-D per-leaf cost gate | level-0 3-D == uniform 3-D bitwise; free stream exact; the near-jump order table; **2-D per-leaf cost within 5 %**. **Done 2026-11-07, section 13** |
 | Q3 | `CellAdvance`: 4 registers per coarse side; subcycling in 3-D | conservation for the three schemes; level-0 steps == uniform 3-D steps; permutation Sod; the z-invariant check. **Done 2026-11-07, section 14** |
-| Q4 | Physics: viscous 3-D family (and AVX2 twin), body force, sources, NRBC with two tangential directions, mass-flow inlet; **the IBM redesign** (per-leaf classification, the ghost table from the band leaves) | bitwise level-0 tests with each physics; MMS on an adapted 3-D mesh; IBM masks equal to the uniform ones on the same cells; ghost wall equal to the uniform 3-D ghost wall |
+| Q4 | Physics: viscous 3-D family (and AVX2 twin), body force, sources, NRBC with two tangential directions, mass-flow inlet; **the IBM redesign** (per-leaf classification, the ghost table from the band leaves) | bitwise level-0 tests with each physics; MMS on an adapted 3-D mesh; IBM masks equal to the uniform ones on the same cells; ghost wall equal to the uniform 3-D ghost wall. **a-d done 2026-11-07 (section 15); e (ghost wall) designed, not built** |
 | Q5 | Indicator, flags, remesh, initial adaptation, body band, hot starts in 3-D (serial and OpenMP, through the whole-mesh `CellMesh::adapt` that stays as the oracle) | indicator equals a structured 6-neighbour implementation; remesh deterministic, idempotent, conservative; a 3-D Sod and Taylor-Green with AMR against uniform |
 | Q6 | MPI: partition per level, halo lists, registers, region boxes and 26 rings in the topology-free remesh; **the CLI opens** (`use_amr` with `nz > 1`) | serial == 1-7 ranks bitwise (FakeHub and real MPI); the halo-reach guard; thread independence; memory per rank |
 | Q7 | I/O (hexahedra, 3-D `leaf_meta`, checkpoint, readers), parameters, GUI keys, docs, CI, the 3-D regression references | restart bitwise; docs and parameters in sync; CI green |
@@ -611,3 +611,90 @@ The 3-D helpers of the Q2 file (`setup_3d`, `octree_of`, `test_state3`, `random_
   construction (the goldens were not rerun).
 * **Not in Q3:** the physics of Q4 (viscous, body force, sources, IBM, mass flow, NRBC are still rejected by `build()` on a 3-D mesh), the
   indicator and remesh in 3-D (Q5), MPI (Q6), anything 3-D in the CLI.
+
+## 15. Phase Q4 as built (2026-11-07): the physics of the engine on octree leaves
+
+Sub-steps a-d are built and tested (`cpp/tests/test_amr_octree_physics.cpp`); e (the ghost-cell wall in 3-D) is designed in 15.6, not built.
+
+### 15.1 Q4a: viscous terms
+* **What the level-0 tree reproduces** (read in `NavierStokes::viscous_residual_3d`, `compute_gradients_3d`, `BoundaryManager::padded_3d` /
+  `fix_padded_corners`): cell gradients are central differences of the conservative padded state, `G[a][b] = (d_b (rho u_a) - u_a d_b rho) / rho`
+  (all nine); a face normal to d takes compact normal differences, face-averaged velocities and four cross terms in a fixed table
+  (`d = 0`: G01, G11, G22, G02; `d = 1`: G00, G10, G22, G12; `d = 2`: G00, G11, G20, G21), the flux `{0, tau_x, tau_y, u.tau - q, tau_z} * area`,
+  the residual `+= (((0 + (H1 - H0)) + (H3 - H2)) + (H5 - H4)) / volume` after the convective one; speed `max(|u|,|v|,|w|) + c + 2 L D sum 1/h^2`
+  with `L = 2 / sum 1/h` of the leaf.
+* **The 3-D diffusive ghost** is a new `BoundaryManager::viscous_ghost_3d` (the `padded_3d` expressions verbatim): the 2-D `viscous_ghost` is
+  wrong in 3-D (a slip wall on front / back flips slot 1, no-slip never negates `rho w`, the moving wall never sets it), and stays untouched.
+* **`boundary_order = 2` edges**: the cross term of a boundary face is the tangential difference of the face values of its two neighbours along
+  b; across a physical edge along b the neighbour is the b-ghost of the leaf and its d-ghost is the edge entry of `fix_padded_corners`: the
+  rule of the **lower** axis applied to the face ghost of the other (`d < b ? G_d(G_b(U)) : G_b(G_d(U))`), the 2-D corner rule generalised.
+* Separate scalar functions `cell_quantities_3d`, `viscous_fluxes_3d`, `viscous_speed_3d`, dispatched once at the top of the 2-D ones (the 2-D
+  AVX2 runs stride 4 into the neighbour codes and use the 2-D speed); six more per-leaf arrays (w and the z / w gradients), allocated only on a
+  viscous 3-D mesh; registers (`regv_`) unchanged, the gather sums four fine viscous faces in pairs like the convective ones.
+* Tests: level-0 residual and speed **bitwise**, 48 cases (6 boundary sets with moving walls on x-, y- and z-sides and non-commuting neighbours
+  on every pair of axes, first order / MUSCL / WENO3-Z, `boundary_order` 1 and 2, mu 0.02 and 0.6; the viscous speed is the larger one in all 48)
+  plus two meshes above `kOmpMinWork`; level pieces == residual bitwise and conservative to 1e-13 (three levels); subcycled conservation of the five
+  totals 1.3e-15 - 5.4e-15 with the control 1.2e-5 - 3.9e-5 (Euler, RK2, RK3), free stream drift 0 (1e-16 with RK3); level-0 steps bitwise; the
+  invariant-axis residual equals the 2-D engine's to 1e-12 on all three axes, the a-momentum exactly 0. Mutations caught: the edge composition
+  swapped (17 failed checks), a wrong z spacing in the gradient (50).
+
+### 15.2 Q4b: body force and sources
+* The gather of 3-D adds, after the viscous term, the body force and the sources inline or through `RhsSourceTerms` (as in 2-D); the source
+  expressions are evaluated at the leaf centres with z (`evaluate_source_points` gained an optional `zs`, nullptr = z 0: 2-D unchanged).
+* Tests: the 3-D manufactured solution with a body force on three axes, and a walled box with a time-dependent source, against the uniform
+  solver **bitwise**, both paths (this also shows that the leaf centres are the uniform cell centres bit for bit).
+* **MMS on an adapted 3-D mesh** (the Q4 acceptance): the manufactured solutions (viscous, steady sources, periodic), base n^d with one half
+  refined, L1(rho) against the exact field at t = 0.05, the same measure in 2-D. Bands fixed before the run, all pass:
+
+  | | uniform n = 12 / 24 | order | adaptive | order | away from the jumps | order | adaptive / uniform at 24 |
+  |---|---|---|---|---|---|---|---|
+  | 2-D | 1.17e-2 / 3.07e-3 | 1.93 | 8.02e-3 / 2.31e-3 | 1.79 | 7.50e-3 / 2.14e-3 | 1.81 | 0.754 |
+  | 3-D | 1.22e-2 / 3.21e-3 | 1.92 | 7.79e-3 / 1.97e-3 | 1.98 | 6.89e-3 / 1.82e-3 | 1.92 | 0.614 |
+
+### 15.3 Q4c: mass-flow inlet and non-reflecting outlet
+* The inlet's density average is summed in the uniform solver's order of the boundary cells, which on every 3-D side is (second transverse axis
+  major, first minor) = the octree's `(tpos2, tpos)`, scaled to the finest level; a face counts `1 << ((dim - 1)(fine - level))` finer faces.
+  The outlet takes its tangential differences along both tangential axes in the uniform loop order, with the leaf's sizes, one-sided at a wall.
+* Tests: level-0 bitwise with the inlet on an x-, a y- and a z-side and the outlet opposite (24 cases, inviscid and viscous, `boundary_order`
+  1 and 2); the invariant-axis residual equals the 2-D engine's with several levels on the inlet and outlet sides. The mass-flow ghost blows along
+  x whatever its side (`ghost_state`, as the uniform solver), so the inlet is part of that check only when the 2-D x-axis stays x. Mutations
+  caught: the 2-D face weight in 3-D (4 failed checks), the transverse order swapped (12).
+
+### 15.4 Q4d: immersed body, per-leaf classification (decision D6)
+* `ImmersedBoundary::solid_at(x, y, z)` is now the single centre test both uniform constructors build their mask from (sphere, cylinder along z,
+  extruded polygon with its bounding box), so the uniform masks cannot move. On a 3-D mesh the engine builds the body once on the base mesh and
+  classifies each leaf by `solid_at` of its centre (a kept leaf keeps its flag in an incremental build); no mask of a uniform mesh of a level
+  exists in 3-D. 2-D keeps its level masks. A mask-only body is rejected in 3-D.
+* The solid reset gains the back / front passes (after right, left, top, bottom, as the uniform solver) and averages up to four finer fluid leaves.
+* Tests: the flags of every leaf equal the uniform masks of its level (sphere, cylinder, NACA0012 extruded, after an incremental build too: 0 of
+  2242 - 3544 leaves differ); level-0 residual and solid reset **bitwise** (inviscid and viscous); a cylinder along z on the extruded tree
+  equals the 2-D engine (residual 1.1e-14, reset 1.8e-16); the reset against a brute-force oracle (touching leaves found in finest-level integer
+  boxes) on a randomly adapted mesh: exact, 20 averages over three or four finer leaves; a subcycled run past a sphere stays positive with the
+  solid leaves at rest. Mutations caught: the back / front passes dropped, the third and fourth finer leaves dropped (the oracle).
+
+### 15.5 Gates (Q4a-d)
+* Unit tests 170/170; `check_all.py --golden` (regression serial and 4 ranks, `amr_mpi.py --check` 1-7 ranks, `ibm_ghost.py --check`, MMS,
+  post-processing): all passed; the 2-D golden dumps bitwise equal to the Q0 binary's, also the quick sets with `FENICE_NO_SIMD=1` and
+  `FENICE_FULL_REBUILD=1`.
+* 2-D cost of the viscous path (it gained a dispatch): the viscous IBM airfoil AMR case at 720 x 360, 60 steps, 1 thread, min of 3 interleaved
+  against the Q0 binary: 6.81 -> 6.84 s (**1.004x**). Note for later gates: the Q0 binary predates the `reconstruction` key and reads today's
+  case files as first order (`use_muscl = false`); it must be given `--set use_muscl=true` (without it the comparison showed a false 1.16x).
+
+### 15.6 Q4e (not built): the ghost-cell wall on octree leaves
+The 2-D engine builds the ghost table on the uniform finest mesh (`ghost_ib_`: a mask and a ghost mask of every finest cell) and maps its cells
+to finest leaves; in 3-D that is the O(finest cells) array 4.9 forbids. A table on a sub-box of the finest mesh does not work either: its cell
+centres `x0_box + (i + 0.5) dx` are not the bits of `x0 + (I0 + i + 0.5) dx`. Proposed:
+1. Refactor `ImmersedBoundary::enable_ghost_cells` / `make_probe3` to read solidity through a predicate and to visit a candidate list: the
+   uniform path passes `mask_[cell]` and every cell (same bits, guarded by regression and `ibm_ghost.py --check`); the octree path passes
+   `solid_at` at the finest centres (equal to the mask by construction) and the solid finest leaves, in cell order; cell numbers are global finest
+   indices (64-bit beyond 2^31 cells), no dense array.
+2. Readiness (as `ghost_ready` in 2-D): every ghost cell, its 2-cell neighbourhood and its probe cells are finest leaves, and no coarser leaf
+   lies within `ghost_reach` finest widths of the surface (distance of the box from `closest_wall_point3` against its half diagonal);
+   otherwise the mask forcing stays.
+3. Oracle: on a tree fully refined around the body, the sparse table equals the uniform finest-mesh table (ghost cells, ratios, probe cells and
+   weights) bit for bit, and the residual / reset equal the uniform ghost wall on a fully refined tree; sphere and extruded bodies.
+
+### 15.7 Not in Q4
+The AVX2 twin of the 3-D viscous kernels (the "keep it only if faster" rule needs a measurement on real 3-D runs: Q8); `face_dependencies`
+already marks the six neighbours of both cells (gradients, `boundary_order = 2` tangential faces, outlet tangents) through the generic `ns_` loops,
+but it is untested in 3-D until Q6; the ghost wall in 3-D (15.6).

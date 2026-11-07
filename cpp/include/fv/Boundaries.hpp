@@ -104,6 +104,9 @@ public:
     // Ghost cell of the diffusive (viscous) stencil next to a physical side `side` for the interior state `in`:
     // the zero-gradient copy with the momentum rules of get_padded_U (2-D). Periodic sides use the opposite cell.
     State viscous_ghost(Face side, const State& in) const;
+    // The same for a 3-D mesh: the face-ghost entry of the 3-D padded state (no-slip negates the three momenta, a slip wall the
+    // normal one, a moving wall moves along x and y with u_in, v_in; the expressions of padded_3d, bit for bit).
+    State viscous_ghost_3d(Face side, const State& in) const;
 
     // U padded with BC-consistent ghost cells: (ny+2)*(nx+2) in 2-D, (nz+2)*(ny+2)*(nx+2) in 3-D (row-major).
     void get_padded_U(const Field& U, Field& U_pad) const;

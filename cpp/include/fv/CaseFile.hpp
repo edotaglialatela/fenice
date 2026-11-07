@@ -115,10 +115,11 @@ Field evaluate_initial(const InitialSpec& spec, const Mesh& mesh, const EOS& eos
 // solution U_m needs S = div(F(U_m) - F_viscous(U_m)). The expressions may also use the time `t` (an unsteady
 // manufactured solution, S = dU_m/dt + div(...)); `t` is the time the source is evaluated at (0 by default).
 Field evaluate_source(const Mesh& mesh, const Params& run, double t = 0.0);
-// The same at arbitrary points (xs[k], ys[k]), k < n, of a 2-D domain whose base mesh is `mesh` (the expression
-// variables Lx, nx, ... come from it): the cell centres of an adaptive mesh. Writes n states into `out`.
+// The same at arbitrary points (xs[k], ys[k][, zs[k]]), k < n, of a domain whose base mesh is `mesh` (the expression
+// variables Lx, nx, ... come from it): the cell centres of an adaptive mesh. Writes n states into `out`. zs = nullptr: z = 0
+// (a 2-D mesh).
 void evaluate_source_points(const Mesh& mesh, const Params& run, double t, const double* xs, const double* ys, int n,
-                            State* out);
+                            State* out, const double* zs = nullptr);
 
 // Compile a scalar case-file expression once and return a function of time.  The expression can also refer to numeric run
 // parameters, pi and e; x, y and z remain zero because boundary values are spatially uniform.

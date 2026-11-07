@@ -8,9 +8,9 @@
 // wrap by the cell on the other side.  At a coarse-fine face the fine side is reconstructed against the coarse value
 // interpolated to the centre of the fine cell that would sit there (interpolate_jumps) and the coarse side is reconstructed
 // against the mean of the fine leaves (coarse_side_second_order), so a uniform flow is preserved exactly across level jumps.
-// On a 3-D mesh (CellMesh::make_3d) the convective residual runs on six sides (a side towards finer leaves has four faces);
-// viscous terms, forces, sources, the immersed body, mass-flow inlets and non-reflecting outlets are rejected there by build()
-// until they are generalised (docs/design/amr-octree.md).
+// On a 3-D mesh (CellMesh::make_3d) the residual runs on six sides (a side towards finer leaves has four faces) with the convective
+// and viscous terms (the expressions of NavierStokes::viscous_residual_3d, scalar), the body force, the sources, mass-flow inlets and
+// non-reflecting outlets; the immersed body is rejected there by build() until it is generalised (docs/design/amr-octree.md).
 // The viscous terms use the same neighbour codes: the cell-centre gradients (central differences of the four
 // neighbouring values, virtual cells across a jump, the diffusive ghost at a physical edge) feed the cross
 // derivatives, the normal derivative of a face is the two-point difference over the distance of its two cell centres.
@@ -223,6 +223,10 @@ private:
     void cell_quantities(const CellMesh& m, const std::vector<int>& cells);
     void viscous_fluxes(const CellMesh& m, const std::vector<int>& faces);
     double viscous_speed(const CellMesh& m, int cb, int ce) const;
+    // 3-D versions (scalar; the expressions of NavierStokes::viscous_residual_3d, so a level-0 octree gives its bits)
+    void cell_quantities_3d(const CellMesh& m, const std::vector<int>& cells);
+    void viscous_fluxes_3d(const CellMesh& m, const std::vector<int>& faces);
+    double viscous_speed_3d(const CellMesh& m, int cb, int ce) const;
     void gather(const CellMesh& m, int cb, int ce, bool replace, Field& R);
     void update_source(const CellMesh& m, int cb, int ce);
 
@@ -287,6 +291,9 @@ private:
     std::vector<std::vector<int>> vcells_;   // per level: its leaves and the coarse cells of its coarse-fine faces
     // viscous cell quantities: u, v, T, du/dx, du/dy, dv/dx, dv/dy
     std::vector<double> su_, sv_, sT_, dudx_, dudy_, dvdx_, dvdy_;
+    // 3-D only (empty in 2-D): w and the other five entries of G[a][b] = du_a / dx_b (G00 = dudx_, G01 = dudy_, G10 = dvdx_,
+    // G11 = dvdy_ above)
+    std::vector<double> sw_, dudz_, dvdz_, dwdx_, dwdy_, dwdz_;
     double s_visc_ = 0.0;
     std::vector<char> solid_;
     double ibm_rho_ref_ = 1.0, ibm_p_ref_ = 1.0;   // deep-solid reset state
@@ -299,7 +306,10 @@ private:
     bool ghost_ready_ = false;
     void map_ghost_cells(const CellMesh& m, const CellMesh* whole);
     void fill_ghost_leaves(const Field& U, Field& out, const std::vector<char>* only) const;
-    std::vector<std::vector<char>> level_mask_;   // cache: mask of the uniform mesh of each level
+    std::vector<std::vector<char>> level_mask_;   // cache: mask of the uniform mesh of each level (2-D)
+    // 3-D: the body built once on the base mesh; a leaf is solid when ImmersedBoundary::solid_at of its centre says so (no mask
+    // of a uniform mesh of a level: docs/design/amr-octree.md section 4.9)
+    std::shared_ptr<ImmersedBoundary> ibm_geo_;
     Field src_;                                    // source terms per leaf
     // Mass-flow inlet: boundary faces of each side in increasing transverse position, and their weights
     // (1 << (finest level of the side - face level)), so a uniform side sums exactly like the uniform solver
