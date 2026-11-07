@@ -145,7 +145,7 @@ body kept at max level (`amr_body_kept_at_max_level`), marking, buffer and the a
 | P6 | MPI | bitwise vs serial on 1..7 ranks; per-level balance report |
 | P7 | VTK, restart, python readers, params, GUI keys, docs, validation scripts; delete the patch engine | all studies run; docs rewritten |
 | P8 | Performance and load balance versus `main` | wall time per accuracy not worse on any study; report |
-| P9 (separate decision) | 3-D octree | none yet |
+| P9 (separate decision) | 3-D octree | proposal in `docs/design/amr-octree.md` (phases Q0-Q8, decisions D1-D10 for the user) |
 
 The AMR regression references (6) change in P3..P5 because the numerics change (different coarse-fine closure, no patch
 seams); they are regenerated only after validation against uniform fine runs and exact solutions, with your approval.

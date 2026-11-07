@@ -170,6 +170,8 @@ reading the code; measured in section 8.1):
 
 ### 3.7 Dimension-agnostic layer (towards 3-D)
 
+The 3-D plan that uses this layer is `docs/design/amr-octree.md` (architecture options, the IBM and halo-cost traps, phases Q0-Q8).
+
 Key arithmetic (parent, children, the 8 (2-D) / 26 (3-D) neighbour offsets, the key range of a region per level), the splitters,
 migration, halo-by-region and the ripple rounds go behind a small layer templated on the dimension, used by the 2-D `CellMesh` /
 `CellFluxEngine` (which stay 2-D). Note for later: a 64-bit 3-D Morton key leaves 21 bits per axis (2 M cells per axis at the finest
