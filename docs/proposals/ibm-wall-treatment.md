@@ -181,6 +181,8 @@ equation says dp/dn = rho kappa u_t^2, so the zero gradient is a first-order err
 h^1 without the correction, 9.2e-4 and h^1.6 with it. With `ibm_curvature = true` the ghost pressure is p_image - rho kappa u_t^2 (d_image + d_ghost),
 limited to a factor 0.5 to 2, and the density follows constant entropy along the normal. Flat walls are unchanged (wedge study identical).
 Serial equals 2-7 ranks bit for bit, uniform and AMR (`ibm_ghost.py --check`).
-Known limit: an impulsively started Mach 2 cylinder keeps the bow shock pinned to the wall with the correction on (the start-up has
-no normal momentum balance), whatever the cap tried (0.1, 0.5, 0.9); resumed from a developed shock it stays detached. The settled
-stand-off distance with and without the correction is not established (both still drift at t = 12).
+Start-up: unweighted, an impulsively started Mach 2 cylinder keeps the bow shock pinned to the wall (whatever the cap tried: 0.1, 0.5, 0.9; the
+pressure change alone is enough, the entropy part is not the cause) because the normal momentum balance does not hold while the free
+stream hits the wall. The correction is therefore weighted by max(0, 1 - |u_n| / (0.2 |u_t|)) at the image point (the balance holds where
+the flow follows the wall): the shock detaches (weights 0.1 to 0.3 tried, 1.0 pins it), and the vortex errors stay (8.9e-4, order 1.5).
+The settled stand-off distance with and without the correction is not established (both drift slowly on that tall domain).

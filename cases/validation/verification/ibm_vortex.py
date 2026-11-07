@@ -14,8 +14,9 @@ Bands (set after an exploratory run, so a regression guard, not a prediction):
   1. with the correction the mean relative pressure error at the finest mesh is at most 2e-3, and its observed order between the
      two finest meshes is at least 1.2;
   2. the error with the correction is at most a fifth of the one without it at the finest mesh.
-Not covered: the correction can pin the bow shock of an impulsively started blunt body to the wall (the start-up has no normal
-momentum balance); that case is described in the parameter table.
+  3. start-up: the Mach 2 cylinder (the case of the repository, 25 cells per diameter, started from the uniform state, t = 4) forms a
+     detached bow shock with the correction on, its stand-off distance within 0.8 to 1.1 of the plain ghost wall's (the correction is
+     weighted by how well the flow follows the wall; unweighted, the shock stays pinned to the wall).
 """
 import math
 
@@ -27,6 +28,7 @@ from fenice import study
 STUDY = "ibm_vortex"
 GAMMA, MACH, R, C, L, T_END = 1.4, 2.25, 1.0, 2.0, 4.0, 0.4
 BAND_ERR, BAND_ORDER, BAND_RATIO = 2e-3, 1.2, 0.2
+BAND_STANDOFF = (0.8, 1.1)
 
 CASE = """[case]
 name = "Supersonic vortex"
@@ -96,6 +98,19 @@ def pressure_error(run_dir, cells_per_radius):
     return float(np.mean(p[sel] / pe[sel] - 1.0))
 
 
+def standoff(run_dir, nx, ny, h):
+    """Bow-shock stand-off distance over the diameter of the Mach 2 cylinder (centre row, density half way to the post-shock value), None if no shock."""
+    rho = fenice.read_dump(run_dir / "final.npz")["U"][:, 0].reshape(ny, nx)
+    row = rho[ny // 2 - 1: ny // 2 + 1].mean(axis=0)
+    x = (np.arange(nx) + 0.5) * h
+    mid = 0.5 * (1.0 + 2.667)
+    found = (row > mid) & (x < 1.75 - 0.5 * h)
+    i = int(np.argmax(found))
+    if not found.any() or i == 0:
+        return None
+    return (1.75 - (x[i - 1] + (mid - row[i - 1]) / (row[i] - row[i - 1]) * h)) / 0.5
+
+
 def main():
     ap = study.parser(__doc__.splitlines()[0])
     args = ap.parse_args()
@@ -115,7 +130,18 @@ def main():
     out["pass_error"] = bool(abs(out["curv"][-1]) <= BAND_ERR)
     out["pass_order"] = bool(order >= BAND_ORDER)
     out["pass_ratio"] = bool(ratio <= BAND_RATIO)
-    out["passed"] = out["pass_error"] and out["pass_order"] and out["pass_ratio"]
+    nx, ny, h = 400, 600, 0.02   # the Mach 2 cylinder, 25 cells per diameter
+    so = {}
+    for tag, sets in (("plain", []), ("curv", ["ibm_curvature=true"])):
+        d = study.run_cached(STUDY, f"mach2_{tag}", "IBM Supersonic Flow over Cylinder", "ibm_method=ghost", *sets, f"nx={nx}", f"ny={ny}",
+                             "t_end=4", "save_interval=1000000000", mpi=args.mpi, force=args.force)
+        so[tag] = standoff(d, nx, ny, h)
+    out["standoff"] = so
+    ok = so["plain"] is not None and so["curv"] is not None
+    out["pass_standoff"] = bool(ok and BAND_STANDOFF[0] <= so["curv"] / so["plain"] <= BAND_STANDOFF[1])
+    print(f"Mach 2 cylinder, t = 4: stand-off / D plain {so['plain']}, with the correction {so['curv']} "
+          f"(ratio band {BAND_STANDOFF}, {'pass' if out['pass_standoff'] else 'FAIL'})")
+    out["passed"] = out["pass_error"] and out["pass_order"] and out["pass_ratio"] and out["pass_standoff"]
     print(f"with the correction: finest error {abs(out['curv'][-1]):.2e} (band {BAND_ERR:.0e}, {'pass' if out['pass_error'] else 'FAIL'}); "
           f"order {order:.2f} (band {BAND_ORDER}, {'pass' if out['pass_order'] else 'FAIL'}); "
           f"against without {ratio:.3f} (band {BAND_RATIO}, {'pass' if out['pass_ratio'] else 'FAIL'})")

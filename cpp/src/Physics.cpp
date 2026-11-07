@@ -1033,6 +1033,9 @@ void ImmersedBoundary::fill_ghosts_part(const CellIndex& local, const CellState&
 // balance holds in equilibrium, and an impulsive start (free stream sliding along a wall that has not yet got its pressure field)
 // would otherwise draw a suction of several times the pressure on the wall.
 static const double kCurvLow = 0.5, kCurvHigh = 2.0;
+// Weight of the correction: 1 for a normal velocity of zero at the image point, 0 at |u_n| = kCurvAlpha |u_t|. Without it an impulsively
+// started blunt body (Mach 2 cylinder from a uniform state) keeps its bow shock pinned to the wall; with 0.1 to 0.3 it detaches, 1 pins it.
+static const double kCurvAlpha = 0.2;
 
 void ImmersedBoundary::fill_ghost_cells(const CellIndex& local, const CellState& in, Field& U, const EOS& eos) const {
     // every ghost state is computed from fluid cells only, then written: the result does not depend on the order
@@ -1049,7 +1052,11 @@ void ImmersedBoundary::fill_ghost_cells(const CellIndex& local, const CellState&
         if (curvature_ && slip_ && g.kappa != 0.0) {   // normal momentum at the wall: p grows outwards by rho kappa u_t^2
             const double tx = W[1] - un * g.nx, ty = W[2] - un * g.ny;
             const double pi = W[3], pinf = eos.p_inf;
-            const double dp = W[0] * g.kappa * (tx * tx + ty * ty) * g.span;
+            // the balance holds where the flow follows the wall: weight 1 for a normal velocity of zero at the image point, 0 from
+            // |u_n| = kCurvAlpha |u_t| on (the free stream of an impulsive start hits the wall, and there it must not act)
+            const double ut = std::sqrt(tx * tx + ty * ty);
+            const double wgt = std::max(0.0, 1.0 - std::abs(un) / (kCurvAlpha * ut + 1e-300));
+            const double dp = wgt * W[0] * g.kappa * (tx * tx + ty * ty) * g.span;
             const double pg = std::min(std::max(pi - dp, kCurvLow * (pi + pinf) - pinf), kCurvHigh * (pi + pinf) - pinf);
             W[0] *= std::pow((pg + pinf) / (pi + pinf), 1.0 / eos.gamma);   // constant entropy along the normal
             W[3] = pg;
