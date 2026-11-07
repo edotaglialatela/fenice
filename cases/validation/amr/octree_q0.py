@@ -211,6 +211,38 @@ def dilate(mask, r, periodic):
     return out
 
 
+def dilate_stencil(mask, periodic):
+    """The cells a residual reads: +-1, +-2 along each axis (MUSCL) and the edge cells (+-1, +-1) of two axes (viscous cross terms)."""
+    dim = mask.ndim
+    offs = []
+    for ax in range(dim):
+        for d in (-2, -1, 1, 2):
+            o = [0] * dim
+            o[ax] = d
+            offs.append(o)
+    for a in range(dim):
+        for b in range(a + 1, dim):
+            for da in (-1, 1):
+                for db in (-1, 1):
+                    o = [0] * dim
+                    o[a], o[b] = da, db
+                    offs.append(o)
+    out = mask.copy()
+    for o in offs:
+        b = mask
+        for ax, s in enumerate(o):
+            if s == 0:
+                continue
+            b = np.roll(b, s, axis=ax)
+            if not periodic[ax]:
+                idx = [slice(None)] * dim
+                idx[ax] = slice(0, s) if s > 0 else slice(s, None)
+                b = b.copy()
+                b[tuple(idx)] = False
+        out |= b
+    return out
+
+
 def coarsen_any(mask, dim):
     s = mask.shape
     if dim == 3:
@@ -379,13 +411,13 @@ def halo_fraction(split, M, periodic, ranks, depths):
                     continue
                 g = np.zeros(split[l].shape, dtype=bool)
                 g[tuple(sel.T)] = True
-                g = dilate(g, r, periodic)
+                g = dilate_stencil(g, periodic) if r == "stencil" else dilate(g, r, periodic)
                 for _ in range(M - l):
                     g = refine_bool(g, dim)
                 ids = np.unique(fine_id[g])
                 halo.update(ids[owner[ids] != p].tolist())
             frac.append(len(halo) / max(owned, 1))
-        res[r] = (float(np.max(frac)), float(np.mean(frac)))
+        res[str(r)] = (float(np.max(frac)), float(np.mean(frac)))
     return res, nleaf
 
 
@@ -418,14 +450,14 @@ def cmd_halo(args):
         split, lv = split_from_leaf_meta(args.airfoil, 720, 360, 2)
         out["airfoil_720_2d"] = {"leaves": lv}
         for ranks in args.ranks:
-            res, n = halo_fraction(split, 2, [False, False], ranks, (2, 3))
+            res, n = halo_fraction(split, 2, [False, False], ranks, ("stencil", 2, 3))
             out["airfoil_720_2d"][f"ranks{ranks}"] = {"per_rank": n // ranks, "halo": res}
             print(f"airfoil 720 2-D ({n} leaves {lv}) on {ranks} ranks ({n // ranks} per rank): "
                   + "  ".join(f"r={r}: max {a:.3f} mean {b:.3f}" for r, (a, b) in res.items()), flush=True)
     # compact proxies: one level, n = 131 072 leaves per rank, in 2-D and 3-D (the estimate 2 dim r n^((dim-1)/dim))
     for dim, shape, ranks in ((2, (2048, 2048), 32), (3, (128, 128, 128), 16)):
         split = [np.zeros(shape, dtype=bool)]
-        res, n = halo_fraction(split, 0, [False] * dim, ranks, (2, 3))
+        res, n = halo_fraction(split, 0, [False] * dim, ranks, ("stencil", 2, 3))
         out[f"uniform_{dim}d"] = {"leaves": n, "ranks": ranks, "per_rank": n // ranks, "halo": res}
         print(f"uniform {dim}-D, {n // ranks} leaves per rank: " + "  ".join(f"r={r}: max {a:.3f} mean {b:.3f}" for r, (a, b) in res.items()))
     # the estimated sphere trees (3-D) and their mid-plane (2-D), M = 2, ghost band
@@ -439,7 +471,7 @@ def cmd_halo(args):
         dim = split[0].ndim
         out[name] = {"leaves": lv}
         for ranks in args.ranks:
-            res, n = halo_fraction(split, 2, [False] * dim, ranks, (2, 3))
+            res, n = halo_fraction(split, 2, [False] * dim, ranks, ("stencil", 2, 3))
             out[name][f"ranks{ranks}"] = {"per_rank": n // ranks, "halo": res}
             print(f"{name} ({n} leaves) on {ranks} ranks ({n // ranks} per rank): "
                   + "  ".join(f"r={r}: max {a:.3f} mean {b:.3f}" for r, (a, b) in res.items()))

@@ -318,6 +318,11 @@ indicator flags nearly every cell from t = 0 (raising the criterion to 0.3 does 
 the plan as a **correctness** case (level-0 and z-invariant oracles, Q2-Q3), not as a cost case in Q8. **Recommendation: go to Q1**, with the
 sphere (external flow with a body and a wake) as the performance target.
 
+The work ratio assumes that the finest level's substep equals the uniform finest-mesh step. It does: the engine's bound uses each leaf's own
+lengths (`viscous_cell_speed` in `CellFlux.cpp`: `|u| + c + 2 L sum 1/h^2 nu_eff` with `h` of the leaf's level), so the viscous part of a level-l
+leaf is 2^l that of level 0 and `dt_0 / 2^M` equals the uniform `dt` for the same worst state (both sphere runs are partly viscous-limited: Re 20
+took twice the steps of Re 100). The 3-D bound (4.5) keeps this form.
+
 Projected wall-time gain on the sphere *(estimate)*: work ratio x per-leaf cost ratio of the face engine. The 2-D ratio measured today is 1.39
 (11.5; the 3-D one is unknown until Q2), so the residual cost is 0.22-0.32 of the uniform run at `max_level` 2 (a gain of about 3-4.5x) and 0.27-0.37
 at `max_level` 1, before the remesh (2.4 % of the run in 2-D at 1 thread, `bench_cellflux`). Memory: 106 k leaves at 2-2.5 kB *(estimate, 4.12)*
@@ -343,24 +348,29 @@ larger domain only lowers the ratios); the finest resolution is 20 cells per dia
   105 415). Full balance costs nothing measurable here.
 * The fields are `results/validation/ibm_sphere/ghost_20` (Re 20) and a new uniform run at Re 100 (ghost wall, 120 x 60 x 60, t = 30, 11 060 steps,
   Cd settled at 1.364, 643 s on 16 threads).
-* The same flows on their mid-plane z = cz as 2-D quadtrees give 0.40-0.53 of the uniform cells: the third dimension roughly halves the ratio
+* The same flows on their mid-plane z = cz as 2-D quadtrees give 0.40-0.53 of the uniform cells at M = 2 and 0.47-0.60 at M = 1: the third dimension roughly halves the ratio
   for a compact body, as expected.
 
-### 11.3 Halo fraction (Morton blocks of equal leaf count per level; halo = leaves of other ranks within r rings, 26 or 8 directions)
+### 11.3 Halo fraction (Morton blocks of equal leaf count per level; halo leaves of other ranks / owned leaves)
 
-| mesh | leaves per rank | r = 2: mean / max | r = 3: mean / max |
+Two neighbourhoods, at the owner's level: **stencil** = the cells a residual reads (+-1, +-2 along each axis, and the edge cells (+-1, +-1) of each
+pair of axes for the viscous cross terms: 18 cells in 3-D, 12 in 2-D); **r = 3** = three rings in all 26 (8) directions, the shape of the adapt
+region of the topology-free remesh (4.10). (Two full rings, 124 cells in 3-D, overstate the stencil: in the summary as `2`.)
+
+| mesh | leaves per rank | stencil: mean / max | r = 3: mean / max |
 |---|---:|---:|---:|
-| uniform 2-D 2048^2 on 32 ranks (compact blocks) | 131 072 | 0.020 / 0.024 | 0.029 / 0.035 |
-| uniform 3-D 128^3 on 16 ranks (compact blocks) | 131 072 | 0.163 / 0.196 | 0.250 / 0.301 |
-| 2-D airfoil 720 x 360 after 50 steps (golden dump, 3 levels), 16 ranks | 16 763 | 0.099 / 0.260 | 0.155 / 0.429 |
-| 3-D sphere Re 20 estimate (M = 2), 4 ranks | 19 380 | 0.937 / 1.307 | 1.506 / 2.073 |
-| the same, 8 / 16 ranks | 9 690 / 4 845 | 1.73 / 2.65, 2.64 / 4.21 | 2.90 / 4.06, 4.79 / 7.26 |
+| uniform 2-D 2048^2 on 32 ranks (compact blocks) | 131 072 | 0.020 / 0.023 | 0.029 / 0.035 |
+| uniform 3-D 128^3 on 16 ranks (compact blocks) | 131 072 | 0.158 / 0.190 | 0.250 / 0.301 |
+| 2-D airfoil 720 x 360 after 50 steps (golden dump, `max_level` 2), 16 ranks | 16 763 | 0.090 / 0.213 | 0.155 / 0.429 |
+| 3-D sphere Re 20 estimate (M = 2), 4 ranks | 19 380 | 0.606 / 0.842 | 1.506 / 2.073 |
+| the same, 8 / 16 ranks | 9 690 / 4 845 | 1.03 / 1.63, 1.43 / 2.17 | 2.90 / 4.06, 4.79 / 7.26 |
 
 * Compact blocks: 3-D costs 8x the halo of 2-D at equal leaves per rank (the estimate of 4.10 said about 10x: 2.5 % and 26 %; measured 2.0 % and
   16 %).
-* Real trees: at equal leaves per rank (about 17-19 k) the 3-D sphere has 9x the halo of the 2-D airfoil (mean), and **about 3x what a compact
-  3-D block of that size would have** (0.31): the per-level partition cuts each level separately, so a rank's share of a small level is a thin,
-  scattered piece of the Morton curve. On this mesh a rank would hold as many halo leaves as owned ones from 4 ranks on.
+* Real trees: at equal leaves per rank (about 17-19 k) the 3-D sphere has 7x the stencil halo of the 2-D airfoil (mean) and **about 2x what a
+  compact 3-D block of that size would have** (0.30, scaled from the 131 k proxy as n^(-1/3)): the per-level partition cuts each level separately,
+  so a rank's share of a small level is a thin, scattered piece of the Morton curve. The adapt region (r = 3) already exceeds the owned leaves
+  at 4 ranks.
 * Consequence for Q6 (not decided now): 3-D MPI needs about 10^5 leaves per rank and per level, or a partition that is not cut per level (one
   Morton curve over all levels with work weights 2^l). The single-rank phases (D7) do not depend on it.
 
@@ -368,7 +378,7 @@ larger domain only lowers the ratios); the finest resolution is 20 cells per dia
 
 Plane fronts (density jump, periodic 64^d grid; refined band width in cells per front cell): aligned 2.00 in 2-D and 2.00 in 3-D with 0.1 and with
 0.1 x 4/6; front diagonal in two axes 2.27 / 2.26 (0.1) and 1.97 / 1.97 (4/6); diagonal in three axes 2.23 (0.1) and 2.22 (4/6) in 3-D. The third pair of faces
-raises xi but **does not widen the band** of a plane front; the coefficient changes 2-D and 3-D alike. On the sphere, 4/6 saves 4-7 % of the leaves (Re 20,
+raises xi but **does not widen the band** of a plane front; the coefficient changes 2-D and 3-D alike. On the sphere, 4/6 saves 3-7 % of the leaves (Re 20,
 M = 2: 0.167 against 0.179). Decision (a), keep 0.1, as recommended: no 3-D-specific constant. The z-invariant oracle still fixes the leaves with
 `amr_force_box`, because xi differs (not the flags of a plane front, but the values).
 
