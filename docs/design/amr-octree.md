@@ -456,8 +456,17 @@ Note for later phases: the Q0 binary has the case folder of its (removed) build 
   caught (a face-only ripple: 9 tests fail in 2-D and 3-D; swapped slots: 8 tests fail).
 * **2-D unchanged:** unit tests 139/139 (the 2-D `cellmesh_*` tests untouched), regression ALL MATCH serial and on 4 ranks, the golden dumps of
   section 11.5 (49 files) **bitwise equal** to the Q0 binary's (`golden.py compare`).
-* **2-D cost** (serial 720 x 360 airfoil, 60 steps, a remesh every 2 steps, min of 5 interleaved runs against the Q0 binary): the adapt part
-  0.59 -> 0.63 s (+7 %, about 1.3 ms per remesh of 268 k leaves: the generic loops), the indicator 0.72 -> 0.69 s (the key is now inline), the time
-  loop 7.51 -> 7.58 s (+0.9 %). The residual is not touched by Q1 (the Q2 gate measures it).
+* **`CellFace` stays 32 bytes** (`static_assert`): `tpos2` would have made it 40 (`Face` was int-sized), costing 12.9 MB of mesh tables on the
+  720 x 360 airfoil (+15 %; the face list is held twice, `faces` and the reused buffer `face_spare_`). `enum class Face` now has a one-byte
+  underlying type (`Core.hpp`; nothing depended on its size). Memory on that airfoil (serial, 50 steps): mesh tables 86.7 -> 87.7 MB (the `ck`
+  array), peak 357.6 -> 358.5 MB.
+* **2-D cost** (min of 5 interleaved runs against the Q0 binary, 1 thread): the residual of `bench_cellflux 768 384 20` (the Q2-gate protocol)
+  is unchanged: level-0 face engine 74.1 -> 73.4 ns/cell (0.99x), adapted 76.1 -> 75.1 (0.99x), the untouched uniform kernel 1.006x (the noise
+  floor); the engine's stencil build 9.4 -> 10.0 ms (+6 %, `CellFlux` reads the mesh through the generalised lookups). On the serial 720 x 360
+  airfoil (60 steps, a remesh every 2 steps) the adapt part 0.59 -> 0.63 s (+7 %, about 1.3 ms per remesh of 268 k leaves: the generic loops), the
+  indicator 0.72 -> 0.69 s (the key is now inline), the time loop 7.59 -> 7.62 s (+0.4 %).
+* **CI suite run locally** (`check_all.py --golden`, Windows MSVC): unit tests, regression serial and 4 ranks, `amr_mpi.py --check` (real MPI, 1-7
+  ranks, adapting meshes: the partial-mesh and remesh paths of `CellMesh`), `ibm_ghost.py --check`, post-processing, MMS quick, golden compare:
+  all passed. The other CI platforms (Linux x64 / ARM64, macOS) run on the push.
 * **Not in Q1:** nothing reads a 3-D mesh yet (the engine, the indicator, `CellParallel` and the I/O stay 2-D; `use_amr` with `nz > 1` is still
   rejected). `CellBox` and `dilate_cells` stay 2-D until Q5/Q6.

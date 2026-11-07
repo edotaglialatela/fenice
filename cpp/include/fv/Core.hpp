@@ -37,8 +37,9 @@ constexpr int kMom[3] = {1, 2, 4};
 // more than the work, e.g. on a small adaptive-mesh level).
 constexpr int kOmpMinWork = 4096;
 
-// Cardinal faces of a (sub)domain; Front / Back are the z-min / z-max sides (3-D only).
-enum class Face { Left = 0, Right = 1, Bottom = 2, Top = 3, Front = 4, Back = 5 };
+// Cardinal faces of a (sub)domain; Front / Back are the z-min / z-max sides (3-D only). One byte, so that the AMR face record
+// (CellFace) stays 32 bytes.
+enum class Face : unsigned char { Left = 0, Right = 1, Bottom = 2, Top = 3, Front = 4, Back = 5 };
 // The four in-plane faces, in enum order (2-D domains).
 constexpr std::array<Face, 4> kAllFaces = {Face::Left, Face::Right, Face::Bottom, Face::Top};
 // All six faces of a 3-D domain.

@@ -40,6 +40,7 @@ struct CellFace {
     Face side = Face::Left;                 // boundary faces only: the domain edge
     double length = 0.0;                    // measure of the finer cell's side: a length in 2-D, an area in 3-D (Mesh::face_area)
 };
+static_assert(sizeof(CellFace) == 32, "CellFace is read by every face loop of the engine: keep it at 32 bytes");
 
 // A leaf's neighbourhood across one side (a summary of the face list).
 struct CellNeighbour {

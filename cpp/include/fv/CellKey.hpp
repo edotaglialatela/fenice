@@ -76,7 +76,7 @@ struct NeighbourTable {
         }
     }
 };
-constexpr NeighbourTable kNeighbours{};
+inline constexpr NeighbourTable kNeighbours{};
 }   // namespace cellkey_detail
 inline void neighbour_offset(int dim, int q, int o[3]) {
     const signed char* t = dim == 3 ? cellkey_detail::kNeighbours.o3[q] : cellkey_detail::kNeighbours.o2[q];
