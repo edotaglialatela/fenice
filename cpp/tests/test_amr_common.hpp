@@ -104,6 +104,146 @@ inline void check_cell_mesh(const CellMesh& m) {
         }
 }
 
+// The same oracle for a mesh of either dimension (boxes in finest-level integer coordinates, z = [0, 1) in 2-D): tiling, order,
+// vertex 2:1 balance for every touching pair (faces, edges, corners), exactly one face per shared square (segment in 2-D) with its
+// orientation, kind, level, transverse positions and measure, the gather lists (one face, or one per finer leaf in tpos2-major
+// order, covering the side) and the neighbour summaries. Brute force over all pairs: keep the meshes to a few thousand leaves.
+inline void check_cell_mesh_nd(const CellMesh& m) {
+    const int N = m.num_leaves(), M = m.max_level, D = m.dim, ns = m.sides();
+    const long long E[3] = {static_cast<long long>(m.nx) << M, static_cast<long long>(m.ny) << M,
+                            D == 3 ? static_cast<long long>(m.nz) << M : 1};
+    struct Box {
+        long long lo[3], hi[3];
+        int level;
+    };
+    std::vector<Box> box(static_cast<size_t>(N));
+    long long volume = 0;
+    for (int c = 0; c < N; ++c) {
+        const long long s = 1ll << (M - m.level[c]);
+        const long long x[3] = {m.ci[c], m.cj[c], m.ck[c]};
+        Box& b = box[static_cast<size_t>(c)];
+        for (int a = 0; a < 3; ++a) {
+            b.lo[a] = a < D ? x[a] * s : 0;
+            b.hi[a] = a < D ? (x[a] + 1) * s : 1;
+        }
+        b.level = m.level[c];
+        long long v = 1;
+        for (int a = 0; a < D; ++a) v *= s;
+        volume += v;
+        CHECK(D == 3 || m.ck[c] == 0);
+    }
+    CHECK(volume == E[0] * E[1] * E[2]);   // with the pairwise test below: the leaves tile the domain
+    for (int c = 1; c < N; ++c) {
+        CHECK(m.level[c] >= m.level[c - 1]);
+        if (m.level[c] == m.level[c - 1]) CHECK(m.key_of(m.ci[c], m.cj[c], m.ck[c]) > m.key_of(m.ci[c - 1], m.cj[c - 1], m.ck[c - 1]));
+    }
+    CHECK(static_cast<int>(m.level_begin.size()) == M + 2 && m.level_begin[M + 1] == N);
+    for (int l = 0; l <= M; ++l)
+        for (int c = m.level_begin[l]; c < m.level_begin[l + 1]; ++c) CHECK(m.level[c] == l);
+
+    const bool per[3] = {m.periodic_x, m.periodic_y, D == 3 && m.periodic_z};
+    std::vector<long long> sh[3];
+    for (int a = 0; a < 3; ++a) sh[a] = per[a] ? std::vector<long long>{-E[a], 0, E[a]} : std::vector<long long>{0};
+    // axis, left, right, t1 start, t2 start (of the finer cell), kind (0 interior, 1 coarse-fine, 2 boundary), level, boundary side
+    using Tup = std::tuple<int, int, int, long long, long long, int, int, int>;
+    std::vector<Tup> want;
+    for (int a = 0; a < N; ++a)
+        for (int b = 0; b < N; ++b)
+            for (long long sx : sh[0])
+                for (long long sy : sh[1])
+                    for (long long sz : sh[2]) {
+                        if (a == b && sx == 0 && sy == 0 && sz == 0) continue;
+                        const Box& A = box[static_cast<size_t>(a)];
+                        Box B = box[static_cast<size_t>(b)];
+                        const long long s3[3] = {sx, sy, sz};
+                        for (int q = 0; q < 3; ++q) {
+                            B.lo[q] += s3[q];
+                            B.hi[q] += s3[q];
+                        }
+                        long long ov[3];
+                        bool touch = true, inside = true;
+                        for (int q = 0; q < 3; ++q) {
+                            ov[q] = std::min(A.hi[q], B.hi[q]) - std::max(A.lo[q], B.lo[q]);
+                            touch = touch && ov[q] >= 0;
+                            inside = inside && ov[q] > 0;
+                        }
+                        if (!touch) continue;
+                        CHECK(!inside);                               // no overlap
+                        CHECK(std::abs(A.level - B.level) <= 1);      // vertex 2:1 balance for every touching pair
+                        const int kind = A.level == B.level ? 0 : 1, lev = std::max(A.level, B.level);
+                        const Box& fine = A.level >= B.level ? box[static_cast<size_t>(a)] : box[static_cast<size_t>(b)];
+                        for (int ax = 0; ax < D; ++ax) {
+                            const int t1 = transverse1(ax), t2 = transverse2(ax);
+                            if (A.hi[ax] == B.lo[ax] && ov[t1] > 0 && ov[t2] > 0)
+                                want.emplace_back(ax, a, b, fine.lo[t1], fine.lo[t2], kind, lev, 0);
+                        }
+                    }
+    for (int a = 0; a < N; ++a) {
+        const Box& A = box[static_cast<size_t>(a)];
+        for (int ax = 0; ax < D; ++ax) {
+            if (per[ax]) continue;
+            const int t1 = transverse1(ax), t2 = transverse2(ax);
+            if (A.lo[ax] == 0) want.emplace_back(ax, -1, a, A.lo[t1], A.lo[t2], 2, A.level, 2 * ax);
+            if (A.hi[ax] == E[ax]) want.emplace_back(ax, a, -1, A.lo[t1], A.lo[t2], 2, A.level, 2 * ax + 1);
+        }
+    }
+    std::vector<Tup> got;
+    for (const CellFace& f : m.faces) {
+        const long long s = 1ll << (M - f.level);
+        const int kind = f.kind == CellFaceKind::Interior ? 0 : (f.kind == CellFaceKind::CoarseFine ? 1 : 2);
+        got.emplace_back(f.axis, f.left, f.right, f.tpos * s, f.tpos2 * s, kind, f.level, kind == 2 ? static_cast<int>(f.side) : 0);
+        const int l = f.level;
+        const double meas = D == 3 ? (f.axis == 0 ? m.dy(l) * m.dz(l) : (f.axis == 1 ? m.dx(l) * m.dz(l) : m.dx(l) * m.dy(l)))
+                                   : (f.axis == 0 ? m.dy(l) : m.dx(l));
+        CHECK(f.length == meas);
+        CHECK(D == 3 || f.tpos2 == 0);
+    }
+    std::sort(want.begin(), want.end());
+    std::sort(got.begin(), got.end());
+    CHECK(want == got);   // exactly one face per shared square, with the right orientation, kind, level and position
+
+    for (size_t f = 1; f < m.faces.size(); ++f) CHECK(m.faces[f].level >= m.faces[f - 1].level);
+    CHECK(static_cast<int>(m.face_level_begin.size()) == M + 2 && m.face_level_begin[M + 1] == static_cast<int>(m.faces.size()));
+    for (int l = 0; l <= M; ++l)
+        for (int f = m.face_level_begin[l]; f < m.face_level_begin[l + 1]; ++f) CHECK(m.faces[f].level == l);
+
+    // gather lists: every side covered exactly once by one face or one per finer leaf, (tpos2, tpos) increasing
+    CHECK(static_cast<int>(m.side_ptr.size()) == ns * N + 1);
+    for (int c = 0; c < N; ++c)
+        for (int s = 0; s < ns; ++s) {
+            const int b = m.side_ptr[ns * c + s], e = m.side_ptr[ns * c + s + 1];
+            CHECK(e - b == 1 || e - b == m.fine_faces());
+            long long covered = 0;
+            for (int k = b; k < e; ++k) {
+                const CellFace& f = m.faces[m.side_face[k]];
+                long long a = 1;
+                for (int q = 1; q < D; ++q) a *= 1ll << (M - f.level);
+                covered += a;
+                CHECK(f.axis == s / 2);
+                CHECK((s & 1 ? f.left : f.right) == c);
+                if (k > b) {
+                    const CellFace& g = m.faces[m.side_face[k - 1]];
+                    CHECK(std::make_pair(f.tpos2, f.tpos) > std::make_pair(g.tpos2, g.tpos));
+                }
+            }
+            long long full = 1;
+            for (int q = 1; q < D; ++q) full *= 1ll << (M - m.level[c]);
+            CHECK(covered == full);
+            const CellNeighbour nb = m.neighbour(c, static_cast<Face>(s));
+            if (nb.kind == CellNeighbour::Kind::Boundary) CHECK(nb.a < 0);
+            if (nb.kind == CellNeighbour::Kind::Same) CHECK(m.level[nb.a] == m.level[c]);
+            if (nb.kind == CellNeighbour::Kind::Coarser) CHECK(m.level[nb.a] == m.level[c] - 1);
+            if (nb.kind == CellNeighbour::Kind::Finer) {
+                CHECK(m.level[nb.a] == m.level[c] + 1 && m.level[nb.b] == m.level[c] + 1 && nb.a != nb.b);
+                if (D == 3)
+                    CHECK(m.level[nb.c] == m.level[c] + 1 && m.level[nb.d] == m.level[c] + 1 && nb.c != nb.d && nb.c != nb.a &&
+                          nb.d != nb.b);
+                else
+                    CHECK(nb.c < 0 && nb.d < 0);
+            }
+        }
+}
+
 inline double cell_mesh_total(const CellMesh& m, int q) {
     double s = 0.0;
     for (int c = 0; c < m.num_leaves(); ++c) s += m.U[c][q] * m.area(c);

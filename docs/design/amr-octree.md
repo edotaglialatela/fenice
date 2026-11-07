@@ -1,9 +1,9 @@
 # 3-D adaptive mesh refinement (octree leaves): design and plan
 
-Status: **decisions answered, phase Q0 (measurements) done; no engine code yet.** Written 2026-11-07 after a read of the 2-D leaf engine
+Status: **decisions answered, Q0 (measurements) and Q1 (dimension layer and `CellMesh` in 3-D) done; the engine is still 2-D.** Written 2026-11-07 after a read of the 2-D leaf engine
 (`docs/design/amr-cell-based.md`, `amr-distributed.md`), a grep inventory of its source and the residual of the 3-D uniform solver. Every
 number that was not measured is marked *(estimate)*. The decisions are in section 8 (the user took every recommendation, 2026-11-07); the Q0
-numbers are in section 11. Each phase of section 7 ends with a stop for the user's go-ahead, as the 2-D rebuild did.
+numbers are in section 11, Q1 as built in section 12. Each phase of section 7 ends with a stop for the user's go-ahead, as the 2-D rebuild did.
 
 This is phase P9 of `amr-cell-based.md` (the 3-D octree) and the "dimension-agnostic layer" of section 3.7 of `amr-distributed.md`.
 
@@ -243,7 +243,7 @@ the validation. The flux kernels, the time recursion, the registers and the Riem
 | Phase | Content | Acceptance |
 |---|---|---|
 | Q0 | Measurements, no engine change: the 2-D baseline of record (bench, goldens, memory); the 3-D uniform costs of the target cases (sphere Re 20-100, 3-D Taylor-Green) and the leaf counts an octree would need for them (an offline estimate from the uniform solution, as P0 did); the halo fraction of Morton blocks in 3-D on a proxy; the decision on the two expression families | numbers in this document; D1-D9 answered. **Done 2026-11-07, section 11** |
-| Q1 | Dimension layer (key arithmetic, children, 26 offsets, key ranges of a region) and `CellMesh` in 2-D and 3-D: leaves, faces, side lists (1 or 4), balance, adapt (refine to 8, merge, ripple); the brute-force oracle in both dimensions | oracle tests in 2-D (existing ones unchanged) and 3-D; golden dumps of 2-D equal |
+| Q1 | Dimension layer (key arithmetic, children, 26 offsets, key ranges of a region) and `CellMesh` in 2-D and 3-D: leaves, faces, side lists (1 or 4), balance, adapt (refine to 8, merge, ripple); the brute-force oracle in both dimensions | oracle tests in 2-D (existing ones unchanged) and 3-D; golden dumps of 2-D equal. **Done 2026-11-07, section 12** |
 | Q2 | `CellFluxEngine` convective residual in 3-D: stencils with virtual cells of 8, the 3-D jump closure (b)+(c), boundary ghosts on six sides, WENO3-Z, `boundary_order = 2`; the 2-D per-leaf cost gate | level-0 3-D == uniform 3-D bitwise; free stream exact; the near-jump order table; **2-D per-leaf cost within 5 %** |
 | Q3 | `CellAdvance`: 4 registers per coarse side; subcycling in 3-D | conservation for the three schemes; level-0 steps == uniform 3-D steps; permutation Sod; the z-invariant check |
 | Q4 | Physics: viscous 3-D family (and AVX2 twin), body force, sources, NRBC with two tangential directions, mass-flow inlet; **the IBM redesign** (per-leaf classification, the ghost table from the band leaves) | bitwise level-0 tests with each physics; MMS on an adapted 3-D mesh; IBM masks equal to the uniform ones on the same cells; ghost wall equal to the uniform 3-D ghost wall |
@@ -423,3 +423,41 @@ at Re 20, 22 292 steps.
 
 Decided D2a: the 2-D kernels stay; the 3-D family is new and checked bitwise against `viscous_residual_3d` and the 3-D divergence loop at level 0.
 No measurement was needed for it in Q0.
+
+Note for later phases: the Q0 binary has the case folder of its (removed) build tree compiled in; run it with `FENICE_CASES=<repo>/cases`.
+
+## 12. Phase Q1 as built (2026-11-07): the dimension layer and `CellMesh` in 2-D and 3-D
+
+* **Dimension layer** `cpp/include/fv/CellKey.hpp` (header only): `morton_key` (2-D, 29 bits per axis, moved here unchanged and inline) and
+  `morton_key3` (3-D, 21 bits per axis, `x` lowest bit, `key >> 3` = the parent), `cell_key(dim, i, j, k)`, `cell_key_bits`, `child_offset`
+  (children in key order: x fastest, then y, then z), `neighbour_offset` (the 3^D - 1 offsets from a constant table, dz outer, dy, dx inner: the
+  2-D loop order), `transverse1/2` (the transverse axes of a face: (y, z), (x, z), (x, y)). The key-range helper of the fetch regions is left to
+  Q6, its only user.
+* **`CellMesh`** (A1, runtime `dim`): `CellMesh::make_3d(Lx, Ly, Lz, nx, ny, nz, max_level, px, py, pz, x0, y0, z0)`; the 2-D constructor and every
+  2-D call site are unchanged (`k` arguments default to 0). New: `dim`, `ck` (0 for every 2-D leaf, 4 bytes per leaf), `nz`/`Lz`/`z0`/`periodic_z`,
+  `dz`, `zc`, `volume` (the area in 2-D), `nz_at` (1 in 2-D), `key_of`, `sides()` / `children()` / `fine_faces()` (4/4/2 or 6/8/4).
+  `CellFace::tpos2` (second transverse position, 0 in 2-D); `CellFace::length` is the face measure (`Mesh::face_area`: `dy dz`, `dx dz`, `dx dy` in 3-D).
+  `CellNeighbour::c, d` (the third and fourth finer leaf in 3-D). Gather lists are indexed `sides() * c + s`; a side towards finer leaves holds
+  `fine_faces()` faces in the slot `(tpos & 1) + 2 (tpos2 & 1)` (tpos2 major), checked at every rebuild. `source` holds 8 entries (-1 beyond the
+  children). One face maker (`face_of`) serves `rebuild` and `build_from`; `assign_leaves` / `assign_partial_leaves` take `ks` (3-D).
+* **Adapt in 3-D:** refine to 8 children by injection, the ripple over all 26 neighbours (vertex balance, D4), merge of 8 siblings with the mean
+  `(((a+b)+(c+d)) + ((e+f)+(g+h))) * 0.125` (each z-plane in the 2-D order), the merge test over the 26 neighbour blocks of the parent and the
+  children of each that touch it, `forced_by_finer` over the level-l+1 ring of the 2^3 block, `has_leaf_under` over 8 children, the incremental
+  rebuild's dirty marking over 6 sides and the 4 children across a side. The 2-D operation order is kept everywhere (face order, slots, the merge
+  mean, the order of the checks that can throw).
+* **Tests** (`cpp/tests/test_amr_octree.cpp`, 9 tests; the generic oracle `check_cell_mesh_nd` in `test_amr_common.hpp`): the key functions against
+  the bit definition, child and neighbour order, the 21-bit limit; level 0 against `generate_cartesian_mesh_3d` (centres, volumes, face areas, face
+  counts) for the 8 periodicity combinations; the brute-force oracle (tiling, order, vertex balance for every touching pair, one face per shared
+  square with orientation / kind / level / both transverse positions / area, gather lists and neighbour summaries) on random adapt sequences,
+  periodic domains of 1 and 2 cells per axis; conservation to 1e-12; the incremental rebuild equal to a full rebuild (`same_arrays`, also in 2-D);
+  refine-then-merge restores `U` bitwise; a hand case of the ripple across a corner and edges and of merges refused across a face, an edge and a
+  corner; four finer neighbours in tpos2-major order; the `forced_by_finer` closure equal to the ripple; `build_from` equal to `keep_partial`;
+  `assign_leaves` order independence and the tiling check. The generic oracle is also run on 2-D meshes next to the 2-D one. Two mutations were
+  caught (a face-only ripple: 9 tests fail in 2-D and 3-D; swapped slots: 8 tests fail).
+* **2-D unchanged:** unit tests 139/139 (the 2-D `cellmesh_*` tests untouched), regression ALL MATCH serial and on 4 ranks, the golden dumps of
+  section 11.5 (49 files) **bitwise equal** to the Q0 binary's (`golden.py compare`).
+* **2-D cost** (serial 720 x 360 airfoil, 60 steps, a remesh every 2 steps, min of 5 interleaved runs against the Q0 binary): the adapt part
+  0.59 -> 0.63 s (+7 %, about 1.3 ms per remesh of 268 k leaves: the generic loops), the indicator 0.72 -> 0.69 s (the key is now inline), the time
+  loop 7.51 -> 7.58 s (+0.9 %). The residual is not touched by Q1 (the Q2 gate measures it).
+* **Not in Q1:** nothing reads a 3-D mesh yet (the engine, the indicator, `CellParallel` and the I/O stay 2-D; `use_amr` with `nz > 1` is still
+  rejected). `CellBox` and `dilate_cells` stay 2-D until Q5/Q6.
