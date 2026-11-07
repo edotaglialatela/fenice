@@ -78,7 +78,7 @@ struct SimParams {
     bool use_muscl;
     std::string muscl_limiter;
     double weno_epsilon = 1e-6;   // WENO smoothness-indicator regularisation, relative to the stencil data (eps = weno_epsilon * mean(c^2))
-    int boundary_order = 1;   // 1: physical-boundary faces keep the first-order ghost states; 2: they are reconstructed through ghost layers
+    int boundary_order = 2;   // 2 (default): physical-boundary faces are reconstructed through ghost layers; 1: they keep the first-order ghost states (always 1 with a first-order scheme)
     std::string reconstruction = "muscl";   // muscl (default), weno3 or weno5: the face reconstruction when use_muscl is on
     double shock_blend = 0.2;   // > 0: faces whose pressure jump |pR - pL| / min(pL, pR) exceeds it blend HLLC toward HLL (0: off)
     bool use_hot_start;

@@ -159,7 +159,7 @@ Params baseline_defaults() {
         {"muscl_limiter", "Van Leer"},
         {"reconstruction", "muscl"},
         {"weno_epsilon", "1e-6"},
-        {"boundary_order", "1"},
+        {"boundary_order", "2"},
         {"shock_blend", "0.2"},
         {"use_hot_start", "false"},
         {"hot_start_file", ""},
@@ -273,7 +273,7 @@ SimParams SimParams::from(const Params& p) {
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
     s.reconstruction = lower(p.str("reconstruction", "muscl"));
     s.weno_epsilon = p.num("weno_epsilon", 1e-6);
-    s.boundary_order = p.integer("boundary_order", 1);
+    s.boundary_order = p.integer("boundary_order", 2);
     s.shock_blend = p.num("shock_blend", 0.2);
     s.use_hot_start = p.flag("use_hot_start");
     s.hot_start_file = p.str("hot_start_file");
@@ -337,9 +337,8 @@ SimParams SimParams::from(const Params& p) {
                                         "Runge-Kutta 3)");
     }
     if (s.boundary_order != 1 && s.boundary_order != 2) throw std::invalid_argument("boundary_order must be 1 or 2");
-    if (s.boundary_order == 2) {
-        if (!s.use_muscl) throw std::invalid_argument("boundary_order = 2 needs use_muscl = true (a reconstruction to extend to the boundary faces)");
-    }
+    // a first-order scheme has no reconstruction to extend to the boundary faces: the order is then 1 whatever was asked
+    if (s.boundary_order == 2 && !s.use_muscl) s.boundary_order = 1;
     if (s.use_amr && !(s.amr_criterion > 0.0)) throw std::invalid_argument("amr_criterion must be positive");
     if (!(s.amr_derefine_threshold <= s.amr_refine_threshold))
         throw std::invalid_argument("amr_derefine_threshold must not exceed amr_refine_threshold (else a refined cell "

@@ -210,6 +210,10 @@ def run_cpp(name, tmp, n_mpi=0):
     cmd = [EXE, "--case", tc, "--no-logo",
            "--set", "save_interval=1000000000", "--set", f"output_root={os.path.join(tmp, 'out')}",
            "--set", f"dump_state={dump}"]
+    # the references were made with first-order boundary faces, which was the default then: a case that does not ask for
+    # boundary_order keeps it at 1 (the default is 2 now, and 1 with a first-order scheme)
+    if "boundary_order" not in ov:
+        cmd += ["--set", "boundary_order=1"]
     for k, v in ov.items():
         cmd += ["--set", f"{k}={str(v).replace('{REF}', REF)}"]
     if n_mpi:

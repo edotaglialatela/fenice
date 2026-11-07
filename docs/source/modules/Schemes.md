@@ -103,8 +103,8 @@ with $a = W_i - W_{i-1}$, $b = W_{i+1} - W_i$ and $a' = W_{i+2} - W_{i+1}$. The 
 needs two cells on each side of a face (`kHaloDepth = 2`), the same depth as the MPI
 halo exchange. Faces on a rank interface are therefore also reconstructed to 2nd
 order, and so are periodic boundary faces, through wrap-around halos. The other
-physical-boundary faces keep their 1st-order ghost states, unless `boundary_order = 2`: the physical sides then get ghost layers
-(the mirror of the boundary condition) and those faces are reconstructed too ([measured]({{root}}cases/manufactured-solution.html)). In 3-D,
+physical-boundary faces get ghost layers by default (`boundary_order = 2`: the mirror of the boundary condition) and are reconstructed too; with
+`boundary_order = 1`, or with a first-order scheme, they keep their 1st-order ghost states ([measured]({{root}}cases/manufactured-solution.html)). In 3-D,
 `reconstruct_3d` applies the same 1-D reconstruction along x, y and z; each direction
 reads its own pair of halo slabs (`Halos::l/r`, `b/t`, `f/bk`).
 

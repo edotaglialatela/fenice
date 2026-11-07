@@ -22,7 +22,7 @@ representations:
   only its ghost ring (the entries of `get_padded_U` outside the interior, the same bits) and the
   viscous sweep reads the interior from the cell field.
 
-With `boundary_order = 2` the physical sides also get **ghost layers**: `fill_ghost_slab` builds, in the halo layout of
+With `boundary_order = 2` (the default with a reconstruction) the physical sides also get **ghost layers**: `fill_ghost_slab` builds, in the halo layout of
 `Schemes`, the ghost state of the interior cell $l$ cells from the boundary (layer $l$), two layers deep for MUSCL and
 WENO3-Z and three for WENO5-Z, and the boundary faces are reconstructed through them. Periodic, MPI-interface and
 non-reflecting sides keep their treatment. For the viscous terms, `fix_frame_corners` (2-D, on the ghost ring) and

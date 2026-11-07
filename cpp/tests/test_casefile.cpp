@@ -41,6 +41,28 @@ TEST(every_parameter_has_a_case_section) {
     }
 }
 
+// boundary_order is 2 by default, is 1 with a first-order scheme (nothing to extend) whatever was asked, and an explicit 1 is kept.
+TEST(boundary_order_default) {
+    auto order_of = [](std::initializer_list<std::pair<const char*, const char*>> sets) {
+        Params p = baseline_defaults();
+        for (const auto& kv : sets) p.set(kv.first, kv.second);
+        return SimParams::from(p).boundary_order;
+    };
+    CHECK(order_of({{"use_muscl", "true"}}) == 2);
+    CHECK(order_of({{"use_muscl", "true"}, {"reconstruction", "weno3"}, {"time_scheme", "SSP Runge-Kutta 3"}}) == 2);
+    CHECK(order_of({{"use_muscl", "true"}, {"reconstruction", "weno5"}, {"time_scheme", "SSP Runge-Kutta 3"}}) == 2);
+    CHECK(order_of({{"use_muscl", "true"}, {"use_amr", "true"}}) == 2);
+    CHECK(order_of({{"use_muscl", "true"}, {"boundary_order", "1"}}) == 1);
+    CHECK(order_of({{"use_muscl", "false"}}) == 1);
+    CHECK(order_of({{"use_muscl", "false"}, {"boundary_order", "2"}}) == 1);
+    CHECK(order_of({}) == 1);   // the baseline scheme is first order
+    bool threw = false;
+    try {
+        order_of({{"use_muscl", "true"}, {"boundary_order", "3"}});
+    } catch (const std::invalid_argument&) { threw = true; }
+    CHECK(threw);
+}
+
 // Bad --set / --config values fail up front instead of being silently ignored or truncated.
 TEST(parameter_validation) {
     auto error_of = [](std::initializer_list<std::pair<const char*, const char*>> sets) -> std::string {

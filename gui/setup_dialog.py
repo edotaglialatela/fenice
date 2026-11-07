@@ -346,7 +346,7 @@ class SetupDialog(QDialog):
         self.label_scheme_warning.setStyleSheet("color: #b45309;")
         self.label_scheme_warning.setVisible(False)
         self.combo_bo = QComboBox()
-        self.combo_bo.addItems(["1st order (default)", "2nd order (ghost layers)"])
+        self.combo_bo.addItems(["2nd order (ghost layers, default)", "1st order"])
         self.combo_bo.setToolTip("Faces on a physical boundary (walls, inlets, outlets): first-order ghost state, or reconstructed "
                                  "through ghost layers.")
         self.label_bo = QLabel("Boundary faces:")
@@ -607,7 +607,7 @@ class SetupDialog(QDialog):
 
     def _boundary_order(self):
         """1 or 2; the option exists only with a reconstruction."""
-        return 2 if self._recon_value() != "first" and self.combo_bo.currentIndex() == 1 else 1
+        return 2 if self._recon_value() != "first" and self.combo_bo.currentIndex() == 0 else 1
 
     def _scheme_problems(self):
         """(errors, warnings) of the chosen reconstruction / time integration / AMR / MPI combination, as the solver sees it."""
@@ -750,7 +750,7 @@ class SetupDialog(QDialog):
             'ibm_radius': lambda v: self.input_radius.setText(str(v)), 'ibm_cx': lambda v: self.input_cx.setText(str(v)),
             'ibm_cy': lambda v: self.input_cy.setText(str(v)),
             'muscl_limiter': lambda v: set_combo(self.combo_limiter, v),
-            'boundary_order': lambda v: self.combo_bo.setCurrentIndex(1 if int(v) == 2 else 0),
+            'boundary_order': lambda v: self.combo_bo.setCurrentIndex(0 if int(v) == 2 else 1),
             'shock_blend': lambda v: self.check_blend.setChecked(float(v) > 0),
             'use_amr':                lambda v: self.check_amr.setChecked(bool(v)),
             'amr_max_level':          lambda v: self.input_amr_max_level.setText(str(v)),
