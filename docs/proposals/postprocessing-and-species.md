@@ -35,7 +35,7 @@ fitted to the result).
 * **Where the thermochemistry comes from.** Either link a thermochemistry library behind an optional build switch, or generate a
   mechanism file with a Python tool (like `fenice.mms` does for the manufactured solutions) holding the polynomial coefficients,
   molecular weights and reaction data, which the solver reads. The second keeps the C++ build and CI unchanged and keeps the references
-  independent of the library's version; the solver then needs its own rate evaluation (Arrhenius, third bodies, falloff) and integrator.
+  independent of the library's version; the solver then needs its own rate evaluation (Arrhenius, third bodies, falloff) and integrator. The two are compared use by use in `thermochemistry-library.md`.
 
 ## Target cases
 
