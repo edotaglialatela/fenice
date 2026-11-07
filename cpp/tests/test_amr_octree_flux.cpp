@@ -476,6 +476,41 @@ TEST(cellflux3d_near_jump_truncation_table) {
     CHECK(near[1][2] / far[1][2] <= 3.0 * near[0][2] / far[0][2]);
 }
 
+TEST(cellflux3d_level_pieces_equal_the_whole_residual) {
+    // The subcycled advance (Q3) uses the per-level pieces, which read the per-level lists (need_, lface_, the owned ranges):
+    // compute_level_fluxes of every level + gather_level must give the residual's bits, and wave_speed its speed.
+    using BCs = std::array<const char*, 6>;
+    for (const char* recon : {"muscl", "weno3"}) {
+        Simulation sim;
+        setup_3d(sim, BCs{"transmissive", "wall", "periodic", "periodic", "wall", "outlet"},
+                 {{"nx", "5"}, {"ny", "4"}, {"nz", "4"}, {"use_muscl", "true"}, {"reconstruction", recon}, {"boundary_order", "2"}});
+        CellMesh m = octree_of(sim, 2);
+        for (const double frac : {0.6, 0.3}) {   // a level-1 region and a level-2 one inside it: all three levels present
+            std::vector<char> r(static_cast<size_t>(m.num_leaves()));
+            for (int c = 0; c < m.num_leaves(); ++c) r[c] = m.xc(c) - m.x0 < frac * m.Lx && m.zc(c) - m.z0 < 0.7 * m.Lz;
+            m.adapt(r);
+        }
+        CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+        eng.build(m);
+        m.U.resize(static_cast<size_t>(m.num_leaves()));
+        for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state3(sim.fluid, m.xc(c), m.yc(c), m.zc(c));
+        Field R;
+        const double S = eng.residual(m, m.U, R);
+        int levels = 0;
+        for (int l = 0; l <= m.max_level; ++l) {
+            if (m.level_begin[l + 1] == m.level_begin[l]) continue;
+            ++levels;
+            eng.compute_level_fluxes(m, m.U, l);
+            Field Rl;
+            eng.gather_level(m, l, false, Rl);
+            const Field slice(R.begin() + m.level_begin[l], R.begin() + m.level_begin[l + 1]);
+            CHECK(bits_equal(Rl, slice));
+        }
+        CHECK(levels == 3);
+        CHECK(eng.wave_speed(m, m.U) == S);
+    }
+}
+
 TEST(cellflux3d_rejects_what_it_does_not_do_yet) {
     using BCs = std::array<const char*, 6>;
     const auto throws = [](const BCs& bc, std::vector<std::pair<const char*, const char*>> kv) {

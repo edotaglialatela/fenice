@@ -501,7 +501,7 @@ Read in `Simulation::assemble_3d`, `MusclReconstruction::reconstruct_3d` / the f
 * **Rejected on a 3-D mesh by `build()` until Q4** (clear messages): viscous terms, body force, sources, immersed bodies, mass-flow inlets,
   non-reflecting outlets; WENO5-Z as in 2-D. The partition / `localize` code is generalised (sides, children) but untested in 3-D until Q6.
 
-### 13.3 Tests (`cpp/tests/test_amr_octree_flux.cpp`, 7 tests)
+### 13.3 Tests (`cpp/tests/test_amr_octree_flux.cpp`, 8 tests)
 * `cellflux3d_level0_matches_uniform_residual_bitwise`: a level-0 octree against `Simulation::residual` of the 3-D uniform solver, **bit for bit**
   (residual and speed), 6 boundary sets (wall, transmissive, outlet, no-slip, moving wall, velocity inlet, periodic on 1-3 axes) x 6 schemes (first
   order, MUSCL Van Leer / Minmod / MC / Koren, WENO3-Z; HLLC, low-Mach, preconditioned) x `boundary_order` 1 and 2: 66 cases; plus two meshes above
@@ -515,7 +515,9 @@ Read in `Simulation::assemble_3d`, `MusclReconstruction::reconstruct_3d` / the f
   uniform mesh; every other leaf, the level jumps included, is exact.
 * `cellflux3d_residual_is_conservative_on_adapted_meshes` (sum of R volume <= 1e-13 of its magnitude), `cellflux3d_incremental_build_equals_full_build_and_threads_agree`
   (`same_tables` after 6 random adapts; 1 thread and all threads give the same bits on a mesh above `kOmpMinWork`),
-  `cellflux3d_rejects_what_it_does_not_do_yet`.
+  `cellflux3d_rejects_what_it_does_not_do_yet`, `cellflux3d_level_pieces_equal_the_whole_residual` (the pieces of the subcycled advance:
+  `compute_level_fluxes` of each of three levels + `gather_level` equal the slices of `residual()` bit for bit, `wave_speed` its speed; MUSCL and
+  WENO3-Z with `boundary_order = 2`; they read the per-level lists `need_`, `lface_` and the owned ranges, which `residual()` does not).
 * `cellflux3d_near_jump_truncation_table`: the residual's truncation error against `-div F` of a monotone polynomial field (exact by central differences
   of the physical flux), base n^d on [0, 4]^d with the box [1, 2]^d one level finer, mean normalised error within 2 base widths of the jump and on the
   coarse leaves more than 3 widths from it. Bands fixed before the first run: (1) far order (32 -> 64) >= 1.8 in 2-D and 3-D, (2) 3-D near-jump order
@@ -537,7 +539,8 @@ Read in `Simulation::assemble_3d`, `MusclReconstruction::reconstruct_3d` / the f
 ### 13.4 Gates
 * **2-D per-leaf cost (the A1 gate, protocol of 11.5):** `bench_cellflux 768 384 20`, 1 thread, min of 5 interleaved runs against the Q0 binary:
   level-0 face engine 73.1 -> 73.0 ns/cell (**0.999x**), adapted 74.7 -> 74.1 (0.992x), uniform 0.998x (the noise floor): **passed** (limit 1.05x).
-  The engine's stencil build 9.3 -> 10.1 ms (+8.6 %: wider keys and node records; Q1 alone was +6 %).
+  The engine's stencil build 9.3 -> 10.1 ms (+8.6 %: wider keys and node records; Q1 alone was +6 %). Memory on the 720 x 360 airfoil (serial,
+  50 steps): engine tables 183.5 MB as with Q0, mesh 87.7 MB (Q1's `ck`), peak 357.6 -> 358.7 MB.
 * **2-D bits:** the 49 golden dumps of 11.5 bitwise equal to the Q0 binary's, and the quick sets with `FENICE_FULL_REBUILD=1` and
   `FENICE_NO_SIMD=1` as well (`golden.py compare`).
 * Unit tests 146/146; the CI suite locally (`check_all.py --golden`: regression serial and 4 ranks, `amr_mpi.py --check` 1-7 ranks,
