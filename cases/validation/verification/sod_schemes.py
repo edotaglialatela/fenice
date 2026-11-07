@@ -62,7 +62,43 @@ def run(label, sets, amr, n, args):
     for name, got, ex in (("rho", rho, re), ("u", u, ue), ("p", p, pe)):
         e = np.abs(got - ex)
         out[name] = (np.sum(w * e) / np.sum(w), np.sum(w * e) / np.sum(w * np.abs(ex)))
-    return out, len(rho)
+    prof = (x[:n], rho[:n]) if not amr else None   # uniform runs: the first row of cells is the 1-D profile
+    return out, len(rho), prof
+
+
+FIGURE_SCHEMES = [("WENO5-Z", "#c0392b", "o"), ("MUSCL MC", "#8e44ad", "^"), ("WENO3-Z", "#16a085", "s")]
+
+
+def figure(table, pub, args):
+    """Left: relative L1 error of the density against the number of cells, the published second-order scheme and the three
+    best-performing reconstructions (one per family: WENO5-Z, the sharpest MUSCL limiter, WENO3-Z); right: their density at
+    100 cells around the contact and the shock against the exact solution."""
+    plt = study.use_style()
+    fig, (a, b) = plt.subplots(1, 2, figsize=(12, 4.8))
+    a.loglog(NS, pub, "ks-", ms=6, lw=1.2, label="published, 2nd order (arXiv:1108.2876)")
+    for name, c, m in FIGURE_SCHEMES:
+        a.loglog(NS, [r[0]["rho"][1] for r in table[name]], marker=m, color=c, lw=1.4, ms=6, label=name)
+    ref = pub[0]
+    a.loglog(NS, [ref * (NS[0] / n) for n in NS], ":", color="grey", label="order 1")
+    a.set_xlabel("cells $N$")
+    a.set_ylabel(r"relative $L_1$ error of $\rho$, $t = 0.2$")
+    a.set_xticks(NS)
+    a.set_xticklabels([str(n) for n in NS])
+    a.minorticks_off()
+    a.legend(fontsize=9)
+    a.set_title("Convergence against a published table")
+    xe = np.linspace(0.55, 0.95, 800)
+    b.plot(xe, riemann(xe, T_END)[0], "k-", lw=1.4, label="exact")
+    for name, c, m in FIGURE_SCHEMES:
+        x, rho = table[name][0][2]
+        k = (x > 0.55) & (x < 0.95)
+        b.plot(x[k], rho[k], ls="none", marker=m, ms=5, mfc="none", mec=c, label=name)
+    b.set_xlabel("$x$")
+    b.set_ylabel(r"density $\rho$")
+    b.set_title("100 cells, contact and shock")
+    b.legend(fontsize=9)
+    plt.tight_layout()
+    study.save(fig, STUDY, "sod_schemes.png", args.docs)
 
 
 def main():
@@ -80,6 +116,7 @@ def main():
                         f" | {res[-1][0][var][0]:.2e} | {res[-1][1]} |")
             print(rows[-1], flush=True)
     pub = [PUBLISHED[n] for n in NS]
+    figure(table, pub, args)
     rows.append("| published (arXiv:1108.2876, 2nd order) | not stated | " + " / ".join(f"{v:.1e}" for v in pub) + " | " +
                 ", ".join(f"{np.log2(pub[i] / pub[i + 1]):.2f}" for i in range(2)) + " | | |")
     print(rows[-1])
