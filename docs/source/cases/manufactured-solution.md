@@ -345,6 +345,48 @@ for the seam); the first-order columns are the baseline and have no band.
 * Level jumps themselves: the second-order faces use the coarse-fine closure unchanged (interpolated fine side, second-order coarse side),
   so a seam in smooth flow costs the order of its interpolated and averaged values, and the orders above are those of the whole mesh.
 
+### Interior level jumps
+
+```powershell
+python cases\validation\verification\mms_amr_weno.py            # base grids 16, 32, 64 (quick tier)
+python cases\validation\verification\mms_amr_weno.py --full     # and 128
+```
+
+The boundary study above has its level jumps at the walls. `mms_amr_weno.py` puts them in the interior: the periodic Euler and
+Navier-Stokes solutions (2-D) run with `use_amr`, one level, and a static refined square (`amr_force_box = 0.25 0.75 0.25 0.75`), so
+that all four seams and the four corners, where a coarse and a fine cell meet diagonally, are interior and no boundary closure is
+involved. WENO3-Z (SSP-RK3) is run with MUSCL (Van Leer, SSP-RK2) as the control. The errors are area-weighted over the leaves and
+compared with the uniform mesh on $n$ and on $2n$ cells. Bands fixed before the first run: $L_2$ order of the finest pair at least 1.5
+and $L_\infty$ at least 1.0 (the bands of the boundary study; a higher order is not a failure), and an $L_2$ error not larger than that
+of the uniform base mesh.
+
+| Solution | Scheme | $L_2$ orders (16→32→64→128) | $L_\infty$ orders | $L_2$ error / uniform $n$ (n = 16, 32, 64, 128) |
+|---|---|---|---|---|
+| Navier-Stokes | WENO3-Z | 1.92, 1.87, 1.53 | 1.24, 2.34, **0.60** | 0.97, 1.15, 1.83, 4.16 |
+| Navier-Stokes | MUSCL | 1.83, 1.84, 1.52 | 1.45, 2.02, **0.61** | 0.95, 1.03, 1.16, 1.44 |
+| Euler | WENO3-Z | 1.98, 2.15, 2.13 | 1.89, 1.87, **0.94** | 0.94, 1.02, 1.23, 1.72 |
+| Euler | MUSCL | 1.93, 1.92, 2.01 | 1.63, 2.01, 1.12 | 0.94, 1.03, 1.16, 1.27 |
+
+* **The $L_2$ orders meet the band** (1.5 to 2.1 on the finest pair), and in the quick mode (finest pair 32→64) so do the $L_\infty$
+  orders. With the grid 128 the $L_\infty$ order of the finest pair is **below** its band in three of four rows (0.60, 0.61, 0.94).
+* **The maximum error sits at a corner of the refined square** from $n = 64$ on, within 0.2 base cells of both seam lines, with
+  WENO3-Z and with MUSCL, where a coarse and a fine cell meet diagonally. This is a property of the adaptive mesh, not of the
+  reconstruction; nothing was changed in the solver.
+* **Refining the square does not improve the global error.** The $L_2$ error is above that of the uniform base mesh from $n = 32$
+  on (last column; the second band, not met). By region (Navier-Stokes), far from the seam the adaptive error is close to the
+  uniform base mesh up to $n = 64$, but inside the refined square it is several times that of the uniform $2n$ mesh:
+
+| scheme | n | far coarse: AMR / uniform $n$ | near seam: AMR / uniform $n$ | deep fine: AMR / uniform $2n$ |
+|---|---|---|---|---|
+| WENO3-Z | 16, 32, 64, 128 | 0.95, 1.05, 1.15, 1.57 | 0.92, 1.01, 1.26, 2.50 | 1.32, 2.14, 4.25, 13.55 |
+| MUSCL | 16, 32, 64, 128 | 0.93, 1.00, 1.02, 1.14 | 0.91, 0.93, 1.07, 1.62 | 1.39, 1.72, 2.32, 4.34 |
+
+  The fine leaves do not reach the accuracy of a fine mesh, and the gap grows with $n$. The data are consistent with an error made
+  at the seam (second-order jump closure) and carried through the domain; this is not proven (a shorter final time would separate the
+  error made at the seam from the error transported), and WENO3-Z shows it more than MUSCL because its own smooth error is smaller.
+  After the first run the ratio to the uniform base mesh was made a reported column and not a failure of the study; the decision was
+  taken after the result. Tables: `results/validation/mms_amr_weno/mms_amr_weno.md` and `mms_amr_weno_regions.md`.
+
 ## WENO-Z reconstruction on the periodic cases
 
 ```powershell

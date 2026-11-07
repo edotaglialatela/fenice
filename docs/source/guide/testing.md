@@ -181,6 +181,7 @@ accuracy are measured, not estimated.
 | `stress_shocks.py` | strong-shock robustness: pressure ratio 1000, vacuum, Mach 10-100, Mach 10 cylinder, odd-even test ([page]({{root}}guide/studies.html)) |
 | `mms_weno.py` | the periodic manufactured solutions (Euler 2-D, Navier-Stokes 2-D / 3-D) with WENO3-Z and WENO5-Z: observed orders, bands fixed beforehand, WENO3-Z reported above the band ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_time_weno.py` | time order of the unsteady manufactured solution with WENO3-Z and WENO5-Z (SSP-RK3); the default-epsilon WENO5-Z row is reported, not banded ([page]({{root}}cases/manufactured-solution.html)) |
+| `mms_amr_weno.py` | periodic manufactured solutions on an adaptive mesh with a static refined square (interior level jumps and corners), WENO3-Z and MUSCL; `--full` adds the grid 128, where the $L_\infty$ order falls below its band ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_boundary.py` | order of the manufactured solutions with walls / outflow (Euler and Navier-Stokes) per reconstruction, with `--boundary-order 1` or 2; the tables are committed next to it ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_amr_boundary.py` | the same solutions on an adaptive mesh with a static refined region (`amr_force_box`) whose seams meet the walls, boundary orders 1 and 2 ([page]({{root}}cases/manufactured-solution.html)); the table is committed next to it |
 
