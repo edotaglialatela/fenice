@@ -154,6 +154,7 @@ Params baseline_defaults() {
         {"ibm_chord", "1.0"},
         {"ibm_aoa", "0.0"},
         {"ibm_method", "auto"},
+        {"ibm_curvature", "false"},
         {"reynolds", "0"},
         {"use_muscl", "false"},
         {"muscl_limiter", "Van Leer"},
@@ -268,6 +269,7 @@ SimParams SimParams::from(const Params& p) {
     s.ibm_chord = p.num("ibm_chord", 1.0);
     s.ibm_aoa = p.num("ibm_aoa", 0.0);
     s.ibm_method = lower(p.str("ibm_method", "auto"));
+    s.ibm_curvature = p.flag("ibm_curvature");
     s.reynolds = p.num("reynolds", 0.0);
     s.use_muscl = p.flag("use_muscl");
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");

@@ -879,7 +879,7 @@ std::vector<int> CellFluxEngine::ghost_referenced_cells(const CellMesh& m) {
         const int M = m.max_level;
         const Mesh fine = generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(M), m.ny_at(M), m.x0, m.y0);
         ghost_ib_ = std::make_shared<ImmersedBoundary>(phys_.ibm_factory(fine));
-        ghost_ib_->enable_ghost_cells(fine, phys_.ibm_slip);
+        ghost_ib_->enable_ghost_cells(fine, phys_.ibm_slip, phys_.ibm_curvature);
     }
     const auto& cells = ghost_ib_->referenced_cells();
     return std::vector<int>(cells.begin(), cells.end());

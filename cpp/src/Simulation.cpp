@@ -477,7 +477,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         if (ibm->solid_count() == 0)
             std::printf("[WARNING] The IBM body covers no cell: check its size and position\n");
         if (p.ibm_method == "ghost") {
-            ibm->enable_ghost_cells(mesh, !p.use_viscous);
+            ibm->enable_ghost_cells(mesh, !p.use_viscous, p.ibm_curvature);
             if (verbose)
                 std::printf("[IBM] Ghost-cell wall (%s): %d ghost cells, loads on the true surface\n",
                             p.use_viscous ? "no-slip" : "slip", ibm->ghost_count());
@@ -596,6 +596,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         if (p.use_ibm) {
             cell_physics.ibm_factory = ibm_factory;
             cell_physics.ibm_ghost = p.ibm_method == "ghost";
+            cell_physics.ibm_curvature = p.ibm_curvature;
             cell_physics.ibm_slip = !p.use_viscous;
         }
         cell_engine = std::make_unique<CellFluxEngine>(fluid, riemann, muscl.get(), boundaries);
@@ -620,7 +621,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                 const int M = p.amr_max_level;
                 const Mesh fine = generate_cartesian_mesh(p.Lx, p.Ly, p.nx << M, p.ny << M, mesh.x0, mesh.y0);
                 ImmersedBoundary ib = ibm_factory(fine);
-                ib.enable_ghost_cells(fine, !p.use_viscous);
+                ib.enable_ghost_cells(fine, !p.use_viscous, p.ibm_curvature);
                 margin = std::max(margin, ib.ghost_reach());
                 if (verbose) std::printf("[AMR] Ghost-cell wall: finest-level band of %d cells around the body\n", margin);
             }

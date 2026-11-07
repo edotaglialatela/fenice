@@ -172,3 +172,15 @@ OpenMP, MPI strips) and the AMR engine (finest-level band), opt-in; the default 
   diameter) against 0.319 / 0.316 (mask), with 0.310 from the Billig correlation (an empirical fit). The difference comes from the
   wall condition (a slip wall against the mask's stagnant staircase); without an exact inviscid reference this case does not say
   which stand-off is closer.
+
+## Curvature correction (`ibm_curvature`, 2026-11-07)
+
+The ghost state kept the pressure and the density of the image point (zero normal gradient). On a curved slip wall the normal momentum
+equation says dp/dn = rho kappa u_t^2, so the zero gradient is a first-order error. Measured on the supersonic vortex around a cylinder
+(exact solution, Mach 2.25, `verification/ibm_vortex.py`): mean relative pressure error 2.3e-2 at 160 cells per radius and falling as
+h^1 without the correction, 9.2e-4 and h^1.6 with it. With `ibm_curvature = true` the ghost pressure is p_image - rho kappa u_t^2 (d_image + d_ghost),
+limited to a factor 0.5 to 2, and the density follows constant entropy along the normal. Flat walls are unchanged (wedge study identical).
+Serial equals 2-7 ranks bit for bit, uniform and AMR (`ibm_ghost.py --check`).
+Known limit: an impulsively started Mach 2 cylinder keeps the bow shock pinned to the wall with the correction on (the start-up has
+no normal momentum balance), whatever the cap tried (0.1, 0.5, 0.9); resumed from a developed shock it stays detached. The settled
+stand-off distance with and without the correction is not established (both still drift at t = 12).

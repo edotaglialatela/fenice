@@ -47,6 +47,7 @@ GROUPS = {
         "poiseuille": (["verification/poiseuille.py"], "quick", None),
         "stress_shocks": (["verification/stress_shocks.py"], "quick", 0.02),   # B0: strong shocks, vacuum, Mach 10-100, odd-even
         "shock_blend": (["verification/shock_blend.py"], "quick", 0.01),   # B2: odd-even cure, Sod accuracy, strong-shock tubes
+        "ibm_vortex": (["verification/ibm_vortex.py"], "quick", None),   # curved IBM wall against the exact supersonic vortex, curvature correction
         "ibm_wedge": (["verification/ibm_wedge.py"], "quick", None),   # IBM wall against the exact oblique shock, mask vs ghost
         "mms_time": (["verification/mms_time.py"], "quick", None),   # time order, unsteady manufactured solution (2 minutes)
         "mms": (["verification/mms.py"], "quick", None),   # manufactured solutions, 2-D and 3-D, up to 64^2 / 48^3

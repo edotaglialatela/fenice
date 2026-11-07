@@ -1,6 +1,6 @@
 """Ghost-cell (sharp-interface) IBM wall: MPI against serial, bit for bit.
 
-    python cases/validation/features/ibm_ghost.py --check     # serial against 2 to 7 MPI ranks, six cases
+    python cases/validation/features/ibm_ghost.py --check     # serial against 2 to 7 MPI ranks, nine cases
     python cases/validation/features/ibm_ghost.py --loads     # cylinder Re = 40: monitor loads against a control volume (hours)
 
 Runs short ibm_method = ghost cases serially and on 2 to 7 MPI ranks and compares the final states bit for bit, and the loads
@@ -31,8 +31,13 @@ CHECK_CASES = {   # name: (case, overrides)
                                                "max_steps=30"]),
     "supersonic": ("IBM Supersonic Flow over Cylinder", ["nx=100", "ny=100", "max_steps=30"]),
     "airfoil": ("IBM Airfoil", ["nx=192", "ny=96", "max_steps=20"]),
+    # ibm_curvature (slip walls): the curvature of each ghost cell is geometry only, the correction reads the image point
+    "supersonic_curv": ("IBM Supersonic Flow over Cylinder", ["ibm_curvature=true", "nx=100", "ny=100", "max_steps=30"]),
+    "naca_slip_curv": ("IBM Airfoil", ["use_viscous=false", "reynolds=0", "ibm_curvature=true", "nx=192", "ny=96", "max_steps=20"]),
     # AMR: the ghost table on the finest level, the image leaves in the MPI halo
     "amr_airfoil": ("IBM Airfoil AMR", ["max_steps=12"]),
+    "amr_cylinder_curv": ("IBM Flow over Cylinder", ["use_viscous=false", "ibm_curvature=true", "use_amr=true", "amr_max_level=2",
+                                                    "amr_refine_every=4", "nx=100", "ny=50", "max_steps=16"]),
     "amr_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
                                                 "max_steps=16"]),
 }

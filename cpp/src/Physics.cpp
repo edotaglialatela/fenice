@@ -913,12 +913,26 @@ bool ImmersedBoundary::make_probe(const Mesh& m, double x, double y, Probe& pr) 
     return true;
 }
 
-void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip) {
+double ImmersedBoundary::wall_curvature(double wx, double wy, double nx, double ny, double w) const {
+    if (shape_ == Shape::Circle) return 1.0 / r_;
+    // polygon: turning of the outward normal between the wall points nearest to the two points w away along the tangent, over
+    // the wall arc between them (a corner is smeared over 2 w, a straight edge gives zero)
+    double ax, ay, an_x, an_y, bx, by, bn_x, bn_y;
+    closest_wall_point(wx - w * ny, wy + w * nx, ax, ay, an_x, an_y);   // a: ahead along the counter-clockwise tangent (-ny, nx)
+    closest_wall_point(wx + w * ny, wy - w * nx, bx, by, bn_x, bn_y);   // b: behind
+    const double arc = std::sqrt((ax - bx) * (ax - bx) + (ay - by) * (ay - by));
+    if (!(arc > 0.0)) return 0.0;
+    // a convex wall turns the outward normal counter-clockwise from b to a
+    return std::atan2(bn_x * an_y - bn_y * an_x, bn_x * an_x + bn_y * an_y) / arc;
+}
+
+void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip, bool curvature) {
     if (m.is3d() || shape_ == Shape::None || shape_ == Shape::Ball)
         throw std::invalid_argument("ibm_method = ghost: 2-D cylinder or airfoil bodies only (for now)");
     const int nx = m.nx, ny = m.ny;
     const double h = std::max(m.dx, m.dy);
     slip_ = slip;
+    curvature_ = curvature;
     ghost_.clear();
     surface_.clear();
     ghost_mask_.assign(mask_.size(), 0);
@@ -950,6 +964,8 @@ void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip) {
                 throw std::runtime_error("ibm_method = ghost: no fluid cells around the image point of cell (" + std::to_string(i) +
                                          ", " + std::to_string(j) + "); refine the mesh near the body");
             g.ratio = dg / di;
+            g.span = dg + di;
+            if (curvature_ && slip_) g.kappa = wall_curvature(wx, wy, g.nx, g.ny, 1.5 * h);
             ghost_.push_back(g);
             ghost_mask_[c] = 1;
         }
@@ -1013,6 +1029,11 @@ void ImmersedBoundary::fill_ghosts_part(const CellIndex& local, const CellState&
     }
 }
 
+// The curvature correction may change a ghost pressure (p + p_inf) by a factor within [kCurvLow, kCurvHigh] only: the normal momentum
+// balance holds in equilibrium, and an impulsive start (free stream sliding along a wall that has not yet got its pressure field)
+// would otherwise draw a suction of several times the pressure on the wall.
+static const double kCurvLow = 0.5, kCurvHigh = 2.0;
+
 void ImmersedBoundary::fill_ghost_cells(const CellIndex& local, const CellState& in, Field& U, const EOS& eos) const {
     // every ghost state is computed from fluid cells only, then written: the result does not depend on the order
     const int ng = static_cast<int>(ghost_.size());
@@ -1023,8 +1044,16 @@ void ImmersedBoundary::fill_ghost_cells(const CellIndex& local, const CellState&
         const Ghost& g = ghost_[static_cast<size_t>(k)];
         dst[static_cast<size_t>(k)] = local(g.cell);
         if (dst[static_cast<size_t>(k)] < 0) continue;
-        const State W = g.image.at(in, eos);
+        State W = g.image.at(in, eos);
         const double un = W[1] * g.nx + W[2] * g.ny;
+        if (curvature_ && slip_ && g.kappa != 0.0) {   // normal momentum at the wall: p grows outwards by rho kappa u_t^2
+            const double tx = W[1] - un * g.nx, ty = W[2] - un * g.ny;
+            const double pi = W[3], pinf = eos.p_inf;
+            const double dp = W[0] * g.kappa * (tx * tx + ty * ty) * g.span;
+            const double pg = std::min(std::max(pi - dp, kCurvLow * (pi + pinf) - pinf), kCurvHigh * (pi + pinf) - pinf);
+            W[0] *= std::pow((pg + pinf) / (pi + pinf), 1.0 / eos.gamma);   // constant entropy along the normal
+            W[3] = pg;
+        }
         double ux, uy;
         if (slip_) {   // tangential velocity kept, normal velocity reflected through zero at the wall
             ux = W[1] - un * g.nx - g.ratio * un * g.nx;

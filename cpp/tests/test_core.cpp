@@ -1,5 +1,6 @@
 // EOS, Riemann solvers, boundary conditions, residual, time schemes, IBM, mapping and I/O, behavioural checks
 // Part of the unit tests: see test_common.hpp for the harness; test_main.cpp holds main().
+#include <map>
 #include "test_common.hpp"
 
 // ---------------------------------------------------------------------------
@@ -685,6 +686,87 @@ TEST(ibm_ghost_cells_reproduce_a_linear_wall_profile) {
         mk.enable_ghost_cells(mc, false);
     } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);
+}
+
+TEST(ibm_curvature_corrects_the_ghost_pressure_on_a_curved_wall) {
+    // Supersonic vortex around a cylinder (u_theta = A/r, isentropic, Mach 2.25 at the wall): the exact pressure grows outwards with
+    // dp/dr = rho u^2 / r, which the zero-gradient ghost state ignores. With the correction the ghost pressure follows the exact
+    // field (error down by an order of magnitude), a polygon approximating the circle gives the same ghost states as the circle
+    // (its curvature estimate is 1/R), and a flat wall is left untouched.
+    const EOS eos = EOS::ideal(1.4);
+    const double g = 1.4, Mi = 2.25, R = 1.0, c0 = 2.0;
+    const Mesh m = generate_cartesian_mesh(4.0, 4.0, 640, 640);   // 160 cells per radius
+    const auto exact = [&](double x, double y) {
+        const double dx = x - c0, dy = y - c0, r2 = std::max(dx * dx + dy * dy, 0.5 * R * R);   // the analytic continuation inside the body (ghost cells)
+        const double c2 = 1.0 + 0.5 * (g - 1.0) * Mi * Mi * (1.0 - R * R / r2), rho = std::pow(c2, 1.0 / (g - 1.0));
+        return std::array<double, 4>{rho, -Mi * R * dy / r2, Mi * R * dx / r2, rho * c2 / g};
+    };
+    Field U0(static_cast<size_t>(m.num_cells()));
+    for (int j = 0; j < m.ny; ++j)
+        for (int i = 0; i < m.nx; ++i) {
+            const auto w = exact(m.xc(i), m.yc(j));
+            U0[m.cell(i, j)] = eos.prim_to_cons({w[0], w[1], w[2], w[3], 0.0});
+        }
+    // worst relative pressure error over the ghost cells within one cell of the wall (the deeper ones extrapolate further)
+    const auto ghost_pressure_error = [&](ImmersedBoundary& ib, std::map<int, double>* out) {
+        Field U = U0;
+        ib.apply_forcing(U, eos);
+        double worst = 0.0;
+        for (const int c : ib.ghost_cell_list()) {
+            const int i = c % m.nx, j = c / m.nx;
+            if (std::hypot(m.xc(i) - c0, m.yc(j) - c0) < R - m.dx) continue;
+            const double pe = exact(m.xc(i), m.yc(j))[3], pg = eos.cons_to_prim(U[c])[3];
+            worst = std::max(worst, std::abs(pg / pe - 1.0));
+            if (out) (*out)[c] = pg;
+        }
+        return worst;
+    };
+    ImmersedBoundary off(m, "Cylinder", R, c0, c0, 1.0, 1.0), on(m, "Cylinder", R, c0, c0, 1.0, 1.0);
+    off.enable_ghost_cells(m, true, false);
+    on.enable_ghost_cells(m, true, true);
+    const double e_off = ghost_pressure_error(off, nullptr);
+    std::map<int, double> p_circle;
+    const double e_on = ghost_pressure_error(on, &p_circle);
+    CHECK(e_off > 0.05);
+    CHECK(e_on < 0.1 * e_off);
+    if (e_on >= 0.1 * e_off) std::printf("    ghost pressure error: %.3e without, %.3e with the correction\n", e_off, e_on);
+    // an 8000-gon of radius R (the estimate counts vertex turns inside a window of 3 cells: it needs many edges per window): same ghost pressures as the circle to a fraction of the correction
+    const double pi = std::acos(-1.0);
+    Polygon2D poly;
+    for (int k = 0; k < 8000; ++k) poly.pts.push_back({c0 + R * std::cos(2.0 * pi * k / 8000.0), c0 + R * std::sin(2.0 * pi * k / 8000.0)});
+    ImmersedBoundary pg(m, poly, 1.0, 1.0);
+    pg.enable_ghost_cells(m, true, true);
+    std::map<int, double> p_poly;
+    ghost_pressure_error(pg, &p_poly);
+    double worst_diff = 0.0;
+    int common = 0;
+    for (const auto& kv : p_circle) {
+        const auto it = p_poly.find(kv.first);
+        if (it == p_poly.end()) continue;
+        ++common;
+        worst_diff = std::max(worst_diff, std::abs(it->second / kv.second - 1.0));
+    }
+    CHECK(common > 100);
+    CHECK(worst_diff < 0.01);
+    if (worst_diff >= 0.01) std::printf("    polygon against circle: %.3e\n", worst_diff);
+    // a flat wall (uniform field, tilted wall): the correction changes nothing
+    const double a = pi / 6.0, tx = std::cos(a), ty = std::sin(a), nxw = -ty, nyw = tx;
+    Polygon2D flat;
+    for (const auto& q : std::vector<std::array<double, 2>>{{-8.0, 0.0}, {8.0, 0.0}, {8.0, -2.0}, {-8.0, -2.0}})
+        flat.pts.push_back({1.0 + q[0] * tx + q[1] * nxw, 1.5 + q[0] * ty + q[1] * nyw});
+    ImmersedBoundary f0(m, flat, 1.0, 1.0), f1(m, flat, 1.0, 1.0);
+    f0.enable_ghost_cells(m, true, false);
+    f1.enable_ghost_cells(m, true, true);
+    Field Ua(static_cast<size_t>(m.num_cells())), Ub;
+    for (int j = 0; j < m.ny; ++j)
+        for (int i = 0; i < m.nx; ++i) Ua[m.cell(i, j)] = eos.prim_to_cons({1.2, 0.5 * tx, 0.5 * ty, 2.0, 0.0});
+    Ub = Ua;
+    f0.apply_forcing(Ua, eos);
+    f1.apply_forcing(Ub, eos);
+    double dmax = 0.0;
+    for (size_t c = 0; c < Ua.size(); ++c)
+        for (int q = 0; q < 4; ++q) dmax = std::max(dmax, std::abs(Ua[c][q] - Ub[c][q]));
+    CHECK(dmax < 1e-9);
 }
 
 // ---------------------------------------------------------------------------

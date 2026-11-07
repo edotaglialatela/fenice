@@ -9,6 +9,8 @@ between the shock and the face is uniform, p2/p1 = 1.7066 and rho2/rho1 = 1.4584
 in the cells 2.5 to 5 cells from the upper face between x = 1.0 and 1.5 (the nose is at x = 0.75, the shoulder at 1.75, so the
 fan from the shoulder has not reached them). Slip wall (`use_viscous = false`), HLLC, MUSCL (Minmod), SSP-RK2, CFL 0.4.
 
+The ibm_curvature=true variant is run too: on a flat wall it must not do worse (its error at most twice the plain ghost one).
+
 Bands (set after an exploratory run at 100 / 200 / 400 cells, so they are a regression guard for the ghost wall, not a prediction):
   1. ghost: the RMS pressure error at the finest mesh is at most 5e-4 (relative to the exact p2) and the observed order between
      the two finest meshes is at least 2;
@@ -121,10 +123,11 @@ def main():
     case = wedge_case()
     sizes = (50, 100, 200, 400) if args.full else (50, 100, 200)
     out = {"beta_deg": math.degrees(beta), "p_ratio": pr, "rho_ratio": rr, "sizes": list(sizes)}
-    for method in ("mask", "ghost"):
+    for method in ("mask", "ghost", "ghost+curv"):
         rows = []
         for n in sizes:
-            d = study.run_cached(STUDY, f"{method}_{n}", case, f"ibm_method={method}", f"nx={4 * n}", f"ny={2 * n}",
+            sets = ["ibm_method=" + method.split("+")[0], *(["ibm_curvature=true"] if "+" in method else [])]
+            d = study.run_cached(STUDY, f"{method}_{n}", case, *sets, f"nx={4 * n}", f"ny={2 * n}",
                                  mpi=args.mpi, force=args.force)
             rows.append(errors(d, n, pr, rr))
         out[method] = rows
@@ -136,6 +139,11 @@ def main():
     out["ghost_order"], out["ghost_to_mask"] = order, ratio
     out["pass_error"], out["pass_order"], out["pass_ratio"] = bool(g[-1] <= BAND_ERR), bool(order >= BAND_ORDER), bool(ratio <= BAND_RATIO)
     out["passed"] = out["pass_error"] and out["pass_order"] and out["pass_ratio"]
+    # the curvature correction has nothing to correct on a flat wall (the polygon's curvature estimate is zero away from the corners)
+    out["curv_to_ghost"] = out["ghost+curv"][-1]["p_rms"] / out["ghost"][-1]["p_rms"]
+    out["pass_curv"] = bool(out["curv_to_ghost"] <= 2.0)
+    out["passed"] = out["passed"] and out["pass_curv"]
+    print(f"ghost+curv / ghost at the finest mesh: {out['curv_to_ghost']:.2f} (band 2, {'pass' if out['pass_curv'] else 'FAIL'})")
     print(f"ghost: finest rms {g[-1]:.2e} (band {BAND_ERR:.0e}, {'pass' if out['pass_error'] else 'FAIL'}); "
           f"order {order:.2f} (band {BAND_ORDER}, {'pass' if out['pass_order'] else 'FAIL'}); "
           f"ghost/mask {ratio:.2e} (band {BAND_RATIO}, {'pass' if out['pass_ratio'] else 'FAIL'})")

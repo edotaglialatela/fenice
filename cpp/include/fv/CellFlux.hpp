@@ -39,7 +39,7 @@ struct CellPhysics {
     std::function<ImmersedBoundary(const Mesh&)> ibm_factory;
     // Ghost-cell (sharp) wall on the finest level (ImmersedBoundary::enable_ghost_cells), slip or no-slip; needs the cells around
     // the body at the finest level (a body band at least ImmersedBoundary::ghost_reach wide), else the mask forcing is used
-    bool ibm_ghost = false, ibm_slip = false;
+    bool ibm_ghost = false, ibm_slip = false, ibm_curvature = false;
 };
 
 // Viscous cell kernels of the engine.  The range functions run four cells at a time with AVX2 where the CPU has it

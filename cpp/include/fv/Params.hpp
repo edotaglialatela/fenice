@@ -73,6 +73,7 @@ struct SimParams {
     double ibm_radius, ibm_cx, ibm_cy, ibm_cz;   // (cx, cy): centre, or an airfoil's quarter chord
     std::string ibm_file;        // Airfoil: Selig / Lednicer coordinate file (relative: to the case folder)
     double ibm_chord, ibm_aoa;   // airfoil chord and angle of attack [deg, nose up]
+    bool ibm_curvature = false;  // ghost wall, slip only: curvature pressure correction (dp/dn = rho kappa u_t^2)
     std::string ibm_method;      // auto (default: ghost where it exists, else mask), mask (cell-centred forcing) or ghost (sharp wall, 2-D)
     double reynolds;             // > 0: sets mu = rho_in u_in L / reynolds (L: chord or diameter)
     bool use_muscl;

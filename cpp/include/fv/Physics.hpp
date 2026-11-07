@@ -169,7 +169,10 @@ public:
     // gradient, the velocity reflected (no-slip) or only its normal component (slip), so the wall condition holds on the
     // body's surface, not on a staircase. From then on apply_forcing fills the ghost cells (and stops the deeper solid cells)
     // and apply_solid_reset does the same plus the deep-solid reset (energy from the EOS). Throws for a mask-only body or 3-D.
-    void enable_ghost_cells(const Mesh& mesh, bool slip);
+    // curvature (slip wall only): the ghost pressure follows the normal momentum equation at the wall, dp/dn = rho kappa u_t^2 (kappa:
+    // curvature of the wall, positive for a convex body), and the density follows constant entropy along the normal, instead of a zero
+    // normal gradient of both; without it a curved wall carries a first-order pressure error.
+    void enable_ghost_cells(const Mesh& mesh, bool slip, bool curvature = false);
     // True after enable_ghost_cells.
     bool ghost_cells() const { return ghost_on_; }
     // Number of ghost cells.
@@ -226,17 +229,19 @@ private:
         int cell = 0;
         double ratio = 0.0;   // distance ghost-wall / distance image-wall (Dirichlet values scale by -ratio)
         double nx = 0.0, ny = 0.0;
+        double kappa = 0.0, span = 0.0;   // wall curvature (convex > 0) and distance image-ghost along the normal
         Probe image;
     };
     struct SurfacePoint {
         double x = 0.0, y = 0.0, nx = 0.0, ny = 0.0, ds = 0.0, d = 0.0;   // probes at d and 2 d along the normal
         Probe probe, probe2;
     };
-    bool ghost_on_ = false, slip_ = false;
+    bool ghost_on_ = false, slip_ = false, curvature_ = false;
     std::vector<Ghost> ghost_;
     std::vector<SurfacePoint> surface_;
     std::vector<char> ghost_mask_;
-    bool make_probe(const Mesh& m, double x, double y, Probe& pr) const;   // false: no fluid cell around (x, y)
+    bool make_probe(const Mesh& m, double x, double y, Probe& pr) const;
+    double wall_curvature(double wx, double wy, double nx, double ny, double w) const;   // signed, convex > 0   // false: no fluid cell around (x, y)
 };
 
 }   // namespace fv
