@@ -1,6 +1,6 @@
 # IBM wall treatment: problem statement and proposals
 
-Status: proposal C (ghost cells) implemented as an option, `ibm_method = ghost` (branch `ibm-ghost-cell`); see "Results" at the end.
+Status: proposal C (ghost cells) implemented, `ibm_method = ghost`; since 2026-11-07 the default `ibm_method = auto` picks it wherever it exists (2-D cylinder / airfoil, AMR with `amr_refine_ibm`) and the mask otherwise (3-D, sphere). The regression references pin `ibm_method = mask`. Measured against the exact oblique shock (`verification/ibm_wedge.py`): ghost pressure error 2.3e-2, 7.7e-4, 6.3e-5 at 50 / 100 / 200 cells per unit length (order about 3.6), mask 6.3e-2, 4.2e-2, 3.2e-2 with a density deficit that grows with the mesh. Neither method conserves mass in a closed box (mask loses, ghost gains, about 0.2 % by t = 4 at 160^2, shrinking slowly with the mesh). Open: 3-D ghost cells, curvature pressure term on curved walls (untested), a conservative wall flux. See "Results" at the end.
 
 ## Current method
 

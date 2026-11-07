@@ -89,7 +89,7 @@ TEST(cellphys_forces_and_sources_match_uniform_bitwise) {
 
 TEST(cellphys_immersed_body_matches_uniform_bitwise) {
     for (const char* viscous : {"false", "true"}) {
-        ParityRig rig({{"nx", "36"}, {"ny", "24"}, {"use_ibm", "true"}, {"ibm_shape", "Cylinder"}, {"ibm_radius", "0.25"},
+        ParityRig rig({{"nx", "36"}, {"ny", "24"}, {"use_ibm", "true"}, {"ibm_method", "mask"}, {"ibm_shape", "Cylinder"}, {"ibm_radius", "0.25"},
                        {"ibm_cx", "0.8"}, {"ibm_cy", "0.55"}, {"use_viscous", viscous}, {"mu", "0.02"},
                        {"use_muscl", "true"}, {"bc_left", "vel_inlet"}, {"bc_right", "outlet"}});
         CHECK(rig.sim.ibm->solid_count() > 20);

@@ -329,7 +329,7 @@ State smooth_3d(const EOS& eos, double x, double y, double z) {
 
 namespace {
 Simulation ibm_source_run(const char* mx, const char* my) {
-    SimParams sp = params_for("IBM Flow over Cylinder", {{"nx", "40"}, {"ny", "20"}, {"time_scheme", "Explicit Euler"},
+    SimParams sp = params_for("IBM Flow over Cylinder", {{"ibm_method", "mask"}, {"nx", "40"}, {"ny", "20"}, {"time_scheme", "Explicit Euler"},
                                                           {"source_mx", mx}, {"source_my", my}});
     return run_case(sp, 1);
 }
@@ -369,7 +369,7 @@ TEST(extrusion_matches_2d) {
         {"Sod Shock Tube", {{"nx", "40"}, {"ny", "4"}, {"use_muscl", "true"}, {"time_scheme", "ssprk2"}}, 15},
         {"Lid Driven Cavity", {{"nx", "12"}, {"ny", "12"}, {"use_muscl", "true"}}, 20},
         {"Poiseuille Flow", {{"nx", "16"}, {"ny", "8"}}, 30},
-        {"IBM Flow over Cylinder", {{"nx", "40"}, {"ny", "20"}, {"use_mpi", "false"}}, 10},
+        {"IBM Flow over Cylinder", {{"ibm_method", "mask"}, {"nx", "40"}, {"ny", "20"}, {"use_mpi", "false"}}, 10},
         {"Isentropic Vortex", {{"nx", "20"}, {"ny", "20"}}, 10},
     };
     for (const Case& c : cases) {

@@ -153,7 +153,7 @@ Params baseline_defaults() {
         {"ibm_file", ""},
         {"ibm_chord", "1.0"},
         {"ibm_aoa", "0.0"},
-        {"ibm_method", "mask"},
+        {"ibm_method", "auto"},
         {"reynolds", "0"},
         {"use_muscl", "false"},
         {"muscl_limiter", "Van Leer"},
@@ -267,7 +267,7 @@ SimParams SimParams::from(const Params& p) {
     s.ibm_file = p.str("ibm_file", "");
     s.ibm_chord = p.num("ibm_chord", 1.0);
     s.ibm_aoa = p.num("ibm_aoa", 0.0);
-    s.ibm_method = lower(p.str("ibm_method", "mask"));
+    s.ibm_method = lower(p.str("ibm_method", "auto"));
     s.reynolds = p.num("reynolds", 0.0);
     s.use_muscl = p.flag("use_muscl");
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
@@ -373,8 +373,10 @@ SimParams SimParams::from(const Params& p) {
     if (s.use_ibm && shape == "airfoil" && s.ibm_file.empty())
         throw std::invalid_argument("ibm_shape = Airfoil needs ibm_file (a Selig or Lednicer coordinate file)");
     if (s.use_ibm && airfoil && !(s.ibm_chord > 0.0)) throw std::invalid_argument("ibm_chord must be positive");
-    if (s.ibm_method != "mask" && s.ibm_method != "ghost")
-        throw std::invalid_argument("Unknown ibm_method: '" + s.ibm_method + "' (use mask or ghost)");
+    if (s.ibm_method != "auto" && s.ibm_method != "mask" && s.ibm_method != "ghost")
+        throw std::invalid_argument("Unknown ibm_method: '" + s.ibm_method + "' (use auto, mask or ghost)");
+    if (s.ibm_method == "auto")   // the sharp wall wherever it exists (2-D cylinder / airfoil, AMR with the body band), else the mask
+        s.ibm_method = (s.nz > 1 || shape == "sphere" || (s.use_amr && !s.amr_refine_ibm)) ? "mask" : "ghost";
     if (s.use_ibm && s.ibm_method == "ghost") {
         if (s.nz > 1) throw std::invalid_argument("ibm_method = ghost is 2-D only (for now)");
         if (s.use_amr && !s.amr_refine_ibm)

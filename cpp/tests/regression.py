@@ -214,6 +214,9 @@ def run_cpp(name, tmp, n_mpi=0):
     # boundary_order keeps it at 1 (the default is 2 now, and 1 with a first-order scheme)
     if "boundary_order" not in ov:
         cmd += ["--set", "boundary_order=1"]
+    # likewise the IBM references are the cell-centred mask (the default picks the sharp wall where it exists)
+    if "ibm_method" not in ov:
+        cmd += ["--set", "ibm_method=mask"]
     for k, v in ov.items():
         cmd += ["--set", f"{k}={str(v).replace('{REF}', REF)}"]
     if n_mpi:
