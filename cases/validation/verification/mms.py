@@ -85,7 +85,8 @@ def exact_conservative(sol, n):
 
 
 def grid_sets(sol, n):
-    return [f"nx={n}", f"ny={n}"] + ([f"nz={n}"] if sol.dim == 3 else [])
+    # boundary_order = 1: this study documents the first-order boundary faces (the order-2 study is mms_boundary.py)
+    return [f"nx={n}", f"ny={n}", "boundary_order=1"] + ([f"nz={n}"] if sol.dim == 3 else [])
 
 
 def check_generator():

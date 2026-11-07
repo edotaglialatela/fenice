@@ -85,7 +85,7 @@ def main():
     for sol in solutions(args.euler_only, args.viscous_only, kinds):
         for key in args.schemes.split(","):
             label, sets = SCHEMES[key]
-            sets = list(sets) + ([f"boundary_order={args.boundary_order}"] if args.boundary_order == 2 else [])
+            sets = list(sets) + [f"boundary_order={args.boundary_order}"]
             errs = [errors(sol, n, key, sets, args) for n in GRIDS]
             for norm, band in (("L2", BAND_L2), ("Linf", BAND_LINF)):
                 names = list(errs[0])
