@@ -429,6 +429,39 @@ first run.
   finest pair, inside its band: the right-hand side with the limiter (a min / max, not smooth at extrema) limits the order
   of a high-order integrator. This is consistent with the data, not proven.
 
+### With WENO-Z
+
+```powershell
+python cases\validation\verification\mms_time_weno.py            # a few minutes
+python cases\validation\verification\mms_time_weno.py --full     # plus the finer-step diagnostic of the WENO5-Z weights
+```
+
+The WENO schemes require SSP-RK3, so only that integrator is run, with `reconstruction = weno3` or `weno5` in space, to check the
+stage times of the unsteady source and the time order with the nonlinear reconstruction in the right-hand side (same case,
+reference and measures as above, bands fixed beforehand: finest-pair order at least 2.5, a higher order is reported and is not a
+failure).
+
+| space | 0.4 | 0.2 | 0.1 | 0.05 | order (finest pair) | expected | |
+|---|---:|---:|---:|---:|---:|---|---|
+| WENO3-Z | 1.96e-05 | 2.42e-06 | 3.03e-07 | 3.83e-08 | 2.99 | [2.5, 3.5] | OK |
+| WENO5-Z | 3.20e-06 | 4.08e-07 | 5.98e-08 | 1.45e-08 | 2.04 | - | reported (band not met) |
+| WENO5-Z, `weno_epsilon` 1e-2 | 3.02e-06 | 3.81e-07 | 4.78e-08 | 5.98e-09 | 3.00 | [2.5, 3.5] | OK |
+
+* **WENO3-Z** gives 3.0 on every pair, so the stage times are right with a nonlinear reconstruction.
+* **WENO5-Z at the default `weno_epsilon` (1e-6) did not meet its band**: the orders are 2.97, 2.77, 2.04, and with steps down to
+  CFL 0.0125 against a reference at CFL 0.0015625 they are 2.97, 2.77, 2.03, 1.54, 2.44, irregular. A wrong stage time would affect
+  WENO3-Z too, so the integrator is not the cause. With `weno_epsilon = 1e-2` (nearly linear weights) the orders are 2.99, 2.99,
+  3.00, 3.00, 3.00; with 1e-8 the irregularity is larger (2.98, 2.88, 1.66, 1.25, 2.53). The time-error constant of WENO5-Z at the
+  default epsilon is dominated by the nonlinear weights.
+* **Decision taken after the first run:** the integrator check of WENO5-Z is banded at `weno_epsilon = 1e-2`; the default-epsilon row
+  stays in the table as reported, without a band. The diagnostic is `results/validation/mms_time_weno/mms_time_weno_diagnostic.md`.
+
+<figure>
+<img src="{{root}}img/mms_time_weno.png" style="width:60%" alt="Order in time with WENO-Z">
+<figcaption>Difference to the small-step reference against the time step for WENO3-Z and WENO5-Z (default and
+<code>weno_epsilon</code> 1e-2), SSP-RK3.</figcaption>
+</figure>
+
 ## What it does not verify
 
 * **Most boundary conditions.** Only the wall, moving-wall, no-slip and transmissive ghosts are verified (see above).
