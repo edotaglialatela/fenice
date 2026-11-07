@@ -539,7 +539,6 @@ void BoundaryManager::fix_padded_corners(Field& P, int mpi_axis, bool mpi_lo, bo
         const int n3[3] = {m.nx, m.ny, m.nz};
         const int PX = m.nx + 2, PY = m.ny + 2;
         auto at3 = [&](const int p[3]) -> State& { return P[(static_cast<size_t>(p[2]) * PY + p[1]) * PX + p[0]]; };
-        const double uw[3] = {params_.u_in, params_.v_in, 0.0};
         for (int kk = 0; kk <= m.nz + 1; ++kk)
             for (int jj = 0; jj <= m.ny + 1; ++jj)
                 for (int ii = 0; ii <= m.nx + 1; ++ii) {
@@ -557,22 +556,13 @@ void BoundaryManager::fix_padded_corners(Field& P, int mpi_axis, bool mpi_lo, bo
                     int q[3] = {p[0], p[1], p[2]};
                     q[d] = hi ? n3[d] : 1;   // adjacent interior layer
                     const State c = at3(q);
-                    State g = c;
                     const Face side = static_cast<Face>(2 * d + (hi ? 1 : 0));
-                    switch (type(side)) {
-                    case BCType::NoSlip:
-                        for (int t : kMom) g[t] = -c[t];
-                        break;
-                    case BCType::Wall: g[kMom[d]] = -c[kMom[d]]; break;
-                    case BCType::MovingWall:
-                        for (int t = 0; t < 3; ++t) g[kMom[t]] = (t == d) ? -c[kMom[t]] : 2.0 * c[0] * uw[t] - c[kMom[t]];
-                        match_kinetic_energy(g, c);
-                        break;
-                    case BCType::Periodic:
+                    State g;
+                    if (type(side) == BCType::Periodic) {
                         q[d] = hi ? 1 : n3[d];
                         g = at3(q);
-                        break;
-                    default: break;
+                    } else {
+                        g = viscous_ghost_3d(side, c);   // the wall rules, one copy (boundary_order = 2 here: the moving wall matches the energy)
                     }
                     at3(p) = g;
                 }
@@ -652,7 +642,6 @@ void BoundaryManager::padded_3d(const Field& U, Field& P) const {
         }
     }
 
-    const double uw[3] = {params_.u_in, params_.v_in, 0.0};   // moving-wall velocity
     for (Face side : {Face::Bottom, Face::Top, Face::Left, Face::Right, Face::Front, Face::Back}) {
         const BCType bc = type(side);
         if (bc != BCType::NoSlip && bc != BCType::Wall && bc != BCType::MovingWall && bc != BCType::Periodic) continue;
@@ -700,19 +689,12 @@ void BoundaryManager::padded_3d(const Field& U, Field& P) const {
                 }
                 State& gh = at(ii, jj, kk);
                 const State& c = U[m.cell(i, j, k)];
-                switch (bc) {
-                case BCType::NoSlip:
-                    for (int q : kMom) gh[q] = -c[q];
-                    break;
-                case BCType::Wall: gh[kMom[d]] = -c[kMom[d]]; break;
-                case BCType::MovingWall:
-                    for (int t = 0; t < 3; ++t) gh[kMom[t]] = (t == d) ? -c[kMom[t]] : 2.0 * c[0] * uw[t] - c[kMom[t]];
-                    if (params_.boundary_order == 2) match_kinetic_energy(gh, c);
-                    break;
-                default:   // periodic
+                // the wall rules live in viscous_ghost_3d (one copy: the adaptive engine's level-0 bits depend on it); the entry
+                // before is the zero-gradient copy of c, which is where viscous_ghost_3d starts too
+                if (bc == BCType::Periodic)
                     gh = U[m.cell(io, jo, ko)];
-                    break;
-                }
+                else
+                    gh = viscous_ghost_3d(side, c);
             }
     }
 }

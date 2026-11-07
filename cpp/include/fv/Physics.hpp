@@ -176,6 +176,11 @@ public:
     // curvature of the wall, positive for a convex body), and the density follows constant entropy along the normal, instead of a zero
     // normal gradient of both; without it a curved wall carries a first-order pressure error.
     void enable_ghost_cells(const Mesh& mesh, bool slip, bool curvature = false);
+    // The same wall on a mesh `fine` that is never stored (the finest level of an adaptive mesh): solidity is solid_at at the cell
+    // centres (the mask by construction) and only the `candidates` are visited (cell indices of `fine` in increasing order, e.g. the
+    // solid finest leaves); where they include every ghost cell of `fine` the table is that of enable_ghost_cells(fine) bit for bit.
+    // No array over `fine`; for a body built from its geometry; `fine` must have fewer than 2^31 cells.
+    void enable_ghost_cells_sparse(const Mesh& fine, bool slip, bool curvature, const std::vector<int>& candidates);
     // True after enable_ghost_cells.
     bool ghost_cells() const { return ghost_on_; }
     // Number of ghost cells.
@@ -250,6 +255,9 @@ private:
         Probe probe, probe2;
     };
     bool ghost_on_ = false, slip_ = false, curvature_ = false;
+    bool sparse_ = false;   // the ghost wall of enable_ghost_cells_sparse: solidity from solid_at, no arrays over the mesh
+    bool is_solid(const Mesh& m, int i, int j, int k) const;   // mask_ (dense) or solid_at of the centre (sparse)
+    void build_ghosts(const Mesh& m, bool slip, bool curvature, const std::vector<int>* candidates);
     std::vector<Ghost> ghost_;
     std::vector<SurfacePoint> surface_;
     std::vector<char> ghost_mask_;

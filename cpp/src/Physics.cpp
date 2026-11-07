@@ -939,7 +939,7 @@ bool ImmersedBoundary::make_probe3(const Mesh& m, double x, double y, double z, 
         const int di = q & 1, dj = (q >> 1) & 1, dk = (q >> 2) & 1;
         const double w = (di ? tx : 1 - tx) * (dj ? ty : 1 - ty) * (dk ? tz : 1 - tz);
         pr.cell[q] = m.cell(i0 + di, j0 + dj, k0 + dk);
-        pr.w[q] = mask_[pr.cell[q]] ? 0.0 : w;
+        pr.w[q] = is_solid(m, i0 + di, j0 + dj, k0 + dk) ? 0.0 : w;
         sum += pr.w[q];
     }
     if (sum < 1e-6) return false;
@@ -959,7 +959,7 @@ bool ImmersedBoundary::make_probe(const Mesh& m, double x, double y, Probe& pr, 
     double sum = 0.0;
     for (int k = 0; k < 4; ++k) {
         pr.cell[k] = m.cell(ci[k], cj[k], layer);
-        pr.w[k] = mask_[pr.cell[k]] ? 0.0 : w[k];
+        pr.w[k] = is_solid(m, ci[k], cj[k], layer) ? 0.0 : w[k];
         sum += pr.w[k];
     }
     if (sum < 1e-6) return false;
@@ -980,7 +980,24 @@ double ImmersedBoundary::wall_curvature(double wx, double wy, double nx, double 
     return std::atan2(bn_x * an_y - bn_y * an_x, bn_x * an_x + bn_y * an_y) / arc;
 }
 
+bool ImmersedBoundary::is_solid(const Mesh& m, int i, int j, int k) const {
+    return sparse_ ? solid_at(m.xc(i), m.yc(j), m.zc(k)) : mask_[static_cast<size_t>(m.cell(i, j, k))] != 0;
+}
+
 void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip, bool curvature) {
+    sparse_ = false;
+    build_ghosts(m, slip, curvature, nullptr);
+}
+
+void ImmersedBoundary::enable_ghost_cells_sparse(const Mesh& fine, bool slip, bool curvature, const std::vector<int>& candidates) {
+    if (shape_ == Shape::None) throw std::invalid_argument("ImmersedBoundary: a sparse ghost-cell wall needs the body's geometry");
+    if (static_cast<long long>(fine.nx) * fine.ny * fine.nz > 2147483647LL)
+        throw std::invalid_argument("ibm_method = ghost: the finest level of the adaptive mesh has more than 2^31 cells");
+    sparse_ = true;
+    build_ghosts(fine, slip, curvature, &candidates);
+}
+
+void ImmersedBoundary::build_ghosts(const Mesh& m, bool slip, bool curvature, const std::vector<int>* candidates) {
     if (shape_ == Shape::None || (shape_ == Shape::Ball && !m.is3d()))
         throw std::invalid_argument("ibm_method = ghost: cylinder, airfoil (2-D, or extruded in 3-D) or sphere bodies only");
     const bool d3 = m.is3d(), ball = shape_ == Shape::Ball;
@@ -990,7 +1007,10 @@ void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip, bool curvatu
     curvature_ = curvature;
     ghost_.clear();
     surface_.clear();
-    ghost_mask_.assign(mask_.size(), 0);
+    if (sparse_)
+        ghost_mask_.clear();   // no array over the mesh: the ghost cells are ghost_cell_list()
+    else
+        ghost_mask_.assign(mask_.size(), 0);
     // the image (resp. probe) point lies at least 1.5 cells into the fluid, so its four interpolation cells are fluid cells
     // on a flat or convex wall; further out where they are not (concave corners, thin trailing edges)
     const auto probe_out = [&](double wx, double wy, double nxw, double nyw, double d0, double& d, Probe& pr, int layer) {
@@ -1006,19 +1026,19 @@ void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip, bool curvatu
         return false;
     };
     const int dkmax = d3 ? 2 : 0;
-    for (int k = 0; k < nz; ++k)
-        for (int j = 0; j < ny; ++j)
-            for (int i = 0; i < nx; ++i) {
+    // one cell (i, j, k): a ghost cell if it is solid with a fluid cell within two cells; the dense path visits every cell, the
+    // sparse one the candidates (in cell order: the same table where they include every ghost cell)
+    const auto visit = [&](int i, int j, int k) {
                 const int c = m.cell(i, j, k);
-                if (!mask_[c]) continue;
+                if (!is_solid(m, i, j, k)) return;
                 bool near = false;   // a fluid cell within two cells (MUSCL stencils, viscous gradients) reads this one
                 for (int dk = -dkmax; dk <= dkmax && !near; ++dk)
                     for (int dj = -2; dj <= 2 && !near; ++dj)
                         for (int di = -2; di <= 2 && !near; ++di) {
                             const int ii = i + di, jj = j + dj, kk = k + dk;
-                            if (ii >= 0 && ii < nx && jj >= 0 && jj < ny && kk >= 0 && kk < nz && !mask_[m.cell(ii, jj, kk)]) near = true;
+                            if (ii >= 0 && ii < nx && jj >= 0 && jj < ny && kk >= 0 && kk < nz && !is_solid(m, ii, jj, kk)) near = true;
                         }
-                if (!near) continue;
+                if (!near) return;
                 Ghost g;
                 g.cell = c;
                 double wx, wy, wz = 0.0;
@@ -1039,8 +1059,15 @@ void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip, bool curvatu
                 g.span = dg + di;
                 if (curvature_ && slip_) g.kappa = wall_curvature(wx, wy, g.nx, g.ny, 1.5 * h);
                 ghost_.push_back(g);
-                ghost_mask_[c] = 1;
-            }
+                if (!sparse_) ghost_mask_[c] = 1;
+    };
+    if (candidates) {
+        for (const int c : *candidates) visit(c % nx, (c / nx) % ny, c / (nx * ny));
+    } else {
+        for (int k = 0; k < nz; ++k)
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) visit(i, j, k);
+    }
     // surface samples for the loads, at most half a cell apart
     const auto add_point = [&](double wx, double wy, double nxw, double nyw, double ds) {
         SurfacePoint sp;

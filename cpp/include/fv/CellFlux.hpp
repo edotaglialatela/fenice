@@ -9,8 +9,9 @@
 // interpolated to the centre of the fine cell that would sit there (interpolate_jumps) and the coarse side is reconstructed
 // against the mean of the fine leaves (coarse_side_second_order), so a uniform flow is preserved exactly across level jumps.
 // On a 3-D mesh (CellMesh::make_3d) the residual runs on six sides (a side towards finer leaves has four faces) with the convective
-// and viscous terms (the expressions of NavierStokes::viscous_residual_3d, scalar), the body force, the sources, mass-flow inlets and
-// non-reflecting outlets; the immersed body is rejected there by build() until it is generalised (docs/design/amr-octree.md).
+// and viscous terms (the expressions of NavierStokes::viscous_residual_3d, scalar), the body force, the sources, mass-flow inlets,
+// non-reflecting outlets and the immersed body (a leaf is solid by ImmersedBoundary::solid_at of its centre; the ghost-cell wall from a
+// sparse table of the finest level); only the ghost-cell wall on a rank's share is rejected there by build() (docs/design/amr-octree.md).
 // The viscous terms use the same neighbour codes: the cell-centre gradients (central differences of the four
 // neighbouring values, virtual cells across a jump, the diffusive ghost at a physical edge) feed the cross
 // derivatives, the normal derivative of a face is the two-point difference over the distance of its two cell centres.
@@ -305,6 +306,7 @@ private:
     int ghost_whole_ready_ = -1;
     bool ghost_ready_ = false;
     void map_ghost_cells(const CellMesh& m, const CellMesh* whole);
+    void map_ghost_cells_3d(const CellMesh& m);   // the sparse table of the finest level from the solid finest leaves
     void fill_ghost_leaves(const Field& U, Field& out, const std::vector<char>* only) const;
     std::vector<std::vector<char>> level_mask_;   // cache: mask of the uniform mesh of each level (2-D)
     // 3-D: the body built once on the base mesh; a leaf is solid when ImmersedBoundary::solid_at of its centre says so (no mask

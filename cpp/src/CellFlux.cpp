@@ -100,8 +100,8 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
         (m.dim == 3 && per(Face::Front, Face::Back) != m.periodic_z))
         throw std::invalid_argument("CellFluxEngine: the periodic axes of the mesh and the boundary types differ");
     if (m.dim == 3) {   // what the octree engine does not do yet (docs/design/amr-octree.md, phase Q4)
-        if (has_body() && phys_.ibm_ghost)
-            throw std::invalid_argument("CellFluxEngine: the ghost-cell wall is not available on a 3-D adaptive mesh yet (ibm_method = mask)");
+        if (has_body() && phys_.ibm_ghost && whole)
+            throw std::invalid_argument("CellFluxEngine: the ghost-cell wall on a rank's share of a 3-D adaptive mesh is not available yet");
         if (muscl_ && muscl_->scheme() == Reconstruction::Weno5)
             throw std::invalid_argument("CellFluxEngine: WENO5-Z is not available on an adaptive mesh");
     }
@@ -236,8 +236,10 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
     if (has_body() && m.dim == 3) {
         // per-leaf classification by the centre test of the body's geometry (the uniform mask is that test at the cell centres)
         if (!ibm_geo_) {
+            // the body's shape follows the mesh it is built on (a sphere on a mesh with nz = 1 is a cylinder): an octree with a single
+            // base cell along z still has 3-D levels, so the geometry is built on a mesh with at least two
             ibm_geo_ = std::make_shared<ImmersedBoundary>(
-                phys_.ibm_factory(generate_cartesian_mesh_3d(m.Lx, m.Ly, m.Lz, m.nx, m.ny, m.nz, m.x0, m.y0, m.z0)));
+                phys_.ibm_factory(generate_cartesian_mesh_3d(m.Lx, m.Ly, m.Lz, m.nx, m.ny, std::max(m.nz, 2), m.x0, m.y0, m.z0)));
             if (!ibm_geo_->has_geometry())
                 throw std::invalid_argument("CellFluxEngine: a 3-D adaptive mesh needs a body built from its geometry (a mask-only body)");
             ibm_rho_ref_ = ibm_geo_->rho_ref();
@@ -860,7 +862,8 @@ void CellFluxEngine::memory_bytes(double& per_leaf, double& uniform) const {
                container_bytes(Vc_) + container_bytes(W_) + container_bytes(F_) + container_bytes(Fv_) + container_bytes(reg_) +
                container_bytes(regv_) + container_bytes(need_) + container_bytes(vcells_) + container_bytes(su_) +
                container_bytes(sv_) + container_bytes(sT_) + container_bytes(dudx_) + container_bytes(dudy_) + container_bytes(dvdx_) +
-               container_bytes(dvdy_) + container_bytes(solid_) + container_bytes(fine_leaf_) + container_bytes(ghost_reads_leaf_) +
+               container_bytes(dvdy_) + container_bytes(sw_) + container_bytes(dudz_) + container_bytes(dvdz_) + container_bytes(dwdx_) +
+               container_bytes(dwdy_) + container_bytes(dwdz_) + container_bytes(solid_) + container_bytes(fine_leaf_) + container_bytes(ghost_reads_leaf_) +
                container_bytes(ghost_leaf_mask_) + container_bytes(held_mask_) + container_bytes(src_);
     for (int s = 0; s < 6; ++s) per_leaf += container_bytes(mf_face_[s]) + container_bytes(mf_weight_[s]);
     uniform = container_bytes(level_mask_) + (ghost_ib_ ? ghost_ib_->memory_bytes() : 0.0) + (ibm_geo_ ? ibm_geo_->memory_bytes() : 0.0);
@@ -948,6 +951,10 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
     ghost_incomplete_.clear();
     ghost_leaf_mask_.assign(static_cast<size_t>(nleaf_), 0);
     if (!has_body() || !phys_.ibm_ghost) return;
+    if (m.dim == 3) {
+        map_ghost_cells_3d(m);
+        return;
+    }
     const int M = m.max_level, NX = m.nx_at(M);
     ghost_referenced_cells(m);
     // whether the wall is active is a fact of the whole mesh (given, or looked up in `whole`); a rank keeps the cells whose leaf it has
@@ -972,6 +979,50 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
             ghost_incomplete_[static_cast<size_t>(a->second)] = 1;
         }
     }
+    ghost_ready_ = true;
+}
+
+void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m) {
+    // The ghost-cell wall on octree leaves (docs/design/amr-octree.md 15.6): the table of the uniform finest level built sparsely
+    // from the solid finest leaves, active when it is that table bit for bit and every cell it reads is a finest leaf.
+    const int M = m.max_level, NX = m.nx_at(M), NY = m.ny_at(M), NZ = m.nz_at(M);
+    const double hf[3] = {m.dx(M), m.dy(M), m.dz(M)};
+    const ImmersedBoundary& geo = *ibm_geo_;
+    // 1) no coarser leaf near the surface: a ghost cell (solid, a fluid cell within two finest cells) or a cell its image point reads
+    // could lie in it. Every cell the wall reads has its centre within 6 finest widths of the wall (a ghost cell within 2 sqrt 3, an
+    // image point at most 4 cells out and its interpolation cells within sqrt 3 of it); a leaf is clear when the distance of its
+    // centre to the closest wall point exceeds its half diagonal plus that reach.
+    const double reach = 6.0 * std::max({hf[0], hf[1], hf[2]});
+    for (int c = 0; c < m.level_begin[M]; ++c) {
+        const int l = m.level[c];
+        const double x = m.xc(c), y = m.yc(c), z = m.zc(c);
+        const double half = 0.5 * std::sqrt(m.dx(l) * m.dx(l) + m.dy(l) * m.dy(l) + m.dz(l) * m.dz(l));
+        double wx, wy, wz, nx, ny, nz;
+        geo.closest_wall_point3(x, y, z, wx, wy, wz, nx, ny, nz);
+        const double d = std::sqrt((x - wx) * (x - wx) + (y - wy) * (y - wy) + (z - wz) * (z - wz));
+        if (d <= half + reach) return;   // not (yet) refined around the body: the mask forcing stays
+    }
+    // 2) the table from the solid finest leaves, in cell order of the finest level
+    if (static_cast<long long>(NX) * NY * NZ > 2147483647LL) return;
+    std::vector<int> cand;
+    for (int c = m.level_begin[M]; c < m.level_begin[M + 1]; ++c)
+        if (solid_[c]) cand.push_back((m.ck[c] * NY + m.cj[c]) * NX + m.ci[c]);
+    std::sort(cand.begin(), cand.end());
+    const Mesh fine = generate_cartesian_mesh_3d(m.Lx, m.Ly, m.Lz, NX, NY, NZ, m.x0, m.y0, m.z0);
+    auto ib = std::make_shared<ImmersedBoundary>(geo);
+    ib->enable_ghost_cells_sparse(fine, phys_.ibm_slip, phys_.ibm_curvature, cand);
+    ghost_ib_ = ib;
+    // 3) every cell the wall reads is a finest leaf
+    for (const int fc : ghost_ib_->referenced_cells()) {
+        const int leaf = m.find(M, fc % NX, (fc / NX) % NY, fc / (NX * NY));
+        if (leaf < 0) {
+            fine_leaf_.clear();
+            return;
+        }
+        fine_leaf_[fc] = leaf;
+    }
+    for (const int g : ghost_ib_->ghost_cell_list()) ghost_leaf_mask_[static_cast<size_t>(fine_leaf_.at(g))] = 1;
+    for (const auto& pr : ghost_ib_->ghost_reads()) ghost_reads_leaf_.push_back({fine_leaf_.at(pr.first), fine_leaf_.at(pr.second)});
     ghost_ready_ = true;
 }
 
@@ -1805,7 +1856,7 @@ void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Fie
     const bool visc = phys_.ns != nullptr;
     const Field& U = *us_;
     if (phys_.source && phys_.source_unsteady) update_source(m, cb, ce);
-    if (dim_ == 3) {   // convective, viscous (build rejects the other terms in 3-D until they are generalised)
+    if (dim_ == 3) {   // convective, viscous, body force, sources (the 2-D order of the terms)
 #pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
         for (int c = cb; c < ce; ++c) {
             // side integrals: sum of (face flux * face area), one face or four (summed in pairs, in slot order: a fixed order);

@@ -4,6 +4,7 @@
 #include "test_amr_common.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <string>
 
 namespace {
@@ -697,6 +698,32 @@ TEST(cellflux3d_ibm_masks_equal_the_uniform_masks) {
     }
 }
 
+TEST(cellflux3d_ibm_sphere_on_a_base_with_one_cell_along_z) {
+    // A base mesh of 8 x 6 x 1 cells is not a 3-D Mesh (nz = 1), but the octree's deeper levels are: the body must still be a sphere
+    // (a uniform mesh with nz = 1 would make it a cylinder along z). The flags of the leaves of every level with more than one cell
+    // along z equal the uniform 3-D masks there.
+    Simulation sim;
+    setup_ibm_3d(sim, "Sphere", {"wall", "wall", "wall", "wall", "periodic", "periodic"}, {{"nx", "8"}, {"ny", "6"}, {"nz", "4"}});
+    CellMesh m = CellMesh::make_3d(sim.mesh.Lx, sim.mesh.Ly, sim.mesh.Lz, 8, 6, 1, 2, false, false, true, sim.mesh.x0, sim.mesh.y0, sim.mesh.z0);
+    CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+    eng.set_physics(ibm_physics(sim));
+    eng.build(m);
+    m.adapt(std::vector<char>(static_cast<size_t>(m.num_leaves()), 1));
+    m.adapt(std::vector<char>(static_cast<size_t>(m.num_leaves()), 1));
+    eng.build(m);
+    const Mesh lm = generate_cartesian_mesh_3d(m.Lx, m.Ly, m.Lz, m.nx_at(2), m.ny_at(2), m.nz_at(2), m.x0, m.y0, m.z0);
+    const ImmersedBoundary ib = sim.ibm_factory(lm);
+    int solid = 0, mismatch = 0;
+    for (int c = 0; c < m.num_leaves(); ++c) {
+        CHECK(m.level[c] == 2);
+        const bool want = ib.mask()[static_cast<size_t>(lm.cell(m.ci[c], m.cj[c], m.ck[c]))] != 0;
+        mismatch += (eng.solid()[static_cast<size_t>(c)] != 0) != want;
+        solid += want;
+    }
+    CHECK(mismatch == 0);
+    CHECK(solid > 0 && solid < m.num_leaves() / 4);   // a cylinder through the whole z extent would be about 4 times as many
+}
+
 TEST(cellflux3d_ibm_level0_matches_uniform_residual_and_solid_reset_bitwise) {
     // A level-0 octree with a body (mask method) against the 3-D uniform solver: the residual (the forcing zeroes the velocity of
     // the solid cells in every residual) and the solid reset (fringe Neumann passes right, left, top, bottom, back, front; deep solid
@@ -949,4 +976,218 @@ TEST(celladvance3d_ibm_sphere_on_an_adapted_mesh) {
     CHECK(ok);
     CHECK(solid > 20);
     std::printf("    sphere: %d leaves (%d solid), t = %.3f after 12 steps\n", m.num_leaves(), solid, t);
+}
+
+// ---------------------------------------------------------------------------
+// Q4e: the ghost-cell wall on octree leaves (sparse table of the finest level)
+// ---------------------------------------------------------------------------
+
+namespace {
+
+CellPhysics ghost_physics(Simulation& sim) {
+    CellPhysics ph = ibm_physics(sim);
+    ph.ibm_ghost = true;
+    ph.ibm_slip = !sim.p.use_viscous;
+    return ph;
+}
+
+// Refine `rounds` times every leaf whose box, widened by the reach of the ghost wall at the finest level, comes near the surface:
+// exactly the readiness rule of the engine (6 finest widths), so the tests sit at its edge and the comparison with the uniform
+// finest-level wall checks that this reach covers every cell the wall reads
+void refine_for_ghost_wall(CellMesh& m, const ImmersedBoundary& geo, int rounds) {
+    const int M = m.max_level;
+    const double reach = 6.0 * std::max({m.dx(M), m.dy(M), m.dz(M)});
+    for (int r = 0; r < rounds; ++r) {
+        std::vector<char> f(static_cast<size_t>(m.num_leaves()), 0);
+        for (int c = 0; c < m.num_leaves(); ++c) {
+            const int l = m.level[c];
+            const double half = 0.5 * std::sqrt(m.dx(l) * m.dx(l) + m.dy(l) * m.dy(l) + m.dz(l) * m.dz(l));
+            double wx, wy, wz, nx, ny, nz;
+            geo.closest_wall_point3(m.xc(c), m.yc(c), m.zc(c), wx, wy, wz, nx, ny, nz);
+            const double d = std::sqrt((m.xc(c) - wx) * (m.xc(c) - wx) + (m.yc(c) - wy) * (m.yc(c) - wy) + (m.zc(c) - wz) * (m.zc(c) - wz));
+            f[c] = d <= half + reach;
+        }
+        m.adapt(f);
+    }
+}
+
+}   // namespace
+
+TEST(ibm_sparse_ghost_table_equals_the_uniform_table) {
+    // ImmersedBoundary::enable_ghost_cells_sparse on a mesh that is never stored, visiting only candidate cells (the solid ones, and
+    // a superset with fluid cells), against enable_ghost_cells on the same mesh with its mask: the same ghost cells, ratios and reads,
+    // and the same filled states bit for bit; sphere, cylinder along z, extruded section; slip and no-slip.
+    const BCs walls = {"wall", "wall", "wall", "wall", "wall", "wall"};
+    for (const char* shape : {"Sphere", "Cylinder", "NACA0012"})
+        for (const bool slip : {true, false}) {
+            Simulation sim;
+            setup_ibm_3d(sim, shape, walls, {{"nx", "6"}, {"ny", "4"}, {"nz", "4"}});
+            const Mesh fine = generate_cartesian_mesh_3d(sim.mesh.Lx, sim.mesh.Ly, sim.mesh.Lz, 34, 22, 18, sim.mesh.x0, sim.mesh.y0, sim.mesh.z0);
+            ImmersedBoundary dense = sim.ibm_factory(fine);
+            dense.enable_ghost_cells(fine, slip, false);
+            const ImmersedBoundary geo = sim.ibm_factory(sim.mesh);   // built on the base mesh: no array over `fine`
+            std::vector<int> solid, superset;
+            for (int c = 0; c < fine.num_cells(); ++c) {
+                if (dense.mask()[static_cast<size_t>(c)]) solid.push_back(c);
+                if (dense.mask()[static_cast<size_t>(c)] || c % 3 == 0) superset.push_back(c);
+            }
+            for (const std::vector<int>* cand : {&solid, &superset}) {
+                ImmersedBoundary sparse = geo;
+                sparse.enable_ghost_cells_sparse(fine, slip, false, *cand);
+                CHECK(sparse.ghost_cell_list() == dense.ghost_cell_list());
+                CHECK(sparse.ghost_ratios() == dense.ghost_ratios());
+                CHECK(sparse.ghost_reads() == dense.ghost_reads());
+                Field U(static_cast<size_t>(fine.num_cells()));
+                for (int k = 0; k < fine.nz; ++k)
+                    for (int j = 0; j < fine.ny; ++j)
+                        for (int i = 0; i < fine.nx; ++i) U[fine.cell(i, j, k)] = test_state3(sim.fluid, fine.xc(i), fine.yc(j), fine.zc(k));
+                Field Ud = U, Us = U;
+                const auto id = [](int c) { return c; };
+                dense.fill_ghost_cells(id, [&U](int c) -> const State& { return U[static_cast<size_t>(c)]; }, Ud, sim.fluid);
+                sparse.fill_ghost_cells(id, [&U](int c) -> const State& { return U[static_cast<size_t>(c)]; }, Us, sim.fluid);
+                CHECK(bits_equal(Ud, Us));
+            }
+            CHECK(dense.ghost_count() > 30);
+            std::printf("    %s %s: %d ghost cells, sparse == dense\n", shape, slip ? "slip" : "no-slip", dense.ghost_count());
+        }
+}
+
+TEST(cellflux3d_ghost_wall_level0_matches_the_uniform_ghost_wall) {
+    // A level-0 octree with the ghost-cell wall against the 3-D uniform solver with ibm_method = ghost: the wall is active, its ghost
+    // leaves are the uniform ghost cells, and the solid reset gives the uniform bits. The residual agrees to round-off (the engine
+    // forces every leaf through the primitive state, the uniform ghost path leaves the fluid cells as they are).
+    for (const char* shape : {"Sphere", "Cylinder", "NACA0012"})
+        for (const char* visc : {"false", "true"}) {
+            Simulation sim;
+            setup_ibm_3d(sim, shape, {"transmissive", "outlet", "wall", "no_slip", "periodic", "periodic"},
+                         {{"nx", "30"}, {"ny", "20"}, {"nz", "16"}, {"use_viscous", visc}, {"mu", "0.02"}, {"ibm_method", "ghost"}});
+            CHECK(sim.ibm && sim.ibm->ghost_cells());
+            const Mesh& u = sim.mesh;
+            Field Uu(static_cast<size_t>(u.num_cells()));
+            for (int k = 0; k < u.nz; ++k)
+                for (int j = 0; j < u.ny; ++j)
+                    for (int i = 0; i < u.nx; ++i) Uu[u.cell(i, j, k)] = test_state3(sim.fluid, u.xc(i), u.yc(j), u.zc(k));
+            CellMesh cm = octree_of(sim, 0);
+            cm.U.resize(static_cast<size_t>(cm.num_leaves()));
+            for (int c = 0; c < cm.num_leaves(); ++c) cm.U[c] = Uu[u.cell(cm.ci[c], cm.cj[c], cm.ck[c])];
+            CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+            eng.set_physics(ghost_physics(sim));
+            eng.build(cm);
+            CHECK(eng.ghost_ready());
+            int nghost = 0;
+            Field Ur = Uu, Ucr = cm.U;
+            sim.ibm->apply_solid_reset(Ur, sim.fluid);
+            eng.solid_reset(cm, Ucr);
+            bool same = true;
+            for (int c = 0; c < cm.num_leaves(); ++c) same = same && Ucr[c] == Ur[u.cell(cm.ci[c], cm.cj[c], cm.ck[c])];
+            CHECK(same);
+            for (const int g : sim.ibm->ghost_cell_list()) nghost += g >= 0;
+            Field Ru, Rc;
+            sim.residual(Uu, Ru);
+            eng.residual(cm, cm.U, Rc);
+            double worst = 0.0;
+            for (int q = 0; q < kNVar; ++q) {
+                double scale = 0.0;
+                for (const State& r : Ru) scale = std::max(scale, std::abs(r[q]));
+                for (int c = 0; c < cm.num_leaves(); ++c)
+                    if (scale > 0.0) worst = std::max(worst, std::abs(Rc[c][q] - Ru[u.cell(cm.ci[c], cm.cj[c], cm.ck[c])][q]) / scale);
+            }
+            CHECK(worst <= 1e-12);
+            std::printf("    %s viscous %s: %d ghost cells; solid reset %s, residual worst relative difference %.3e\n", shape, visc, nghost,
+                        same ? "bitwise" : "DIFFERS", worst);
+        }
+}
+
+TEST(cellflux3d_ghost_wall_on_an_adapted_tree) {
+    // A tree refined around the body (every leaf near the surface at the finest level): the wall is active and its ghost states equal
+    // the uniform finest-level ghost wall's on a field that holds the finest leaves (every cell the wall reads is one). A tree refined
+    // once only (the surface partly coarse): the wall stays off and the mask forcing is used.
+    for (const char* shape : {"Sphere", "Cylinder", "NACA0012"})
+        for (const char* visc : {"false", "true"}) {
+            Simulation sim;
+            setup_ibm_3d(sim, shape, {"wall", "wall", "wall", "wall", "wall", "wall"},
+                         {{"nx", "12"}, {"ny", "8"}, {"nz", "6"}, {"use_viscous", visc}, {"mu", "0.02"}});
+            const ImmersedBoundary geo = sim.ibm_factory(sim.mesh);
+            {   // refined once: not ready
+                CellMesh m = octree_of(sim, 2);
+                refine_for_ghost_wall(m, geo, 1);
+                CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+                eng.set_physics(ghost_physics(sim));
+                eng.build(m);
+                CHECK(!eng.ghost_ready());
+            }
+            CellMesh m = octree_of(sim, 2);
+            CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+            eng.set_physics(ghost_physics(sim));
+            eng.build(m);
+            CHECK(!eng.ghost_ready());
+            refine_for_ghost_wall(m, geo, 2);
+            eng.build(m);   // incremental
+            CHECK(eng.ghost_ready());
+            CHECK(m.level_begin[3] - m.level_begin[2] < m.num_leaves());
+            const int M = m.max_level, NX = m.nx_at(M), NY = m.ny_at(M), NZ = m.nz_at(M);
+            const Mesh fine = generate_cartesian_mesh_3d(m.Lx, m.Ly, m.Lz, NX, NY, NZ, m.x0, m.y0, m.z0);
+            ImmersedBoundary dense = sim.ibm_factory(fine);
+            dense.enable_ghost_cells(fine, !sim.p.use_viscous, false);
+            m.U.resize(static_cast<size_t>(m.num_leaves()));
+            for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state3(sim.fluid, m.xc(c), m.yc(c), m.zc(c));
+            const double nan = std::numeric_limits<double>::quiet_NaN();
+            Field Uf(static_cast<size_t>(fine.num_cells()), State{nan, nan, nan, nan, nan});
+            std::vector<int> leaf_of(static_cast<size_t>(fine.num_cells()), -1);
+            for (int c = m.level_begin[M]; c < m.level_begin[M + 1]; ++c) {
+                const int fc = fine.cell(m.ci[c], m.cj[c], m.ck[c]);
+                Uf[static_cast<size_t>(fc)] = m.U[c];
+                leaf_of[static_cast<size_t>(fc)] = c;
+            }
+            Field Ud = Uf;
+            dense.fill_ghost_cells([](int c) { return c; }, [&Uf](int c) -> const State& { return Uf[static_cast<size_t>(c)]; }, Ud, sim.fluid);
+            Field Ue = m.U;
+            eng.solid_reset(m, Ue);
+            bool same = true;
+            int checked = 0;
+            for (const int g : dense.ghost_cell_list()) {
+                const int leaf = leaf_of[static_cast<size_t>(g)];
+                same = same && leaf >= 0 && Ue[static_cast<size_t>(leaf)] == Ud[static_cast<size_t>(g)];
+                ++checked;
+            }
+            CHECK(same);
+            CHECK(checked > 30);
+            std::printf("    %s viscous %s: %d leaves (%d finest), %d ghost leaves equal the uniform finest-level wall\n", shape, visc,
+                        m.num_leaves(), m.level_begin[M + 1] - m.level_begin[M], checked);
+        }
+}
+
+TEST(celladvance3d_ghost_wall_sphere_on_an_adapted_mesh) {
+    // A short subcycled run past a sphere with the ghost-cell wall on a tree refined around it (slip and no-slip): positive, finite,
+    // the wall active throughout.
+    for (const char* visc : {"false", "true"}) {
+        Simulation sim;
+        setup_ibm_3d(sim, "Sphere", {"vel_inlet", "outlet", "periodic", "periodic", "periodic", "periodic"},
+                     {{"nx", "10"}, {"ny", "6"}, {"nz", "6"}, {"use_viscous", visc}, {"mu", "0.01"}, {"ibm_method", "ghost"}});
+        CellMesh m = octree_of(sim, 2);
+        refine_for_ghost_wall(m, sim.ibm_factory(sim.mesh), 2);
+        m.U.assign(static_cast<size_t>(m.num_leaves()), sim.fluid.prim_to_cons({1.2, 0.7, 0.0, 1.3, 0.0}));
+        CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+        eng.set_physics(ghost_physics(sim));
+        eng.build(m);
+        CHECK(eng.ghost_ready());
+        std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4);
+        CellAdvance adv(m, eng, *ts);
+        eng.solid_reset(m, m.U);
+        double S = eng.wave_speed(m, m.U), t = 0.0;
+        const double L = 2.0 / (1.0 / m.dx(0) + 1.0 / m.dy(0) + 1.0 / m.dz(0));
+        bool ok = true;
+        for (int k = 0; k < 10; ++k) {
+            const double dt = 0.4 * L / S;
+            S = adv.step(dt, t);
+            eng.solid_reset(m, m.U);
+            t += dt;
+            for (int c = 0; c < m.num_leaves(); ++c) {
+                const State W = sim.fluid.cons_to_prim(m.U[c]);
+                ok = ok && std::isfinite(W[0]) && W[0] > 0.0 && W[3] > 0.0;
+            }
+        }
+        CHECK(ok);
+        std::printf("    sphere, ghost wall, viscous %s: %d leaves, t = %.3f after 10 steps\n", visc, m.num_leaves(), t);
+    }
 }

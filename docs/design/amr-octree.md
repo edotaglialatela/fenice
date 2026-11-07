@@ -246,7 +246,7 @@ the validation. The flux kernels, the time recursion, the registers and the Riem
 | Q1 | Dimension layer (key arithmetic, children, 26 offsets, key ranges of a region) and `CellMesh` in 2-D and 3-D: leaves, faces, side lists (1 or 4), balance, adapt (refine to 8, merge, ripple); the brute-force oracle in both dimensions | oracle tests in 2-D (existing ones unchanged) and 3-D; golden dumps of 2-D equal. **Done 2026-11-07, section 12** |
 | Q2 | `CellFluxEngine` convective residual in 3-D: stencils with virtual cells of 8, the 3-D jump closure (b)+(c), boundary ghosts on six sides, WENO3-Z, `boundary_order = 2`; the 2-D per-leaf cost gate | level-0 3-D == uniform 3-D bitwise; free stream exact; the near-jump order table; **2-D per-leaf cost within 5 %**. **Done 2026-11-07, section 13** |
 | Q3 | `CellAdvance`: 4 registers per coarse side; subcycling in 3-D | conservation for the three schemes; level-0 steps == uniform 3-D steps; permutation Sod; the z-invariant check. **Done 2026-11-07, section 14** |
-| Q4 | Physics: viscous 3-D family (and AVX2 twin), body force, sources, NRBC with two tangential directions, mass-flow inlet; **the IBM redesign** (per-leaf classification, the ghost table from the band leaves) | bitwise level-0 tests with each physics; MMS on an adapted 3-D mesh; IBM masks equal to the uniform ones on the same cells; ghost wall equal to the uniform 3-D ghost wall. **a-d done 2026-11-07 (section 15); e (ghost wall) designed, not built** |
+| Q4 | Physics: viscous 3-D family (and AVX2 twin), body force, sources, NRBC with two tangential directions, mass-flow inlet; **the IBM redesign** (per-leaf classification, the ghost table from the band leaves) | bitwise level-0 tests with each physics; MMS on an adapted 3-D mesh; IBM masks equal to the uniform ones on the same cells; ghost wall equal to the uniform 3-D ghost wall. **Done 2026-11-07, section 15** |
 | Q5 | Indicator, flags, remesh, initial adaptation, body band, hot starts in 3-D (serial and OpenMP, through the whole-mesh `CellMesh::adapt` that stays as the oracle) | indicator equals a structured 6-neighbour implementation; remesh deterministic, idempotent, conservative; a 3-D Sod and Taylor-Green with AMR against uniform |
 | Q6 | MPI: partition per level, halo lists, registers, region boxes and 26 rings in the topology-free remesh; **the CLI opens** (`use_amr` with `nz > 1`) | serial == 1-7 ranks bitwise (FakeHub and real MPI); the halo-reach guard; thread independence; memory per rank |
 | Q7 | I/O (hexahedra, 3-D `leaf_meta`, checkpoint, readers), parameters, GUI keys, docs, CI, the 3-D regression references | restart bitwise; docs and parameters in sync; CI green |
@@ -614,7 +614,7 @@ The 3-D helpers of the Q2 file (`setup_3d`, `octree_of`, `test_state3`, `random_
 
 ## 15. Phase Q4 as built (2026-11-07): the physics of the engine on octree leaves
 
-Sub-steps a-d are built and tested (`cpp/tests/test_amr_octree_physics.cpp`); e (the ghost-cell wall in 3-D) is designed in 15.6, not built.
+Sub-steps a-e are built and tested (`cpp/tests/test_amr_octree_physics.cpp`).
 
 ### 15.1 Q4a: viscous terms
 * **What the level-0 tree reproduces** (read in `NavierStokes::viscous_residual_3d`, `compute_gradients_3d`, `BoundaryManager::padded_3d` /
@@ -680,21 +680,37 @@ Sub-steps a-d are built and tested (`cpp/tests/test_amr_octree_physics.cpp`); e 
   against the Q0 binary: 6.81 -> 6.84 s (**1.004x**). Note for later gates: the Q0 binary predates the `reconstruction` key and reads today's
   case files as first order (`use_muscl = false`); it must be given `--set use_muscl=true` (without it the comparison showed a false 1.16x).
 
-### 15.6 Q4e (not built): the ghost-cell wall on octree leaves
+### 15.6 Q4e (2026-11-07): the ghost-cell wall on octree leaves
 The 2-D engine builds the ghost table on the uniform finest mesh (`ghost_ib_`: a mask and a ghost mask of every finest cell) and maps its cells
 to finest leaves; in 3-D that is the O(finest cells) array 4.9 forbids. A table on a sub-box of the finest mesh does not work either: its cell
-centres `x0_box + (i + 0.5) dx` are not the bits of `x0 + (I0 + i + 0.5) dx`. Proposed:
-1. Refactor `ImmersedBoundary::enable_ghost_cells` / `make_probe3` to read solidity through a predicate and to visit a candidate list: the
-   uniform path passes `mask_[cell]` and every cell (same bits, guarded by regression and `ibm_ghost.py --check`); the octree path passes
-   `solid_at` at the finest centres (equal to the mask by construction) and the solid finest leaves, in cell order; cell numbers are global finest
-   indices (64-bit beyond 2^31 cells), no dense array.
-2. Readiness (as `ghost_ready` in 2-D): every ghost cell, its 2-cell neighbourhood and its probe cells are finest leaves, and no coarser leaf
-   lies within `ghost_reach` finest widths of the surface (distance of the box from `closest_wall_point3` against its half diagonal);
-   otherwise the mask forcing stays.
-3. Oracle: on a tree fully refined around the body, the sparse table equals the uniform finest-mesh table (ghost cells, ratios, probe cells and
-   weights) bit for bit, and the residual / reset equal the uniform ghost wall on a fully refined tree; sphere and extruded bodies.
+centres `x0_box + (i + 0.5) dx` are not the bits of `x0 + (I0 + i + 0.5) dx`. As built:
+1. `ImmersedBoundary` reads solidity through one predicate `is_solid(m, i, j, k)` (the ghost search, `make_probe`, `make_probe3`) and its cell
+   loop is one function visited either over every cell in order (`enable_ghost_cells`: `mask_`, the same bits; regression and
+   `ibm_ghost.py --check` unchanged) or over a candidate list (`enable_ghost_cells_sparse(fine, slip, curvature, candidates)`: `solid_at` at the
+   centres of a mesh `fine` that is never stored, no array over it). Cell numbers stay `int`: the finest level must have fewer than 2^31 cells
+   (about 1290^3; checked, the mask forcing stays above it).
+2. The engine (`map_ghost_cells_3d`, after every build) passes the solid finest leaves in cell order. The wall is active when (a) no coarser leaf
+   comes within reach of the surface: every cell the wall reads has its centre within 6 finest widths of the wall (a ghost cell within 2 sqrt 3,
+   an image point at most 4 cells out and its interpolation cells within sqrt 3), so a leaf is clear when the distance of its centre to
+   `closest_wall_point3` exceeds its half diagonal plus 6 h_max; then every ghost cell of the uniform table is a candidate and the table is the
+   uniform one; and (b) every cell the table reads is a finest leaf. Otherwise the mask forcing stays (as in 2-D). The body is built once on the
+   base mesh (`ibm_geo_`), the table is rebuilt with the mesh (O(solid finest leaves)).
+3. Tests: the sparse table equals the dense one (ghost cells, ratios, reads, the filled states bit for bit; candidates = the solid cells, and a
+   superset with fluid ones) for a sphere, a cylinder along z and an extruded NACA section, slip and no-slip (486 - 1260 ghost cells); a level-0
+   octree against the uniform 3-D ghost wall: the solid reset **bitwise**, the residual to round-off (<= 7e-14: the engine forces every leaf
+   through the primitive state, the uniform ghost path leaves the fluid cells alone; the same in 2-D); on trees refined around the body with
+   exactly the 6 h_max reach of the rule, the wall is active and its 1296 - 2568 ghost leaves equal the uniform finest-level wall on a field holding
+   the finest leaves (a missing ghost or read cell would be a mismatch or a NaN); refined once only, the wall stays off; subcycled runs past a
+   sphere (slip and no-slip) stay positive.
+4. Review of Q4a-d (cloud review, four findings, all fixed with Q4e): a sphere on an octree whose base has one cell along z was built
+   on a mesh that is not 3-D and became a cylinder (the geometry is now built on a mesh with nz >= 2; test
+   `cellflux3d_ibm_sphere_on_a_base_with_one_cell_along_z`); `memory_bytes` missed the six 3-D viscous arrays; stale comments; the wall rules
+   of the 3-D padded state were three hand-synced copies (`padded_3d` and `fix_padded_corners` now call `viscous_ghost_3d`, same bits:
+   regression and goldens unchanged).
+5. Not built: the wall on a rank's share (MPI, Q6; rejected), surface samples for loads in 3-D (none in the uniform 3-D wall either), the body
+   band of the remesh that keeps the surface at the finest level (Q5 must use the same 6 h_max reach).
 
 ### 15.7 Not in Q4
 The AVX2 twin of the 3-D viscous kernels (the "keep it only if faster" rule needs a measurement on real 3-D runs: Q8); `face_dependencies`
 already marks the six neighbours of both cells (gradients, `boundary_order = 2` tangential faces, outlet tangents) through the generic `ns_` loops,
-but it is untested in 3-D until Q6; the ghost wall in 3-D (15.6).
+but it is untested in 3-D until Q6; the ghost wall on a rank's share (Q6).
