@@ -1,9 +1,9 @@
 # 3-D adaptive mesh refinement (octree leaves): design and plan
 
-Status: **decisions answered, Q0 (measurements) and Q1 (dimension layer and `CellMesh` in 3-D) done; the engine is still 2-D.** Written 2026-11-07 after a read of the 2-D leaf engine
+Status: **decisions answered; Q0 (measurements), Q1 (dimension layer and `CellMesh` in 3-D) and Q2 (the convective residual in 3-D) done.** Written 2026-11-07 after a read of the 2-D leaf engine
 (`docs/design/amr-cell-based.md`, `amr-distributed.md`), a grep inventory of its source and the residual of the 3-D uniform solver. Every
 number that was not measured is marked *(estimate)*. The decisions are in section 8 (the user took every recommendation, 2026-11-07); the Q0
-numbers are in section 11, Q1 as built in section 12. Each phase of section 7 ends with a stop for the user's go-ahead, as the 2-D rebuild did.
+numbers are in section 11, Q1 as built in section 12, Q2 in section 13. Each phase of section 7 ends with a stop for the user's go-ahead, as the 2-D rebuild did.
 
 This is phase P9 of `amr-cell-based.md` (the 3-D octree) and the "dimension-agnostic layer" of section 3.7 of `amr-distributed.md`.
 
@@ -244,7 +244,7 @@ the validation. The flux kernels, the time recursion, the registers and the Riem
 |---|---|---|
 | Q0 | Measurements, no engine change: the 2-D baseline of record (bench, goldens, memory); the 3-D uniform costs of the target cases (sphere Re 20-100, 3-D Taylor-Green) and the leaf counts an octree would need for them (an offline estimate from the uniform solution, as P0 did); the halo fraction of Morton blocks in 3-D on a proxy; the decision on the two expression families | numbers in this document; D1-D9 answered. **Done 2026-11-07, section 11** |
 | Q1 | Dimension layer (key arithmetic, children, 26 offsets, key ranges of a region) and `CellMesh` in 2-D and 3-D: leaves, faces, side lists (1 or 4), balance, adapt (refine to 8, merge, ripple); the brute-force oracle in both dimensions | oracle tests in 2-D (existing ones unchanged) and 3-D; golden dumps of 2-D equal. **Done 2026-11-07, section 12** |
-| Q2 | `CellFluxEngine` convective residual in 3-D: stencils with virtual cells of 8, the 3-D jump closure (b)+(c), boundary ghosts on six sides, WENO3-Z, `boundary_order = 2`; the 2-D per-leaf cost gate | level-0 3-D == uniform 3-D bitwise; free stream exact; the near-jump order table; **2-D per-leaf cost within 5 %** |
+| Q2 | `CellFluxEngine` convective residual in 3-D: stencils with virtual cells of 8, the 3-D jump closure (b)+(c), boundary ghosts on six sides, WENO3-Z, `boundary_order = 2`; the 2-D per-leaf cost gate | level-0 3-D == uniform 3-D bitwise; free stream exact; the near-jump order table; **2-D per-leaf cost within 5 %**. **Done 2026-11-07, section 13** |
 | Q3 | `CellAdvance`: 4 registers per coarse side; subcycling in 3-D | conservation for the three schemes; level-0 steps == uniform 3-D steps; permutation Sod; the z-invariant check |
 | Q4 | Physics: viscous 3-D family (and AVX2 twin), body force, sources, NRBC with two tangential directions, mass-flow inlet; **the IBM redesign** (per-leaf classification, the ghost table from the band leaves) | bitwise level-0 tests with each physics; MMS on an adapted 3-D mesh; IBM masks equal to the uniform ones on the same cells; ghost wall equal to the uniform 3-D ghost wall |
 | Q5 | Indicator, flags, remesh, initial adaptation, body band, hot starts in 3-D (serial and OpenMP, through the whole-mesh `CellMesh::adapt` that stays as the oracle) | indicator equals a structured 6-neighbour implementation; remesh deterministic, idempotent, conservative; a 3-D Sod and Taylor-Green with AMR against uniform |
@@ -287,8 +287,9 @@ Answered by the user on 2026-11-07: **every recommendation is taken** (last colu
 
 ## 10. What this document does not know
 
-* The viscous padded-state and `CrossGhosts` rules of the 3-D path, the edge/corner composition of `boundary_order = 2` in 3-D, and the 3-D
-  `NrbcTangent` plumbing are described by their role, not read in detail; Q2 and Q4 read them first and extend section 4.4.
+* The viscous padded-state and `CrossGhosts` rules of the 3-D path, the edge/corner composition of `boundary_order = 2` for the viscous terms in
+  3-D, and the 3-D `NrbcTangent` plumbing are described by their role, not read in detail; Q4 reads them first. (The convective residual has no
+  edge or corner composition: section 13.1.)
 * The inventory counts are a first-pass `grep`; they bound the work, they do not measure it.
 * The 3-D memory per leaf and the 3-D per-leaf cost of the face engine remain estimates until Q2-Q4 (there is no 3-D engine to measure).
   The leaf counts and the halo fractions were measured offline in Q0 (section 11); they are the engine's rules applied to uniform
@@ -470,3 +471,76 @@ Note for later phases: the Q0 binary has the case folder of its (removed) build 
   all passed. The other CI platforms (Linux x64 / ARM64, macOS) run on the push.
 * **Not in Q1:** nothing reads a 3-D mesh yet (the engine, the indicator, `CellParallel` and the I/O stay 2-D; `use_amr` with `nz > 1` is still
   rejected). `CellBox` and `dilate_cells` stay 2-D until Q5/Q6.
+
+## 13. Phase Q2 as built (2026-11-07): the convective residual of `CellFluxEngine` in 3-D
+
+### 13.1 The 3-D uniform residual the level-0 tree reproduces (the list section 4.4 asked for)
+Read in `Simulation::assemble_3d`, `MusclReconstruction::reconstruct_3d` / the fused line kernel and `RiemannSolver::face_flux(_batch)`:
+* **Face states.** Interior faces: the four cells along the normal, `wl = c1 + 0.5 lim(c1 - c0, c2 - c1)`, `wr = c2 - 0.5 lim(c3 - c2, c2 - c1)` in
+  primitive variables (WENO3-Z: `weno3z(c0, c1, c2)` / `weno3z(c3, c2, c1)`), then `prim_to_cons`; the same formulas on all three axes. First order:
+  the cell states, no round trip. Boundary faces without a halo: the BC ghost state against the cell, both round-tripped (`prim_to_cons(cons_to_prim)`)
+  with MUSCL. Periodic axes: wrap-around halos of depth 2 (the boundary faces are interior faces). `boundary_order = 2`: ghost slabs from
+  `fill_ghost_slab` (layer d = the BC ghost of the cell at depth d), skipped on periodic and non-reflecting sides; along a normal only cells of that
+  line are read, so there is **no edge or corner composition in the convective residual** (it matters for the viscous padded frame, Q4).
+* **Riemann.** `face_flux(UL, UR, axis)` (HLLC, low-Mach, preconditioned; the shock blend reads only the face's states), axis 2 included; batches of
+  four with AVX2, bit-identical to the scalar calls.
+* **Divergence.** `r = (((0 - (fr Ax - fl Ax)) - (ft Ay - fb Ay)) - (fk Az - ff Az)) * inv_vol`, `Ax = dy dz`, `Ay = dx dz`, `Az = dx dy`,
+  `inv_vol = 1 / (dx dy dz)`: each flux times its area, then the differences. The engine's gather does exactly this at level 0.
+* **Speed.** The maximum of the face speeds (no viscous part in Q2).
+
+### 13.2 What changed in the engine
+* Neighbour codes `sides()` per leaf (`ns_`), virtual-cell nodes with up to 8 children (`std::array<int, 8>`, the first `nch_` used; the 3-D mean
+  `(((a+b)+(c+d)) + ((e+f)+(g+h))) * 0.125`, the order of CellMesh's merge; the 2-D `((a+b)+(c+d)) * 0.25` unchanged), keys with `k`
+  (`vkey_` = (l, i, j, k), `ikey_` = (l, i, j, k, side); with k = 0 the 2-D sort order is unchanged), the face's back / forward sides
+  `2 axis` / `2 axis + 1` (z-faces run the same reconstruction, `boundary_order = 2` and coarse-side code).
+* **Jump closure (b)+(c) in 3-D:** the interpolated cell is `Wc + dn sn + dt st + dt2 st2`, the limited slopes of the coarse leaf along the normal and
+  the two transverse axes (`transverse1/2`), offsets +-0.25 coarse widths towards the fine leaf's half on each; the coarse side reads the mean of the
+  8 children of the block across the face. 2-D keeps `Wc + dn sn + dt st`.
+* **Gather in 3-D:** `G_s` = one `F * area`, or four summed in pairs in slot order `(F0 a + F1 a) + (F2 a + F3 a)` (a fixed order; four equal values
+  add up exactly either way), `r = (((0 - (G1 - G0)) - (G3 - G2)) - (G5 - G4)) * (1 / volume)`. The 2-D branch is untouched.
+* **Rejected on a 3-D mesh by `build()` until Q4** (clear messages): viscous terms, body force, sources, immersed bodies, mass-flow inlets,
+  non-reflecting outlets; WENO5-Z as in 2-D. The partition / `localize` code is generalised (sides, children) but untested in 3-D until Q6.
+
+### 13.3 Tests (`cpp/tests/test_amr_octree_flux.cpp`, 7 tests)
+* `cellflux3d_level0_matches_uniform_residual_bitwise`: a level-0 octree against `Simulation::residual` of the 3-D uniform solver, **bit for bit**
+  (residual and speed), 6 boundary sets (wall, transmissive, outlet, no-slip, moving wall, velocity inlet, periodic on 1-3 axes) x 6 schemes (first
+  order, MUSCL Van Leer / Minmod / MC / Koren, WENO3-Z; HLLC, low-Mach, preconditioned) x `boundary_order` 1 and 2: 66 cases; plus two meshes above
+  `kOmpMinWork` (parallel loops).
+* `cellflux3d_invariant_axis_equals_the_2d_engine`: a field independent of axis a on the 2-D adapted tree extruded along a (periodic), for a = x, y,
+  z: the 3-D residual equals the 2-D engine's to 1e-12 (relative), the a-momentum residual is exactly 0; first order, MUSCL with `boundary_order` 1
+  and 2, WENO3-Z with walls. Over 1000 coarse-fine faces normal to the other axes; this is the oracle of the 3-D closure (a sign error in `dt2` fails it).
+* `cellflux3d_free_stream_is_exact_across_level_jumps`: R == 0 exactly on random octrees (transmissive, partly and fully periodic; first order,
+  MUSCL, WENO3-Z; `boundary_order` 1 and 2). One exception, documented in the test: WENO3-Z does not reproduce a constant to the last bit and a
+  first-order boundary face uses the round-tripped state, so with `boundary_order = 1` the leaves on a physical side carry round-off (2e-15), as on a
+  uniform mesh; every other leaf, the level jumps included, is exact.
+* `cellflux3d_residual_is_conservative_on_adapted_meshes` (sum of R volume <= 1e-13 of its magnitude), `cellflux3d_incremental_build_equals_full_build_and_threads_agree`
+  (`same_tables` after 6 random adapts; 1 thread and all threads give the same bits on a mesh above `kOmpMinWork`),
+  `cellflux3d_rejects_what_it_does_not_do_yet`.
+* `cellflux3d_near_jump_truncation_table`: the residual's truncation error against `-div F` of a monotone polynomial field (exact by central differences
+  of the physical flux), base n^d on [0, 4]^d with the box [1, 2]^d one level finer, mean normalised error within 2 base widths of the jump and on the
+  coarse leaves more than 3 widths from it. Bands fixed before the first run: (1) far order (32 -> 64) >= 1.8 in 2-D and 3-D, (2) 3-D near-jump order
+  >= the 2-D one - 0.3, (3) 3-D near / far ratio at 64 <= 3x the 2-D one.
+
+  | | near jump n = 16 / 32 / 64 | orders | far n = 16 / 32 / 64 | orders | near / far at 64 |
+  |---|---|---|---|---|---|
+  | 2-D | 3.60e-2 / 2.47e-2 / 2.23e-2 | 0.54, 0.15 | 1.75e-4 / 3.76e-5 / 8.53e-6 | 2.22, 2.14 | 2610 |
+  | 3-D | 3.54e-2 / 2.26e-2 / 1.87e-2 | 0.65, 0.27 | 1.40e-4 / 3.02e-5 / 7.05e-6 | 2.21, 2.10 | 2656 |
+
+  All three bands pass. The far errors equal those of the uniform base mesh (checked with the box not refined): the jump's influence is local, as the
+  stencil reach says. At the jump the residual's truncation error is O(1) in both dimensions (the usual behaviour of a non-conforming interface; what
+  the solution converges at is the time-run question of Q3), and the 3-D closure is no worse than the accepted 2-D one. History of the measure, for the
+  record: the first run failed band (1) in **both** dimensions (far order about 1); the cause was the measure, not the code (a field whose derivatives
+  vanished at the domain edge made the limiter clip there, and a domain too small for the far region to hold the same kind of cell at every n); the
+  field and the domain were changed, the bands were not.
+* Mutations: the sign of `dt2` flipped is caught (invariance test); summing the four fine faces sequentially is not a defect (exact as well).
+
+### 13.4 Gates
+* **2-D per-leaf cost (the A1 gate, protocol of 11.5):** `bench_cellflux 768 384 20`, 1 thread, min of 5 interleaved runs against the Q0 binary:
+  level-0 face engine 73.1 -> 73.0 ns/cell (**0.999x**), adapted 74.7 -> 74.1 (0.992x), uniform 0.998x (the noise floor): **passed** (limit 1.05x).
+  The engine's stencil build 9.3 -> 10.1 ms (+8.6 %: wider keys and node records; Q1 alone was +6 %).
+* **2-D bits:** the 49 golden dumps of 11.5 bitwise equal to the Q0 binary's, and the quick sets with `FENICE_FULL_REBUILD=1` and
+  `FENICE_NO_SIMD=1` as well (`golden.py compare`).
+* Unit tests 146/146; the CI suite locally (`check_all.py --golden`: regression serial and 4 ranks, `amr_mpi.py --check` 1-7 ranks,
+  `ibm_ghost.py --check`, MMS, post-processing): all passed.
+* **Not in Q2:** time stepping on a 3-D tree (`CellAdvance`, registers of 4 per coarse side, the subcycled conservation and the time-run order: Q3),
+  the physics of Q4, anything 3-D in the CLI.

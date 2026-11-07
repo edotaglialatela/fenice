@@ -3,10 +3,14 @@
 // The stencil of every face is fixed when the mesh changes (build), so the residual reads index arrays only.
 // A stencil is (c0, c1, c2, c3) along the face normal: c1 / c2 are the leaves left / right of the face, c0 / c3
 // the cells beyond them.  A cell beyond that is coarser is read by injection (its value), a cell beyond that is
-// finer by the mean of the leaves under it (a "virtual cell", built as ((a+b)+(c+d))*0.25, recursively), the
-// edge of the domain by replication of c1 / c2 and a periodic wrap by the cell on the other side.  At a
-// coarse-fine face the fine side is reconstructed against the injected coarse value and the coarse side keeps
-// its cell value (first order), so a uniform flow is preserved exactly across level jumps.
+// finer by the mean of the leaves under it (a "virtual cell", built as ((a+b)+(c+d))*0.25 in 2-D and
+// (((a+b)+(c+d)) + ((e+f)+(g+h)))*0.125 in 3-D, recursively), the edge of the domain by replication of c1 / c2 and a periodic
+// wrap by the cell on the other side.  At a coarse-fine face the fine side is reconstructed against the coarse value
+// interpolated to the centre of the fine cell that would sit there (interpolate_jumps) and the coarse side is reconstructed
+// against the mean of the fine leaves (coarse_side_second_order), so a uniform flow is preserved exactly across level jumps.
+// On a 3-D mesh (CellMesh::make_3d) the convective residual runs on six sides (a side towards finer leaves has four faces);
+// viscous terms, forces, sources, the immersed body, mass-flow inlets and non-reflecting outlets are rejected there by build()
+// until they are generalised (docs/design/amr-octree.md).
 // The viscous terms use the same neighbour codes: the cell-centre gradients (central differences of the four
 // neighbouring values, virtual cells across a jump, the diffusive ghost at a physical edge) feed the cross
 // derivatives, the normal derivative of a face is the two-point difference over the distance of its two cell centres.
@@ -201,7 +205,8 @@ public:
         int fine = -1, coarse = -1;
         Face side = Face::Left;
         double dn = 0.0, dt = 0.0;   // offsets of the virtual centre from the coarse centre, in coarse widths, along the
-        int axis = 0;                // normal axis `axis` (of `side`) and the transverse one
+        int axis = 0;                // normal axis `axis` (of `side`) and the first transverse one (transverse1(axis))
+        double dt2 = 0.0;            // 3-D: the offset along the second transverse axis (transverse2(axis)); 0 in 2-D
     };
     const std::vector<InterpVirtual>& interpolated() const { return interp_; }
     // Primitive state of interpolated virtual cell k as of the last residual / level pass.
@@ -228,22 +233,24 @@ private:
     CellPhysics phys_;
 
     int nleaf_ = 0;
+    // Dimension of the mesh of the last build: sides per leaf (4 / 6) and children per node (4 / 8)
+    int dim_ = 2, ns_ = 4, nch_ = 4;
     // Per face: indices into the primitive array W_ (a leaf, or nleaf_ + virtual cell); unused for boundary faces
     std::vector<std::array<int, 4>> stencil_;
-    // Per leaf and side: the neighbour across it as a leaf index, nleaf_ + virtual cell, or -1 at a physical edge
+    // Per leaf and side: the neighbour across it as a leaf index, nleaf_ + virtual cell, or -1 at a physical edge (ns_ per leaf)
     std::vector<int> nbr_;
-    // Virtual cells: root code (>= 0 a leaf, < 0 the node -1 - code) and the nodes (four children codes)
+    // Virtual cells: root code (>= 0 a leaf, < 0 the node -1 - code) and the nodes (children codes in key order: the first nch_)
     std::vector<int> vroot_;
-    std::vector<std::array<int, 4>> vnode_;
+    std::vector<std::array<int, 8>> vnode_;
     std::vector<InterpVirtual> interp_;   // interpolated virtual cells, numbered after the mean-type ones
     Field Wint_;                          // their primitive state
     std::vector<int> nbr_raw_;            // like nbr_ but injecting coarser neighbours (the slopes of the coarse leaves)
     std::vector<int> nbr_raw_spare_, nbr_spare_;    // the tables of the build before last: buffers of the next incremental build
     std::vector<std::array<int, 4>> stencil_spare_;
-    // Keys of the virtual cells in their order: the block (level, i, j) of a mean-type one, the fine leaf (level, i, j) and its
-    // side of an interpolated one (numbered after the mean-type ones)
-    std::vector<std::array<int, 3>> vkey_;
-    std::vector<std::array<int, 4>> ikey_;
+    // Keys of the virtual cells in their order: the block (level, i, j, k) of a mean-type one, the fine leaf (level, i, j, k) and
+    // its side of an interpolated one (numbered after the mean-type ones); k = 0 in 2-D
+    std::vector<std::array<int, 4>> vkey_;
+    std::vector<std::array<int, 5>> ikey_;
     void make_virtual_cells(const CellMesh& m);   // vroot_, vnode_, interp_ from the keys
     std::vector<char> special_;                     // leaves with a finer or coarser side
     // the mesh (and its CellMesh::version) and the interpolation setting of the last build: the base of an incremental one
@@ -296,8 +303,8 @@ private:
     Field src_;                                    // source terms per leaf
     // Mass-flow inlet: boundary faces of each side in increasing transverse position, and their weights
     // (1 << (finest level of the side - face level)), so a uniform side sums exactly like the uniform solver
-    std::vector<int> mf_face_[4];
-    std::vector<double> mf_weight_[4];
+    std::vector<int> mf_face_[6];
+    std::vector<double> mf_weight_[6];
 };
 
 }   // namespace fv

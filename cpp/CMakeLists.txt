@@ -133,7 +133,7 @@ if(FV_BUILD_TESTS)
   enable_testing()
   add_executable(fenice_tests tests/test_main.cpp tests/test_core.cpp tests/test_periodic.cpp tests/test_casefile.cpp
     tests/test_amr_mesh.cpp tests/test_amr_physics.cpp tests/test_amr_remesh.cpp tests/test_amr_distributed.cpp
-    tests/test_amr_octree.cpp)
+    tests/test_amr_octree.cpp tests/test_amr_octree_flux.cpp)
   target_link_libraries(fenice_tests PRIVATE fenice_core)
   add_test(NAME fenice_unit_tests COMMAND fenice_tests)
 endif()

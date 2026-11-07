@@ -21,19 +21,21 @@ namespace {
 // A virtual cell whose block is not all there (a partial mesh): not a code of a leaf or a node, and not kOutside (-2 is the node 1)
 constexpr int kIncomplete = std::numeric_limits<int>::min();
 
-// Code of the block (l, i, j): a leaf, or a node whose children are the four sub-blocks (appended to vnode); kIncomplete if a part
-// of the block is not in the mesh (a partial mesh)
-int block_code(const CellMesh& m, std::vector<std::array<int, 4>>& vnode, int l, int i, int j) {
+// Code of the block (l, i, j, k): a leaf, or a node whose children are the 2^D sub-blocks in key order (appended to vnode);
+// kIncomplete if a part of the block is not in the mesh (a partial mesh)
+int block_code(const CellMesh& m, std::vector<std::array<int, 8>>& vnode, int l, int i, int j, int k) {
     if (l > m.max_level) return kIncomplete;
-    const int leaf = m.find(l, i, j);
+    const int leaf = m.find(l, i, j, k);
     if (leaf >= 0) return leaf;
-    std::array<int, 4> ch{};
+    std::array<int, 8> ch;
+    ch.fill(kIncomplete);
     bool whole = true;
-    for (int oj = 0; oj < 2; ++oj)
-        for (int oi = 0; oi < 2; ++oi) {
-            ch[2 * oj + oi] = block_code(m, vnode, l + 1, 2 * i + oi, 2 * j + oj);
-            whole = whole && ch[2 * oj + oi] != kIncomplete;
-        }
+    for (int q = 0; q < m.children(); ++q) {
+        int o[3];
+        child_offset(q, o);
+        ch[static_cast<size_t>(q)] = block_code(m, vnode, l + 1, 2 * i + o[0], 2 * j + o[1], 2 * k + o[2]);
+        whole = whole && ch[static_cast<size_t>(q)] != kIncomplete;
+    }
     if (!whole) return kIncomplete;
     vnode.push_back(ch);
     return -static_cast<int>(vnode.size());   // node k <-> code -1 - k
@@ -46,10 +48,16 @@ constexpr double kMuOff = 2.0 / 3.0;
 
 State CellFluxEngine::eval(const Field& U, int code) const {
     if (code >= 0) return U[code];
-    const std::array<int, 4>& ch = vnode_[static_cast<size_t>(-1 - code)];
+    const std::array<int, 8>& ch = vnode_[static_cast<size_t>(-1 - code)];
     const State a = eval(U, ch[0]), b = eval(U, ch[1]), c = eval(U, ch[2]), d = eval(U, ch[3]);
     State r;
-    for (int k = 0; k < kNVar; ++k) r[k] = ((a[k] + b[k]) + (c[k] + d[k])) * 0.25;
+    if (nch_ == 4) {
+        for (int k = 0; k < kNVar; ++k) r[k] = ((a[k] + b[k]) + (c[k] + d[k])) * 0.25;
+        return r;
+    }
+    // 3-D: each z-plane as in 2-D, then the two planes (the order of CellMesh's merge)
+    const State e = eval(U, ch[4]), f = eval(U, ch[5]), g = eval(U, ch[6]), h = eval(U, ch[7]);
+    for (int k = 0; k < kNVar; ++k) r[k] = (((a[k] + b[k]) + (c[k] + d[k])) + ((e[k] + f[k]) + (g[k] + h[k]))) * 0.125;
     return r;
 }
 
@@ -82,8 +90,24 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
         if (a != b) throw std::invalid_argument("CellFluxEngine: both sides of a periodic axis must be periodic");
         return a;
     };
-    if (per(Face::Left, Face::Right) != m.periodic_x || per(Face::Bottom, Face::Top) != m.periodic_y)
+    if (per(Face::Left, Face::Right) != m.periodic_x || per(Face::Bottom, Face::Top) != m.periodic_y ||
+        (m.dim == 3 && per(Face::Front, Face::Back) != m.periodic_z))
         throw std::invalid_argument("CellFluxEngine: the periodic axes of the mesh and the boundary types differ");
+    if (m.dim == 3) {   // what the octree engine does not do yet (docs/design/amr-octree.md, phase Q4)
+        if (phys_.ns || phys_.body || phys_.rhs_sources || phys_.source || has_body())
+            throw std::invalid_argument("CellFluxEngine: viscous terms, body forces, sources and immersed bodies are not available on a "
+                                        "3-D adaptive mesh yet");
+        for (const Face s : kAllFaces3D)
+            if (bc_.type(s) == BCType::MassflowInlet || bc_.type(s) == BCType::NonReflecting)
+                throw std::invalid_argument("CellFluxEngine: mass-flow inlets and non-reflecting outlets are not available on a 3-D "
+                                            "adaptive mesh yet");
+        if (muscl_ && muscl_->scheme() == Reconstruction::Weno5)
+            throw std::invalid_argument("CellFluxEngine: WENO5-Z is not available on an adaptive mesh");
+    }
+    if (built_mesh_ != &m || dim_ != m.dim) built_mesh_ = nullptr;   // no incremental build across a change of dimension
+    dim_ = m.dim;
+    ns_ = m.sides();
+    nch_ = m.children();
 
     const bool ip = muscl_ && interpolate_jumps;
     // incremental: right after an adapt of the mesh of the last build (CellMesh::prev_leaf), same interpolation setting
@@ -91,8 +115,9 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
                      static_cast<int>(m.prev_leaf.size()) == m.num_leaves();
     const int old_n = nleaf_;
     std::vector<int> old_raw, old_nbr;
-    std::vector<std::array<int, 4>> old_st, old_ikey;
-    std::vector<std::array<int, 3>> old_vkey;
+    std::vector<std::array<int, 4>> old_st;
+    std::vector<std::array<int, 5>> old_ikey;
+    std::vector<std::array<int, 4>> old_vkey;
     std::vector<char> old_special;
     if (inc) {   // the tables of the build before last become the buffers of the new ones
         old_raw.swap(nbr_raw_);
@@ -117,7 +142,7 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
             special_[c] = old_special[static_cast<size_t>(m.prev_leaf[c])];
             continue;
         }
-        for (int s = 0; s < 4; ++s) {
+        for (int s = 0; s < ns_; ++s) {
             const CellNeighbour::Kind k = m.neighbour(c, static_cast<Face>(s)).kind;
             if (k == CellNeighbour::Kind::Finer || k == CellNeighbour::Kind::Coarser) special_[c] = 1;
         }
@@ -127,12 +152,12 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
     std::vector<int> special_leaves;
     collect_indices(0, nleaf_, [&](int c) { return special_[c] != 0; }, special_leaves);
     for (const int c : special_leaves) {
-        for (int s = 0; s < 4; ++s) {
+        for (int s = 0; s < ns_; ++s) {
             const CellNeighbour nb = m.neighbour(c, static_cast<Face>(s));
             if (nb.kind == CellNeighbour::Kind::Finer)
-                vkey_.push_back({m.level[nb.a] - 1, m.ci[nb.a] >> 1, m.cj[nb.a] >> 1});
+                vkey_.push_back({m.level[nb.a] - 1, m.ci[nb.a] >> 1, m.cj[nb.a] >> 1, m.ck[nb.a] >> 1});
             else if (nb.kind == CellNeighbour::Kind::Coarser && ip)
-                ikey_.push_back({m.level[c], m.ci[c], m.cj[c], s});
+                ikey_.push_back({m.level[c], m.ci[c], m.cj[c], m.ck[c], s});
         }
     }
     std::sort(vkey_.begin(), vkey_.end());
@@ -143,8 +168,8 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
     // virtual cells where enabled (gradients, non-reflecting tangential differences). A clean leaf, and a face between two clean
     // leaves made by one of them, keep their old codes, renumbered: leaves by the adapt, virtual cells by key.
     // (every entry is written below: leaf_codes and face_stencil write -1 on the boundary)
-    nbr_raw_.resize(static_cast<size_t>(4) * nleaf_);
-    nbr_.resize(static_cast<size_t>(4) * nleaf_);
+    nbr_raw_.resize(static_cast<size_t>(ns_) * nleaf_);
+    nbr_.resize(static_cast<size_t>(ns_) * nleaf_);
     stencil_.resize(m.faces.size());
     if (inc) {
         std::vector<int> leaf_map(static_cast<size_t>(old_n), -1);
@@ -175,8 +200,8 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
                 leaf_codes(m, c);
                 continue;
             }
-            const size_t o = static_cast<size_t>(4) * m.prev_leaf[c], n = static_cast<size_t>(4) * c;
-            for (int s = 0; s < 4; ++s) {
+            const size_t o = static_cast<size_t>(ns_) * m.prev_leaf[c], n = static_cast<size_t>(ns_) * c;
+            for (int s = 0; s < ns_; ++s) {
                 nbr_raw_[n + s] = remap(old_raw[o + s]);
                 nbr_[n + s] = remap(old_nbr[o + s]);
             }
@@ -263,9 +288,10 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
         if (phys_.source && !phys_.source_unsteady) update_source(m, 0, nleaf_);
     }
 
-    for (int s = 0; s < 4; ++s) {
+    for (int s = 0; s < 6; ++s) {
         mf_face_[s].clear();
         mf_weight_[s].clear();
+        if (s >= ns_) continue;
         if (bc_.type(static_cast<Face>(s)) != BCType::MassflowInlet) continue;
         std::vector<std::pair<long long, int>> order;
         int fine = 0;
@@ -294,7 +320,7 @@ bool CellFluxEngine::same_special(const CellFluxEngine& o, const CellMesh* edge_
         if (!edge_mesh) return false;
         // a leaf with a side the partial mesh does not know has no flag worth comparing: no active face reads it (nbr_ and stencil_ are compared)
         bool edge = false;
-        for (int s = 0; s < 4; ++s)
+        for (int s = 0; s < ns_; ++s)
             edge = edge || edge_mesh->neighbour(static_cast<int>(c), static_cast<Face>(s)).kind == CellNeighbour::Kind::Outside;
         if (!edge) return false;
     }
@@ -320,9 +346,11 @@ bool CellFluxEngine::same_tables(const CellFluxEngine& o, const CellMesh* edge_m
     for (size_t k = 0; ok && k < interp_.size(); ++k) {
         const InterpVirtual &a = interp_[k], &b = o.interp_[k];
         ok = a.fine == b.fine && a.coarse == b.coarse && a.side == b.side && a.axis == b.axis &&
-             std::memcmp(&a.dn, &b.dn, sizeof(double)) == 0 && std::memcmp(&a.dt, &b.dt, sizeof(double)) == 0;
+             std::memcmp(&a.dn, &b.dn, sizeof(double)) == 0 && std::memcmp(&a.dt, &b.dt, sizeof(double)) == 0 &&
+             std::memcmp(&a.dt2, &b.dt2, sizeof(double)) == 0;
     }
-    for (int s = 0; ok && s < 4; ++s) ok = mf_face_[s] == o.mf_face_[s] && mf_weight_[s] == o.mf_weight_[s];
+    ok = ok && dim_ == o.dim_;
+    for (int s = 0; ok && s < 6; ++s) ok = mf_face_[s] == o.mf_face_[s] && mf_weight_[s] == o.mf_weight_[s];
     ok = ok && owned_mask_ == o.owned_mask_ && held_mask_ == o.held_mask_ && all_faces_ == o.all_faces_ && ghost_ready_ == o.ghost_ready_ &&
          (!ghost_ready_ || (fine_leaf_ == o.fine_leaf_ && ghost_reads_leaf_ == o.ghost_reads_leaf_ && ghost_leaf_mask_ == o.ghost_leaf_mask_));
     return ok;
@@ -331,17 +359,19 @@ bool CellFluxEngine::same_tables(const CellFluxEngine& o, const CellMesh* edge_m
 void CellFluxEngine::make_virtual_cells(const CellMesh& m) {
     vroot_.clear();
     vnode_.clear();
-    for (const std::array<int, 3>& k : vkey_) vroot_.push_back(block_code(m, vnode_, k[0], k[1], k[2]));
+    for (const std::array<int, 4>& k : vkey_) vroot_.push_back(block_code(m, vnode_, k[0], k[1], k[2], k[3]));
     interp_.clear();
-    for (const std::array<int, 4>& k : ikey_) {
+    for (const std::array<int, 5>& k : ikey_) {
         InterpVirtual iv;
-        iv.fine = m.find(k[0], k[1], k[2]);
-        iv.side = static_cast<Face>(k[3]);
+        iv.fine = m.find(k[0], k[1], k[2], k[3]);
+        iv.side = static_cast<Face>(k[4]);
         iv.coarse = m.neighbour(iv.fine, iv.side).a;
         iv.axis = face_axis(iv.side);
-        iv.dn = (k[3] & 1) ? -0.25 : 0.25;   // the virtual centre lies nearer to the fine leaf
-        const int idx_t = iv.axis == 0 ? k[2] : k[1];   // transverse half of the coarse leaf the fine leaf is in
+        iv.dn = (k[4] & 1) ? -0.25 : 0.25;   // the virtual centre lies nearer to the fine leaf
+        // transverse halves of the coarse leaf the fine leaf is in (coordinates k[1..3] = i, j, k)
+        const int idx_t = k[1 + transverse1(iv.axis)];
         iv.dt = (idx_t & 1) ? 0.25 : -0.25;
+        if (m.dim == 3) iv.dt2 = (k[1 + transverse2(iv.axis)] & 1) ? 0.25 : -0.25;
         interp_.push_back(iv);
     }
 }
@@ -354,13 +384,13 @@ int CellFluxEngine::beyond(const CellMesh& m, int c, Face side, bool interpolate
     case CellNeighbour::Kind::Same: return nb.a;
     case CellNeighbour::Kind::Coarser: {
         if (!interpolate) return nb.a;   // injection of the coarse value
-        const std::array<int, 4> key = {m.level[c], m.ci[c], m.cj[c], static_cast<int>(side)};
+        const std::array<int, 5> key = {m.level[c], m.ci[c], m.cj[c], m.ck[c], static_cast<int>(side)};
         const auto it = std::lower_bound(ikey_.begin(), ikey_.end(), key);
         if (it == ikey_.end() || *it != key) throw std::logic_error("CellFluxEngine: missing interpolated virtual cell");
         return nleaf_ + static_cast<int>(vkey_.size()) + static_cast<int>(it - ikey_.begin());
     }
     default: {
-        const std::array<int, 3> key = {m.level[nb.a] - 1, m.ci[nb.a] >> 1, m.cj[nb.a] >> 1};
+        const std::array<int, 4> key = {m.level[nb.a] - 1, m.ci[nb.a] >> 1, m.cj[nb.a] >> 1, m.ck[nb.a] >> 1};
         const auto it = std::lower_bound(vkey_.begin(), vkey_.end(), key);
         if (it == vkey_.end() || *it != key) throw std::logic_error("CellFluxEngine: missing virtual cell");
         return nleaf_ + static_cast<int>(it - vkey_.begin());
@@ -370,13 +400,13 @@ int CellFluxEngine::beyond(const CellMesh& m, int c, Face side, bool interpolate
 
 void CellFluxEngine::leaf_codes(const CellMesh& m, int c) {
     const bool ip = muscl_ && interpolate_jumps;
-    for (int s = 0; s < 4; ++s) {
+    for (int s = 0; s < ns_; ++s) {
         if (m.neighbour(c, static_cast<Face>(s)).kind == CellNeighbour::Kind::Boundary) {
-            nbr_raw_[static_cast<size_t>(4) * c + s] = nbr_[static_cast<size_t>(4) * c + s] = -1;
+            nbr_raw_[static_cast<size_t>(ns_) * c + s] = nbr_[static_cast<size_t>(ns_) * c + s] = -1;
             continue;
         }
-        nbr_raw_[static_cast<size_t>(4) * c + s] = beyond(m, c, static_cast<Face>(s), false);
-        nbr_[static_cast<size_t>(4) * c + s] = beyond(m, c, static_cast<Face>(s), ip);
+        nbr_raw_[static_cast<size_t>(ns_) * c + s] = beyond(m, c, static_cast<Face>(s), false);
+        nbr_[static_cast<size_t>(ns_) * c + s] = beyond(m, c, static_cast<Face>(s), ip);
     }
 }
 
@@ -391,7 +421,7 @@ void CellFluxEngine::face_stencil(const CellMesh& m, int f) {
         return;
     }
     const bool ip = muscl_ && interpolate_jumps;
-    const Face back = face.axis == 0 ? Face::Left : Face::Bottom, fwd = face.axis == 0 ? Face::Right : Face::Top;
+    const Face back = static_cast<Face>(2 * face.axis), fwd = static_cast<Face>(2 * face.axis + 1);
     const int l = face.left, r = face.right;
     std::array<int, 4>& s = stencil_[static_cast<size_t>(f)];
     const int ll = m.level[l], lr = m.level[r];
@@ -476,8 +506,8 @@ void CellFluxEngine::rebuild_lists(const CellMesh& m, const Partition* part) {
                 v.insert(v.end(), stencil_[f].begin(), stencil_[f].end());
                 if (coarse_side_second_order && m.faces[f].kind == CellFaceKind::CoarseFine) {
                     const int C = m.level[m.faces[f].left] > m.level[m.faces[f].right] ? stencil_[f][3] : stencil_[f][0];
-                    for (int s = 0; s < 4; ++s)
-                        if (nbr_raw_[static_cast<size_t>(4) * C + s] >= 0) v.push_back(nbr_raw_[static_cast<size_t>(4) * C + s]);
+                    for (int s = 0; s < ns_; ++s)
+                        if (nbr_raw_[static_cast<size_t>(ns_) * C + s] >= 0) v.push_back(nbr_raw_[static_cast<size_t>(ns_) * C + s]);
                 }
             }
             sort_unique(v, seen);
@@ -540,8 +570,8 @@ void CellFluxEngine::rebuild_lists_whole(const CellMesh& m) {
                 for (int k = 0; k < 4; ++k) mark(st[k]);
                 if (coarse_side_second_order && face.kind == CellFaceKind::CoarseFine) {
                     const int C = m.level[face.left] > m.level[face.right] ? st[3] : st[0];
-                    for (int s = 0; s < 4; ++s)
-                        if (nbr_raw_[static_cast<size_t>(4) * C + s] >= 0) mark(nbr_raw_[static_cast<size_t>(4) * C + s]);
+                    for (int s = 0; s < ns_; ++s)
+                        if (nbr_raw_[static_cast<size_t>(ns_) * C + s] >= 0) mark(nbr_raw_[static_cast<size_t>(ns_) * C + s]);
                 }
             }
             take_marked(seen, 0, ncode, need_[sl]);
@@ -567,26 +597,28 @@ void CellFluxEngine::rebuild_lists_whole(const CellMesh& m) {
 void CellFluxEngine::set_partition(const CellMesh& m, const Partition& p) { rebuild_lists(m, &p); }
 
 void CellFluxEngine::mass_flow_faces(std::vector<char>& mask) const {
-    for (int s = 0; s < 4; ++s)
+    for (int s = 0; s < 6; ++s)
         for (const int f : mf_face_[s]) mask[static_cast<size_t>(f)] = 1;
 }
 
 namespace {
 // Is every leaf under `code` (a leaf, or a node of vnode) kept?
-bool tree_kept(const std::vector<std::array<int, 4>>& vnode, const std::vector<int>& leaf_map, int code) {
+bool tree_kept(const std::vector<std::array<int, 8>>& vnode, int nch, const std::vector<int>& leaf_map, int code) {
     if (code == kIncomplete) return false;
     if (code >= 0) return leaf_map[static_cast<size_t>(code)] >= 0;
-    for (const int ch : vnode[static_cast<size_t>(-1 - code)])
-        if (!tree_kept(vnode, leaf_map, ch)) return false;
+    const std::array<int, 8>& ch = vnode[static_cast<size_t>(-1 - code)];
+    for (int k = 0; k < nch; ++k)
+        if (!tree_kept(vnode, nch, leaf_map, ch[static_cast<size_t>(k)])) return false;
     return true;
 }
 // Copy the tree of `code` into `out` with the leaves renumbered (children before their node, like block_code).
-int copy_tree(const std::vector<std::array<int, 4>>& vnode, const std::vector<int>& leaf_map, std::vector<std::array<int, 4>>& out,
-              int code) {
+int copy_tree(const std::vector<std::array<int, 8>>& vnode, int nch, const std::vector<int>& leaf_map,
+              std::vector<std::array<int, 8>>& out, int code) {
     if (code >= 0) return leaf_map[static_cast<size_t>(code)];
-    std::array<int, 4> ch{};
-    const std::array<int, 4>& old = vnode[static_cast<size_t>(-1 - code)];
-    for (int k = 0; k < 4; ++k) ch[static_cast<size_t>(k)] = copy_tree(vnode, leaf_map, out, old[static_cast<size_t>(k)]);
+    std::array<int, 8> ch;
+    ch.fill(kIncomplete);
+    const std::array<int, 8>& old = vnode[static_cast<size_t>(-1 - code)];
+    for (int k = 0; k < nch; ++k) ch[static_cast<size_t>(k)] = copy_tree(vnode, nch, leaf_map, out, old[static_cast<size_t>(k)]);
     out.push_back(ch);
     return -static_cast<int>(out.size());
 }
@@ -601,12 +633,12 @@ void CellFluxEngine::localize(const CellMesh& m, const std::vector<int>& leaf_ma
     // the codes the coarse leaf's slopes read are all kept; vcode = the new code of each old virtual cell (kOutside: gone)
     std::vector<int> vcode(static_cast<size_t>(nmean + nip), kOutside);
     std::vector<int> new_vroot;
-    std::vector<std::array<int, 4>> new_vnode;
-    std::vector<std::array<int, 3>> new_vkey;
+    std::vector<std::array<int, 8>> new_vnode;
+    std::vector<std::array<int, 4>> new_vkey;
     for (int v = 0; v < nmean; ++v)
-        if (tree_kept(vnode_, leaf_map, vroot_[static_cast<size_t>(v)])) {
+        if (tree_kept(vnode_, nch_, leaf_map, vroot_[static_cast<size_t>(v)])) {
             vcode[static_cast<size_t>(v)] = new_n + static_cast<int>(new_vroot.size());
-            new_vroot.push_back(copy_tree(vnode_, leaf_map, new_vnode, vroot_[static_cast<size_t>(v)]));
+            new_vroot.push_back(copy_tree(vnode_, nch_, leaf_map, new_vnode, vroot_[static_cast<size_t>(v)]));
             new_vkey.push_back(vkey_[static_cast<size_t>(v)]);
         }
     const int new_nmean = static_cast<int>(new_vroot.size());
@@ -616,11 +648,11 @@ void CellFluxEngine::localize(const CellMesh& m, const std::vector<int>& leaf_ma
         return code < old_n ? leaf_map[static_cast<size_t>(code)] >= 0 : vcode[static_cast<size_t>(code - old_n)] != kOutside;
     };
     std::vector<InterpVirtual> new_interp;
-    std::vector<std::array<int, 4>> new_ikey;
+    std::vector<std::array<int, 5>> new_ikey;
     for (int k = 0; k < nip; ++k) {
         const InterpVirtual& iv = interp_[static_cast<size_t>(k)];
         bool ok = leaf_map[static_cast<size_t>(iv.fine)] >= 0 && leaf_map[static_cast<size_t>(iv.coarse)] >= 0;
-        for (int s = 0; ok && s < 4; ++s) ok = kept_code(nbr_raw_[static_cast<size_t>(4) * iv.coarse + s]);
+        for (int s = 0; ok && s < ns_; ++s) ok = kept_code(nbr_raw_[static_cast<size_t>(ns_) * iv.coarse + s]);
         if (!ok) continue;
         vcode[static_cast<size_t>(nmean + k)] = new_n + new_nmean + static_cast<int>(new_interp.size());
         InterpVirtual n = iv;
@@ -635,7 +667,7 @@ void CellFluxEngine::localize(const CellMesh& m, const std::vector<int>& leaf_ma
         return vcode[static_cast<size_t>(code - old_n)];
     };
     // tables per leaf
-    std::vector<int> nraw(static_cast<size_t>(4) * new_n), nnbr(static_cast<size_t>(4) * new_n);
+    std::vector<int> nraw(static_cast<size_t>(ns_) * new_n), nnbr(static_cast<size_t>(ns_) * new_n);
     std::vector<char> nspecial(static_cast<size_t>(new_n), 0), nsolid, nowned(static_cast<size_t>(new_n), 0),
         nghost(static_cast<size_t>(new_n), 0);
     Field nsrc;
@@ -645,9 +677,9 @@ void CellFluxEngine::localize(const CellMesh& m, const std::vector<int>& leaf_ma
     for (int c = 0; c < old_n; ++c) {
         const int k = leaf_map[static_cast<size_t>(c)];
         if (k < 0) continue;
-        for (int s = 0; s < 4; ++s) {
-            nraw[static_cast<size_t>(4) * k + s] = remap(nbr_raw_[static_cast<size_t>(4) * c + s]);
-            nnbr[static_cast<size_t>(4) * k + s] = remap(nbr_[static_cast<size_t>(4) * c + s]);
+        for (int s = 0; s < ns_; ++s) {
+            nraw[static_cast<size_t>(ns_) * k + s] = remap(nbr_raw_[static_cast<size_t>(ns_) * c + s]);
+            nnbr[static_cast<size_t>(ns_) * k + s] = remap(nbr_[static_cast<size_t>(ns_) * c + s]);
         }
         nspecial[static_cast<size_t>(k)] = special_[static_cast<size_t>(c)];
         if (!nsolid.empty()) nsolid[static_cast<size_t>(k)] = solid_[static_cast<size_t>(c)];
@@ -678,7 +710,7 @@ void CellFluxEngine::localize(const CellMesh& m, const std::vector<int>& leaf_ma
             if (code < 0) throw std::logic_error("CellFluxEngine::localize: a face this rank computes reads a cell that is not kept");
         }
     }
-    for (int s = 0; s < 4; ++s)
+    for (int s = 0; s < 6; ++s)
         for (int& f : mf_face_[s]) {
             f = face_map[static_cast<size_t>(f)];
             if (f < 0) throw std::logic_error("CellFluxEngine::localize: a mass-flow face is not kept");
@@ -755,7 +787,8 @@ void CellFluxEngine::mark_tree(int code, const Mark& mark) const {
         mark(code);
         return;
     }
-    for (const int ch : vnode_[static_cast<size_t>(-1 - code)]) mark_tree(ch, mark);
+    const std::array<int, 8>& ch = vnode_[static_cast<size_t>(-1 - code)];
+    for (int k = 0; k < nch_; ++k) mark_tree(ch[static_cast<size_t>(k)], mark);
 }
 
 template <class Mark>
@@ -773,7 +806,7 @@ void CellFluxEngine::mark_code(int code, const Mark& mark) const {
     }
     const InterpVirtual& iv = interp_[v - vroot_.size()];
     mark(iv.coarse);
-    for (int s = 0; s < 4; ++s) mark_code(nbr_raw_[static_cast<size_t>(4) * iv.coarse + s], mark);
+    for (int s = 0; s < ns_; ++s) mark_code(nbr_raw_[static_cast<size_t>(ns_) * iv.coarse + s], mark);
 }
 
 template <class Mark>
@@ -781,7 +814,7 @@ void CellFluxEngine::mark_face(const CellMesh& m, int f, const Mark& mark) const
     const CellFace& face = m.faces[static_cast<size_t>(f)];
     const auto cell = [&](int c) {
         mark(c);
-        for (int s = 0; s < 4; ++s) mark_code(nbr_[static_cast<size_t>(4) * c + s], mark);   // gradients, tangential differences
+        for (int s = 0; s < ns_; ++s) mark_code(nbr_[static_cast<size_t>(ns_) * c + s], mark);   // gradients, tangential differences
     };
     if (face.kind == CellFaceKind::Boundary) {
         cell(face.left >= 0 ? face.left : face.right);
@@ -792,7 +825,7 @@ void CellFluxEngine::mark_face(const CellMesh& m, int f, const Mark& mark) const
     cell(face.right);
     if (face.kind == CellFaceKind::CoarseFine) {   // the coarse leaf's own neighbours (second-order coarse side)
         const int C = m.level[face.left] > m.level[face.right] ? face.right : face.left;
-        for (int s = 0; s < 4; ++s) mark_code(nbr_raw_[static_cast<size_t>(4) * C + s], mark);
+        for (int s = 0; s < ns_; ++s) mark_code(nbr_raw_[static_cast<size_t>(ns_) * C + s], mark);
     }
 }
 
@@ -807,7 +840,7 @@ void CellFluxEngine::memory_bytes(double& per_leaf, double& uniform) const {
                container_bytes(sv_) + container_bytes(sT_) + container_bytes(dudx_) + container_bytes(dudy_) + container_bytes(dvdx_) +
                container_bytes(dvdy_) + container_bytes(solid_) + container_bytes(fine_leaf_) + container_bytes(ghost_reads_leaf_) +
                container_bytes(ghost_leaf_mask_) + container_bytes(held_mask_) + container_bytes(src_);
-    for (int s = 0; s < 4; ++s) per_leaf += container_bytes(mf_face_[s]) + container_bytes(mf_weight_[s]);
+    for (int s = 0; s < 6; ++s) per_leaf += container_bytes(mf_face_[s]) + container_bytes(mf_weight_[s]);
     uniform = container_bytes(level_mask_) + (ghost_ib_ ? ghost_ib_->memory_bytes() : 0.0);
 }
 
@@ -820,7 +853,7 @@ void CellFluxEngine::face_dependencies(const CellMesh& m, int f, std::vector<int
 }
 
 void CellFluxEngine::mass_flow_dependencies(const CellMesh& m, std::vector<char>& mask) const {
-    for (int s = 0; s < 4; ++s)
+    for (int s = 0; s < 6; ++s)
         for (const int f : mf_face_[s]) mask[static_cast<size_t>(m.faces[static_cast<size_t>(f)].left >= 0 ? m.faces[static_cast<size_t>(f)].left : m.faces[static_cast<size_t>(f)].right)] = 1;
 }
 
@@ -958,7 +991,7 @@ void CellFluxEngine::prepare(const CellMesh& m, const Field& U, int level) {
     }
     Vc_.resize(vroot_.size() + interp_.size());
     for (size_t v = 0; v < vroot_.size(); ++v) Vc_[v] = eval(*us_, vroot_[v]);
-    double u_target[4] = {0.0, 0.0, 0.0, 0.0};   // mass-flow inlets: the ghost of a coarse leaf on such a side
+    double u_target[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};   // mass-flow inlets: the ghost of a coarse leaf on such a side
     if (!interp_.empty() && muscl_ && bc_.params().boundary_order == 2) mass_flow_targets(m, u_target);
     eval_interp(u_target);
     if (muscl_) {
@@ -988,16 +1021,21 @@ void CellFluxEngine::eval_interp(const double* u_target) {
                 return eos.cons_to_prim(bc_.ghost_state(fs, (*us_)[C], u_target[side]));
             return Wc;
         };
-        State sn{}, st{};
-        for (int pass = 0; pass < 2; ++pass) {
-            const int ax = pass == 0 ? iv.axis : 1 - iv.axis;
-            const State Wb = prim_at(nbr_raw_[static_cast<size_t>(4) * C + 2 * ax], 2 * ax);
-            const State Wf = prim_at(nbr_raw_[static_cast<size_t>(4) * C + 2 * ax + 1], 2 * ax + 1);
-            State& sl = pass == 0 ? sn : st;
+        // limited slopes of the coarse leaf: along the normal, the first transverse axis and (3-D) the second one
+        State sl3[3] = {};
+        for (int pass = 0; pass < dim_; ++pass) {
+            const int ax = pass == 0 ? iv.axis : (pass == 1 ? transverse1(iv.axis) : transverse2(iv.axis));
+            const State Wb = prim_at(nbr_raw_[static_cast<size_t>(ns_) * C + 2 * ax], 2 * ax);
+            const State Wf = prim_at(nbr_raw_[static_cast<size_t>(ns_) * C + 2 * ax + 1], 2 * ax + 1);
+            State& sl = sl3[pass];
             for (int q = 0; q < kNVar; ++q) sl[q] = apply_limiter(lim, Wc[q] - Wb[q], Wf[q] - Wc[q]);
         }
+        const State &sn = sl3[0], &st = sl3[1], &st2 = sl3[2];
         State w;
-        for (int q = 0; q < kNVar; ++q) w[q] = Wc[q] + iv.dn * sn[q] + iv.dt * st[q];
+        if (dim_ == 2)
+            for (int q = 0; q < kNVar; ++q) w[q] = Wc[q] + iv.dn * sn[q] + iv.dt * st[q];
+        else
+            for (int q = 0; q < kNVar; ++q) w[q] = Wc[q] + iv.dn * sn[q] + iv.dt * st[q] + iv.dt2 * st2[q];
         Wint_[k] = w;
         Vc_[nm + k] = eos.prim_to_cons(w);
     }
@@ -1030,7 +1068,7 @@ void CellFluxEngine::refresh_some(int N, const std::vector<int>& idx) {
 void CellFluxEngine::mass_flow_targets(const CellMesh& m, double* u_target) const {
     const BCParams& bp = bc_.params();
     const Field& U = *us_;
-    for (int s = 0; s < 4; ++s) {
+    for (int s = 0; s < 6; ++s) {
         u_target[s] = 0.0;
         if (mf_face_[s].empty()) continue;
         double sum = 0.0, count = 0.0;
@@ -1136,7 +1174,7 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                 const State Ui = U[c];
                 int n1 = -1;   // the leaf (or virtual cell) behind the boundary leaf: the second ghost layer mirrors it
                 if (bo2 && side_ok(face.side)) {
-                    n1 = nbr_[static_cast<size_t>(4) * c + (static_cast<int>(face.side) ^ 1)];
+                    n1 = nbr_[static_cast<size_t>(ns_) * c + (static_cast<int>(face.side) ^ 1)];
                     if (n1 == kOutside) throw std::logic_error("CellFluxEngine: a boundary face reads a leaf that is not in this rank's partial mesh");
                 }
                 if (n1 >= 0) {   // second-order boundary face: cells (n1, c, g0, g1) towards the boundary
@@ -1171,13 +1209,13 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                 const State *p0 = &W_[s[0]], *p3 = &W_[s[3]];
                 bool wall = false;
                 if (bo2) {
-                    const Face back = face.axis == 0 ? Face::Left : Face::Bottom, fwd = face.axis == 0 ? Face::Right : Face::Top;
-                    if (s[0] == s[1] && nbr_[static_cast<size_t>(4) * s[1] + 2 * face.axis] == -1 && side_ok(back)) {
+                    const Face back = static_cast<Face>(2 * face.axis), fwd = static_cast<Face>(2 * face.axis + 1);
+                    if (s[0] == s[1] && nbr_[static_cast<size_t>(ns_) * s[1] + 2 * face.axis] == -1 && side_ok(back)) {
                         gtmp0 = ghost_w(back, U[s[1]]);
                         p0 = &gtmp0;
                         wall = true;
                     }
-                    if (s[3] == s[2] && nbr_[static_cast<size_t>(4) * s[2] + 2 * face.axis + 1] == -1 && side_ok(fwd)) {
+                    if (s[3] == s[2] && nbr_[static_cast<size_t>(ns_) * s[2] + 2 * face.axis + 1] == -1 && side_ok(fwd)) {
                         gtmp3 = ghost_w(fwd, U[s[2]]);
                         p3 = &gtmp3;
                         wall = true;
@@ -1192,12 +1230,12 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                     bool cgb = false, cgf = false;
                     if (bo2 && coarse_side_second_order) {
                         const int C = fine_left ? s[3] : s[0], ax = face.axis;
-                        const Face back = ax == 0 ? Face::Left : Face::Bottom, fwd = ax == 0 ? Face::Right : Face::Top;
-                        if (nbr_raw_[static_cast<size_t>(4) * C + 2 * ax] == -1 && side_ok(back)) {
+                        const Face back = static_cast<Face>(2 * ax), fwd = static_cast<Face>(2 * ax + 1);
+                        if (nbr_raw_[static_cast<size_t>(ns_) * C + 2 * ax] == -1 && side_ok(back)) {
                             gcb = ghost_w(back, U[C]);
                             cgb = true;
                         }
-                        if (nbr_raw_[static_cast<size_t>(4) * C + 2 * ax + 1] == -1 && side_ok(fwd)) {
+                        if (nbr_raw_[static_cast<size_t>(ns_) * C + 2 * ax + 1] == -1 && side_ok(fwd)) {
                             gcf = ghost_w(fwd, U[C]);
                             cgf = true;
                         }
@@ -1206,8 +1244,8 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                         // coarse leaf C of the face: its state and its neighbours across the two sides along the normal
                         const int C = fine_left ? s[3] : s[0];
                         const int ax = face.axis;
-                        const int code_b = nbr_raw_[static_cast<size_t>(4) * C + 2 * ax];
-                        const int code_f = nbr_raw_[static_cast<size_t>(4) * C + 2 * ax + 1];
+                        const int code_b = nbr_raw_[static_cast<size_t>(ns_) * C + 2 * ax];
+                        const int code_f = nbr_raw_[static_cast<size_t>(ns_) * C + 2 * ax + 1];
                         const double wc = coarse_side_second_order ? W_[C][q] : 0.0;
                         const double wb = !coarse_side_second_order ? 0.0 : (code_b < 0 ? (cgb ? gcb[q] : wc) : W_[code_b][q]);
                         const double wf = !coarse_side_second_order ? 0.0 : (code_f < 0 ? (cgf ? gcf[q] : wc) : W_[code_f][q]);
@@ -1561,6 +1599,33 @@ void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Fie
     const bool visc = phys_.ns != nullptr;
     const Field& U = *us_;
     if (phys_.source && phys_.source_unsteady) update_source(m, cb, ce);
+    if (dim_ == 3) {   // convective only (build rejects the other terms in 3-D)
+#pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
+        for (int c = cb; c < ce; ++c) {
+            // side integrals: sum of (face flux * face area), one face or four (summed in pairs, in slot order: a fixed order)
+            State G[6];
+            for (int s = 0; s < 6; ++s) {
+                const int b = m.side_ptr[6 * c + s], e = m.side_ptr[6 * c + s + 1];
+                State part[4];
+                for (int k = b; k < e; ++k) {
+                    const int fi = m.side_face[k];
+                    const CellFace& f = m.faces[fi];
+                    const bool reg = replace && f.level > m.level[c];
+                    const State& Fk = reg ? reg_[static_cast<size_t>(reg_slot_[static_cast<size_t>(fi)])] : F_[fi];
+                    for (int q = 0; q < kNVar; ++q) part[k - b][q] = Fk[q] * f.length;
+                }
+                if (e - b == 1)
+                    G[s] = part[0];
+                else
+                    for (int q = 0; q < kNVar; ++q) G[s][q] = (part[0][q] + part[1][q]) + (part[2][q] + part[3][q]);
+            }
+            const double inv_vol = 1.0 / m.volume(c);   // the uniform solver's 1 / cell_volume()
+            State& r = R[c - cb];
+            for (int q = 0; q < kNVar; ++q)
+                r[q] = (((0.0 - (G[1][q] - G[0][q])) - (G[3][q] - G[2][q])) - (G[5][q] - G[4][q])) * inv_vol;
+        }
+        return;
+    }
 #pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
     for (int c = cb; c < ce; ++c) {
         // side integrals: sum of (face flux * face length), one or two faces per side
@@ -1613,7 +1678,7 @@ double CellFluxEngine::residual(const CellMesh& m, const Field& U, Field& R) {
     if (N != nleaf_ || static_cast<int>(stencil_.size()) != nf)
         throw std::logic_error("CellFluxEngine::residual: build() was not called for this mesh");
     prepare(m, U, -1);
-    double u_target[4];
+    double u_target[6];
     mass_flow_targets(m, u_target);
     double s = fluxes(m, all_faces_, u_target);
     if (phys_.ns) {
@@ -1638,7 +1703,7 @@ double CellFluxEngine::compute_level_fluxes(const CellMesh& m, const Field& U, i
     if (m.num_leaves() != nleaf_ || static_cast<int>(stencil_.size()) != static_cast<int>(m.faces.size()))
         throw std::logic_error("CellFluxEngine: build() was not called for this mesh");
     prepare(m, U, l);
-    double u_target[4];
+    double u_target[6];
     mass_flow_targets(m, u_target);
     double s = fluxes(m, lface_[static_cast<size_t>(l)], u_target);
     if (phys_.ns) {
