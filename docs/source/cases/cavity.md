@@ -64,6 +64,25 @@ The 1st-order runs show why the default 30 × 30 grid is a quick check, not a co
 answer: numerical viscosity weakens the vortex (ψ<sub>min</sub> = −0.085 at 32²) and pushes it
 towards the top-right. Use MUSCL and 64² or more for quantitative work.
 
+## Reconstruction and boundary order
+
+RMS error of the centreline u / v against Ghia et al. (Re 400), MUSCL (MC, SSP-RK2), `weno3` and `weno5` (SSP-RK3), with
+`boundary_order` 1 and 2 (single runs, `t_end = 40`):
+
+| scheme | `boundary_order` | $32^2$ | $64^2$ | $128^2$ |
+|---|---|---|---|---|
+| MUSCL (MC) | 1 | 2.24e-02 / 2.53e-02 | 4.90e-03 / 3.88e-03 | 1.31e-03 / 1.63e-03 |
+| MUSCL (MC) | 2 | 1.79e-02 / 2.27e-02 | 3.92e-03 / 3.12e-03 | 1.40e-03 / 1.86e-03 |
+| `weno3` | 1 | 2.59e-02 / 3.11e-02 | 5.61e-03 / 5.32e-03 | 1.18e-03 / 1.70e-03 |
+| `weno3` | 2 | 1.70e-02 / 2.24e-02 | 3.81e-03 / 3.73e-03 | 1.24e-03 / 1.97e-03 |
+| `weno5` | 1 | 2.64e-02 / 3.06e-02 | 5.47e-03 / 5.05e-03 | 1.17e-03 / 1.74e-03 |
+| `weno5` | 2 | 1.39e-02 / 1.73e-02 | 3.25e-03 / 2.81e-03 | 1.26e-03 / 2.05e-03 |
+
+Second-order boundary faces lower the error on $32^2$ and $64^2$ for all three schemes but raise it by 5 to 8 % (u) on $128^2$, so the observed
+order of the last pair falls from 1.9-2.3 to 1.4-1.6. On the fine grid the three schemes are within 12 % of each other: on this smooth,
+weakly compressible flow the reconstruction order does not show, and the level of about 1e-3 is not set by the reconstruction (the tabulated reference
+data, the finite Mach number and the boundary treatment were not separated).
+
 ## Reference
 
 * Ghia, U., Ghia, K.N. & Shin, C.T. (1982). High-Re solutions for incompressible flow
