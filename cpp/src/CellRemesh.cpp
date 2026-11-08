@@ -364,6 +364,63 @@ CellBox dilate_cells(const std::vector<std::array<int, 2>>& seeds, int NX, int N
     return b;
 }
 
+CellBox dilate_cells3(const std::vector<std::array<int, 3>>& seeds, int NX, int NY, int NZ, int r, bool px, bool py, bool pz) {
+    int lo[3] = {NX, NY, NZ}, hi[3] = {-1, -1, -1};
+    for (const std::array<int, 3>& s : seeds)
+        for (int a = 0; a < 3; ++a) {
+            lo[a] = std::min(lo[a], s[static_cast<size_t>(a)]);
+            hi[a] = std::max(hi[a], s[static_cast<size_t>(a)]);
+        }
+    const int N[3] = {NX, NY, NZ};
+    const bool per[3] = {px, py, pz};
+    for (int a = 0; a < 3; ++a) {
+        lo[a] -= r;
+        hi[a] += r;
+        if (per[a] && (lo[a] < 0 || hi[a] >= N[a])) {
+            lo[a] = 0;
+            hi[a] = N[a] - 1;
+        }
+        lo[a] = std::max(lo[a], 0);
+        hi[a] = std::min(hi[a], N[a] - 1);
+    }
+    CellBox b;
+    b.i0 = lo[0];
+    b.j0 = lo[1];
+    b.k0 = lo[2];
+    b.w = hi[0] - lo[0] + 1;
+    b.h = hi[1] - lo[1] + 1;
+    b.d = hi[2] - lo[2] + 1;
+    const int ext[3] = {b.w, b.h, b.d};
+    const bool wrap[3] = {px && b.w == NX, py && b.h == NY, pz && b.d == NZ};
+    const size_t n = static_cast<size_t>(b.w) * b.h * b.d;
+    b.g.assign(n, 0);
+    const auto at = [&](int i, int j, int k) { return (static_cast<size_t>(k) * b.h + j) * b.w + i; };
+    for (const std::array<int, 3>& s : seeds) b.g[at(s[0] - b.i0, s[1] - b.j0, s[2] - b.k0)] = 1;
+    // a separable dilation (the box of half-width r around every seed): along x, then y, then z
+    std::vector<char> tmp(n, 0);
+    for (int a = 0; a < 3; ++a) {
+        std::fill(tmp.begin(), tmp.end(), 0);
+        for (int k = 0; k < b.d; ++k)
+            for (int j = 0; j < b.h; ++j)
+                for (int i = 0; i < b.w; ++i) {
+                    if (!b.g[at(i, j, k)]) continue;
+                    int x[3] = {i, j, k};
+                    const int c0 = x[a];
+                    for (int dd = -r; dd <= r; ++dd) {
+                        int q = c0 + dd;
+                        if (q < 0 || q >= ext[a]) {
+                            if (!wrap[a]) continue;
+                            q = (q % ext[a] + ext[a]) % ext[a];
+                        }
+                        x[a] = q;
+                        tmp[at(x[0], x[1], x[2])] = 1;
+                    }
+                }
+        b.g.swap(tmp);
+    }
+    return b;
+}
+
 void CellIndicator::region(const CellMesh& m, const std::vector<int>& leaves, std::vector<char>& need) const {
     if (m.dim == 3) throw std::logic_error("CellIndicator::region: the distributed remesh is 2-D only (docs/design/amr-octree.md, Q6)");
     const int M = m.max_level, r = diffusion + 1;

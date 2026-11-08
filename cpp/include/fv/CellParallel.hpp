@@ -58,7 +58,7 @@ struct RegionItem {
 // What fetch_leaves exchanged with each rank, in the same order on both sides: the leaves received from rank r, and the indices
 // (in the responder's mesh) of the leaves sent to it.
 struct FetchPlan {
-    std::vector<std::vector<std::array<int, 3>>> from;
+    std::vector<std::vector<std::array<int, 4>>> from;   // (level, i, j, k), k = 0 in 2-D
     std::vector<std::vector<int>> served;
 };
 
@@ -134,6 +134,9 @@ public:
     // mesh may be localized or not). For the checkpoint and the dump. With `root_only` only rank 0 gets them (the other ranks' arrays
     // are empty): the other ranks never hold a copy of the whole state.
     void collect(std::vector<int>& level, std::vector<int>& ci, std::vector<int>& cj, Field& U, bool root_only = false) const;
+    // The same with the k coordinates (a 3-D mesh; ck is empty for a 2-D one).
+    void collect(std::vector<int>& level, std::vector<int>& ci, std::vector<int>& cj, std::vector<int>& ck, Field& U,
+                 bool root_only = false) const;
     // Gather another per-leaf field in the same global order (e.g. residual contributions for deterministic post-processing).
     void collect_field(const Field& values, Field& out, bool root_only = false) const;
 
@@ -211,8 +214,8 @@ private:
     // The share of the new owned leaves (arrays, state, the facts of the new mesh): the region around them is fetched from the other
     // owners (fetch_leaves), the partial mesh, the engine tables and the partition are made from it, retrying with a wider reach if a
     // face reads what the share lacks; then partition_exchange and localize.
-    void build_share_fetched(const std::vector<int>& lv, const std::vector<int>& ii, const std::vector<int>& jj, const Field& U,
-                             const GlobalFacts& gf, std::chrono::steady_clock::time_point* built);
+    void build_share_fetched(const std::vector<int>& lv, const std::vector<int>& ii, const std::vector<int>& jj, const std::vector<int>& kk,
+                             const Field& U, const GlobalFacts& gf, std::chrono::steady_clock::time_point* built);
     // The leaves of `topo` this rank owns under the equal-count split of each level.
     void owned_leaves(const CellMesh& topo, std::vector<int>& out) const;
     // The leaves a rank keeps to build its share directly: those within the reach of its owned leaves of `topo` (the whole mesh

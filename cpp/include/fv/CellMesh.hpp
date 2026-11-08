@@ -55,7 +55,8 @@ struct CellNeighbour {
 // A box of cells of one level: a bitmap over [i0, i0 + w) x [j0, j0 + h) (see dilate_cells in CellRemesh.hpp). 2-D.
 struct CellBox {
     int i0 = 0, j0 = 0, w = 0, h = 0;
-    std::vector<char> g;   // g[(j - j0) * w + (i - i0)]
+    int k0 = 0, d = 1;     // 3-D: the z range [k0, k0 + d) (2-D: one layer)
+    std::vector<char> g;   // g[((k - k0) * h + (j - j0)) * w + (i - i0)]
 };
 
 // Leaf cells of an adaptive mesh, their faces and the gather lists; see the file header.

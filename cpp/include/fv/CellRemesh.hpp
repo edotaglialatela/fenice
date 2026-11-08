@@ -26,6 +26,9 @@ namespace fv {
 // The cells of a level (NX x NY, periodic axes wrap) within r cells, along each axis, of the `seeds` (i, j): a bitmap over the box
 // [i0, i0 + w) x [j0, j0 + h) that holds the seeds and the margin (the whole axis where the margin wraps a periodic one).
 CellBox dilate_cells(const std::vector<std::array<int, 2>>& seeds, int NX, int NY, int r, bool periodic_x, bool periodic_y);
+// The same in 3-D (Chebyshev distance r along each of the three axes): a bitmap over [i0, i0 + w) x [j0, j0 + h) x [k0, k0 + d).
+CellBox dilate_cells3(const std::vector<std::array<int, 3>>& seeds, int NX, int NY, int NZ, int r, bool periodic_x, bool periodic_y,
+                      bool periodic_z);
 
 // Parameters of the indicator.  The defaults are a starting point for the user to fix (section 11).
 struct CellIndicator {

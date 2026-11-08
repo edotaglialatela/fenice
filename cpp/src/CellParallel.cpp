@@ -16,6 +16,7 @@
 
 namespace fv {
 
+using detail::cell_morton;
 using detail::kNoKey;
 using detail::leaf_key;
 
@@ -33,6 +34,8 @@ void CellParallel::partition(const CellMesh* whole, const GlobalFacts* facts) {
 
 bool CellParallel::partition_local(const CellMesh* whole, const GlobalFacts* facts) {
     if (localized_) throw std::logic_error("CellParallel::partition: the mesh is localized (globalize() first)");
+    if (mesh_.dim == 3 && engine_.ghost_enabled())
+        throw std::invalid_argument("CellParallel: the ghost-cell wall of a distributed 3-D adaptive run is not available yet (ibm_method = mask)");
     // `whole`: the mesh is a partial one (CellMesh::build_from) and the splitters, the levels present and the global indices of the
     // blocks are those of the whole mesh; a face that reads what the rank does not keep makes this return false (nothing
     // communicated yet), on a whole mesh it is an error
@@ -75,7 +78,7 @@ bool CellParallel::partition_local(const CellMesh* whole, const GlobalFacts* fac
         if (whole) {   // the owned leaves must see every side: a partial mesh that is too small shows here, before anything is sent
             for (int c = 0; c < N; ++c)
                 if (owner_[static_cast<size_t>(c)] == me)
-                    for (int s = 0; s < 4; ++s)
+                    for (int s = 0; s < mesh_.sides(); ++s)
                         if (mesh_.neighbour(c, static_cast<Face>(s)).kind == CellNeighbour::Kind::Outside) return false;
         }
         std::vector<int> reads;
@@ -122,9 +125,9 @@ bool CellParallel::partition_local(const CellMesh* whole, const GlobalFacts* fac
         if (engine_.has_body())
             for (int c = 0; c < N; ++c)
                 if (owner_[static_cast<size_t>(c)] == me && engine_.solid()[static_cast<size_t>(c)])
-                    for (int s = 0; s < 4; ++s) {
+                    for (int s = 0; s < mesh_.sides(); ++s) {
                         const CellNeighbour nb = mesh_.neighbour(c, static_cast<Face>(s));
-                        for (const int n : {nb.a, nb.b})
+                        for (const int n : {nb.a, nb.b, nb.c, nb.d})   // (c, d: the 3-D finer leaves; -1 otherwise)
                             if (n >= 0) held[static_cast<size_t>(n)] = 1;
                     }
         part.leaf_held = held;
@@ -137,7 +140,7 @@ bool CellParallel::partition_local(const CellMesh* whole, const GlobalFacts* fac
     }
 
     // receive lists (in the order of the leaves, which is the order of (level, key)) and the requests to the owners: (2 level +
-    // stage, i, j) per leaf
+    // stage, i, j[, k]) per leaf
     const std::vector<char> no_body;
     const std::vector<char>& solid = engine_.has_body() ? engine_.solid() : no_body;
     stage_.assign(static_cast<size_t>(M) + 1, {});
@@ -166,6 +169,7 @@ bool CellParallel::partition_local(const CellMesh* whole, const GlobalFacts* fac
         q.push_back(2.0 * l + (st ? 1.0 : 0.0));
         q.push_back(static_cast<double>(mesh_.ci[static_cast<size_t>(c)]));
         q.push_back(static_cast<double>(mesh_.cj[static_cast<size_t>(c)]));
+        if (mesh_.dim == 3) q.push_back(static_cast<double>(mesh_.ck[static_cast<size_t>(c)]));
     }
     return true;
 }
@@ -189,9 +193,10 @@ void CellParallel::partition_exchange() {
         comm_.exchange(req_, got);
         for (int r = 0; r < R; ++r) {
             const std::vector<double>& q = got[static_cast<size_t>(r)];
-            for (size_t k = 0; k + 2 < q.size(); k += 3) {
+            const size_t rec = mesh_.dim == 3 ? 4 : 3;
+            for (size_t k = 0; k + rec <= q.size(); k += rec) {
                 const int code = static_cast<int>(q[k]), l = code / 2;
-                const int c = mesh_.find(l, static_cast<int>(q[k + 1]), static_cast<int>(q[k + 2]));
+                const int c = mesh_.find(l, static_cast<int>(q[k + 1]), static_cast<int>(q[k + 2]), rec == 4 ? static_cast<int>(q[k + 3]) : 0);
                 if (c < 0 || owner_[static_cast<size_t>(c)] != me) throw std::logic_error("CellParallel: a request for a leaf this rank does not own");
                 final_[static_cast<size_t>(l)].send[static_cast<size_t>(r)].push_back(c);
                 if (code & 1) stage_[static_cast<size_t>(l)].send[static_cast<size_t>(r)].push_back(c);
@@ -216,23 +221,25 @@ void CellParallel::partition_exchange() {
     }
     for (int l = 1; l <= M; ++l) {
         Lists& rl = reg_[static_cast<size_t>(l)];
+        const int ns = mesh_.sides();
         for (int c = ob[static_cast<size_t>(l)]; c < oe[static_cast<size_t>(l)]; ++c)
-            for (int s = 0; s < 4; ++s) {   // owned fine leaves: send to the owner of a coarser neighbour
+            for (int s = 0; s < ns; ++s) {   // owned fine leaves: send to the owner of a coarser neighbour
                 const CellNeighbour nb = mesh_.neighbour(c, static_cast<Face>(s));
                 if (nb.kind != CellNeighbour::Kind::Coarser) continue;
                 const int oc = owner_[static_cast<size_t>(nb.a)];
-                if (oc != me) rl.send[static_cast<size_t>(oc)].push_back(mesh_.side_face[static_cast<size_t>(mesh_.side_ptr[static_cast<size_t>(4) * c + s])]);
+                if (oc != me) rl.send[static_cast<size_t>(oc)].push_back(mesh_.side_face[static_cast<size_t>(mesh_.side_ptr[static_cast<size_t>(ns) * c + s])]);
             }
         std::vector<std::vector<std::array<int, 3>>> in(static_cast<size_t>(R));   // (fine leaf, side, face) per fine owner
         for (int C = ob[static_cast<size_t>(l) - 1]; C < oe[static_cast<size_t>(l) - 1]; ++C)
-            for (int s = 0; s < 4; ++s) {   // owned coarse leaves: receive from the owners of the finer neighbours
+            for (int s = 0; s < ns; ++s) {   // owned coarse leaves: receive from the owners of the finer neighbours
                 const CellNeighbour nb = mesh_.neighbour(C, static_cast<Face>(s));
                 if (nb.kind != CellNeighbour::Kind::Finer) continue;
                 const int fs = static_cast<int>(opposite(static_cast<Face>(s)));
-                for (const int fl : {nb.a, nb.b}) {
+                for (const int fl : {nb.a, nb.b, nb.c, nb.d}) {   // (2 finer leaves in 2-D, 4 in 3-D)
+                    if (fl < 0) continue;
                     const int of = owner_[static_cast<size_t>(fl)];
                     if (of != me)
-                        in[static_cast<size_t>(of)].push_back({fl, fs, mesh_.side_face[static_cast<size_t>(mesh_.side_ptr[static_cast<size_t>(4) * fl + fs])]});
+                        in[static_cast<size_t>(of)].push_back({fl, fs, mesh_.side_face[static_cast<size_t>(mesh_.side_ptr[static_cast<size_t>(ns) * fl + fs])]});
                 }
             }
         for (int r = 0; r < R; ++r) {
@@ -369,6 +376,7 @@ void CellParallel::gather_owned(std::vector<double>& all, bool root_only, const 
             send.push_back(l);
             send.push_back(mesh_.ci[static_cast<size_t>(c)]);
             send.push_back(mesh_.cj[static_cast<size_t>(c)]);
+            if (mesh_.dim == 3) send.push_back(mesh_.ck[static_cast<size_t>(c)]);
             const State& value = values ? (*values)[static_cast<size_t>(c)] : mesh_.U[static_cast<size_t>(c)];
             send.insert(send.end(), value.begin(), value.end());
         }
@@ -407,7 +415,15 @@ void CellParallel::gather_owned(std::vector<double>& all, bool root_only, const 
 }
 
 void CellParallel::collect(std::vector<int>& level, std::vector<int>& ci, std::vector<int>& cj, Field& U, bool root_only) const {
-    constexpr size_t rec = 3 + kNVar;
+    if (mesh_.dim == 3) throw std::logic_error("CellParallel::collect: a 3-D mesh needs the k coordinates (the overload with ck)");
+    std::vector<int> ck;
+    collect(level, ci, cj, ck, U, root_only);
+}
+
+void CellParallel::collect(std::vector<int>& level, std::vector<int>& ci, std::vector<int>& cj, std::vector<int>& ck, Field& U,
+                           bool root_only) const {
+    const int d3 = mesh_.dim == 3 ? 1 : 0;
+    const size_t rec = 3 + d3 + kNVar;
     std::vector<double> all;
     gather_owned(all, root_only);
     const size_t n = all.size() / rec;
@@ -415,7 +431,8 @@ void CellParallel::collect(std::vector<int>& level, std::vector<int>& ci, std::v
     for (size_t k = 0; k < n; ++k) order[k] = k;
     std::vector<uint64_t> key(n);
     for (size_t k = 0; k < n; ++k)
-        key[k] = morton_key(static_cast<uint32_t>(all[rec * k + 1]), static_cast<uint32_t>(all[rec * k + 2]));
+        key[k] = cell_morton(mesh_.dim, static_cast<int>(all[rec * k + 1]), static_cast<int>(all[rec * k + 2]),
+                             d3 ? static_cast<int>(all[rec * k + 3]) : 0);
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
         const int la = static_cast<int>(all[rec * a]), lb = static_cast<int>(all[rec * b]);
         return la != lb ? la < lb : key[a] < key[b];
@@ -423,20 +440,23 @@ void CellParallel::collect(std::vector<int>& level, std::vector<int>& ci, std::v
     level.resize(n);
     ci.resize(n);
     cj.resize(n);
+    ck.assign(d3 ? n : 0, 0);
     U.resize(n);
     for (size_t k = 0; k < n; ++k) {
         const double* r = &all[rec * order[k]];
         level[k] = static_cast<int>(r[0]);
         ci[k] = static_cast<int>(r[1]);
         cj[k] = static_cast<int>(r[2]);
-        for (int q = 0; q < kNVar; ++q) U[k][static_cast<size_t>(q)] = r[3 + q];
+        if (d3) ck[k] = static_cast<int>(r[3]);
+        for (int q = 0; q < kNVar; ++q) U[k][static_cast<size_t>(q)] = r[3 + d3 + q];
     }
 }
 
 void CellParallel::collect_field(const Field& values, Field& out, bool root_only) const {
     if (values.size() != mesh_.U.size())
         throw std::invalid_argument("CellParallel::collect_field: the field must match the local mesh");
-    constexpr size_t rec = 3 + kNVar;
+    const int d3 = mesh_.dim == 3 ? 1 : 0;
+    const size_t rec = 3 + d3 + kNVar;
     std::vector<double> all;
     gather_owned(all, root_only, &values);
     const size_t n = all.size() / rec;
@@ -444,7 +464,8 @@ void CellParallel::collect_field(const Field& values, Field& out, bool root_only
     std::vector<uint64_t> key(n);
     for (size_t k = 0; k < n; ++k) {
         order[k] = k;
-        key[k] = morton_key(static_cast<uint32_t>(all[rec * k + 1]), static_cast<uint32_t>(all[rec * k + 2]));
+        key[k] = cell_morton(mesh_.dim, static_cast<int>(all[rec * k + 1]), static_cast<int>(all[rec * k + 2]),
+                             d3 ? static_cast<int>(all[rec * k + 3]) : 0);
     }
     std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
         const int la = static_cast<int>(all[rec * a]), lb = static_cast<int>(all[rec * b]);
@@ -453,26 +474,31 @@ void CellParallel::collect_field(const Field& values, Field& out, bool root_only
     out.resize(n);
     for (size_t k = 0; k < n; ++k) {
         const double* r = &all[rec * order[k]];
-        for (int q = 0; q < kNVar; ++q) out[k][static_cast<size_t>(q)] = r[3 + q];
+        for (int q = 0; q < kNVar; ++q) out[k][static_cast<size_t>(q)] = r[3 + d3 + q];
     }
 }
 
 void CellParallel::globalize() {
     if (!localized_) return;
-    constexpr size_t rec = 3 + kNVar;
+    const int d3 = mesh_.dim == 3 ? 1 : 0;
+    const size_t rec = 3 + d3 + kNVar;
     std::vector<double> all;
     gather_owned(all);
     const size_t n = all.size() / rec;
-    std::vector<int> lv(n), ii(n), jj(n);
+    std::vector<int> lv(n), ii(n), jj(n), kk(d3 ? n : 0);
     Field U(n);
     for (size_t k = 0; k < n; ++k) {
         const double* r = &all[rec * k];
         lv[k] = static_cast<int>(r[0]);
         ii[k] = static_cast<int>(r[1]);
         jj[k] = static_cast<int>(r[2]);
-        for (int q = 0; q < kNVar; ++q) U[k][static_cast<size_t>(q)] = r[3 + q];
+        if (d3) kk[k] = static_cast<int>(r[3]);
+        for (int q = 0; q < kNVar; ++q) U[k][static_cast<size_t>(q)] = r[3 + d3 + q];
     }
-    mesh_.assign_leaves(lv, ii, jj, &U);   // sorts by (level, key) and rebuilds the faces; the engine and the partition are stale
+    if (d3)
+        mesh_.assign_leaves(lv, ii, jj, kk, &U);
+    else
+        mesh_.assign_leaves(lv, ii, jj, &U);   // sorts by (level, key) and rebuilds the faces; the engine and the partition are stale
     owner_.clear();
     held_.clear();
     for (std::vector<Lists>* ls : {&stage_, &final_, &reg_}) ls->clear();
@@ -541,8 +567,12 @@ int CellParallel::ring(const CellMesh& m, int a, int b) {
     };
     const long long ax = static_cast<long long>(m.ci[a]) * sa, ay = static_cast<long long>(m.cj[a]) * sa;
     const long long bx = static_cast<long long>(m.ci[b]) * sb, by = static_cast<long long>(m.cj[b]) * sb;
-    const long long g = std::max(gap(ax, ax + sa, bx, bx + sb, m.periodic_x ? m.nx_at(M) : 0),
-                                 gap(ay, ay + sa, by, by + sb, m.periodic_y ? m.ny_at(M) : 0));
+    long long g = std::max(gap(ax, ax + sa, bx, bx + sb, m.periodic_x ? m.nx_at(M) : 0),
+                           gap(ay, ay + sa, by, by + sb, m.periodic_y ? m.ny_at(M) : 0));
+    if (m.dim == 3) {
+        const long long az = static_cast<long long>(m.ck[a]) * sa, bz = static_cast<long long>(m.ck[b]) * sb;
+        g = std::max(g, gap(az, az + sa, bz, bz + sb, m.periodic_z ? m.nz_at(M) : 0));
+    }
     return static_cast<int>(g / sa) + 1;
 }
 
@@ -589,9 +619,9 @@ CellParallel::HaloReach CellParallel::halo_reach(const CellMesh& m, const CellFl
     if (eng.has_body())
         for (int c = 0; c < m.num_leaves(); ++c)
             if (eng.solid()[static_cast<size_t>(c)])
-                for (int s = 0; s < 4; ++s) {
+                for (int s = 0; s < m.sides(); ++s) {
                     const CellNeighbour nb = m.neighbour(c, static_cast<Face>(s));
-                    for (const int n : {nb.a, nb.b})
+                    for (const int n : {nb.a, nb.b, nb.c, nb.d})
                         if (n >= 0) note(HaloReach::SolidReset, c, n);
                 }
     return hr;

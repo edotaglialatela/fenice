@@ -25,7 +25,7 @@ bool CellParallel::remesh(CellAdaptor& ad) {
     if (!localized_) throw std::logic_error("CellParallel::remesh: the mesh is not localized");
     using Clock = std::chrono::steady_clock;
     const auto sec = [](Clock::time_point a, Clock::time_point b) { return std::chrono::duration<double>(b - a).count(); };
-    const int R = comm_.size, me = comm_.rank, M = mesh_.max_level;
+    const int R = comm_.size, me = comm_.rank, M = mesh_.max_level, dim = mesh_.dim;
     const auto t0 = Clock::now();
     // 1) the owned leaves, and the region the indicator and the decisions read, with its state, from the owners
     std::vector<int> owned;
@@ -33,24 +33,24 @@ bool CellParallel::remesh(CellAdaptor& ad) {
         for (int c = engine_.owned_begin(l); c < engine_.owned_end(l); ++c) owned.push_back(c);
     std::vector<RegionItem> items;
     {
-        std::vector<std::vector<std::array<int, 2>>> seeds(static_cast<size_t>(M) + 1);
+        std::vector<std::vector<std::array<int, 3>>> seeds(static_cast<size_t>(M) + 1);
         for (const int c : owned) {
-            const int l = mesh_.level[static_cast<size_t>(c)], i = mesh_.ci[static_cast<size_t>(c)], j = mesh_.cj[static_cast<size_t>(c)];
-            seeds[static_cast<size_t>(l)].push_back({i, j});
-            if (l > 0) seeds[static_cast<size_t>(l) - 1].push_back({i >> 1, j >> 1});
+            const int l = mesh_.level[static_cast<size_t>(c)], i = mesh_.ci[static_cast<size_t>(c)], j = mesh_.cj[static_cast<size_t>(c)],
+                      k = mesh_.ck[static_cast<size_t>(c)];
+            seeds[static_cast<size_t>(l)].push_back({i, j, k});
+            if (l > 0) seeds[static_cast<size_t>(l) - 1].push_back({i >> 1, j >> 1, k >> 1});
         }
         for (int t = 0; t <= M; ++t) {   // (the cells CellIndicator::region marks: the ring of the smoothing, which holds the one of the ripple)
             if (seeds[static_cast<size_t>(t)].empty()) continue;
             RegionItem it;
             it.level = t;
-            it.box = dilate_cells(seeds[static_cast<size_t>(t)], mesh_.nx_at(t), mesh_.ny_at(t), ad.indicator().diffusion + 1 + region_shrink,
-                                  mesh_.periodic_x, mesh_.periodic_y);
+            it.box = detail::dilate_seeds(mesh_, t, seeds[static_cast<size_t>(t)], ad.indicator().diffusion + 1 + region_shrink);
             it.tmin = 0;
             it.tmax = M;
             items.push_back(std::move(it));
         }
     }
-    CellMesh W(mesh_.Lx, mesh_.Ly, mesh_.nx, mesh_.ny, M, mesh_.periodic_x, mesh_.periodic_y, mesh_.x0, mesh_.y0);
+    CellMesh W = detail::empty_like(mesh_);
     FetchPlan plan;
     {
         ProfileScope ps(Section::Fetch);
@@ -60,7 +60,8 @@ bool CellParallel::remesh(CellAdaptor& ad) {
     std::vector<int> owned_w(owned.size());
     for (size_t k = 0; k < owned.size(); ++k) {
         const int c = owned[k];
-        owned_w[k] = W.find(mesh_.level[static_cast<size_t>(c)], mesh_.ci[static_cast<size_t>(c)], mesh_.cj[static_cast<size_t>(c)]);
+        owned_w[k] = W.find(mesh_.level[static_cast<size_t>(c)], mesh_.ci[static_cast<size_t>(c)], mesh_.cj[static_cast<size_t>(c)],
+                            mesh_.ck[static_cast<size_t>(c)]);
         if (owned_w[k] < 0) throw std::logic_error("CellParallel::remesh: an owned leaf is not in the region fetched");
     }
     const auto t1 = Clock::now();
@@ -78,8 +79,9 @@ bool CellParallel::remesh(CellAdaptor& ad) {
     for (int r = 0; r < R; ++r) {
         if (r == me) continue;
         for (const int c : plan.served[static_cast<size_t>(r)])
-            send_w[static_cast<size_t>(r)].push_back(W.find(mesh_.level[static_cast<size_t>(c)], mesh_.ci[static_cast<size_t>(c)], mesh_.cj[static_cast<size_t>(c)]));
-        for (const std::array<int, 3>& t : plan.from[static_cast<size_t>(r)]) recv_w[static_cast<size_t>(r)].push_back(W.find(t[0], t[1], t[2]));
+            send_w[static_cast<size_t>(r)].push_back(W.find(mesh_.level[static_cast<size_t>(c)], mesh_.ci[static_cast<size_t>(c)],
+                                                            mesh_.cj[static_cast<size_t>(c)], mesh_.ck[static_cast<size_t>(c)]));
+        for (const std::array<int, 4>& t : plan.from[static_cast<size_t>(r)]) recv_w[static_cast<size_t>(r)].push_back(W.find(t[0], t[1], t[2], t[3]));
     }
     const auto exchange_codes = [&]() {
         std::vector<std::vector<double>> snd(static_cast<size_t>(R)), rcv;
@@ -139,10 +141,10 @@ bool CellParallel::remesh(CellAdaptor& ad) {
                 continue;
             }
             if (l == 0) continue;
-            const int ai = W.ci[static_cast<size_t>(w)] & ~1, aj = W.cj[static_cast<size_t>(w)] & ~1;
-            const int a = W.find(l, ai, aj);
+            const int ai = W.ci[static_cast<size_t>(w)] & ~1, aj = W.cj[static_cast<size_t>(w)] & ~1, ak = W.ck[static_cast<size_t>(w)] & ~1;
+            const int a = W.find(l, ai, aj, ak);
             if (a < 0) {
-                if (!W.has_leaf_under(l, ai, aj)) throw std::logic_error("CellParallel::remesh: the anchor cell of a group is not in the region fetched");
+                if (!W.has_leaf_under(l, ai, aj, ak)) throw std::logic_error("CellParallel::remesh: the anchor cell of a group is not in the region fetched");
                 continue;
             }
             auto it = group.find(a);
@@ -170,30 +172,53 @@ bool CellParallel::remesh(CellAdaptor& ad) {
         }
     }
     // 5) the new leaves this rank makes, with their state: the children of its refined leaves (injection), the parents of the groups
-    // it anchors (mean of the four), the leaves that stay
-    std::vector<int> lv, ii, jj;
+    // it anchors (mean of the 2^D, as CellMesh::adapt makes it), the leaves that stay
+    std::vector<int> lv, ii, jj, kk;
     Field nu;
     std::vector<std::vector<uint64_t>> keys(static_cast<size_t>(M) + 1);
-    const auto push = [&](int l, int i, int j, const State& u) {
+    const auto push = [&](int l, int i, int j, int z, const State& u) {
         lv.push_back(l);
         ii.push_back(i);
         jj.push_back(j);
+        kk.push_back(z);
         nu.push_back(u);
-        keys[static_cast<size_t>(l)].push_back(morton_key(static_cast<uint32_t>(i), static_cast<uint32_t>(j)));
+        keys[static_cast<size_t>(l)].push_back(detail::cell_morton(dim, i, j, z));
     };
+    const int nch = W.children();
     for (size_t k = 0; k < owned.size(); ++k) {
-        const int w = owned_w[k], l = W.level[static_cast<size_t>(w)], i = W.ci[static_cast<size_t>(w)], j = W.cj[static_cast<size_t>(w)];
+        const int w = owned_w[k], l = W.level[static_cast<size_t>(w)], i = W.ci[static_cast<size_t>(w)], j = W.cj[static_cast<size_t>(w)],
+                  z = W.ck[static_cast<size_t>(w)];
         switch (role[k]) {
-        case Keep: push(l, i, j, W.U[static_cast<size_t>(w)]); break;
+        case Keep: push(l, i, j, z, W.U[static_cast<size_t>(w)]); break;
         case Refine:
-            for (int q = 0; q < 4; ++q) push(l + 1, 2 * i + (q & 1), 2 * j + (q >> 1), W.U[static_cast<size_t>(w)]);
+            for (int q = 0; q < nch; ++q) {
+                int o[3];
+                child_offset(q, o);
+                push(l + 1, 2 * i + o[0], 2 * j + o[1], dim == 3 ? 2 * z + o[2] : 0, W.U[static_cast<size_t>(w)]);
+            }
             break;
         case Anchor: {
-            const State &a = W.U[static_cast<size_t>(w)], &b = W.U[static_cast<size_t>(W.find(l, i + 1, j))],
-                        &c = W.U[static_cast<size_t>(W.find(l, i, j + 1))], &d = W.U[static_cast<size_t>(W.find(l, i + 1, j + 1))];
             State m;
-            for (size_t q = 0; q < static_cast<size_t>(kNVar); ++q) m[q] = ((a[q] + b[q]) + (c[q] + d[q])) * 0.25;
-            push(l - 1, i >> 1, j >> 1, m);
+            if (nch == 4) {
+                const State &a = W.U[static_cast<size_t>(w)], &b = W.U[static_cast<size_t>(W.find(l, i + 1, j))],
+                            &c = W.U[static_cast<size_t>(W.find(l, i, j + 1))], &d = W.U[static_cast<size_t>(W.find(l, i + 1, j + 1))];
+                for (size_t q = 0; q < static_cast<size_t>(kNVar); ++q) m[q] = ((a[q] + b[q]) + (c[q] + d[q])) * 0.25;
+            } else {   // the siblings in child order, each z-plane as in 2-D, then the two planes (CellMesh::adapt)
+                int g[8];
+                for (int q = 0; q < 8; ++q) {
+                    int o[3];
+                    child_offset(q, o);
+                    g[q] = W.find(l, i + o[0], j + o[1], z + o[2]);
+                }
+                for (size_t q = 0; q < static_cast<size_t>(kNVar); ++q) {
+                    const double p0 = (W.U[static_cast<size_t>(g[0])][q] + W.U[static_cast<size_t>(g[1])][q]) +
+                                      (W.U[static_cast<size_t>(g[2])][q] + W.U[static_cast<size_t>(g[3])][q]);
+                    const double p1 = (W.U[static_cast<size_t>(g[4])][q] + W.U[static_cast<size_t>(g[5])][q]) +
+                                      (W.U[static_cast<size_t>(g[6])][q] + W.U[static_cast<size_t>(g[7])][q]);
+                    m[q] = (p0 + p1) * 0.125;
+                }
+            }
+            push(l - 1, i >> 1, j >> 1, z >> 1, m);
             break;
         }
         default: break;   // absorbed into the parent of its anchor
@@ -207,23 +232,26 @@ bool CellParallel::remesh(CellAdaptor& ad) {
     long long after = 0;
     for (const long long n : gf.count) after += n;
     ad.n_refined += nr;
-    ad.n_joined += std::max(0LL, before + 3 * nr - after) / 3;
-    const size_t rec = 3 + static_cast<size_t>(kNVar);
+    const long long extra = nch - 1;   // leaves added by a refinement (removed by a merge)
+    ad.n_joined += std::max(0LL, before + extra * nr - after) / extra;
+    const size_t d3 = dim == 3 ? 1 : 0, rec = 3 + d3 + static_cast<size_t>(kNVar);
     std::vector<std::vector<double>> out(static_cast<size_t>(R)), in;
-    std::vector<int> ml, mi, mj;
+    std::vector<int> ml, mi, mj, mk;
     Field mu;
     for (size_t k = 0; k < lv.size(); ++k) {
-        const int o = owner_in(gf.split, lv[k], morton_key(static_cast<uint32_t>(ii[k]), static_cast<uint32_t>(jj[k])));
+        const int o = owner_in(gf.split, lv[k], detail::cell_morton(dim, ii[k], jj[k], kk[k]));
         if (o == me) {
             ml.push_back(lv[k]);
             mi.push_back(ii[k]);
             mj.push_back(jj[k]);
+            mk.push_back(kk[k]);
             mu.push_back(nu[k]);
         } else {
             std::vector<double>& s = out[static_cast<size_t>(o)];
             s.push_back(lv[k]);
             s.push_back(ii[k]);
             s.push_back(jj[k]);
+            if (d3) s.push_back(kk[k]);
             s.insert(s.end(), nu[k].begin(), nu[k].end());
         }
     }
@@ -234,8 +262,9 @@ bool CellParallel::remesh(CellAdaptor& ad) {
             ml.push_back(static_cast<int>(a[k]));
             mi.push_back(static_cast<int>(a[k + 1]));
             mj.push_back(static_cast<int>(a[k + 2]));
+            mk.push_back(d3 ? static_cast<int>(a[k + 3]) : 0);
             State u;
-            for (size_t q = 0; q < static_cast<size_t>(kNVar); ++q) u[q] = a[k + 3 + q];
+            for (size_t q = 0; q < static_cast<size_t>(kNVar); ++q) u[q] = a[k + 3 + d3 + q];
             mu.push_back(u);
         }
     }
@@ -253,7 +282,8 @@ bool CellParallel::remesh(CellAdaptor& ad) {
     // 7) the mesh and the engine of the new share, the partition, the halo
     localized_ = false;
     auto t4 = Clock::now();
-    build_share_fetched(ml, mi, mj, mu, gf, &t4);
+    if (dim != 3) mk.clear();
+    build_share_fetched(ml, mi, mj, mk, mu, gf, &t4);
     for (int l = 0; l <= M; ++l) exchange_final(l);
     const auto t5 = Clock::now();
     t_topo += sec(t2, t3);
@@ -277,11 +307,14 @@ bool CellParallel::remesh(CellAdaptor& ad) {
 
 void CellParallel::check_against_whole_build() {
     // the whole new mesh and its engine, the way a run with the topology on every rank makes them, and the share cut from them
-    std::vector<int> lv, ci, cj;
+    std::vector<int> lv, ci, cj, ck;
     Field U;
-    collect(lv, ci, cj, U, false);
-    CellMesh whole(mesh_.Lx, mesh_.Ly, mesh_.nx, mesh_.ny, mesh_.max_level, mesh_.periodic_x, mesh_.periodic_y, mesh_.x0, mesh_.y0);
-    whole.assign_leaves(lv, ci, cj, &U);
+    collect(lv, ci, cj, ck, U, false);
+    CellMesh whole = detail::empty_like(mesh_);
+    if (mesh_.dim == 3)
+        whole.assign_leaves(lv, ci, cj, ck, &U);
+    else
+        whole.assign_leaves(lv, ci, cj, &U);
     CellFluxEngine eng(engine_);
     eng.build(whole);
     CellParallel ref(whole, eng, comm_);

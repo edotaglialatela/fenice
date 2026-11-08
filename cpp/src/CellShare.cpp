@@ -18,20 +18,48 @@
 
 namespace fv {
 
+using detail::cell_morton;
 using detail::kNoKey;
 using detail::leaf_key;
+
+namespace {
+
+// Rings of the owned leaf's level within which a leaf of another level is read, by level difference d = owner level - level read
+// (docs/design/amr-distributed.md section 8.2 for 2-D, a ring more than the airfoil needs; 3-D: halo_reach measured on octrees of three
+// and four levels with every physics, a ring more: docs/design/amr-octree.md section 17, guarded by
+// cellparallel3d_halo_reach_lies_within_the_region_rings)
+int reach_rings(int dim, int d) {
+    if (dim == 3) return d < 0 ? 8 : (d == 0 ? 11 : (d == 1 ? 10 : (d == 2 ? 9 : 11)));
+    return d < 0 ? 4 : (d == 0 ? 6 : (d == 1 ? 8 : (d == 2 ? 9 : 11)));
+}
+
+// Is leaf c of `m` on the side s (Face) of the domain?
+bool on_side(const CellMesh& m, int c, int s) {
+    const int l = m.level[static_cast<size_t>(c)];
+    switch (s) {
+    case 0: return m.ci[static_cast<size_t>(c)] == 0;
+    case 1: return m.ci[static_cast<size_t>(c)] == m.nx_at(l) - 1;
+    case 2: return m.cj[static_cast<size_t>(c)] == 0;
+    case 3: return m.cj[static_cast<size_t>(c)] == m.ny_at(l) - 1;
+    case 4: return m.ck[static_cast<size_t>(c)] == 0;
+    default: return m.ck[static_cast<size_t>(c)] == m.nz_at(l) - 1;
+    }
+}
+
+}   // namespace
 
 void CellParallel::region_mask(const CellMesh& topo, const std::vector<int>& owned, int extra, std::vector<char>& keep) const {
     const int N = topo.num_leaves(), M = topo.max_level;
     keep.assign(static_cast<size_t>(N), 0);
-    std::vector<std::vector<std::array<int, 2>>> seeds(static_cast<size_t>(M) + 1);
+    std::vector<std::vector<std::array<int, 3>>> seeds(static_cast<size_t>(M) + 1);
     for (const int c : owned) {
         keep[static_cast<size_t>(c)] = 1;
-        seeds[static_cast<size_t>(topo.level[static_cast<size_t>(c)])].push_back({topo.ci[static_cast<size_t>(c)], topo.cj[static_cast<size_t>(c)]});
+        seeds[static_cast<size_t>(topo.level[static_cast<size_t>(c)])].push_back(
+            {topo.ci[static_cast<size_t>(c)], topo.cj[static_cast<size_t>(c)], topo.ck[static_cast<size_t>(c)]});
     }
-    // rings of the owned leaf's level within which a leaf of another level is read (docs/design/amr-distributed.md section 8.2, a
-    // ring more than the airfoil needs; `extra` more rings on a retry), by level difference d = owner level - level read
-    const auto rings = [](int d) { return d < 0 ? 4 : (d == 0 ? 6 : (d == 1 ? 8 : (d == 2 ? 9 : 11))); };
+    // rings of the owned leaf's level within which a leaf of another level is read (`extra` more rings on a retry)
+    const int dim = topo.dim;
+    const auto rings = [dim](int d) { return reach_rings(dim, d); };
     const bool body = engine_.has_body();
     for (int o = 0; o <= M; ++o) {
         if (seeds[static_cast<size_t>(o)].empty()) continue;
@@ -39,49 +67,50 @@ void CellParallel::region_mask(const CellMesh& topo, const std::vector<int>& own
             if (topo.level_begin[t + 1] == topo.level_begin[t]) continue;
             int r = std::max(0, rings(o - t) + extra);
             if (body && t == o && o == M) r = std::max(r, 8 + extra);   // the images of the ghost cells (7 rings)
-            const CellBox b = dilate_cells(seeds[static_cast<size_t>(o)], topo.nx_at(o), topo.ny_at(o), r, topo.periodic_x, topo.periodic_y);
-            for (int j = 0; j < b.h; ++j)
-                for (int i = 0; i < b.w; ++i) {
-                    if (!b.g[static_cast<size_t>(j) * b.w + i]) continue;
-                    const int ci = b.i0 + i, cj = b.j0 + j;
-                    if (t <= o) {
-                        const int c = topo.find(t, ci >> (o - t), cj >> (o - t));
-                        if (c >= 0) keep[static_cast<size_t>(c)] = 1;
-                    } else {   // the leaves of level t under this cell
-                        const int n = 1 << (t - o);
+            const CellBox b = detail::dilate_seeds(topo, o, seeds[static_cast<size_t>(o)], r);
+            detail::for_box(b, [&](int ci, int cj, int ck) {
+                if (t <= o) {
+                    const int c = topo.find(t, ci >> (o - t), cj >> (o - t), ck >> (o - t));
+                    if (c >= 0) keep[static_cast<size_t>(c)] = 1;
+                } else {   // the leaves of level t under this cell
+                    const int n = 1 << (t - o), nk = dim == 3 ? n : 1;
+                    for (int qk = 0; qk < nk; ++qk)
                         for (int qj = 0; qj < n; ++qj)
                             for (int qi = 0; qi < n; ++qi) {
-                                const int c = topo.find(t, ci * n + qi, cj * n + qj);
+                                const int c = topo.find(t, ci * n + qi, cj * n + qj, dim == 3 ? ck * n + qk : 0);
                                 if (c >= 0) keep[static_cast<size_t>(c)] = 1;
                             }
-                    }
                 }
+            });
         }
     }
     // the leaves along a mass-flow inlet (its average reads them on every rank)
-    for (int s = 0; s < 4; ++s) {
+    for (int s = 0; s < topo.sides(); ++s) {
         if (!engine_.mass_flow_side(s)) continue;
-        for (int c = 0; c < N; ++c) {
-            const int l = topo.level[static_cast<size_t>(c)];
-            const bool on = s == 0 ? topo.ci[static_cast<size_t>(c)] == 0
-                                   : (s == 1 ? topo.ci[static_cast<size_t>(c)] == topo.nx_at(l) - 1
-                                             : (s == 2 ? topo.cj[static_cast<size_t>(c)] == 0 : topo.cj[static_cast<size_t>(c)] == topo.ny_at(l) - 1));
-            if (on) keep[static_cast<size_t>(c)] = 1;
-        }
+        for (int c = 0; c < N; ++c)
+            if (on_side(topo, c, s)) keep[static_cast<size_t>(c)] = 1;
     }
 }
 
-void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::vector<int>& ii, const std::vector<int>& jj, const Field& U,
-                                         const GlobalFacts& gf, std::chrono::steady_clock::time_point* built) {
-    const int M = mesh_.max_level, me = comm_.rank;
+void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::vector<int>& ii, const std::vector<int>& jj,
+                                         const std::vector<int>& kk, const Field& U, const GlobalFacts& gf,
+                                         std::chrono::steady_clock::time_point* built) {
+    const int M = mesh_.max_level, me = comm_.rank, dim = mesh_.dim;
     Field own_u = U;
-    CellMesh own(mesh_.Lx, mesh_.Ly, mesh_.nx, mesh_.ny, M, mesh_.periodic_x, mesh_.periodic_y, mesh_.x0, mesh_.y0);
-    own.assign_partial_leaves(lv, ii, jj, &own_u);   // what this rank answers from
-    std::vector<std::vector<std::array<int, 2>>> seeds(static_cast<size_t>(M) + 1);
+    CellMesh own = detail::empty_like(mesh_);
+    if (dim == 3)
+        own.assign_partial_leaves(lv, ii, jj, kk, &own_u);   // what this rank answers from
+    else
+        own.assign_partial_leaves(lv, ii, jj, &own_u);
+    std::vector<std::vector<std::array<int, 3>>> seeds(static_cast<size_t>(M) + 1);
     for (int c = 0; c < own.num_leaves(); ++c)
-        seeds[static_cast<size_t>(own.level[static_cast<size_t>(c)])].push_back({own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)]});
-    // the ghost-cell wall is active if the cells it reads are all finest-level leaves of the whole mesh (a collective count)
+        seeds[static_cast<size_t>(own.level[static_cast<size_t>(c)])].push_back(
+            {own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)], own.ck[static_cast<size_t>(c)]});
+    // the ghost-cell wall is active if the cells it reads are all finest-level leaves of the whole mesh (a collective count; 2-D: the 3-D
+    // wall of a distributed run is rejected by partition())
     int ghost_hint = -1;
+    if (engine_.ghost_enabled() && dim == 3)
+        throw std::invalid_argument("CellParallel: the ghost-cell wall of a distributed 3-D adaptive run is not available yet (ibm_method = mask)");
     if (engine_.ghost_enabled()) {
         const std::vector<int> cells = engine_.ghost_referenced_cells(mesh_);
         const int NX = mesh_.nx_at(M);
@@ -93,7 +122,7 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
         ghost_hint = reduce_sum(found) == static_cast<double>(cells.size()) ? 1 : 0;
     }
     // rings of the owned leaf's level within which a leaf of another level is read (see region_mask), by level difference
-    const auto rings = [](int d) { return d < 0 ? 4 : (d == 0 ? 6 : (d == 1 ? 8 : (d == 2 ? 9 : 11))); };
+    const auto rings = [dim](int d) { return reach_rings(dim, d); };
     for (int extra = first_extra;; extra += 2) {
         std::vector<RegionItem> items;
         for (int o = 0; o <= M; ++o) {   // one item per level of the owned leaves, with the widest of the rings of the levels read (a superset of what region_mask keeps)
@@ -109,37 +138,44 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
             }
             RegionItem it;
             it.level = o;
-            it.box = dilate_cells(seeds[static_cast<size_t>(o)], mesh_.nx_at(o), mesh_.ny_at(o), r, mesh_.periodic_x, mesh_.periodic_y);
+            it.box = detail::dilate_seeds(mesh_, o, seeds[static_cast<size_t>(o)], r);
             it.tmin = 0;
             it.tmax = M;
             items.push_back(std::move(it));
         }
-        for (int s = 0; s < 4; ++s) {   // the leaves along a mass-flow inlet (its average reads them on every rank)
+        for (int s = 0; s < mesh_.sides(); ++s) {   // the leaves along a mass-flow inlet (its average reads them on every rank)
             if (!engine_.mass_flow_side(s)) continue;
             for (int t = 0; t <= M; ++t) {
                 if (gf.count[static_cast<size_t>(t)] == 0) continue;
-                const int nx = mesh_.nx_at(t), ny = mesh_.ny_at(t);
+                const int n3[3] = {mesh_.nx_at(t), mesh_.ny_at(t), mesh_.nz_at(t)};
+                const int a = s / 2;   // the side's normal axis: a slab two cells thick along it
+                int lo[3] = {0, 0, 0}, ext[3] = {n3[0], n3[1], n3[2]};
+                lo[a] = (s & 1) ? std::max(0, n3[a] - 2) : 0;
+                ext[a] = std::min(2, n3[a]);
                 RegionItem it;
                 it.level = t;
                 it.tmin = it.tmax = t;
-                it.box.i0 = s == 1 ? std::max(0, nx - 2) : 0;
-                it.box.j0 = s == 3 ? std::max(0, ny - 2) : 0;
-                it.box.w = s < 2 ? std::min(2, nx) : nx;
-                it.box.h = s < 2 ? ny : std::min(2, ny);
-                it.box.g.assign(static_cast<size_t>(it.box.w) * it.box.h, 1);
+                it.box.i0 = lo[0];
+                it.box.j0 = lo[1];
+                it.box.k0 = lo[2];
+                it.box.w = ext[0];
+                it.box.h = ext[1];
+                it.box.d = ext[2];
+                it.box.g.assign(static_cast<size_t>(it.box.w) * it.box.h * it.box.d, 1);
                 items.push_back(std::move(it));
             }
         }
         // (one cell more around the region than region_mask reads, in the units of the seeds' level, so that the leaves at the border of
         // the share have the neighbours that make their faces: one cell of the leaf's level, or of the next coarser)
-        CellMesh T(mesh_.Lx, mesh_.Ly, mesh_.nx, mesh_.ny, M, mesh_.periodic_x, mesh_.periodic_y, mesh_.x0, mesh_.y0);
+        CellMesh T = detail::empty_like(mesh_);
         {
             ProfileScope ps(Section::Fetch);
             fetch_leaves(gf.split, own, nullptr, items, T);   // (no state: the halo is filled by exchange_final)
         }
         std::vector<int> owned_t;
         for (int c = 0; c < own.num_leaves(); ++c)
-            owned_t.push_back(T.find(own.level[static_cast<size_t>(c)], own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)]));
+            owned_t.push_back(T.find(own.level[static_cast<size_t>(c)], own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)],
+                                     own.ck[static_cast<size_t>(c)]));
         std::vector<char> keep;
         {
             ProfileScope ps(Section::ShareRegion);
@@ -152,7 +188,8 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
                 mesh_.build_from(T, keep, nullptr);
             }
             for (int c = 0; c < own.num_leaves(); ++c)   // the state of the owned leaves
-                mesh_.U[static_cast<size_t>(mesh_.find(own.level[static_cast<size_t>(c)], own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)]))] = own.U[static_cast<size_t>(c)];
+                mesh_.U[static_cast<size_t>(mesh_.find(own.level[static_cast<size_t>(c)], own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)],
+                                                       own.ck[static_cast<size_t>(c)]))] = own.U[static_cast<size_t>(c)];
             engine_.set_ghost_whole_ready(ghost_hint);
             {
                 ProfileScope ps(Section::ShareEngine);
