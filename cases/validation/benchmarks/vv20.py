@@ -65,6 +65,7 @@ def main():
             ax.plot([rel], [y], "o", mfc="white", mec="C3", ms=8)
             ax.annotate("not assessable", (rel, y), xytext=(8, 4), textcoords="offset points", fontsize=8, color="C3")
     ax.axvline(0, color="k", lw=0.8)
+    ax.set_xlim(-5, 5)   # symmetric and wide: the not-assessable point and the bars no longer set a scale that makes the errors look large
     ax.set_yticks(ys, [f"{r.name}\n{r.study}" for r, _ in results], fontsize=8)
     ax.set_xlabel(r"comparison error $E / |D|$ [%], interval $\pm U_{val}$")
     ax.set_title("Validation uncertainty (V&V 20): the modelling error lies in $E \\pm U_{val}$", fontsize=11)
