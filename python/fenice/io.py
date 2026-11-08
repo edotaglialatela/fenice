@@ -57,7 +57,7 @@ def read_vtr(path):
 
 def read_vtu(path, ranks=False):
     """A fenice adaptive-mesh snapshot (.vtu, or the .pvtu that lists the .vtu pieces of the MPI
-    ranks) as a dict with one entry per leaf cell: the cell bounds x0, x1, y0, y1, the refinement
+    ranks) as a dict with one entry per leaf cell: the cell bounds x0, x1, y0, y1 (and z0, z1 for a 3-D octree), the refinement
     ``level`` and every cell field by name (Density, Pressure, Temperature_nondim, Mach, shape
     [n]; Velocity, shape [n, 3]). With ``ranks=True`` a .pvtu also gives ``rank``: the MPI rank
     (the position of the piece) that wrote each leaf; a single .vtu has none."""
@@ -69,8 +69,12 @@ def read_vtu(path, ranks=False):
         if ranks:
             out["rank"] = np.concatenate([np.full(len(q["x0"]), i) for i, q in enumerate(parts)])
         return out
-    pts = vtk_array(root.find(".//Points/DataArray")).reshape(-1, 4, 3)   # a quad per leaf, counter-clockwise from (x0, y0)
-    out = {"x0": pts[:, 0, 0], "x1": pts[:, 1, 0], "y0": pts[:, 0, 1], "y1": pts[:, 2, 1]}
+    piece = root.find(".//Piece")
+    corners = int(piece.get("NumberOfPoints")) // int(piece.get("NumberOfCells")) if int(piece.get("NumberOfCells")) else 4
+    pts = vtk_array(root.find(".//Points/DataArray")).reshape(-1, corners, 3)   # a quad (8 corners: a hexahedron) per leaf
+    out = {"x0": pts[:, 0, 0], "x1": pts[:, 1, 0], "y0": pts[:, 0, 1], "y1": pts[:, 2, 1]}   # counter-clockwise from (x0, y0)
+    if corners == 8:   # octree leaf: the bottom face first, then the top one
+        out["z0"], out["z1"] = pts[:, 0, 2], pts[:, 4, 2]
     for node in root.find(".//CellData"):
         ncomp = int(node.get("NumberOfComponents", "1"))
         a = vtk_array(node)

@@ -14,7 +14,8 @@ Each rank stores its owned leaves and their halo (FENICE_REPLICATED_REMESH=1: th
 --check runs four cases that adapt during the run (dynamic Sod, the airfoil with the immersed body and the
 non-reflecting outlet, a periodic viscous manufactured solution, and one with a time-dependent source)
 serially and on 1 to 7 MPI ranks and compares the final states bit for bit, then a run stopped halfway and resumed on another
-number of ranks (1->3, 3->5, 4->2, 2->7) against the uninterrupted serial run; CI runs it on every platform.
+number of ranks (1->3, 3->5, 4->2, 2->7) against the uninterrupted serial run, the same for the 3-D manufactured solution
+(an octree checkpoint: leaf_k and rho w), and a hot start from an octree checkpoint on 1 to 4 ranks; CI runs it on every platform.
 """
 import json
 
@@ -77,6 +78,8 @@ def check(ranks):
             line += f" | np{n} {'==' if same else 'DIFFERS'}"
         print(line)
     ok = check_restart() and ok
+    ok = check_restart(RESTART_3D) and ok
+    ok = check_hot_start_3d() and ok
     print("ALL MATCH (bitwise)" if ok else "MISMATCH")
     return 0 if ok else 1
 
@@ -84,15 +87,20 @@ def check(ranks):
 RESTARTS = [(1, 3), (3, 5), (4, 2), (2, 7)]   # (ranks before, ranks after)
 
 
-def check_restart():
+RESTART_2D = ("restart", "Sod Shock Tube", ["use_amr=true", "Lx=2.0", "nx=128", "ny=16", "Ly=0.25", "amr_max_level=3", "amr_refine_every=2"])
+# the 3-D manufactured solution: three levels with jumps, rho w != 0, remeshes before and after the stop (every 2 steps)
+RESTART_3D = ("restart3d", "Manufactured Solution 3D", ["use_amr=true", "nx=6", "ny=6", "nz=6", "amr_max_level=2", "amr_refine_every=2",
+                                                        "amr_criterion=2.0"])
+
+
+def check_restart(spec=RESTART_2D):
     """A run stopped halfway and resumed on another number of ranks must end in the state of the uninterrupted serial run."""
-    case = "Sod Shock Tube"
-    sets = ["use_amr=true", "Lx=2.0", "nx=128", "ny=16", "Ly=0.25", "amr_max_level=3", "amr_refine_every=2"]
-    out = study.study_dir(STUDY) / "check" / "restart"
+    name, case, sets = spec
+    out = study.study_dir(STUDY) / "check" / name
     out.mkdir(parents=True, exist_ok=True)
     fenice.run(case, *sets, "max_steps=24", "save_interval=1000000000", out_root=out / "serial", dump=out / "serial.npz")
     ref = fenice.read_dump(out / "serial.npz")
-    ok, line = True, f"restart       serial ({len(ref['U'])} leaves)"
+    ok, line = True, f"{name:13s} serial ({len(ref['U'])} leaves)"
     for a, b in RESTARTS:
         d = out / f"np{a}_{b}"
         fenice.run(case, *sets, "max_steps=12", "save_interval=12", out_root=d, mpi=a)
@@ -101,6 +109,28 @@ def check_restart():
         same = np.array_equal(got["U"], ref["U"]) and np.array_equal(got["leaf_meta"], ref["leaf_meta"])
         ok = ok and same
         line += f" | {a}->{b} {'==' if same else 'DIFFERS'}"
+    print(line)
+    return ok
+
+
+def check_hot_start_3d():
+    """A hot start from the checkpoint of a 3-D adaptive run (sampled at the leaf centres) is the same on 1..4 ranks, bit for bit."""
+    name, case, sets = RESTART_3D
+    out = study.study_dir(STUDY) / "check" / "hot3d"
+    out.mkdir(parents=True, exist_ok=True)
+    fenice.run(case, *sets, "max_steps=10", "save_interval=10", out_root=out / "source")
+    src = sorted((out / "source").rglob("*_restart.npz"))[0]
+    tail = ["max_steps=4", "save_interval=1000000000", "use_hot_start=true", f"hot_start_file={src}"]
+    target = [s for s in sets if not s.startswith("amr_max_level")] + ["amr_max_level=1"]
+    fenice.run(case, *target, *tail, out_root=out / "serial", dump=out / "serial.npz")
+    ref = fenice.read_dump(out / "serial.npz")
+    ok, line = True, f"hot3d         serial ({len(ref['U'])} leaves)"
+    for n in range(1, 5):
+        fenice.run(case, *target, *tail, out_root=out / f"np{n}", mpi=n, dump=out / f"np{n}.npz")
+        got = fenice.read_dump(out / f"np{n}.npz")
+        same = np.array_equal(got["U"], ref["U"]) and np.array_equal(got["leaf_meta"], ref["leaf_meta"])
+        ok = ok and same
+        line += f" | np{n} {'==' if same else 'DIFFERS'}"
     print(line)
     return ok
 

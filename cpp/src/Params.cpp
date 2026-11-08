@@ -301,11 +301,14 @@ SimParams SimParams::from(const Params& p) {
     s.amr_refine_ibm = p.flag("amr_refine_ibm");
     s.amr_force_box = p.str("amr_force_box", "");
     if (!s.amr_force_box.empty()) {
-        double b[4];
+        double b[6];
         char extra = 0;
-        const int got = std::sscanf(s.amr_force_box.c_str(), "%lf%*[ ,]%lf%*[ ,]%lf%*[ ,]%lf %c", &b[0], &b[1], &b[2], &b[3], &extra);
-        if (got != 4 || !(b[1] > b[0]) || !(b[3] > b[2]))
-            throw std::invalid_argument("amr_force_box must be 'x0 x1 y0 y1' with x0 < x1 and y0 < y1; got '" + s.amr_force_box + "'");
+        const int got = std::sscanf(s.amr_force_box.c_str(), "%lf%*[ ,]%lf%*[ ,]%lf%*[ ,]%lf%*[ ,]%lf%*[ ,]%lf %c", &b[0], &b[1], &b[2],
+                                    &b[3], &b[4], &b[5], &extra);
+        const bool box3 = s.nz > 1 && got == 6;   // 3-D adaptive mesh: x0 x1 y0 y1 z0 z1
+        if ((got != 4 && !box3) || !(b[1] > b[0]) || !(b[3] > b[2]) || (box3 && !(b[5] > b[4])))
+            throw std::invalid_argument("amr_force_box must be 'x0 x1 y0 y1' (and 'z0 z1' for a 3-D mesh) with each lower bound below the upper; got '" +
+                                        s.amr_force_box + "'");
     }
     s.amr_indicator = lower(p.str("amr_indicator", "density+velocity"));
     s.output_root = p.str("output_root", "results");
@@ -316,10 +319,6 @@ SimParams SimParams::from(const Params& p) {
 
     if (s.nx <= 0 || s.ny <= 0 || s.nz <= 0) throw std::invalid_argument("nx, ny and nz must be positive");
     if (s.Lx <= 0 || s.Ly <= 0 || s.Lz <= 0) throw std::invalid_argument("Lx, Ly and Lz must be positive");
-    if (s.use_amr && s.nz > 1) {   // a 3-D adaptive mesh (octree): what is not built yet (docs/design/amr-octree.md, Q7)
-        if (s.resume) throw std::invalid_argument("resume is not available for a 3-D adaptive run yet (its checkpoint is not written)");
-        if (s.use_hot_start) throw std::invalid_argument("use_hot_start is not available for a 3-D adaptive run yet");
-    }
     {   // amr_indicator: variables joined by '+', each one of density, velocity, pressure
         const std::string& ind = s.amr_indicator;
         size_t b = 0;

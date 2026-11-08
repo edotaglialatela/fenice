@@ -187,6 +187,19 @@ CASES = {
     "cavity_xdecomp_b2":   ("Lid Driven Cavity", dict(nx=40, ny=6, t_end=0.1, reconstruction="muscl", boundary_order=2)),
     "cavity3d_xdecomp_b2": ("Lid Driven Cavity", dict(nx=24, ny=6, nz=6, Lz=1.0, t_end=0.1, bc_front="no_slip",
                                                  bc_back="no_slip", reconstruction="muscl", boundary_order=2)),
+    # 3-D adaptive meshes (octree leaves, docs/design/amr-octree.md): the Sod tube along x with periodic transverse axes (three levels,
+    # the shocks refined), the viscous manufactured solution with sources (two levels, level jumps), Taylor-Green with a forced box
+    # that is off-axis in every direction (refinement varies along z, w != 0), and a sphere with the mask forcing and its body band
+    "amr3d_sod_muscl":     ("Sod Shock Tube", dict(nx=40, ny=2, nz=2, Ly=0.05, Lz=0.05, t_end=0.05, use_amr=True, amr_max_level=2,
+                                                  amr_refine_every=4, reconstruction="muscl", bc_bottom="periodic", bc_top="periodic",
+                                                  bc_front="periodic", bc_back="periodic")),
+    "amr3d_mms":           ("Manufactured Solution 3D", dict(nx=6, ny=6, nz=6, use_amr=True, amr_max_level=2, amr_refine_every=2,
+                                                          amr_criterion=2.0, max_steps=8)),
+    "amr3d_tgv_box":       ("Taylor-Green Vortex 3D", dict(nx=12, ny=12, nz=12, t_end=1.0, use_amr=True, amr_max_level=2, amr_refine_every=3,
+                                                        amr_criterion=5.0, amr_force_box="1.0 2.6 1.6 3.4 2.2 3.9", max_steps=6)),
+    "amr3d_sphere_mask":   ("IBM Flow over Cylinder", dict(nx=24, ny=12, nz=6, Lz=1.0, use_mpi=False, ibm_shape="Sphere", ibm_cz=0.5,
+                                                           ibm_radius=0.3, bc_front="wall", bc_back="wall", use_amr=True,
+                                                           amr_max_level=1, amr_refine_every=3, max_steps=6)),
 }
 # Cases also run under MPI (AMR: replicated mesh, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
@@ -197,7 +210,8 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk3_visc", "cavity_periodi
              "cylinder_ibm_ghost", "supersonic_ibm_ghost", "naca0012_ibm_ghost", "sphere3d_ibm_ghost",
              "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_square_rk3", "amr_weno3_rk3", "amr_bo2_walls", "amr_bo2_weno3", "amr_cavity_b2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "amr_hot_start_from_amr", "hot_start_from_amr", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
-             "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2", "cavity3d_noslip_z_b2", "cavity_xdecomp_b2", "cavity3d_xdecomp_b2"]
+             "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2", "cavity3d_noslip_z_b2", "cavity_xdecomp_b2", "cavity3d_xdecomp_b2",
+             "amr3d_sod_muscl", "amr3d_mms", "amr3d_tgv_box", "amr3d_sphere_mask"]
 
 
 def riemann_case_file(k, tmp):

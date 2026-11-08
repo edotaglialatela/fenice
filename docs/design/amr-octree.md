@@ -249,7 +249,7 @@ the validation. The flux kernels, the time recursion, the registers and the Riem
 | Q4 | Physics: viscous 3-D family (and AVX2 twin), body force, sources, NRBC with two tangential directions, mass-flow inlet; **the IBM redesign** (per-leaf classification, the ghost table from the band leaves) | bitwise level-0 tests with each physics; MMS on an adapted 3-D mesh; IBM masks equal to the uniform ones on the same cells; ghost wall equal to the uniform 3-D ghost wall. **Done 2026-11-07, section 15** |
 | Q5 | Indicator, flags, remesh, initial adaptation, body band, hot starts in 3-D (serial and OpenMP, through the whole-mesh `CellMesh::adapt` that stays as the oracle) | indicator equals a structured 6-neighbour implementation; remesh deterministic, idempotent, conservative; a 3-D Sod and Taylor-Green with AMR against uniform. **Done 2026-11-07, section 16** |
 | Q6 | MPI: partition per level, halo lists, registers, region boxes and 26 rings in the topology-free remesh; **the CLI opens** (`use_amr` with `nz > 1`) | serial == 1-7 ranks bitwise (FakeHub and real MPI); the halo-reach guard; thread independence; memory per rank. **Done 2026-11-08, section 17** (cost: 17.3) |
-| Q7 | I/O (hexahedra, 3-D `leaf_meta`, checkpoint, readers), parameters, GUI keys, docs, CI, the 3-D regression references | restart bitwise; docs and parameters in sync; CI green |
+| Q7 | I/O (hexahedra, 3-D `leaf_meta`, checkpoint, readers), parameters, GUI keys, docs, CI, the 3-D regression references | restart bitwise; docs and parameters in sync; CI green. **Done 2026-11-08, section 18** |
 | Q8 | Performance and the deferred 3-D validation: cost per accuracy against uniform 3-D on the sphere and the 3-D Taylor-Green; scaling; `auto` choosing the ghost wall in 3-D if the evidence supports it | report; the user decides what ships |
 
 The 2-D cost gate in Q2 is the go/no-go for A1, and the Q0 estimate of the leaf count is the go/no-go for the whole project: if an octree needs more than
@@ -813,3 +813,40 @@ and the CLI (Q6/Q7); the deep body interior at the finest level (not kept in 3-D
 ### 17.4 Not in Q6
 The ghost-cell wall on a rank's share (its readiness and its table on a partial mesh), the I/O of Q7 (snapshots, checkpoints, resume,
 hot start, post-processing), the cost of 17.3 (Q8).
+
+## 18. Phase Q7 as built (2026-11-08): the files of an octree run
+
+### 18.1 What changed
+* **Snapshots**: `build_vtu` writes a `VTK_HEXAHEDRON` (type 12) per leaf of an octree, eight points per cell (the four corners of the lower
+  face counter-clockwise from (x0, y0, z0), then the same four at z1), `Velocity` with w and a Mach number that includes it; `.pvtu` under MPI
+  as in 2-D. The 2-D quad branch is the old code (same bytes). `fenice.read_vtu` returns `z0`, `z1` when a cell has eight points.
+* **Checkpoint**: an octree file adds `leaf_k` and stores five state columns (rho w); a 2-D file is unchanged, and the presence of `leaf_k` says
+  which kind a file is. Resume reads it both ways: the whole mesh (`assign_leaves` with k) and each rank's share (the topology from the leaf
+  list, the rows of the owned leaves and their halo through `NpzFile::read_rows`), so a run resumes on any rank count. A resume is refused
+  when the file and the run disagree on the dimension or on the base mesh (nx, ny, nz, Lx, Ly, Lz): a different mesh is a hot start.
+* **Hot start**: a uniform 3-D (or 2-D, extruded) checkpoint and an octree checkpoint (`leaves_to_uniform_3d` for its finest-level field)
+  seed an octree by sampling at the leaf centres with `GridInterp3D`, the same arithmetic as `map_solution_3d`, on the share of every rank
+  through `fill_cells`. A 2-D adaptive file does not seed a 3-D run and the reverse, as for the uniform solver.
+* **Post-processing**: probes, sample lines and time averages work on octree leaves (`leaf_at_point` with the Morton key of 3-D cells; the
+  averages weight by the volume). The body-load rows (`[[force]]`) are not written for a 3-D adaptive run (the load of a body is a 2-D
+  quantity in the monitor and the force file); the run says so at the start.
+* **Parameters, GUI, docs**: the guards that refused `resume` and `use_hot_start` with 3-D AMR are gone; `amr_force_box` validation accepts the
+  six values the solver already read; the GUI no longer warns "AMR is 2-D only"; `parameters.md`, `AMR.md`, `IO.md`, `getting-started.md` and
+  `testing.md` describe the 3-D files.
+
+### 18.2 Tests and checks
+* `test_amr_octree_io.cpp` (3 tests): the hexahedra (geometry of every corner against the leaf bounds, the volumes tile the domain, offsets,
+  connectivity, w and Mach in the fields); the checkpoint round trip (leaves, five state components, step, time) and its three refusals (another base mesh, a 2-D file in a 3-D run and the reverse); the hot
+  start from a uniform file (level-0 leaves take the value of their cell) and from an adaptive one (the finest leaves shared with the source
+  take its values), and the refusal of a 3-D source by a 2-D run.
+* `amr_mpi.py --check` (real MPI, CI): `restart3d` (the 3-D manufactured solution, three levels with jumps, rho w != 0, a remesh every 2 steps
+  so there is one right after the resume): stopped at step 12 on 1 / 3 / 4 / 2 ranks and resumed on 3 / 5 / 2 / 7, bitwise equal to the
+  uninterrupted serial run; `hot3d`: a hot start from the octree checkpoint with one level fewer, serial == 1-4 ranks. The Sod tube along x
+  is not used for the restart: w = 0 and z-uniform leaves would hide a dropped fifth component or a lost k.
+* Four 3-D adaptive references in `regression.py` (serial and 4 ranks, `amr3d_sod_muscl`, `amr3d_mms`, `amr3d_tgv_box`,
+  `amr3d_sphere_mask`; 74 references in all), small enough for the four CI platforms.
+* The 2-D goldens (default), the regression, `ibm_ghost`, `postprocess` and the unit tests (190) are unchanged.
+
+### 18.3 Not in Q7
+Body loads and force rows of a 3-D adaptive run, the ghost-cell wall on a rank's share (Q6.4), the cost of the distributed 3-D remesh (17.3):
+the Q8 list.

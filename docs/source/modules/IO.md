@@ -16,7 +16,8 @@ the run is interrupted mid-write.
   cell fields `Density`, `Pressure`, `Temperature_nondim` ($p/\rho$), `Mach` and
   `Velocity` (3 components). A 2-D grid is one cell layer (z extent `0 0`, $w = 0$); a 3-D grid
   has the z coordinates $0 \ldots L_z$ and the real $w$.
-* **AMR.** One `UnstructuredGrid` `<case>_<step>.vtu` with a quad per leaf and the same cell
+* **AMR.** One `UnstructuredGrid` `<case>_<step>.vtu` with a quad per leaf (a hexahedron, `VTK_HEXAHEDRON`, in 3-D: the four
+  corners of the lower face counter-clockwise, then the four above) and the same cell
   fields (`export_cells`), plus `AMR_Level`. Under MPI every rank writes the `.vtu` of its owned leaves and
   rank 0 a `.pvtu` that lists them.
 * **Time series.** `write_pvd` writes `<case>.pvd` with one entry per snapshot (the
@@ -37,6 +38,7 @@ read without third-party libraries, so `numpy.load` reads them directly:
 | `t`, `step` | physical time and step |
 | `nx`, `ny`, `Lx`, `Ly` | grid metadata (makes checkpoints self-describing for hot start) |
 | `nz`, `Lz` | grid depth (`nz = 1` for 2-D; missing in older files, read as 1) |
+| `leaf_level`, `leaf_i`, `leaf_j`, `leaf_k` | AMR only: the leaves (level and integer coordinates on the level's grid; `leaf_k` in 3-D); `U` has one row per leaf, in the order of these arrays, and `nx`, `ny`, `nz` are the base mesh |
 | `collection_time`, `collection_file` | `.pvd` index, restored on resume |
 
 The reader handles zip64 headers as written by `numpy.savez`. Archives that store the

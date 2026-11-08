@@ -74,7 +74,7 @@ def _make(project=None):
                 e.setMaximumWidth(54)
                 e.editingFinished.connect(lambda k=key: self._push({k: self.amr_fields[k].text()}))
             self.chk_amr = QCheckBox("AMR")
-            self.chk_amr.setToolTip("Adaptive mesh refinement (2-D only): leaves are refined where a chosen variable jumps across a face")
+            self.chk_amr.setToolTip("Adaptive mesh refinement (quadtree in 2-D, octree in 3-D): leaves are refined where a chosen variable jumps across a face")
             self.chk_amr.toggled.connect(lambda on: self._push({"use_amr": on}))
             self.amr_ind: dict[str, QCheckBox] = {}
             for key, text in (("density", "\u03c1"), ("velocity", "|u|"), ("pressure", "p")):
@@ -343,8 +343,6 @@ def _make(project=None):
             bad = [f"{a} / {b}" for a, b in pairs if (str(p.get(f"bc_{a}")) == "periodic") != (str(p.get(f"bc_{b}")) == "periodic")]
             msgs = ["Periodic must be set on both sides of a pair (" + ", ".join(bad) + "): the solver will refuse the run until it is."] if bad else []
             if flag(p, "use_amr"):
-                if nz > 1:
-                    msgs.append("AMR is 2-D only (nz must be 1).")
                 if not any(t in self.amr_ind for t in tokens):
                     msgs.append("Tick at least one AMR indicator variable.")
                 try:

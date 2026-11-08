@@ -137,7 +137,7 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 | Key | Default | Meaning |
 |---|---|---|
 | `use_hot_start` | `false` | Initialise by mapping a checkpoint onto this mesh |
-| `hot_start_file` | *(empty)* | Source `.npz` checkpoint: of a uniform run (2-D or 3-D) or of a 2-D AMR run (any number of levels; its leaves are read as the finest-level field) |
+| `hot_start_file` | *(empty)* | Source `.npz` checkpoint: of a uniform run (2-D or 3-D) or of an AMR run (a 2-D quadtree for a 2-D run, a 3-D octree for a 3-D run; any number of levels; its leaves are read as the finest-level field) |
 | `hot_start_src_nx`, `hot_start_src_ny` | `0` | Source grid size for legacy files without metadata |
 
 ## Adaptive mesh refinement

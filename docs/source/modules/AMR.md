@@ -126,15 +126,18 @@ two finest levels (<code>cases/validation/amr/sod_amr.py</code>): the error of t
 
 ## Output, checkpoints, restart
 
-Each snapshot is one `<case>_<step>.vtu` (an unstructured grid with one quad per leaf, cell fields
-Density, Pressure, Temperature_nondim, Mach, Velocity and `AMR_Level`). Under MPI each rank writes the `.vtu` of
+Each snapshot is one `<case>_<step>.vtu` (an unstructured grid with one quad per leaf, or one hexahedron per leaf of a 3-D octree;
+cell fields Density, Pressure, Temperature_nondim, Mach, Velocity and `AMR_Level`). Under MPI each rank writes the `.vtu` of
 its owned leaves and rank 0 a `<case>_<step>.pvtu` that lists them; the `.pvd` series points at the
 `.vtu` or `.pvtu`. `python/fenice` reads both with `fenice.read_vtu`.
 
-The checkpoint `<case>_restart.npz` holds the leaf list (level, `i`, `j`), the state of every leaf, `t`, the step
-number and the lagged wave-speed bound, so a restarted run continues the same trajectory bit for bit, also on a different
-number of ranks. The final state (`dump_state`) is the per-leaf `U` plus `leaf_meta` with columns `x0, x1, y0, y1, level`.
-A hot start from a uniform or an adaptive checkpoint interpolates the source at the leaf centres.
+The checkpoint `<case>_restart.npz` holds the leaf list (level, `i`, `j`, and `k` in 3-D), the state of every leaf (five columns in
+3-D, with $\rho w$), `t`, the step number and the lagged wave-speed bound, so a restarted run continues the same trajectory bit for
+bit, also on a different number of ranks. A checkpoint resumes only on the base mesh it was written for. The final state
+(`dump_state`) is the per-leaf `U` plus `leaf_meta` with columns `x0, x1, y0, y1, level` (`x0, x1, y0, y1, z0, z1, level` in 3-D).
+A hot start from a uniform or an adaptive checkpoint (of the same dimension) interpolates the source at the leaf centres, bilinearly
+in 2-D and trilinearly in 3-D. Probes, sample lines and time averages work on the leaves in 3-D too; the body loads (`[[force]]`)
+are written for a 2-D adaptive run only.
 
 ## Parallel runs
 

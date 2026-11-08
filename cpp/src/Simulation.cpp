@@ -583,6 +583,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     cell_adaptor.reset();
     cell_par.reset();
     hot_interp_.reset();
+    hot_interp3_.reset();
     cell_comm = CellComm{};
     if (p.use_amr) {
         const bool per_x = boundaries.type(Face::Left) == BCType::Periodic;
@@ -741,8 +742,16 @@ void Simulation::initialize_field() {
         const bool own = hot_src_nx_ > 0;
         const int nxs = own ? hot_src_nx_ : mesh.nx, nys = own ? hot_src_ny_ : mesh.ny;
         const double dx_s = mesh.Lx / nxs, dy_s = mesh.Ly / nys;
-        hot_interp_ = std::make_unique<GridInterp2D>(linspace(dx_s / 2.0, mesh.Lx - dx_s / 2.0, nxs),
-                                                     linspace(dy_s / 2.0, mesh.Ly - dy_s / 2.0, nys), own ? hot_src_ : U);
+        if (cells->dim == 3) {
+            const int nzs = own ? hot_src_nz_ : mesh.nz;
+            const double dz_s = mesh.Lz / nzs;
+            hot_interp3_ = std::make_unique<GridInterp3D>(linspace(dx_s / 2.0, mesh.Lx - dx_s / 2.0, nxs),
+                                                          linspace(dy_s / 2.0, mesh.Ly - dy_s / 2.0, nys),
+                                                          linspace(dz_s / 2.0, mesh.Lz - dz_s / 2.0, nzs), own ? hot_src_ : U);
+        } else {
+            hot_interp_ = std::make_unique<GridInterp2D>(linspace(dx_s / 2.0, mesh.Lx - dx_s / 2.0, nxs),
+                                                         linspace(dy_s / 2.0, mesh.Ly - dy_s / 2.0, nys), own ? hot_src_ : U);
+        }
     }
     // Several ranks with the shares kept separately: no rank ever holds the whole mesh (the topology is faceless, the share is built
     // from it, and the initial passes run through CellParallel::remesh with the initial condition filled on the share)
@@ -830,6 +839,10 @@ void Simulation::print_halo_reach(const char* when) const {
 
 void Simulation::fill_cells(CellMesh& m) const {
     m.U.assign(static_cast<size_t>(m.num_leaves()), State{});
+    if (hot_interp3_) {
+        for (int c = 0; c < m.num_leaves(); ++c) m.U[static_cast<size_t>(c)] = (*hot_interp3_)(m.xc(c), m.yc(c), m.zc(c));
+        return;
+    }
     if (hot_interp_) {
         for (int c = 0; c < m.num_leaves(); ++c) m.U[static_cast<size_t>(c)] = (*hot_interp_)(m.xc(c), m.yc(c));
         return;
@@ -932,24 +945,27 @@ int bounded_cell(double x, double origin, double spacing, int count) {
 }
 
 int leaf_at_point(const CellMesh& cm, const std::vector<int>& levels, const std::vector<int>& ci,
-                  const std::vector<int>& cj, double x, double y) {
+                  const std::vector<int>& cj, double x, double y, const std::vector<int>* ck = nullptr, double z = 0.0) {
     for (int l = cm.max_level; l >= 0; --l) {
         const int i = bounded_cell(x, cm.x0, cm.dx(l), cm.nx_at(l));
         const int j = bounded_cell(y, cm.y0, cm.dy(l), cm.ny_at(l));
-        const uint64_t key = morton_key(static_cast<uint32_t>(i), static_cast<uint32_t>(j));
+        const int k = ck ? bounded_cell(z, cm.z0, cm.dz(l), cm.nz_at(l)) : 0;
+        const uint64_t key = ck ? cm.key_of(i, j, k) : morton_key(static_cast<uint32_t>(i), static_cast<uint32_t>(j));
         auto first = std::lower_bound(levels.begin(), levels.end(), l);
         auto last = std::upper_bound(first, levels.end(), l);
         size_t lo = static_cast<size_t>(first - levels.begin());
         size_t hi = static_cast<size_t>(last - levels.begin());
         while (lo < hi) {
             const size_t mid = lo + (hi - lo) / 2;
-            const uint64_t mid_key = morton_key(static_cast<uint32_t>(ci[mid]), static_cast<uint32_t>(cj[mid]));
+            const uint64_t mid_key = ck ? cm.key_of(ci[mid], cj[mid], (*ck)[mid])
+                                        : morton_key(static_cast<uint32_t>(ci[mid]), static_cast<uint32_t>(cj[mid]));
             if (mid_key < key)
                 lo = mid + 1;
             else
                 hi = mid;
         }
-        if (lo < static_cast<size_t>(last - levels.begin()) && ci[lo] == i && cj[lo] == j) return static_cast<int>(lo);
+        if (lo < static_cast<size_t>(last - levels.begin()) && ci[lo] == i && cj[lo] == j && (!ck || (*ck)[lo] == k))
+            return static_cast<int>(lo);
     }
     return -1;
 }
@@ -1028,18 +1044,21 @@ public:
         }
     }
 
+    // `ck`: the k of the leaves of an octree (null in 2-D)
     void write_amr(const CellMesh& mesh, const EOS& eos, const std::vector<int>& levels, const std::vector<int>& ci,
-                   const std::vector<int>& cj, const Field& U, int step, double time, bool force = false) {
+                   const std::vector<int>& cj, const Field& U, int step, double time, bool force = false,
+                   const std::vector<int>* ck = nullptr) {
         for (size_t n = 0; n < probes_.size(); ++n) {
             if (!due(step, probes_[n].interval, force, last_probe_[n])) continue;
             const ProbeSpec& p = probes_[n];
-            const int c = leaf_at_point(mesh, levels, ci, cj, p.x, p.y);
+            const int c = leaf_at_point(mesh, levels, ci, cj, p.x, p.y, ck, p.z);
             if (c < 0) throw std::logic_error("post-processing probe did not map to an AMR leaf");
             const State w = eos.cons_to_prim(U[static_cast<size_t>(c)]);
             const int l = levels[static_cast<size_t>(c)];
             const double cx = mesh.x0 + (ci[static_cast<size_t>(c)] + 0.5) * mesh.dx(l);
             const double cy = mesh.y0 + (cj[static_cast<size_t>(c)] + 0.5) * mesh.dy(l);
-            write_point(probe_files_[n], step, time, -1, p.x, p.y, 0.0, cx, cy, 0.0, w);
+            const double cz = ck ? mesh.z0 + ((*ck)[static_cast<size_t>(c)] + 0.5) * mesh.dz(l) : 0.0;
+            write_point(probe_files_[n], step, time, -1, p.x, p.y, ck ? p.z : 0.0, cx, cy, cz, w);
             last_probe_[n] = step;
         }
         for (size_t n = 0; n < samples_.size(); ++n) {
@@ -1049,13 +1068,15 @@ public:
                 const double f = static_cast<double>(point) / static_cast<double>(s.points - 1);
                 const double x = s.from[0] + f * (s.to[0] - s.from[0]);
                 const double y = s.from[1] + f * (s.to[1] - s.from[1]);
-                const int c = leaf_at_point(mesh, levels, ci, cj, x, y);
+                const double z = ck && s.from.size() == 3 ? s.from[2] + f * (s.to[2] - s.from[2]) : 0.0;
+                const int c = leaf_at_point(mesh, levels, ci, cj, x, y, ck, z);
                 if (c < 0) throw std::logic_error("post-processing sample did not map to an AMR leaf");
                 const State w = eos.cons_to_prim(U[static_cast<size_t>(c)]);
                 const int l = levels[static_cast<size_t>(c)];
                 const double cx = mesh.x0 + (ci[static_cast<size_t>(c)] + 0.5) * mesh.dx(l);
                 const double cy = mesh.y0 + (cj[static_cast<size_t>(c)] + 0.5) * mesh.dy(l);
-                write_point(sample_files_[n], step, time, point, x, y, 0.0, cx, cy, 0.0, w);
+                const double cz = ck ? mesh.z0 + ((*ck)[static_cast<size_t>(c)] + 0.5) * mesh.dz(l) : 0.0;
+                write_point(sample_files_[n], step, time, point, x, y, z, cx, cy, cz, w);
             }
             last_sample_[n] = step;
         }
@@ -1192,7 +1213,8 @@ std::array<double, 5> volume_primitive_means(const EOS& eos, const CellMesh& mes
     std::array<double, 5> sums{};
     double total = 0.0;
     for (size_t c = 0; c < levels.size(); ++c) {
-        const double area = mesh.dx(levels[c]) * mesh.dy(levels[c]);
+        const double area = mesh.dim == 3 ? mesh.dx(levels[c]) * mesh.dy(levels[c]) * mesh.dz(levels[c])   // (the volume)
+                                          : mesh.dx(levels[c]) * mesh.dy(levels[c]);
         const State w = eos.cons_to_prim(U[c]);
         for (int q = 0; q < 5; ++q) sums[static_cast<size_t>(q)] += w[static_cast<size_t>(q)] * area;
         total += area;
@@ -1644,18 +1666,22 @@ void Simulation::save_checkpoint(int step, const LeafArrays* leaves) {
     if (cells) {
         // an adaptive run: the leaves (level and integer coordinates) and their state, and the wave-speed bound the next
         // time step is taken from
-        const LeafArrays lf = leaves ? *leaves : LeafArrays{&cells->level, &cells->ci, &cells->cj, &cells->U};
+        // (an octree also stores k and the fifth state component rho w; the 2-D file is unchanged)
+        const bool octree = cells->dim == 3;
+        const LeafArrays lf = leaves ? *leaves : LeafArrays{&cells->level, &cells->ci, &cells->cj, &cells->U, octree ? &cells->ck : nullptr};
         const size_t n = lf.level->size();
-        std::vector<double> lev(n), li(n), lj(n);
+        std::vector<double> lev(n), li(n), lj(n), lk(octree ? n : 0);
         for (size_t c = 0; c < n; ++c) {
             lev[c] = (*lf.level)[c];
             li[c] = (*lf.ci)[c];
             lj[c] = (*lf.cj)[c];
+            if (octree) lk[c] = (*lf.ck)[c];
         }
-        a["U"] = field_to_npy(*lf.U);
+        a["U"] = field_to_npy(*lf.U, octree ? kNVar : 4);
         a["leaf_level"] = NpyArray::from_doubles(lev, {static_cast<int64_t>(n)});
         a["leaf_i"] = NpyArray::from_doubles(li, {static_cast<int64_t>(n)});
         a["leaf_j"] = NpyArray::from_doubles(lj, {static_cast<int64_t>(n)});
+        if (octree) a["leaf_k"] = NpyArray::from_doubles(lk, {static_cast<int64_t>(n)});
         a["S"] = NpyArray::from_double(cell_speed_);
     } else {
         a["U"] = field_to_npy(U, mesh.is3d() ? kNVar : 4);
@@ -1696,27 +1722,45 @@ int Simulation::load_checkpoint() {
         throw std::runtime_error(std::string("The checkpoint ") + path + " is from " +
                                  (adaptive_file ? "an adaptive (AMR)" : "a uniform-mesh") + " run: resume it with use_amr " +
                                  (adaptive_file ? "on" : "off") + " (a uniform checkpoint can seed an AMR run with a hot start)");
+    if (adaptive_file) {
+        // a 2-D checkpoint has no leaf_k; an octree checkpoint is resumed on the mesh it was written for
+        const bool file_3d = file.has("leaf_k");
+        if (file_3d != (cells->dim == 3))
+            throw std::runtime_error(std::string("The checkpoint ") + path + " is from a " + (file_3d ? "3-D" : "2-D") +
+                                     " adaptive run: resume it with nz " + (file_3d ? "> 1" : "= 1"));
+        if (file_3d) {
+            const auto num = [&](const char* key) { return file.read(key).scalar(); };
+            if (static_cast<int>(num("nx")) != mesh.nx || static_cast<int>(num("ny")) != mesh.ny || static_cast<int>(num("nz")) != mesh.nz ||
+                std::abs(num("Lx") - mesh.Lx) > 1e-10 || std::abs(num("Ly") - mesh.Ly) > 1e-10 || std::abs(num("Lz") - mesh.Lz) > 1e-10)
+                throw std::runtime_error("The checkpoint " + path + " is from a base mesh of another size or domain: use_hot_start maps it onto this one");
+        }
+    }
     if (share) {
         const auto ints = [&](const char* key) {
             const std::vector<double> d = file.read(key).as_doubles();
             return std::vector<int>(d.begin(), d.end());
         };
         {
-            std::vector<int> lv = ints("leaf_level"), li = ints("leaf_i"), lj = ints("leaf_j");
+            const bool octree = cells->dim == 3;
+            std::vector<int> lv = ints("leaf_level"), li = ints("leaf_i"), lj = ints("leaf_j"), lk = octree ? ints("leaf_k") : std::vector<int>();
             CellMesh topo(*cells);
             topo.U = Field();
             topo.set_faceless(true);
-            topo.assign_leaves(lv, li, lj, nullptr);   // sorts by (level, Morton) and checks that the leaves tile the domain
+            if (octree) topo.assign_leaves(lv, li, lj, lk, nullptr);
+            else topo.assign_leaves(lv, li, lj, nullptr);   // sorts by (level, Morton) and checks that the leaves tile the domain
             std::vector<int> file_row(static_cast<size_t>(topo.num_leaves()), -1);   // row of the checkpoint of each leaf of the topology
-            for (size_t r = 0; r < lv.size(); ++r) file_row[static_cast<size_t>(topo.find(lv[r], li[r], lj[r]))] = static_cast<int>(r);
-            lv = li = lj = std::vector<int>();
+            for (size_t r = 0; r < lv.size(); ++r)
+                file_row[static_cast<size_t>(topo.find(lv[r], li[r], lj[r], octree ? lk[r] : 0))] = static_cast<int>(r);
+            lv = li = lj = lk = std::vector<int>();
             cell_par->resume_share(topo, [&](CellMesh& m) {
                 const size_t n = static_cast<size_t>(m.num_leaves());
                 std::vector<int64_t> rows(n);
-                for (size_t c = 0; c < n; ++c) rows[c] = file_row[static_cast<size_t>(topo.find(m.level[c], m.ci[c], m.cj[c]))];
+                for (size_t c = 0; c < n; ++c)
+                    rows[c] = file_row[static_cast<size_t>(topo.find(m.level[c], m.ci[c], m.cj[c], octree ? m.ck[c] : 0))];
                 int ncol = 0;
                 const std::vector<double> d = file.read_rows("U", rows, ncol);
                 if (ncol != 4 && ncol != kNVar) throw std::runtime_error("Expected an (n, 4) or (n, 5) state array");
+                if (octree && ncol != kNVar) throw std::runtime_error("The checkpoint of a 3-D adaptive run needs an (n, 5) state array");
                 m.U.assign(n, State{});
                 for (size_t c = 0; c < n; ++c)
                     for (int q = 0; q < ncol; ++q) m.U[c][static_cast<size_t>(q)] = d[c * static_cast<size_t>(ncol) + static_cast<size_t>(q)];
@@ -1730,7 +1774,13 @@ int Simulation::load_checkpoint() {
             return std::vector<int>(d.begin(), d.end());
         };
         Field Uc = npy_to_field(a.at("U"));
-        cells->assign_leaves(ints("leaf_level"), ints("leaf_i"), ints("leaf_j"), &Uc);
+        if (cells->dim == 3) {
+            if (a.at("U").shape.size() != 2 || a.at("U").shape[1] != kNVar)
+                throw std::runtime_error("The checkpoint of a 3-D adaptive run needs an (n, 5) state array");
+            cells->assign_leaves(ints("leaf_level"), ints("leaf_i"), ints("leaf_j"), ints("leaf_k"), &Uc);
+        } else {
+            cells->assign_leaves(ints("leaf_level"), ints("leaf_i"), ints("leaf_j"), &Uc);
+        }
         cell_engine->build(*cells);
         cell_speed_ = a.count("S") ? a.at("S").scalar() : 0.0;
     } else {
@@ -1785,31 +1835,44 @@ Field Simulation::load_hot_start(const std::string& path) {
         std::printf("[WARNING] Hot-start domain (%g x %g) differs from target (%g x %g). "
                     "Proceeding with coordinate rescaling.\n",
                     Lx_c, Ly_c, mesh.Lx, mesh.Ly);
-    const int nz_c = a.count("nz") ? static_cast<int>(a.at("nz").scalar()) : 1;
+    int nz_c = a.count("nz") ? static_cast<int>(a.at("nz").scalar()) : 1;
     if (nz_c > 1 && !mesh.is3d()) throw std::runtime_error("Hot start from a 3-D checkpoint needs a 3-D run (nz > 1)");
     std::printf("[Hot Start] Mapping %d x %d x %d -> %d x %d x %d ...\n", nx_c, ny_c, nz_c, mesh.nx, mesh.ny, mesh.nz);
     Field Uc = npy_to_field(a.at("U"));
     hot_src_.clear();
     hot_src_nx_ = hot_src_ny_ = 0;
+    hot_src_nz_ = 1;
     if (a.count("leaf_level")) {
-        // the checkpoint of an adaptive run: its leaves on the uniform mesh of their finest level (nx, ny are the base mesh)
-        if (mesh.is3d()) throw std::runtime_error("Hot start from an adaptive (AMR) checkpoint needs a 2-D run");
+        // the checkpoint of an adaptive run: its leaves on the uniform mesh of their finest level (nx, ny, nz are the base mesh)
+        const bool src_3d = a.count("leaf_k") > 0;
+        if (src_3d != (nz_c > 1)) throw std::runtime_error("The adaptive checkpoint has inconsistent leaves (leaf_k and nz disagree)");
+        if (mesh.is3d() != src_3d)
+            throw std::runtime_error(std::string("Hot start from a ") + (src_3d ? "3-D" : "2-D") + " adaptive (AMR) checkpoint needs a " +
+                                     (src_3d ? "3-D" : "2-D") + " run");
         const auto ints = [&](const char* key) {
             const std::vector<double> d = a.at(key).as_doubles();
             return std::vector<int>(d.begin(), d.end());
         };
-        int nxf = 0, nyf = 0;
-        Uc = leaves_to_uniform(Uc, ints("leaf_level"), ints("leaf_i"), ints("leaf_j"), nx_c, ny_c, nxf, nyf);
-        std::printf("[Hot Start] Adaptive checkpoint: %d x %d base mesh, finest level as %d x %d cells\n", nx_c, ny_c, nxf, nyf);
+        int nxf = 0, nyf = 0, nzf = 1;
+        if (src_3d) {
+            Uc = leaves_to_uniform_3d(Uc, ints("leaf_level"), ints("leaf_i"), ints("leaf_j"), ints("leaf_k"), nx_c, ny_c, nz_c, nxf, nyf, nzf);
+            std::printf("[Hot Start] Adaptive checkpoint: %d x %d x %d base mesh, finest level as %d x %d x %d cells\n", nx_c, ny_c, nz_c,
+                        nxf, nyf, nzf);
+        } else {
+            Uc = leaves_to_uniform(Uc, ints("leaf_level"), ints("leaf_i"), ints("leaf_j"), nx_c, ny_c, nxf, nyf);
+            std::printf("[Hot Start] Adaptive checkpoint: %d x %d base mesh, finest level as %d x %d cells\n", nx_c, ny_c, nxf, nyf);
+        }
         nx_c = nxf;
         ny_c = nyf;
+        nz_c = nzf;
     }
-    if (cells && nz_c == 1 && a.count("leaf_level") && (nx_c != mesh.nx || ny_c != mesh.ny)) {
+    if (cells && a.count("leaf_level") && (nx_c != mesh.nx || ny_c != mesh.ny || nz_c != mesh.nz)) {
         // an adaptive target samples the finest-level field of an adaptive source at the leaf centres: keep it at its own
         // resolution, not on the base mesh (a uniform source is mapped onto the base mesh first)
         hot_src_ = Uc;
         hot_src_nx_ = nx_c;
         hot_src_ny_ = ny_c;
+        hot_src_nz_ = nz_c;
     }
     if (static_cast<int>(Uc.size()) != nx_c * ny_c * nz_c)
         throw std::runtime_error("Hot-start state has " + std::to_string(Uc.size()) + " cells, expected " +
@@ -2096,13 +2159,12 @@ void Simulation::solve_amr() {
         if (cell_par) cell_par->gather_state();
         return {&cm.level, &cm.ci, &cm.cj, &cm.U, octree ? &cm.ck : nullptr};
     };
-    // a 3-D adaptive run writes no snapshots, post-processing or checkpoint yet (docs/design/amr-octree.md, Q7): dump_state only
-    if (octree && root)
-        std::printf("[AMR] 3-D adaptive mesh: snapshots, post-processing and checkpoints are not written yet (dump_state is)\n");
+    // (a 3-D adaptive run writes no force rows: the load of a body is a 2-D quantity here)
+    if (octree && root && !test_case->forces.empty())
+        std::printf("[AMR] 3-D adaptive mesh: the [[force]] rows are not written (probes, sample lines and averages are)\n");
     std::unique_ptr<PostprocessWriter> post;
     if (root) post = std::make_unique<PostprocessWriter>(*test_case, exporter.output_dir(), file_prefix, start_step);
     const auto post_state = [&](int st, bool force, bool reset_average, bool emit) {
-        if (octree) return;
         if ((!force && !amr_postprocess_state_due(*test_case, st)) ||
             (force && test_case->probes.empty() && test_case->samples.empty() && test_case->averages.empty()))
             return;
@@ -2112,7 +2174,7 @@ void Simulation::solve_amr() {
         }
         const LeafArrays lf = leaves();
         if (!root) return;
-        if (emit) post->write_amr(cm, fluid, *lf.level, *lf.ci, *lf.cj, *lf.U, st, t, force);
+        if (emit) post->write_amr(cm, fluid, *lf.level, *lf.ci, *lf.cj, *lf.U, st, t, force, lf.ck);
         else post->skip_step(st);
         if (post->has_averages()) {
             const std::array<double, 5> means = volume_primitive_means(fluid, cm, *lf.level, *lf.U);
@@ -2143,7 +2205,6 @@ void Simulation::solve_amr() {
 
     // Every rank writes the leaves it owns (the whole mesh on one rank)
     const auto export_state = [&](int st) {
-        if (octree) return;
         std::vector<int> owned;
         for (int l = 0; l <= cm.max_level; ++l)
             for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c) owned.push_back(c);
@@ -2313,11 +2374,11 @@ void Simulation::solve_amr() {
             export_state(step);
             const LeafArrays lf = leaves();
             const int nleaves = total_leaves();
-            if (root && !octree) save_checkpoint(step, &lf);
+            if (root) save_checkpoint(step, &lf);
             last_snapshot_step = step;
             if (root)
                 std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | leaves = %d | wall = %s%s\n", step, t, dt, S, nleaves,
-                            format_elapsed(seconds_since(t0)).c_str(), octree ? "" : " | Checkpoint saved");
+                            format_elapsed(seconds_since(t0)).c_str(), " | Checkpoint saved");
             std::fflush(stdout);
         }
         poll_stop_file();
@@ -2363,7 +2424,7 @@ void Simulation::solve_amr() {
     }
     const LeafArrays lf = leaves();
     if (!root) return;
-    if (!octree) save_checkpoint(step, &lf);
+    save_checkpoint(step, &lf);
     exporter.write_pvd(file_prefix);
     dump_final_state(step, &lf);
     if (!local_run) print_halo_reach("final mesh");

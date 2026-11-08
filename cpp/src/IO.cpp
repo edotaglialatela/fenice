@@ -186,42 +186,53 @@ void int_array(std::string& s, const char* type, const char* name, const std::ve
     s += "\n        </DataArray>\n";
 }
 
-// One UnstructuredGrid piece of the given leaves: a VTK_QUAD per leaf, the cell fields of build_vtr and the level.
+// One UnstructuredGrid piece of the given leaves: a VTK_QUAD per leaf (a VTK_HEXAHEDRON in 3-D: the four corners of the bottom
+// face counter-clockwise, then the same four on top), the cell fields of build_vtr and the level.
 std::string build_vtu(const EOS& eos, const CellMesh& m, const std::vector<int>& leaves, bool binary) {
     const int n = static_cast<int>(leaves.size());
-    std::vector<double> rho(n), u(n), v(n), p(n), T(n), mach(n), lev(n), pts(static_cast<size_t>(n) * 12);
+    const bool three_d = m.dim == 3;
+    const int corners = three_d ? 8 : 4;
+    std::vector<double> rho(n), u(n), v(n), w(n, 0.0), p(n), T(n), mach(n), lev(n), pts(static_cast<size_t>(n) * 3 * corners);
     for (int k = 0; k < n; ++k) {
         const size_t c = static_cast<size_t>(leaves[static_cast<size_t>(k)]);
         const State W = eos.cons_to_prim(m.U[c]);
         rho[k] = sanitize(W[0]);
         u[k] = sanitize(W[1]);
         v[k] = sanitize(W[2]);
+        if (three_d) w[k] = sanitize(W[4]);
         p[k] = sanitize(W[3]);
         T[k] = sanitize(p[k] / (rho[k] + 1e-12));
         const double cs = eos.sound_speed(p[k], rho[k]);
-        mach[k] = sanitize(std::sqrt(u[k] * u[k] + v[k] * v[k]) / (cs + 1e-12));
+        mach[k] = sanitize(std::sqrt(three_d ? u[k] * u[k] + v[k] * v[k] + w[k] * w[k] : u[k] * u[k] + v[k] * v[k]) / (cs + 1e-12));
         const int l = m.level[c];
         lev[k] = l;
         const double x0 = m.x0 + m.ci[c] * m.dx(l), x1 = m.x0 + (m.ci[c] + 1) * m.dx(l);
         const double y0 = m.y0 + m.cj[c] * m.dy(l), y1 = m.y0 + (m.cj[c] + 1) * m.dy(l);
-        const double q[12] = {x0, y0, 0.0, x1, y0, 0.0, x1, y1, 0.0, x0, y1, 0.0};
-        std::copy(q, q + 12, pts.begin() + 12 * static_cast<std::ptrdiff_t>(k));
+        if (three_d) {
+            const double z0 = m.z0 + m.ck[c] * m.dz(l), z1 = m.z0 + (m.ck[c] + 1) * m.dz(l);
+            const double q[24] = {x0, y0, z0, x1, y0, z0, x1, y1, z0, x0, y1, z0, x0, y0, z1, x1, y0, z1, x1, y1, z1, x0, y1, z1};
+            std::copy(q, q + 24, pts.begin() + 24 * static_cast<std::ptrdiff_t>(k));
+        } else {
+            const double q[12] = {x0, y0, 0.0, x1, y0, 0.0, x1, y1, 0.0, x0, y1, 0.0};
+            std::copy(q, q + 12, pts.begin() + 12 * static_cast<std::ptrdiff_t>(k));
+        }
     }
     std::string s;
-    s.reserve(static_cast<size_t>(n) * 400 + 4096);
+    s.reserve(static_cast<size_t>(n) * (three_d ? 700 : 400) + 4096);
     char head[256];
     s += "<?xml version=\"1.0\"?>\n";
     s += "<VTKFile type=\"UnstructuredGrid\" version=\"0.1\" byte_order=\"LittleEndian\">\n";
     s += "  <UnstructuredGrid>\n";
-    std::snprintf(head, sizeof(head), "    <Piece NumberOfPoints=\"%d\" NumberOfCells=\"%d\">\n", 4 * n, n);
+    std::snprintf(head, sizeof(head), "    <Piece NumberOfPoints=\"%d\" NumberOfCells=\"%d\">\n", corners * n, n);
     s += head;
     s += "      <Points>\n";
     data_array(s, "Name=\"Points\" NumberOfComponents=\"3\"", pts, 3, 7, binary);
     s += "      </Points>\n";
     s += "      <Cells>\n";
-    std::vector<int> conn(static_cast<size_t>(n) * 4), off(static_cast<size_t>(n)), type(static_cast<size_t>(n), 9);
-    for (int k = 0; k < 4 * n; ++k) conn[static_cast<size_t>(k)] = k;
-    for (int k = 0; k < n; ++k) off[static_cast<size_t>(k)] = 4 * (k + 1);
+    std::vector<int> conn(static_cast<size_t>(n) * corners), off(static_cast<size_t>(n)),
+        type(static_cast<size_t>(n), three_d ? 12 : 9);
+    for (int k = 0; k < corners * n; ++k) conn[static_cast<size_t>(k)] = k;
+    for (int k = 0; k < n; ++k) off[static_cast<size_t>(k)] = corners * (k + 1);
     int_array(s, "Int32", "connectivity", conn);
     int_array(s, "Int32", "offsets", off);
     int_array(s, "UInt8", "types", type);
@@ -239,6 +250,7 @@ std::string build_vtu(const EOS& eos, const CellMesh& m, const std::vector<int>&
     for (int k = 0; k < n; ++k) {
         vel[3 * static_cast<size_t>(k)] = u[k];
         vel[3 * static_cast<size_t>(k) + 1] = v[k];
+        vel[3 * static_cast<size_t>(k) + 2] = w[k];
     }
     data_array(s, "Name=\"Velocity\" NumberOfComponents=\"3\"", vel, 3, 5, binary);
     scalar("AMR_Level", lev);

@@ -5,7 +5,7 @@
 Short runs of case files that declare the outputs (written into the study folder: the shipped cases get the tables appended):
 
 * the CSV files of every probe, line, force and average are identical byte for byte on 1 to 7 ranks (uniform mesh with the mask and
-  the ghost-cell IBM, 3-D, AMR with and without a body), and the final state does too;
+  the ghost-cell IBM, 3-D, AMR with and without a body, 3-D AMR without a body), and the final state does too;
 * declaring the outputs does not change the state: the final states with and without them are bit for bit equal (the time loop only
   reads the state; the force output evaluates the residual an extra time);
 * a run stopped halfway and resumed writes the CSV rows of the uninterrupted run (plus the row of the stop step, no row twice), on the
@@ -229,6 +229,11 @@ def check(ranks):
     tset = ["nx=16", "ny=16", "nz=4", "max_steps=6"]
     ok &= check_mpi("tg3d", tg, tset, ranks, base)
     ok &= check_neutral("tg3d", tg_plain, tg, tset, base)
+    # the same on an octree: probe, line and averages on 3-D leaves (a stop and a resume right before a remesh included)
+    oct3 = ["use_amr=true", "amr_max_level=1", "amr_refine_every=2", "amr_criterion=0.3"]
+    ok &= check_mpi("tg3d_amr", tg, tset + oct3, ranks, base)
+    ok &= check_neutral("tg3d_amr", tg_plain, tg, tset + oct3, base)
+    ok &= check_resume("tg3d_amr", tg, tset + oct3, 6, base)
     ok &= check_time_output("sod_time", sod_plain, sset, ranks, base)
     ok &= check_time_output("sod_amr_time", sod_plain, sset + amr, ranks, base)
     # time-dependent boundary values: the same state on any rank count

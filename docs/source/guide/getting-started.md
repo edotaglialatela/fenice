@@ -131,7 +131,7 @@ Each run writes to `<output_root>/<case>/`. The default `output_root` is
 | File | Content |
 |---|---|
 | `<case>_<step>.vtr` | Snapshot (VTK XML RectilinearGrid, ASCII): `Density`, `Pressure`, `Temperature_nondim`, `Mach`, `Velocity` |
-| `<case>_<step>.vtu` (`.pvtu` + one `.vtu` per rank under MPI) | AMR snapshot: one quad per leaf, plus an `AMR_Level` field |
+| `<case>_<step>.vtu` (`.pvtu` + one `.vtu` per rank under MPI) | AMR snapshot: one quad (3-D: hexahedron) per leaf, plus an `AMR_Level` field |
 | `<case>.pvd` | Time-series index (open this in ParaView) |
 | `<case>_restart.npz` | Checkpoint for `resume` and `use_hot_start` |
 
