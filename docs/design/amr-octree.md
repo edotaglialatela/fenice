@@ -250,7 +250,7 @@ the validation. The flux kernels, the time recursion, the registers and the Riem
 | Q5 | Indicator, flags, remesh, initial adaptation, body band, hot starts in 3-D (serial and OpenMP, through the whole-mesh `CellMesh::adapt` that stays as the oracle) | indicator equals a structured 6-neighbour implementation; remesh deterministic, idempotent, conservative; a 3-D Sod and Taylor-Green with AMR against uniform. **Done 2026-11-07, section 16** |
 | Q6 | MPI: partition per level, halo lists, registers, region boxes and 26 rings in the topology-free remesh; **the CLI opens** (`use_amr` with `nz > 1`) | serial == 1-7 ranks bitwise (FakeHub and real MPI); the halo-reach guard; thread independence; memory per rank. **Done 2026-11-08, section 17** (cost: 17.3) |
 | Q7 | I/O (hexahedra, 3-D `leaf_meta`, checkpoint, readers), parameters, GUI keys, docs, CI, the 3-D regression references | restart bitwise; docs and parameters in sync; CI green. **Done 2026-11-08, section 18** |
-| Q8 | Performance and the deferred 3-D validation: cost per accuracy against uniform 3-D on the sphere and the 3-D Taylor-Green; scaling; `auto` choosing the ghost wall in 3-D if the evidence supports it | report; the user decides what ships |
+| Q8 | Performance and the deferred 3-D validation: cost per accuracy against uniform 3-D on the sphere and the 3-D Taylor-Green; scaling; `auto` choosing the ghost wall in 3-D if the evidence supports it | report; the user decides what ships **8a (measurements) done 2026-11-08, section 19; 8b waits for the user** |
 
 The 2-D cost gate in Q2 is the go/no-go for A1, and the Q0 estimate of the leaf count is the go/no-go for the whole project: if an octree needs more than
 about half the cells of the uniform mesh on the target cases, the gain does not pay for the subcycling and the table memory, and the user should know
@@ -850,3 +850,90 @@ hot start, post-processing), the cost of 17.3 (Q8).
 ### 18.3 Not in Q7
 Body loads and force rows of a 3-D adaptive run, the ghost-cell wall on a rank's share (Q6.4), the cost of the distributed 3-D remesh (17.3):
 the Q8 list.
+
+## 19. Phase Q8a (2026-11-08): what the octree costs and gives on the sphere
+
+Measurements only, no engine change. Script `cases/validation/amr/octree_q8.py` (stages `calibrate`, `run`, `timing`, `report`; results in
+`results/validation/amr_octree_q8/`, `summary.json`; not in CI). Release build of the Q7 merge, 16 hardware threads, nothing else running.
+The sphere of Q0 (diameter 1 in a 6 x 3 x 3 channel, Mach 0.3, SSP-RK2, MUSCL, HLLC low-Mach, Re 20 and 100, run to t = 30), the uniform and
+the octree runs all with this binary. Octree: default indicator, remesh every 4 steps, body band 2 (mask) or 6 (ghost wall) finest cells.
+The bands, fixed before the first run, are in the script's docstring.
+
+### 19.1 Same finest resolution: Cd and cost (16 threads, whole run, the start-up transient included)
+
+Each cell: dCd against the uniform run of the same finest resolution / ratio of the time loops.
+
+| octree (base cells/D, levels -> finest) | Re 20 mask | Re 20 ghost | Re 100 mask | Re 100 ghost |
+|---|---:|---:|---:|---:|
+| base 10, 1 level -> 20 | 0.19 % / 0.21 | 0.04 % / 0.25 | 0.25 % / 0.27 | 0.02 % / 0.32 |
+| base 5, 2 levels -> 20 | 0.27 % / 0.20 | 0.04 % / 0.24 | 0.84 % / 0.24 | 0.11 % / 0.30 |
+| base 5, 1 level -> 10 | 0.27 % / 0.56 | 0.08 % / 0.66 | 1.38 % / 0.56 | 0.13 % / 0.71 |
+
+All bands pass (dCd <= 2 %, wall <= 0.5 at finest 20). The cost band is for the 20-cell meshes: the 10-cell octrees (24 k leaves, 32 s) are
+too small for the fixed costs to be hidden. Uniform Cd (10 / 20 cells per D): Re 20 mask 3.2926 / 3.3851, ghost 3.4599 / 3.5140; Re 100
+mask 1.3577 / 1.3172, ghost 1.5079 / 1.3637. Uniform time loop at 20 cells per D: 1554 s (mask) and 1441 s (ghost) at Re 20, 771 s and 713 s
+at Re 100. Octree end state at Re 20, base 5, 2 levels, mask: 72 480 leaves (4 380 / 11 940 / 56 160 per level), against 432 000 uniform
+cells; base 10, 1 level: 103 280. The settling of Cd (change over the last 250 steps) is 1e-4 at Re 20 and up to 3.6e-3 at Re 100: a
+difference of 0.3 % at Re 100 is within it.
+
+Calibration: the octree with nothing refined against the uniform solver (mask, 10 cells per D, 200 steps): the monitor Cd differs by at most
+3.8e-4 relative (band 5e-3). The two immersed-body resets are not bitwise the same, the load normalisation is.
+
+### 19.2 Steady-state cost (Re 20 mask, finest 20; 200 steps resumed from the t = 30 state, minimum of 3; seconds per unit of physical time)
+
+| | 1 thread | 4 | 8 | 16 | speed-up 1 -> 16 | ratio to uniform (1 / 16 threads) |
+|---|---:|---:|---:|---:|---:|---:|
+| uniform 20 cells/D | 144.4 | 53.2 | 51.4 | 51.8 | 2.8x | 1 |
+| octree base 10, 1 level | 48.0 | 15.0 | 11.9 | 11.1 | 4.3x | 0.33 / 0.21 |
+| octree base 5, 2 levels | 39.0 | 13.2 | 11.0 | 10.8 | 3.6x | 0.27 / 0.21 |
+
+* The octree costs 0.21 of the uniform solver at 16 threads and 0.27-0.33 at one thread. Neither solver gains beyond 4-8 threads; the octree
+  scales a little better because it has fewer cells.
+* Memory (serial run resumed from the checkpoint, base 5, 2 levels, 72 k leaves): 98 MB at the end, 139 MB at the peak (the remesh), about
+  1.35 kB per leaf at the end.
+
+### 19.3 MPI (one thread per rank; the same resumed runs)
+
+| ranks | 2 | 4 | 8 |
+|---|---:|---:|---:|
+| base 10, 1 level: s per unit time (speed-up over 1 thread) | 35.0 (1.4x) | 21.1 (2.3x) | 16.9 (2.8x) |
+| remesh share of the time loop | 18 % | 27 % | 37 % |
+| peak / end memory per rank [MB] | 99 / 75 | 86 / 54 | 80 / 42 |
+| base 5, 2 levels: s per unit time (speed-up) | 28.9 (1.3x) | 18.6 (2.1x) | 16.2 (2.4x) |
+| remesh share | 29 % | 39 % | 52 % |
+| peak / end memory per rank [MB] | 104 / 64 | 91 / 50 | 91 / 55 |
+
+* On one node MPI is slower than OpenMP (11.1 and 10.8 s at 16 threads) and efficient at 2-3 ranks only: 8 ranks give 2.4-2.8x.
+* The remesh is the reason, as in section 17: about 50 remeshes per run, each fetching the region around the owned leaves (`gather` about 2 s
+  and `indicator` 1.1-1.4 s over the 200 steps) even when the leaves hardly change; for base 5 / 2 levels also an engine build of the share
+  (4-5 s) because the leaves keep flickering at the finest level in the steady state. For base 10 / 1 level the build is 0 (nothing changes).
+  The share grows with the ranks because the stepping shrinks and the remesh does not.
+* The peak per rank stops falling at 80-90 MB: it is the remesh transient (the fetched region), not the stored share (end: 42-55 MB).
+
+### 19.4 The ghost wall against the mask on the octree
+
+* At equal finest resolution the ghost-wall octree is closer to its uniform run than the mask octree (dCd 0.02-0.11 % against 0.19-0.84 %,
+  table 19.1) and costs 9-11 % more time (wider body band: 75 728 against 72 480 leaves, 340 s against 311 s, Re 20, base 5, 2 levels).
+  The wall was active on every ghost run (checked from the log; the script stops otherwise).
+* Self-convergence of the uniform Cd between 10 and 20 cells per D: Re 20 mask 3.2926 -> 3.3851 (+2.8 %), ghost 3.4599 -> 3.5140 (+1.6 %,
+  ratio 0.58, the band of `ibm_sphere.py` is 0.6); Re 100 mask 1.3577 -> 1.3172 (-3.0 %), ghost 1.5079 -> 1.3637 (-9.6 %). At Re 100 the
+  ghost wall moves more because the 10-cell mesh does not resolve the boundary layer; it ends at 1.364 at 20 cells per D, the mask at 1.317,
+  and two meshes cannot say which is nearer the limit. The 20 -> 40 octree runs that would settle it were not run (deferred, 1-2 h each);
+  `run --include-40` does them.
+* `ibm_method = auto` stays `mask` in 3-D: the ghost wall is rejected on rank shares (Q6), so flipping the default would make it depend on
+  the rank count. The agreement with the uniform solver supports flipping it once the wall exists on shares.
+
+### 19.5 Reading and what is not measured
+
+* The gate of section 7 is met on the sphere: 0.2-0.3 of the uniform time at equal finest resolution with the same Cd to 0.3 % (Re 20), and
+  72 k leaves against 432 k cells.
+* Not measured: 20 -> 40 cells per D, the 3-D Taylor-Green as a cost case (a correctness case since Q0), scaling beyond one node, an
+  unsteady wake. One accuracy run each (the solver is deterministic); timings are the minimum of three.
+* The whole-run ratios (19.1) include the start-up, in which the leaf count grows; the steady-state ratios (19.2) are the lower ones.
+
+### 19.6 What 8b would be (for the user to decide)
+
+1. The remesh on ranks in steady state: skip the fetch when no flag changes (the `gather` and `indicator` rows of 19.3 are paid at every
+   remesh) and build the share incrementally when few leaves change. This is what limits MPI; it does not change one-node speed.
+2. The ghost-cell wall on a rank's share, then `auto` = ghost in 3-D.
+3. Optionally the 20 -> 40 self-convergence, and the body-load rows of a 3-D adaptive run.
