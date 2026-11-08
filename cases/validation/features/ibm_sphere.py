@@ -82,6 +82,45 @@ def final_cd(run_dir):
     return float(cd[-1]), float(abs(cd[-1] - cd[-6]) / abs(cd[-1]))   # last value, and its change over the last five rows
 
 
+def figure(args, sizes, out):
+    """ibm_sphere.png: drag histories, drag against the resolution, and the speed on the mid-plane z = Lz/2 of the finest ghost run."""
+    plt = study.use_style()
+    fig, (a1, a2, a3) = plt.subplots(1, 3, figsize=(16, 4.4), gridspec_kw={"width_ratios": [1, 1, 1.5]})
+    col = {"mask": "#c0392b", "ghost": "#27ae60"}
+    for method in ("mask", "ghost"):
+        for n, ls in zip(sizes, (":", "-")):
+            d = fenice.read_monitor(study.case_output(study.study_dir(STUDY) / f"{method}_{n}"))
+            a1.plot(d["t"], d["Cd"], ls=ls, color=col[method], label=f"{method}, {n} cells / D")
+    a1.set_ylim(2.5, 4.5)
+    a1.set_xlabel("$t$")
+    a1.set_ylabel("$C_d$")
+    a1.set_title("Drag history")
+    a1.legend(fontsize=8)
+    for method in ("mask", "ghost"):
+        a2.plot(1.0 / np.array(sizes), [r[0] for r in out[method]], "o-", color=col[method], ms=7, label=method)
+    a2.set_xlabel("cell size / $D$")
+    a2.set_ylabel("$C_d$ at $t = 30$")
+    a2.set_xlim(0, 0.12)
+    a2.set_title("Drag against resolution")
+    a2.legend()
+    run = study.case_output(study.study_dir(STUDY) / f"ghost_{sizes[-1]}")
+    f = fenice.read_vtr(fenice.read_pvd(run)[-1][1])
+    k = f["nz"] // 2
+    v = f["Velocity"]
+    speed = 0.5 * (np.linalg.norm(v[k - 1], axis=-1) + np.linalg.norm(v[k], axis=-1)) / 1.0   # cells k-1 and k straddle z = Lz/2
+    m = a3.pcolormesh(f["x"], f["y"], speed, cmap="viridis", shading="flat", vmin=0.0, vmax=float(speed.max()))
+    th = np.linspace(0, 2 * np.pi, 200)
+    a3.plot(2.0 + 0.5 * D * np.cos(th), 1.5 + 0.5 * D * np.sin(th), "w-", lw=1)
+    a3.set_aspect("equal")
+    a3.set_xlabel("$x$")
+    a3.set_ylabel("$y$")
+    a3.set_title(f"$|\\mathbf{{u}}| / U$ on $z = L_z/2$ (ghost wall, {sizes[-1]} cells / D)")
+    a3.grid(False)
+    fig.colorbar(m, ax=a3, fraction=0.03, pad=0.02)
+    plt.tight_layout()
+    study.save(fig, STUDY, "ibm_sphere.png", args.docs)
+
+
 def main():
     ap = study.parser(__doc__.splitlines()[0])
     args = ap.parse_args()
@@ -103,6 +142,7 @@ def main():
     print(f"change of Cd between the meshes: mask {dm:.4f}, ghost {dg:.4f} (ratio {out['ratio']:.2f}, band {BAND_RATIO}, "
           f"{'pass' if out['pass_ratio'] else 'FAIL'}); range band {BAND_RANGE}: {'pass' if out['pass_range'] else 'FAIL'}")
     fenice.write_summary(STUDY, out)
+    figure(args, sizes, out)
     print("ALL BANDS PASSED" if out["passed"] else "SOME BANDS FAILED")
     return 0 if out["passed"] else 1
 

@@ -6,12 +6,13 @@ order: 60
 header: CellMesh.hpp
 ---
 
-The adaptive mesh is a set of **leaf cells**, each a square-ish cell of the level-0 mesh
-split $\ell$ times by two in each direction (size $h_\ell = h_0/2^\ell$). There are no
-patches: the base mesh is the `nx × ny` grid of the case (any sizes), and a single cell is
-refined or joined at a time. Leaves are stored in flat arrays sorted by level and Morton
-(Z-order) key within the level, so cells that are close in space are close in memory and
-in the MPI partition.
+The adaptive mesh is a set of **leaf cells**, each a cell of the level-0 mesh split $\ell$
+times by two in each direction (size $h_\ell = h_0/2^\ell$). There are no patches: the base
+mesh is the `nx × ny` (`× nz`) grid of the case (any sizes), and a single cell is refined or
+joined at a time. Leaves are stored in flat arrays sorted by level and Morton (Z-order) key
+within the level, so cells that are close in space are close in memory and in the MPI
+partition. The same engine runs in 2-D (a quadtree, `nz = 1`) and in 3-D (an octree,
+`nz > 1`); the drawings below are 2-D.
 
 ```text
 Level 0   ┌───────┬───────┬───────┐
@@ -21,6 +22,35 @@ Level 0   ┌───────┬───────┬──────�
           │       │       │       │      at most one level
           └───────┴───────┴───────┘
 ```
+
+## One formulation for $d = 2$ and $d = 3$
+
+The dimension $d$ is a run-time value of the engine, not a second implementation. Everything above and below is written for a leaf
+with $2d$ sides and holds for both; what changes is only a count:
+
+| | quadtree ($d = 2$) | octree ($d = 3$) |
+|---|---|---|
+| children of a refined leaf | 4 | 8 (joined again only as a complete set of 8 siblings) |
+| Morton key | interleaved bits of $(i, j)$ | interleaved bits of $(i, j, k)$ |
+| sides of a leaf | 4 | 6 (periodic in $z$ by default) |
+| 2:1 balance | across sides and corners (8 neighbours) | across faces, edges and corners (26 neighbours) |
+| fine faces on a coarse-fine face | 2 | 4 |
+| mean over a split cell (virtual cell, indicator) | of 4 children | of 8 children |
+| time-step length | $\min(\Delta x, \Delta y)$ | $2 / (1/\Delta x + 1/\Delta y + 1/\Delta z)$, as in the uniform 3-D solver |
+| state per leaf | $\rho, \rho u, \rho v, \rho E$ | five variables, with $\rho w$ |
+
+The face fluxes, the virtual cells, the jump closure, the subcycling with flux registers and the indicator are the same expressions
+in every dimension; the level-0 octree reproduces the uniform 3-D solver bit for bit, as the level-0 quadtree does the 2-D one. A 3-D
+adaptive run is bit-identical for any number of OpenMP threads and of MPI ranks, and the remesh, the partition and the checkpoint
+work as described below.
+
+The immersed body is classified **per leaf** in 3-D (there is no uniform mask over the finest level, which would be as large as the
+uniform mesh): a leaf is solid if its centre is inside the body, and the body band is kept at the finest level wherever a finest
+cell lies within the margin of the surface (`near_body_surface`). The mask forcing and the ghost-cell wall (`ibm_method = ghost`) work
+on octree leaves; on the shares of an MPI run only the mask does (`auto` chooses it).
+
+Not yet available in 3-D: the body-load rows (`[[force]]`; a notice is printed) and WENO5 (as in 2-D AMR). Design, phases and
+measurements: `docs/design/amr-octree.md`.
 
 ## Faces and the residual
 

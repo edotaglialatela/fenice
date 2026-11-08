@@ -31,7 +31,8 @@ GUI, validation scripts and full documentation.
   with lift / drag monitoring.
 - **Time integration:** Explicit Euler, SSP-RK2 and SSP-RK3.
 - **Meshes:** uniform 2-D (`nz = 1`) or 3-D (`nz > 1`) grids, plus cell-based AMR (a quadtree in
-  2-D, an octree in 3-D) with subcycling, conservative flux replacement and 2:1 balance.
+  2-D, an octree in 3-D, one engine for both) with subcycling, conservative flux replacement, 2:1 balance,
+  immersed bodies, VTK output, bitwise restart and distributed MPI runs.
 - **Boundary conditions:** slip and no-slip walls, moving walls, velocity and mass-flow
   inlets, pressure outlets, transmissive and periodic.
 - **Parallelism:** OpenMP everywhere, plus MPI (strips of rows or columns; for AMR, the

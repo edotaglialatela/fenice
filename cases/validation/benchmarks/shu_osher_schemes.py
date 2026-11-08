@@ -1,9 +1,9 @@
-"""Shu-Osher shock / entropy-wave interaction: the reconstruction (MUSCL limiters, WENO3-Z, WENO5-Z) at four resolutions.
+"""Shu-Osher shock / entropy-wave interaction: the reconstruction (MUSCL-MC, WENO3-Z, WENO5-Z) at four resolutions.
 
     python cases/validation/benchmarks/shu_osher_schemes.py            # results/validation/shu_osher_schemes/
     python cases/validation/benchmarks/shu_osher_schemes.py --docs     # also docs/img/shu_osher_schemes*.png
 
-Runs the "Shu-Osher Test" case (t = 1.8) with MUSCL Minmod and MC (SSP-RK2), WENO3-Z and WENO5-Z (SSP-RK3) on 200, 400, 800 and
+Runs the "Shu-Osher Test" case (t = 1.8) with MUSCL-MC (SSP-RK2), WENO3-Z and WENO5-Z (SSP-RK3) on 200, 400, 800 and
 1600 cells. There is no closed-form solution, so two references are used, both on 6400 cells: MC (the reference of shu_osher.py) and
 WENO5-Z (CFL 0.3). The L1 density error of each run is measured against the reference averaged onto its grid; the table prints both,
 so the dependence of the ranking on the reference is visible (a MUSCL-MC reference favours MUSCL-MC a little, a WENO5-Z one WENO5-Z).
@@ -19,7 +19,6 @@ STUDY, CASE = "shu_osher_schemes", "Shu-Osher Test"
 GRIDS, N_REF, L = [200, 400, 800, 1600], 6400, 10.0
 RK2, RK3 = "time_scheme=SSP Runge-Kutta 2", "time_scheme=SSP Runge-Kutta 3"
 SCHEMES = {   # label: (tag, sets, colour, marker)
-    "MUSCL Minmod": ("Minmod", ("reconstruction=muscl", "muscl_limiter=Minmod", RK2), "#2980b9", "s"),
     "MUSCL MC": ("MC", ("reconstruction=muscl", "muscl_limiter=MC", RK2), "#c0392b", "o"),
     "WENO3-Z": ("WENO3Z", ("reconstruction=weno3", RK3), "#27ae60", "^"),
     "WENO5-Z": ("WENO5Z", ("reconstruction=weno5", RK3), "#8e44ad", "D"),
@@ -85,7 +84,7 @@ def main():
     a1.set_xlim(0, L)
     a1.set_xlabel("$x$")
     a1.set_ylabel(r"Density $\rho$")
-    a1.set_title(r"Shu-Osher problem, $t = 1.8$: the four schemes on 400 cells", fontsize=14, fontweight="bold")
+    a1.set_title(r"Shu-Osher problem, $t = 1.8$: MUSCL-MC, WENO3-Z and WENO5-Z on 400 cells", fontsize=14, fontweight="bold")
     a1.set_ylim(0.6, 5.0)
     a1.legend(loc="lower left", fontsize=9)
     plt.tight_layout()

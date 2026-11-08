@@ -197,7 +197,7 @@ uncertainty of the reference too.
 | Script | Compares |
 |---|---|
 | `shu_osher.py` | Shu-Osher density, MC vs Minmod, convergence against a 6400-cell reference |
-| `shu_osher_schemes.py` | Shu-Osher with the limiters and WENO3-Z / WENO5-Z, two references |
+| `shu_osher_schemes.py` | Shu-Osher with MUSCL-MC and WENO3-Z / WENO5-Z, two references (the page's figures) |
 | `cavity.py` | cavity centrelines and vortex vs Ghia (1982), 32²-128², both orders |
 | `taylor_green_3d.py` | 3-D Taylor-Green energy, dissipation, vorticity, Q-criterion animation |
 | `vv20.py` | validation uncertainty (V&V 20): $E = S - D$ and $U_{val}$ of the cavity extrema against Ghia and the 3-D Taylor-Green peak against the DNS |

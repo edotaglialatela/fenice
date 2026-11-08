@@ -166,12 +166,17 @@ def main():
     fenice.write_summary(STUDY, out)
 
     fig, axs = plt.subplots(1, 3, figsize=(15, 4.4))
+    ymin = np.inf
     for n, c in ((32, "#2980b9"), (96, "#27ae60")):
         k, E = tg[n]["spectrum"]
-        m = (k >= 1) & (k <= n // 2)
+        m = (k >= 1) & (k <= n // 2) & (E > 0)   # up to the Nyquist shell n/2; empty shells (E = 0) cannot be drawn on a log axis
         axs[0].loglog(k[m], E[m], "o-", ms=3, color=c, label=f"{n}$^3$, $t$ = {tg[n]['t_snap']:.1f}")
+        axs[0].axvline(n // 2, color=c, ls=":", lw=1)
+        ymin = min(ymin, E[m & (k >= 2)].min())
     kk = np.array([3.0, 20.0])
     axs[0].loglog(kk, 0.35 * kk ** (-5 / 3), "k--", lw=1, label="$k^{-5/3}$ (guide)")
+    axs[0].set_ylim(ymin / 3, 0.3)   # the k = 1 shell of the vortex is empty to round-off and would stretch the axis to 1e-17
+    axs[0].text(0.97, 0.97, "dotted: Nyquist $k = n/2$", transform=axs[0].transAxes, ha="right", va="top", fontsize=8)
     axs[0].set_xlabel("shell $k$")
     axs[0].set_ylabel("$E(k)$")
     axs[0].legend()
