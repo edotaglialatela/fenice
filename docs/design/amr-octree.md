@@ -988,8 +988,7 @@ user and is not implemented.
   levels, viscous, 60 steps) the state, Cd and Fx are bitwise equal to the serial run on 2, 3 and 4 ranks.
 * Unit tests 192, check_all with the 2-D goldens bitwise unchanged.
 
-### 20.4 `ibm_method = auto` in 3-D (not changed)
+### 20.4 `ibm_method = auto` in 3-D (changed to `ghost`, on the user's go)
 
-The evidence of 19.4 and the wall on ranks are both there. Flipping `auto` to `ghost` for `nz > 1` changes the results of every 3-D body run that
-leaves the key at `auto`: in the references `sphere3d_ibm_visc` and `amr3d_sphere_mask` (both would be regenerated). It is
-a change of default numerics, left to the user. The flip would be one line in `Params.cpp` plus those two references.
+`auto` now gives `ghost` for `nz > 1` as in 2-D (`Params.cpp`: the mask only where AMR runs with `amr_refine_ibm` off). No reference changes: the
+regression harness pins `ibm_method = mask` for the IBM references that are not ghost ones, and the unit tests set the method explicitly.
