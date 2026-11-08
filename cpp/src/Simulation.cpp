@@ -587,7 +587,12 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     if (p.use_amr) {
         const bool per_x = boundaries.type(Face::Left) == BCType::Periodic;
         const bool per_y = boundaries.type(Face::Bottom) == BCType::Periodic;
-        cells = std::make_unique<CellMesh>(p.Lx, p.Ly, p.nx, p.ny, p.amr_max_level, per_x, per_y);
+        const bool per_z = boundaries.type(Face::Front) == BCType::Periodic;
+        if (mesh.is3d())   // an octree (docs/design/amr-octree.md); not written yet: snapshots, post-processing, checkpoints
+            cells = std::make_unique<CellMesh>(CellMesh::make_3d(p.Lx, p.Ly, p.Lz, p.nx, p.ny, p.nz, p.amr_max_level, per_x, per_y,
+                                                                 per_z, mesh.x0, mesh.y0, mesh.z0));
+        else
+            cells = std::make_unique<CellMesh>(p.Lx, p.Ly, p.nx, p.ny, p.amr_max_level, per_x, per_y);
         cell_physics = CellPhysics{};
         cell_physics.ns = ns.get();
         cell_physics.body = body_force.get();
@@ -615,11 +620,22 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         cell_indicator.use_pressure = p.amr_indicator.find("pressure") != std::string::npos;
         cell_adaptor = std::make_unique<CellAdaptor>(*cells, *cell_engine, fluid, cell_indicator);
         if (!p.amr_force_box.empty()) {
-            double b[4];
-            std::sscanf(p.amr_force_box.c_str(), "%lf%*[ ,]%lf%*[ ,]%lf%*[ ,]%lf", &b[0], &b[1], &b[2], &b[3]);
-            cell_adaptor->set_force_box(b[0], b[1], b[2], b[3]);
+            double b[6];
+            const int got = std::sscanf(p.amr_force_box.c_str(), "%lf%*[ ,]%lf%*[ ,]%lf%*[ ,]%lf%*[ ,]%lf%*[ ,]%lf", &b[0], &b[1], &b[2], &b[3],
+                                        &b[4], &b[5]);
+            if (mesh.is3d() && got == 6)
+                cell_adaptor->set_force_box3(b[0], b[1], b[2], b[3], b[4], b[5]);
+            else if (got >= 4)
+                cell_adaptor->set_force_box(b[0], b[1], b[2], b[3]);   // (3-D: every z)
+            else
+                throw std::invalid_argument("amr_force_box needs x0, x1, y0, y1 (and z0, z1 in 3-D)");
         }
-        if (p.use_ibm && p.amr_refine_ibm) {
+        if (p.use_ibm && p.amr_refine_ibm && mesh.is3d()) {
+            // 3-D: a shell of finest leaves around the surface (near_body_surface); the ghost-cell wall is ready with 6 cells
+            const int margin = p.ibm_method == "ghost" ? 6 : 2;
+            cell_adaptor->set_body(ibm_factory, margin);
+            if (verbose) std::printf("[AMR] Body band: %d finest-level cells on both sides of the surface\n", margin);
+        } else if (p.use_ibm && p.amr_refine_ibm) {
             int margin = 2;   // the fringe the solid reset treats
             if (p.ibm_method == "ghost") {   // every ghost cell and the cells it reads (and the load probes) at the finest level
                 const int M = p.amr_max_level;
@@ -820,7 +836,8 @@ void Simulation::fill_cells(CellMesh& m) const {
     }
     for (int l = 0; l <= m.max_level; ++l) {
         if (m.level_begin[l + 1] == m.level_begin[l]) continue;
-        Mesh ml = generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(l), m.ny_at(l), m.x0, m.y0);
+        Mesh ml = m.dim == 3 ? generate_cartesian_mesh_3d(m.Lx, m.Ly, m.Lz, m.nx_at(l), m.ny_at(l), m.nz_at(l), m.x0, m.y0, m.z0)
+                             : generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(l), m.ny_at(l), m.x0, m.y0);
         // only the box of cells that holds this level's leaves (the values are those of the whole level: Mesh window)
         int i0 = ml.nx, i1 = 0, j0 = ml.ny, j1 = 0;
         for (int c = m.level_begin[l]; c < m.level_begin[l + 1]; ++c) {
@@ -835,7 +852,8 @@ void Simulation::fill_cells(CellMesh& m) const {
         ml.win_j1 = j1;
         const Field F = test_case->initialize(ml, fluid, p.source);
         for (int c = m.level_begin[l]; c < m.level_begin[l + 1]; ++c)
-            m.U[static_cast<size_t>(c)] = F[static_cast<size_t>(ml.window_cell(m.ci[static_cast<size_t>(c)], m.cj[static_cast<size_t>(c)]))];
+            m.U[static_cast<size_t>(c)] =
+                F[static_cast<size_t>(ml.window_cell(m.ci[static_cast<size_t>(c)], m.cj[static_cast<size_t>(c)], m.ck[static_cast<size_t>(c)]))];
     }
 }
 
@@ -850,7 +868,7 @@ std::array<double, 3> Simulation::cell_loads(const CellMesh& m, const Field& R) 
                 rx -= m.U[static_cast<size_t>(c)][0] * body_force->gx;
                 ry -= m.U[static_cast<size_t>(c)][0] * body_force->gy;
             }   // not a load
-            const double ex = rx * m.area(c), ey = ry * m.area(c);
+            const double ex = rx * m.volume(c), ey = ry * m.volume(c);
             fx += ex;
             fy += ey;
             mz += (m.xc(c) - p.ibm_cx) * ey - (m.yc(c) - p.ibm_cy) * ex;
@@ -1811,17 +1829,23 @@ void Simulation::dump_final_state(int step, const LeafArrays* leaves) const {
     a["t"] = NpyArray::from_double(t);
     a["step"] = NpyArray::from_int(step);
     if (cells) {
-        const LeafArrays lf = leaves ? *leaves : LeafArrays{&cells->level, &cells->ci, &cells->cj, &cells->U};
-        const size_t n = lf.level->size();
+        const bool octree = cells->dim == 3;
+        const LeafArrays lf = leaves ? *leaves : LeafArrays{&cells->level, &cells->ci, &cells->cj, &cells->U, octree ? &cells->ck : nullptr};
+        const size_t n = lf.level->size(), cols = octree ? 7 : 5;   // x0, x1, y0, y1[, z0, z1], level
         std::vector<double> meta;
-        meta.reserve(n * 5);
+        meta.reserve(n * cols);
         for (size_t k = 0; k < n; ++k) {
             const int l = (*lf.level)[k], i = (*lf.ci)[k], j = (*lf.cj)[k];
             meta.insert(meta.end(), {cells->x0 + i * cells->dx(l), cells->x0 + (i + 1) * cells->dx(l),
-                                     cells->y0 + j * cells->dy(l), cells->y0 + (j + 1) * cells->dy(l), static_cast<double>(l)});
+                                     cells->y0 + j * cells->dy(l), cells->y0 + (j + 1) * cells->dy(l)});
+            if (octree) {
+                const int z = (*lf.ck)[k];
+                meta.insert(meta.end(), {cells->z0 + z * cells->dz(l), cells->z0 + (z + 1) * cells->dz(l)});
+            }
+            meta.push_back(static_cast<double>(l));
         }
-        a["U"] = field_to_npy(*lf.U);
-        a["leaf_meta"] = NpyArray::from_doubles(meta, {static_cast<int64_t>(meta.size() / 5), 5});
+        a["U"] = field_to_npy(*lf.U, octree ? kNVar : 4);   // (3-D: rho w too)
+        a["leaf_meta"] = NpyArray::from_doubles(meta, {static_cast<int64_t>(n), static_cast<int64_t>(cols)});
     } else {
         a["U"] = field_to_npy(U, mesh.is3d() ? kNVar : 4);
     }
@@ -2061,19 +2085,24 @@ void Simulation::solve_amr() {
     // each rank keeps only its leaves and their halo (CellParallel::localize), unless FENICE_REPLICATED_REMESH=1
     const bool local_run = cell_par && cell_par->localized();
     // the leaves of the whole mesh and their state (collective; a localized run gives them to rank 0 only, the one that writes)
-    std::vector<int> g_level, g_ci, g_cj;
+    std::vector<int> g_level, g_ci, g_cj, g_ck;
     Field g_U;
+    const bool octree = cm.dim == 3;
     const auto leaves = [&]() -> LeafArrays {
         if (local_run) {
-            cell_par->collect(g_level, g_ci, g_cj, g_U, true);   // rank 0 only: it alone writes
-            return {&g_level, &g_ci, &g_cj, &g_U};
+            cell_par->collect(g_level, g_ci, g_cj, g_ck, g_U, true);   // rank 0 only: it alone writes
+            return {&g_level, &g_ci, &g_cj, &g_U, octree ? &g_ck : nullptr};
         }
         if (cell_par) cell_par->gather_state();
-        return {&cm.level, &cm.ci, &cm.cj, &cm.U};
+        return {&cm.level, &cm.ci, &cm.cj, &cm.U, octree ? &cm.ck : nullptr};
     };
+    // a 3-D adaptive run writes no snapshots, post-processing or checkpoint yet (docs/design/amr-octree.md, Q7): dump_state only
+    if (octree && root)
+        std::printf("[AMR] 3-D adaptive mesh: snapshots, post-processing and checkpoints are not written yet (dump_state is)\n");
     std::unique_ptr<PostprocessWriter> post;
     if (root) post = std::make_unique<PostprocessWriter>(*test_case, exporter.output_dir(), file_prefix, start_step);
     const auto post_state = [&](int st, bool force, bool reset_average, bool emit) {
+        if (octree) return;
         if ((!force && !amr_postprocess_state_due(*test_case, st)) ||
             (force && test_case->probes.empty() && test_case->samples.empty() && test_case->averages.empty()))
             return;
@@ -2114,6 +2143,7 @@ void Simulation::solve_amr() {
 
     // Every rank writes the leaves it owns (the whole mesh on one rank)
     const auto export_state = [&](int st) {
+        if (octree) return;
         std::vector<int> owned;
         for (int l = 0; l <= cm.max_level; ++l)
             for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c) owned.push_back(c);
@@ -2135,7 +2165,7 @@ void Simulation::solve_amr() {
         for (int l = 0; l <= cm.max_level; ++l)
             for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c) {
                 const State& u = cm.U[static_cast<size_t>(c)];
-                const double a = cm.area(c);
+                const double a = cm.volume(c);   // (the area in 2-D)
                 sums[0] += u[0] * a;
                 sums[1] += 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4]) / u[0] * a;
                 sums[2] += u[3] * a;
@@ -2172,7 +2202,7 @@ void Simulation::solve_amr() {
                 if (cell_par)
                     for (double& v : loads) v = cell_par->reduce_sum(v);
             }
-            if (write_force) {
+            if (write_force && !octree) {
                 Field contributions(static_cast<size_t>(cm.num_leaves()));
                 const std::vector<char>& solid = eng.solid();
                 for (int l = 0; l <= cm.max_level; ++l)
@@ -2203,14 +2233,14 @@ void Simulation::solve_amr() {
             const std::vector<char>& solid = eng.solid();
             for (int l = 0; l <= cm.max_level; ++l)
                 for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c)
-                    if (!p.use_ibm || !solid[static_cast<size_t>(c)]) add_residual(rs, Rl[static_cast<size_t>(c)], cm.area(c));
+                    if (!p.use_ibm || !solid[static_cast<size_t>(c)]) add_residual(rs, Rl[static_cast<size_t>(c)], cm.volume(c));
         }
         if (cell_par) {
             for (double& v : sums) v = cell_par->reduce_sum(v);
             for (double& v : rs) v = cell_par->reduce_sum(v);
         }
         if (write_monitor)
-            monitor_row(mon, st, {sums[0] / sums[3] * mesh.cell_area(), sums[1] / sums[3] * mesh.cell_area(), sums[2] / sums[3] * mesh.cell_area()},
+            monitor_row(mon, st, {sums[0] / sums[3] * mesh.cell_volume(), sums[1] / sums[3] * mesh.cell_volume(), sums[2] / sums[3] * mesh.cell_volume()},
                         p.use_ibm ? &loads : nullptr, residual_norms(rs));
     };
 
@@ -2227,7 +2257,9 @@ void Simulation::solve_amr() {
     double remesh_wall = 0.0, t_gather = 0.0, t_speed = 0.0, t_partition = 0.0;
     bool interrupted = false;
     while (t < p.t_end) {
-        double dt = std::min(scheme->cfl * std::min(cm.dx(0), cm.dy(0)) / std::max(S, 1e-10), p.t_end - t);
+        // the time-step length of the base mesh: min(dx, dy) in 2-D, 2 / sum 1/h in 3-D (Simulation::dt_length)
+        const double h0 = octree ? 2.0 / (1.0 / cm.dx(0) + 1.0 / cm.dy(0) + 1.0 / cm.dz(0)) : std::min(cm.dx(0), cm.dy(0));
+        double dt = std::min(scheme->cfl * h0 / std::max(S, 1e-10), p.t_end - t);
         if (p.dt_max > 0.0) dt = std::min(dt, p.dt_max);
         dt = std::min(dt, next_write_time - t);
         {
@@ -2281,11 +2313,11 @@ void Simulation::solve_amr() {
             export_state(step);
             const LeafArrays lf = leaves();
             const int nleaves = total_leaves();
-            if (root) save_checkpoint(step, &lf);
+            if (root && !octree) save_checkpoint(step, &lf);
             last_snapshot_step = step;
             if (root)
-                std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | leaves = %d | wall = %s | Checkpoint saved\n",
-                            step, t, dt, S, nleaves, format_elapsed(seconds_since(t0)).c_str());
+                std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | leaves = %d | wall = %s%s\n", step, t, dt, S, nleaves,
+                            format_elapsed(seconds_since(t0)).c_str(), octree ? "" : " | Checkpoint saved");
             std::fflush(stdout);
         }
         poll_stop_file();
@@ -2331,7 +2363,7 @@ void Simulation::solve_amr() {
     }
     const LeafArrays lf = leaves();
     if (!root) return;
-    save_checkpoint(step, &lf);
+    if (!octree) save_checkpoint(step, &lf);
     exporter.write_pvd(file_prefix);
     dump_final_state(step, &lf);
     if (!local_run) print_halo_reach("final mesh");

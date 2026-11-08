@@ -41,11 +41,12 @@ Field isentropic_vortex_profile(const Mesh& m, const EOS& eos, const Params&) {
 }
 
 Field taylor_green_3d_profile(const Mesh& m, const EOS& eos, const Params&) {
-    Field U(static_cast<size_t>(m.num_cells()));
+    // the cells of the window (the whole mesh by default; the leaves of an adaptive level: Simulation::fill_cells)
+    Field U(static_cast<size_t>(m.window_cells()));
     for (int k = 0; k < m.nz; ++k)
-        for (int j = 0; j < m.ny; ++j)
-            for (int i = 0; i < m.nx; ++i)
-                U[m.cell(i, j, k)] = eos.prim_to_cons(taylor_green_3d_initial(m.xc(i), m.yc(j), m.zc(k), eos.gamma));
+        for (int j = m.win_j0; j < m.window_j1(); ++j)
+            for (int i = m.win_i0; i < m.window_i1(); ++i)
+                U[m.window_cell(i, j, k)] = eos.prim_to_cons(taylor_green_3d_initial(m.xc(i), m.yc(j), m.zc(k), eos.gamma));
     return U;
 }
 

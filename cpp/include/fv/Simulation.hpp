@@ -66,6 +66,7 @@ public:
         const std::vector<int>* ci = nullptr;
         const std::vector<int>* cj = nullptr;
         const Field* U = nullptr;
+        const std::vector<int>* ck = nullptr;   // 3-D adaptive mesh only
     };
     // Atomic checkpoint: U, t, step, nx, ny, Lx, Ly and the .pvd index. `leaves`: the AMR leaves, if `cells` is not the whole mesh.
     void save_checkpoint(int step, const LeafArrays* leaves = nullptr);

@@ -51,11 +51,16 @@ CHECK_CASES = {   # name: (case, overrides)
     "mms": ("Manufactured Solution", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "max_steps=16"]),
     "mms_unsteady": ("Manufactured Solution Unsteady Euler",
                      ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "max_steps=8"]),
+    # 3-D adaptive meshes (octrees): the Sod tube along x with periodic transverse axes, and the viscous manufactured solution
+    "sod3d": ("Sod Shock Tube", ["nx=50", "ny=2", "nz=2", "Ly=0.04", "Lz=0.04", "amr_max_level=2", "amr_refine_every=4",
+                                 "bc_bottom=periodic", "bc_top=periodic", "bc_front=periodic", "bc_back=periodic"]),
+    "mms3d": ("Manufactured Solution 3D", ["nx=8", "ny=8", "nz=8", "amr_max_level=2", "amr_refine_every=2", "max_steps=8",
+                                          "amr_criterion=0.8"]),   # (0.8: two levels in use, level jumps; 0.1 refines every leaf)
 }
 
 
 def check(ranks):
-    """Serial against 1..N ranks on the four cases: the dumped states must be identical bit for bit."""
+    """Serial against 1..N ranks on the check cases (2-D and 3-D): the dumped states must be identical bit for bit."""
     ok = True
     for name, (case, sets) in CHECK_CASES.items():
         sets = ["use_amr=true", *sets]

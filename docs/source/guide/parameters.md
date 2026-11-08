@@ -144,7 +144,7 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `use_amr` | `false` | Adaptive mesh refinement on leaf cells (2-D only: rejected when `nz > 1`). Periodic and mass-flow boundaries, IBM, viscous terms, body force, source terms and MPI are supported. `nx` and `ny` are the level-0 mesh (any size) |
+| `use_amr` | `false` | Adaptive mesh refinement on leaf cells, in 2-D (quadtree) and 3-D (octree, `nz > 1`). Periodic and mass-flow boundaries, IBM, viscous terms, body force, source terms and MPI are supported. `nx`, `ny` (and `nz`) are the level-0 mesh (any size). In 3-D the run writes no VTK snapshots, post-processing or checkpoint yet (`dump_state` writes the final leaves), `resume` and `use_hot_start` are rejected, and the ghost-cell wall runs serially only (`ibm_method = auto` gives `mask`) |
 | `amr_max_level` | `2` | Refinement levels above the base mesh |
 | `amr_indicator` | `density+velocity` | Variables whose variation across faces drives the refinement: `density`, `velocity` (the speed), `pressure`, or several joined by `+`. Use the speed for vortical, nearly incompressible flow such as a wake, where the density hardly varies |
 | `amr_criterion` | `0.1` | Relative variation of a variable across a face that flags both cells |
@@ -153,7 +153,7 @@ The OpenMP thread count is set with `--threads` or `OMP_NUM_THREADS`.
 | `amr_diffusion` | `2` | Smoothing iterations of the indicator: the refined band extends about this many cells beyond the flagged ones |
 | `amr_refine_every` | `10` | Remesh every N coarse steps |
 | `amr_init_levels` | `0` | Uniform pre-refinement levels at t = 0 |
-| `amr_force_box` | (empty) | `x0 x1 y0 y1`: the leaves that overlap this box stay at `amr_max_level` whatever the indicator says, a static refined region (a test hook: the orders of accuracy across a level jump are measured with it). Empty: none |
-| `amr_refine_ibm` | `true` | With `use_ibm`: leaves touching the body, and the cells around it that the solid reset uses, are refined to `amr_max_level` from t = 0 and never joined |
+| `amr_force_box` | (empty) | `x0 x1 y0 y1` (3-D: also `z0 z1`; four values span every z): the leaves that overlap this box stay at `amr_max_level` whatever the indicator says, a static refined region (a test hook: the orders of accuracy across a level jump are measured with it). Empty: none |
+| `amr_refine_ibm` | `true` | With `use_ibm`: leaves touching the body, and the cells around it that the solid reset uses, are refined to `amr_max_level` from t = 0 and never joined (3-D: a shell of finest cells on both sides of the surface, 2 cells wide with the mask and 6 with the ghost-cell wall; the deep interior is not refined) |
 
 {{api}}

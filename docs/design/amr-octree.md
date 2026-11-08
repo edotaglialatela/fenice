@@ -248,7 +248,7 @@ the validation. The flux kernels, the time recursion, the registers and the Riem
 | Q3 | `CellAdvance`: 4 registers per coarse side; subcycling in 3-D | conservation for the three schemes; level-0 steps == uniform 3-D steps; permutation Sod; the z-invariant check. **Done 2026-11-07, section 14** |
 | Q4 | Physics: viscous 3-D family (and AVX2 twin), body force, sources, NRBC with two tangential directions, mass-flow inlet; **the IBM redesign** (per-leaf classification, the ghost table from the band leaves) | bitwise level-0 tests with each physics; MMS on an adapted 3-D mesh; IBM masks equal to the uniform ones on the same cells; ghost wall equal to the uniform 3-D ghost wall. **Done 2026-11-07, section 15** |
 | Q5 | Indicator, flags, remesh, initial adaptation, body band, hot starts in 3-D (serial and OpenMP, through the whole-mesh `CellMesh::adapt` that stays as the oracle) | indicator equals a structured 6-neighbour implementation; remesh deterministic, idempotent, conservative; a 3-D Sod and Taylor-Green with AMR against uniform. **Done 2026-11-07, section 16** |
-| Q6 | MPI: partition per level, halo lists, registers, region boxes and 26 rings in the topology-free remesh; **the CLI opens** (`use_amr` with `nz > 1`) | serial == 1-7 ranks bitwise (FakeHub and real MPI); the halo-reach guard; thread independence; memory per rank |
+| Q6 | MPI: partition per level, halo lists, registers, region boxes and 26 rings in the topology-free remesh; **the CLI opens** (`use_amr` with `nz > 1`) | serial == 1-7 ranks bitwise (FakeHub and real MPI); the halo-reach guard; thread independence; memory per rank. **Done 2026-11-08, section 17** (cost: 17.3) |
 | Q7 | I/O (hexahedra, 3-D `leaf_meta`, checkpoint, readers), parameters, GUI keys, docs, CI, the 3-D regression references | restart bitwise; docs and parameters in sync; CI green |
 | Q8 | Performance and the deferred 3-D validation: cost per accuracy against uniform 3-D on the sphere and the 3-D Taylor-Green; scaling; `auto` choosing the ghost wall in 3-D if the evidence supports it | report; the user decides what ships |
 
@@ -762,3 +762,54 @@ but it is untested in 3-D until Q6; the ghost wall on a rank's share (Q6).
 ### 16.3 Not in Q5
 The distributed remesh and the partition in 3-D (Q6, with the 26-neighbour region boxes and `region`); the 3-D hot start inside `Simulation`
 and the CLI (Q6/Q7); the deep body interior at the finest level (not kept in 3-D, by design).
+
+## 17. Phase Q6 as built (2026-11-08): the distributed run of an octree, and the CLI opens
+
+### 17.1 What changed
+* **Distributed core** (`CellParallel`): partition with six sides and up to four finer leaves (the registers of a coarse side, the neighbours
+  of the solid reset); the requests and the leaf records carry k in 3-D (the 2-D records are unchanged); `collect` (a 3-D overload with
+  `ck`), `collect_field`, `globalize` sort by `morton_key3`; `ring()` measures z too.
+* **Topology-free remesh in 3-D**: `CellBox` has a depth and `dilate_cells3` dilates in three dimensions (`detail::dilate_seeds` picks the 2-D
+  or 3-D one, `detail::for_box` visits a box, `detail::empty_like` makes an empty partial mesh of the right dimension); `fetch_leaves`
+  asks about 3-D cells (8 children per split cell, numbers `(k ny + j) nx + i`, the 2-D `j nx + i` unchanged); `region_mask` and
+  `build_share_fetched` take 3-component seeds and six mass-flow slabs; the remesh makes the parents of 8 in `CellMesh::adapt`'s order and
+  grouping, migrates leaves with k, and `global_facts` bisects over 3-D keys (`dim * bits`: a 2-D range clips them, caught by a mutation).
+* **Region ring table per dimension**: the 2-D table (d = owner level - level read: d < 0: 4 rings, 0: 6, 1: 8, 2: 9, >= 3: 11) was
+  too short in 3-D. `halo_reach` measured on octrees of three and four levels with every physics: 7 rings at d = -1, 10 at d = 0, 9 at
+  d = 1, 7 at d = 2, 3 (coarse-fine faces two levels apart, the immersed body). The 3-D table is that plus one ring: 8, 11, 10, 9, 11,
+  guarded by `cellparallel3d_halo_reach_lies_within_the_region_rings` (a short table would be hidden by the retry of a share).
+* **CLI**: `use_amr` with `nz > 1` builds an octree (`CellMesh::make_3d`), fills the leaves from the 3-D level meshes (the 3-D
+  Taylor-Green profile now honours a mesh window), uses the 3-D time-step length `2 / sum 1/h` of the base mesh and cell volumes in the
+  monitor, keeps a shell of 2 (mask) or 6 (ghost wall) finest cells around a body (`amr_refine_ibm`), takes a 6-value `amr_force_box`, and
+  writes `dump_state` with five state columns and seven `leaf_meta` columns (x0, x1, y0, y1, z0, z1, level). Not written yet (Q7): VTK
+  snapshots, post-processing, checkpoints; `resume` and `use_hot_start` are rejected for a 3-D adaptive run. The ghost-cell wall runs
+  serially; on several ranks it is rejected (`ibm_method = auto` gives `mask` in 3-D, so the default is the same on any rank count).
+  GUI, `parameters.md` and the docs pages no longer say "AMR is 2-D only".
+
+### 17.2 Tests and checks
+* `cpp/tests/test_amr_octree_distributed.cpp` (FakeHub ranks, NaN-poisoned halos): serial == 1-7 ranks bitwise, replicated and localized,
+  for four physics sets (Euler periodic; viscous + body force + time-dependent source; walls, NRBC, mass flow, viscous, `boundary_order` 2;
+  a sphere with the mask); the topology-free remesh == serial with the shadow check at every remesh and the retry forced; the distributed
+  init == the serial init (leaves, states, passes) on 1-8 ranks; the halo reach within the table; ring and collect. Mutations caught: the
+  third and fourth finer leaves dropped from the registers (200 failed checks), the 2-D bisection range in `global_facts`.
+* `amr_mpi.py --check` (real MPI, 1-7 ranks, CI) has two 3-D cases: a Sod tube along x (periodic transverse axes, three levels, 4036 leaves)
+  and the 3-D manufactured solution (viscous, sources, two levels in use with `amr_criterion = 0.8`; 0.1 refines every leaf): bitwise,
+  with the 2-D cases and the restarts unchanged.
+* Thread independence: the 16^3 manufactured solution with three levels (38 991 leaves) on 1 and 16 threads: the same bits.
+* Unit tests 187/187; check_all with the 2-D goldens (default, NO_SIMD, FULL_REBUILD) bitwise.
+
+### 17.3 Cost and memory (measured, the open item for Q8)
+* Memory per rank, 16^3 manufactured solution (38 991 leaves), peak / end [MB]: 1 rank 73.5 / 63.5, 2 ranks 66.3 / 39.3, 4 ranks 58.6 / 32.0,
+  8 ranks 56.3 / 27.1; engine tables of rank 0: 47.0, 24.1, 17.7, 14.1 MB. The peak is the remesh's transient (the fetched region and the
+  share's build) and falls slowly.
+* Time of the remesh, one thread per process: Sod 100 x 8 x 8 (63 744 leaves, 10 remeshes) 0.32 s serial against 1.41 s on 2 ranks and
+  1.31 s on 4 (4.4x; 2-D: 1.6-1.9x, `amr-distributed.md` section 14). Almost all of it is the build of the share's engine (`share: engine`), which is
+  a full build at every remesh; on these meshes the 3-D region (up to 11 rings of the owner's level) covers most of the mesh per rank. With
+  expression sources (the manufactured solution) the share's build also evaluates every source again (about 1.2 s per remesh on 2 ranks):
+  the serial incremental build copies them for the kept leaves, the share's fresh build does not (the same in 2-D, where the cases are small).
+  The cost trap of section 4.10, confirmed. Options for Q8: an incremental build of the share (the leaves kept by the remesh keep their
+  tables), the sources carried through the migration with the state, a tighter reach per kind of read, larger blocks per rank.
+
+### 17.4 Not in Q6
+The ghost-cell wall on a rank's share (its readiness and its table on a partial mesh), the I/O of Q7 (snapshots, checkpoints, resume,
+hot start, post-processing), the cost of 17.3 (Q8).

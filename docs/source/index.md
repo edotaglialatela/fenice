@@ -15,7 +15,7 @@ domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz 
   forces, and an immersed boundary method for cylinders, spheres and airfoils (NACA
   4-digit or any coordinate file), with lift / drag / moment monitoring.
 * **Time integration:** Explicit Euler, SSP-RK2 and SSP-RK3.
-* **Mesh:** uniform 2-D or 3-D Cartesian grids. Cell-based AMR (2-D only) refines single
+* **Mesh:** uniform 2-D or 3-D Cartesian grids. Cell-based AMR (2-D quadtree, 3-D octree) refines single
   cells and adds subcycling, conservative flux replacement and 2:1 balance.
 * **I/O:** VTK output for ParaView, plus `.npz` checkpoints with restart and
   hot-start mapping between resolutions.

@@ -37,7 +37,7 @@ The default is a **Geometry** node linked to a **Solver** node.
   pixels wide (the wheel zooms about the pointer, a drag pans, a double click shows the whole domain), and the *Mesh level* box shows
   the same body on the finer levels of an AMR run (cells across the chord or diameter, solid cells, the finest cell). The domain
   (`Lx`, `Ly`, `nz`, `Lz`), the adaptive mesh (AMR on or off, the finest and the initial levels, the indicator variables $ho$, $|u|$ and
-  $p$, the criterion, the refine and join thresholds, the smoothing and the remesh interval; 2-D only), the base mesh (`nx`, `ny`, with *Apply mesh*, *2×* and *½×*: each doubles or halves `nx` and `ny`, four times
+  $p$, the criterion, the refine and join thresholds, the smoothing and the remesh interval), the base mesh (`nx`, `ny`, with *Apply mesh*, *2×* and *½×*: each doubles or halves `nx` and `ny`, four times
   or a quarter of the cells in 2-D), the body (shape, radius, centre) and the side conditions are edited here; they are written into the
   fields of the linked solver, which are the only copy. The node holds its own geometry (it starts from the defaults of a case) and can be
   edited before it is linked, and keeps it when unlinked; linking an edited geometry writes it into the solver, linking an untouched one

@@ -316,7 +316,10 @@ SimParams SimParams::from(const Params& p) {
 
     if (s.nx <= 0 || s.ny <= 0 || s.nz <= 0) throw std::invalid_argument("nx, ny and nz must be positive");
     if (s.Lx <= 0 || s.Ly <= 0 || s.Lz <= 0) throw std::invalid_argument("Lx, Ly and Lz must be positive");
-    if (s.use_amr && s.nz > 1) throw std::invalid_argument("AMR is 2-D only (nz must be 1 when use_amr is on)");
+    if (s.use_amr && s.nz > 1) {   // a 3-D adaptive mesh (octree): what is not built yet (docs/design/amr-octree.md, Q7)
+        if (s.resume) throw std::invalid_argument("resume is not available for a 3-D adaptive run yet (its checkpoint is not written)");
+        if (s.use_hot_start) throw std::invalid_argument("use_hot_start is not available for a 3-D adaptive run yet");
+    }
     {   // amr_indicator: variables joined by '+', each one of density, velocity, pressure
         const std::string& ind = s.amr_indicator;
         size_t b = 0;

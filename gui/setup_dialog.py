@@ -906,8 +906,8 @@ class SetupDialog(QDialog):
             if scheme_errors:
                 self._error("Config Error", "\n".join(scheme_errors))
                 return False
-            if self.sim_params['nz'] > 1 and self.sim_params['use_amr']:
-                self._error( "Config Error", "AMR is 2-D only: set Nz = 1 or disable AMR.")
+            if self.sim_params['nz'] > 1 and self.sim_params['use_amr'] and self.sim_params.get('use_hot_start'):
+                self._error( "Config Error", "A 3-D AMR run cannot start from a hot start yet: disable one of them.")
                 return False
             if self.sim_params['resume'] and self.sim_params['use_amr']:
                 self._error( "Config Error",
