@@ -43,6 +43,8 @@ def measure(args, tag, mpi=0, threads=None):
     return d, json.loads(info.read_text())
 
 
+SPHERE_GHOST = ["nx=24", "ny=12", "nz=6", "Lz=1.0", "ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "bc_front=wall", "bc_back=wall",
+                "ibm_method=ghost"]
 CHECK_CASES = {   # name: (case, overrides)
     "sod": ("Sod Shock Tube", ["nx=50", "ny=4", "Ly=0.08", "amr_max_level=2", "amr_refine_every=4"]),
     "airfoil": ("IBM Airfoil AMR", ["t_end=0.6"]),
@@ -57,6 +59,8 @@ CHECK_CASES = {   # name: (case, overrides)
                                  "bc_bottom=periodic", "bc_top=periodic", "bc_front=periodic", "bc_back=periodic"]),
     "mms3d": ("Manufactured Solution 3D", ["nx=8", "ny=8", "nz=8", "amr_max_level=2", "amr_refine_every=2", "max_steps=8",
                                           "amr_criterion=0.8"]),   # (0.8: two levels in use, level jumps; 0.1 refines every leaf)
+    # the ghost-cell wall of a sphere on the shares of the ranks (the wall is active: the body band is six finest cells wide)
+    "sphere3d_ghost": ("IBM Flow over Cylinder", SPHERE_GHOST + ["amr_max_level=2", "amr_refine_every=3", "max_steps=30"]),
 }
 
 
@@ -79,6 +83,7 @@ def check(ranks):
         print(line)
     ok = check_restart() and ok
     ok = check_restart(RESTART_3D) and ok
+    ok = check_restart(RESTART_3D_GHOST) and ok
     ok = check_hot_start_3d() and ok
     print("ALL MATCH (bitwise)" if ok else "MISMATCH")
     return 0 if ok else 1
@@ -91,6 +96,9 @@ RESTART_2D = ("restart", "Sod Shock Tube", ["use_amr=true", "Lx=2.0", "nx=128", 
 # the 3-D manufactured solution: three levels with jumps, rho w != 0, remeshes before and after the stop (every 2 steps)
 RESTART_3D = ("restart3d", "Manufactured Solution 3D", ["use_amr=true", "nx=6", "ny=6", "nz=6", "amr_max_level=2", "amr_refine_every=2",
                                                         "amr_criterion=2.0"])
+
+
+RESTART_3D_GHOST = ("restart3dg", "IBM Flow over Cylinder", ["use_amr=true", *SPHERE_GHOST, "amr_max_level=2", "amr_refine_every=2"])
 
 
 def check_restart(spec=RESTART_2D):

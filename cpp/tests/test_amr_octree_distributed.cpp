@@ -90,7 +90,19 @@ struct Spec3 {
     KV kv;   // parameters (viscosity, body force, sources, IBM, boundary order)
     unsigned seed;
     bool remesh;
+    int band = 0;   // > 0: the ghost-cell wall, the tree refined around the body to that many finest cells (else a random tree)
 };
+
+// Refine `rounds` times every leaf within `margin` finest widths of the surface (the readiness rule of the ghost wall)
+void refine_around_body(CellMesh& m, const ImmersedBoundary& geo, int margin, int rounds) {
+    const int M = m.max_level;
+    const double reach = margin * std::max({m.dx(M), m.dy(M), m.dz(M)});
+    for (int r = 0; r < rounds; ++r) {
+        std::vector<char> f(static_cast<size_t>(m.num_leaves()), 0);
+        for (int c = 0; c < m.num_leaves(); ++c) f[c] = near_body_surface(geo, m, m.level[c], m.ci[c], m.cj[c], m.ck[c], reach);
+        m.adapt(f);
+    }
+}
 
 // The case on `ranks` ranks (0: the serial path without CellParallel) for `steps` steps, remeshed every 2 steps the replicated way
 // (the whole mesh back on every rank, CellAdaptor::remesh, partition again); `local`: each rank keeps only its share between remeshes.
@@ -106,7 +118,8 @@ Field run3(const Spec3& sp, int ranks, int steps, bool local, std::vector<int>* 
         setup_3d(*sims.back(), sp.bc, kv);
     }
     CellMesh base = octree_of(*sims[0], 2);
-    random_adapt(base, sp.seed, 3, 6, 30);
+    if (sp.band > 0) refine_around_body(base, sims[0]->ibm_factory(sims[0]->mesh), sp.band, 2);
+    else random_adapt(base, sp.seed, 3, 6, 30);
     FakeHub3 hub(R);
     std::vector<Field> result(static_cast<size_t>(R));
     std::vector<std::string> error(static_cast<size_t>(R));
@@ -119,12 +132,17 @@ Field run3(const Spec3& sp, int ranks, int steps, bool local, std::vector<int>* 
             for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state3(sim.fluid, m.xc(c), m.yc(c), m.zc(c));
             CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
             CellPhysics ph = physics_of(sim);
+            if (sp.band > 0) {
+                ph.ibm_ghost = true;
+                ph.ibm_slip = !sim.p.use_viscous;
+            }
             eng.set_physics(ph);
             eng.build(m);
+            if (sp.band > 0) CHECK(eng.ghost_ready());
             CellIndicator ind;
             ind.criterion = 0.02;
             CellAdaptor ad(m, eng, sim.fluid, ind);
-            if (sim.p.use_ibm) ad.set_body(sim.ibm_factory, 2);
+            if (sim.p.use_ibm) ad.set_body(sim.ibm_factory, sp.band > 0 ? sp.band : 2);
             std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4);
             std::unique_ptr<CellParallel> par;
             if (ranks > 0) {
@@ -164,6 +182,7 @@ Field run3(const Spec3& sp, int ranks, int steps, bool local, std::vector<int>* 
                     if (par && local) par->localize();
                 }
             }
+            if (sp.band > 0 && !(par && local)) CHECK(eng.ghost_ready());   // (the wall stayed active through the remeshes)
             if (par && retries && rank == 0) *retries = par->region_retries;
             if (par) {
                 held[static_cast<size_t>(rank)] = par->held_count();
@@ -206,7 +225,83 @@ const Spec3 kSpecs[] = {
      14u, true},
 };
 
+// The ghost-cell wall of a sphere: the tree refined around it so that the wall is active, slip (Euler) and no-slip (viscous)
+const Spec3 kGhostSpecs[] = {
+    {"immersed sphere (ghost wall), slip", {"vel_inlet", "outlet", "wall", "wall", "periodic", "periodic"},
+     {{"use_ibm", "true"}, {"ibm_method", "ghost"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"}, {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"},
+      {"ibm_cz", "0.47"}},
+     15u, true, 6},
+    {"immersed sphere (ghost wall), no-slip", {"vel_inlet", "outlet", "wall", "wall", "periodic", "periodic"},
+     {{"use_viscous", "true"}, {"mu", "0.02"}, {"use_ibm", "true"}, {"ibm_method", "ghost"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"},
+      {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"ibm_cz", "0.47"}},
+     16u, true, 6},
+};
+
 }   // namespace
+
+TEST(cellparallel3d_ghost_wall_equals_serial_bitwise) {
+    // The ghost-cell wall on a rank's share of an octree: the readiness is a collective fact of the whole mesh, the table holds the
+    // entries of the leaves the share has, the ghost leaves with images the share lacks are marked incomplete and widen the reach. Final
+    // state equal to the serial run's on 1 - 7 ranks, replicated and localized (whole-mesh remesh), and with the topology-free remesh
+    // (shadow check, first reach too small), the wall active throughout.
+    for (const Spec3& sp : kGhostSpecs) {
+        const Field serial = run3(sp, 0, 4, false);
+        for (const bool local : {false, true})
+            for (const int ranks : {1, 2, 3, 5, 7}) {
+                const Field dist = run3(sp, ranks, 4, local);
+                const bool same = bits_equal(serial, dist);
+                CHECK(same);
+                if (!same) std::printf("    %s on %d ranks (%s) differs from the serial run\n", sp.name, ranks, local ? "localized" : "replicated");
+            }
+        for (const int ranks : {1, 2, 3, 5, 7}) {
+            int retries = 0;
+            const Field dist = run3(sp, ranks, 4, true, nullptr, true, &retries);
+            const bool same = bits_equal(serial, dist);
+            CHECK(same);
+            if (!same) std::printf("    %s on %d ranks (topology-free remesh) differs from the serial run\n", sp.name, ranks);
+            if (ranks > 1) CHECK(retries > 0);
+        }
+        std::printf("    %s: serial == 1-7 ranks\n", sp.name);
+    }
+}
+
+TEST(cellparallel3d_ghost_images_lie_within_the_region_rings) {
+    // The reads of the ghost fill (the image leaves of a ghost leaf, from the leaves of the faces that read it) on trees refined around
+    // a sphere reach no further than the rings of the share's region (the table of cellparallel3d_halo_reach_lies_within_the_region_rings)
+    const auto table = [](int d) { return d < 0 ? 8 : (d == 0 ? 11 : (d == 1 ? 10 : (d == 2 ? 9 : 11))); };
+    int worst = 0;
+    for (const Spec3& sp : kGhostSpecs)
+        for (const int max_level : {2, 3}) {
+            Simulation sim;
+            KV kv = {{"nx", "8"}, {"ny", "6"}, {"nz", "5"}, {"reconstruction", "muscl"}};
+            kv.insert(kv.end(), sp.kv.begin(), sp.kv.end());
+            setup_3d(sim, sp.bc, kv);
+            CellMesh m = octree_of(sim, max_level);
+            refine_around_body(m, sim.ibm_factory(sim.mesh), sp.band, max_level);
+            m.U.resize(static_cast<size_t>(m.num_leaves()));
+            for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state3(sim.fluid, m.xc(c), m.yc(c), m.zc(c));
+            CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+            CellPhysics ph = physics_of(sim);
+            ph.ibm_ghost = true;
+            ph.ibm_slip = !sim.p.use_viscous;
+            eng.set_physics(ph);
+            eng.build(m);
+            CHECK(eng.ghost_ready());
+            const CellParallel::HaloReach hr = CellParallel::halo_reach(m, eng);
+            for (int k = 0; k < CellParallel::HaloReach::NumKinds; ++k)
+                for (int idx = 0; idx <= 2 * max_level; ++idx) {
+                    const int ring = hr.ring[k][static_cast<size_t>(idx)];
+                    if (ring < 0) continue;
+                    CHECK(ring <= table(idx - max_level));
+                    if (ring > table(idx - max_level))
+                        std::printf("    %s, %d levels: kind %d, level difference %d reaches %d rings (table %d)\n", sp.name, max_level + 1, k,
+                                    idx - max_level, ring, table(idx - max_level));
+                }
+            CHECK(hr.max(CellParallel::HaloReach::GhostImage) > 0);
+            worst = std::max(worst, hr.max(CellParallel::HaloReach::GhostImage));
+        }
+    std::printf("    ghost images reach %d rings\n", worst);
+}
 
 TEST(cellparallel3d_equals_serial_bitwise_for_any_rank_count) {
     // The distributed run of an octree (owners per level, halos from face_dependencies with six sides, registers of four finer faces,

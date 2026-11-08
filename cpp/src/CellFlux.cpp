@@ -100,8 +100,6 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
         (m.dim == 3 && per(Face::Front, Face::Back) != m.periodic_z))
         throw std::invalid_argument("CellFluxEngine: the periodic axes of the mesh and the boundary types differ");
     if (m.dim == 3) {   // what the octree engine does not do yet (docs/design/amr-octree.md, phase Q4)
-        if (has_body() && phys_.ibm_ghost && whole)
-            throw std::invalid_argument("CellFluxEngine: the ghost-cell wall on a rank's share of a 3-D adaptive mesh is not available yet");
         if (muscl_ && muscl_->scheme() == Reconstruction::Weno5)
             throw std::invalid_argument("CellFluxEngine: WENO5-Z is not available on an adaptive mesh");
     }
@@ -351,6 +349,18 @@ bool CellFluxEngine::same_special(const CellFluxEngine& o, const CellMesh* edge_
     return true;
 }
 
+// The finest-level cells -> leaves of the wall. In 2-D the table is the whole mesh's, cut to the kept leaves: equal. In 3-D a rank's
+// table is made from its own solid leaves, so it lacks the cells that only the ghost cells of other ranks read: its entries must be
+// among the other's, with the same leaf (the entries it has are the ones its fill and its solid reset look up).
+bool CellFluxEngine::same_fine_leaves(const CellFluxEngine& o) const {
+    if (dim_ != 3) return fine_leaf_ == o.fine_leaf_;
+    for (const auto& e : fine_leaf_) {
+        const auto it = o.fine_leaf_.find(e.first);
+        if (it == o.fine_leaf_.end() || it->second != e.second) return false;
+    }
+    return true;
+}
+
 bool CellFluxEngine::same_tables(const CellFluxEngine& o, const CellMesh* edge_mesh) const {
     const auto same_field = [](const Field& a, const Field& b) {
         return a.size() == b.size() && (a.empty() || std::memcmp(a.data(), b.data(), a.size() * sizeof(State)) == 0);
@@ -376,7 +386,7 @@ bool CellFluxEngine::same_tables(const CellFluxEngine& o, const CellMesh* edge_m
     ok = ok && dim_ == o.dim_;
     for (int s = 0; ok && s < 6; ++s) ok = mf_face_[s] == o.mf_face_[s] && mf_weight_[s] == o.mf_weight_[s];
     ok = ok && owned_mask_ == o.owned_mask_ && held_mask_ == o.held_mask_ && all_faces_ == o.all_faces_ && ghost_ready_ == o.ghost_ready_ &&
-         (!ghost_ready_ || (fine_leaf_ == o.fine_leaf_ && ghost_reads_leaf_ == o.ghost_reads_leaf_ && ghost_leaf_mask_ == o.ghost_leaf_mask_));
+         (!ghost_ready_ || (same_fine_leaves(o) && ghost_reads_leaf_ == o.ghost_reads_leaf_ && ghost_leaf_mask_ == o.ghost_leaf_mask_));
     return ok;
 }
 
@@ -952,7 +962,7 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
     ghost_leaf_mask_.assign(static_cast<size_t>(nleaf_), 0);
     if (!has_body() || !phys_.ibm_ghost) return;
     if (m.dim == 3) {
-        map_ghost_cells_3d(m);
+        map_ghost_cells_3d(m, whole);
         return;
     }
     const int M = m.max_level, NX = m.nx_at(M);
@@ -999,7 +1009,18 @@ bool near_body_surface(const ImmersedBoundary& body, const CellMesh& m, int leve
     return false;
 }
 
-void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m) {
+bool CellFluxEngine::ghost_band_violated(const CellMesh& m) const {
+    if (!has_body() || !phys_.ibm_ghost) return false;
+    if (!ibm_geo_) throw std::logic_error("CellFluxEngine::ghost_band_violated: no engine build has made the body's geometry yet");
+    const int M = m.max_level;
+    const double reach = 6.0 * std::max({m.dx(M), m.dy(M), m.dz(M)});
+    for (int c = 0; c < m.num_leaves(); ++c)
+        if (m.level[static_cast<size_t>(c)] < M && near_body_surface(*ibm_geo_, m, m.level[static_cast<size_t>(c)], m.ci[static_cast<size_t>(c)], m.cj[static_cast<size_t>(c)], m.ck[static_cast<size_t>(c)], reach))
+            return true;
+    return false;
+}
+
+void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m, const CellMesh* whole) {
     // The ghost-cell wall on octree leaves (docs/design/amr-octree.md 15.6): the table of the uniform finest level built sparsely
     // from the solid finest leaves, active when it is that table bit for bit and every cell it reads is a finest leaf.
     const int M = m.max_level, NX = m.nx_at(M), NY = m.ny_at(M), NZ = m.nz_at(M);
@@ -1009,9 +1030,16 @@ void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m) {
     // could lie in it. Every cell the wall reads has its centre within 6 finest widths of the wall (a ghost cell within 2 sqrt 3, an
     // image point at most 4 cells out and its interpolation cells within sqrt 3 of it): a coarser leaf must hold no finest cell whose
     // centre is that near (near_body_surface, the rule of the body band with margin 6).
-    const double reach = 6.0 * std::max({hf[0], hf[1], hf[2]});
-    for (int c = 0; c < m.level_begin[M]; ++c)
-        if (near_body_surface(geo, m, m.level[c], m.ci[c], m.cj[c], m.ck[c], reach)) return;   // not (yet) refined: the mask stays
+    // A rank's share (the readiness a collective fact of the whole mesh, given as `ghost_whole_ready_`, or looked up in `whole`) keeps
+    // the table entries of the leaves it has; a ghost leaf whose image leaves it lacks is marked incomplete (as in 2-D).
+    const bool known = ghost_whole_ready_ >= 0, part = known || whole;
+    if (known && ghost_whole_ready_ == 0) return;   // not (yet) refined: the mask stays
+    if (!known) {
+        const CellMesh& all = whole ? *whole : m;
+        const double reach = 6.0 * std::max({hf[0], hf[1], hf[2]});
+        for (int c = 0; c < all.level_begin[M]; ++c)
+            if (near_body_surface(geo, all, all.level[c], all.ci[c], all.cj[c], all.ck[c], reach)) return;   // not (yet) refined: the mask stays
+    }
     // 2) the table from the solid finest leaves, in cell order of the finest level
     if (static_cast<long long>(NX) * NY * NZ > 2147483647LL) return;
     std::vector<int> cand;
@@ -1026,13 +1054,25 @@ void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m) {
     for (const int fc : ghost_ib_->referenced_cells()) {
         const int leaf = m.find(M, fc % NX, (fc / NX) % NY, fc / (NX * NY));
         if (leaf < 0) {
+            if (part) continue;   // a rank's share does not hold every leaf
             fine_leaf_.clear();
             return;
         }
         fine_leaf_[fc] = leaf;
     }
-    for (const int g : ghost_ib_->ghost_cell_list()) ghost_leaf_mask_[static_cast<size_t>(fine_leaf_.at(g))] = 1;
-    for (const auto& pr : ghost_ib_->ghost_reads()) ghost_reads_leaf_.push_back({fine_leaf_.at(pr.first), fine_leaf_.at(pr.second)});
+    for (const int g : ghost_ib_->ghost_cell_list()) {
+        const auto it = fine_leaf_.find(g);
+        if (it != fine_leaf_.end()) ghost_leaf_mask_[static_cast<size_t>(it->second)] = 1;
+    }
+    for (const auto& pr : ghost_ib_->ghost_reads()) {
+        const auto a = fine_leaf_.find(pr.first), b = fine_leaf_.find(pr.second);
+        if (a != fine_leaf_.end() && b != fine_leaf_.end()) {
+            ghost_reads_leaf_.push_back({a->second, b->second});
+        } else if (a != fine_leaf_.end()) {
+            ghost_incomplete_.resize(static_cast<size_t>(nleaf_), 0);
+            ghost_incomplete_[static_cast<size_t>(a->second)] = 1;
+        }
+    }
     ghost_ready_ = true;
 }
 

@@ -11,7 +11,7 @@
 // On a 3-D mesh (CellMesh::make_3d) the residual runs on six sides (a side towards finer leaves has four faces) with the convective
 // and viscous terms (the expressions of NavierStokes::viscous_residual_3d, scalar), the body force, the sources, mass-flow inlets,
 // non-reflecting outlets and the immersed body (a leaf is solid by ImmersedBoundary::solid_at of its centre; the ghost-cell wall from a
-// sparse table of the finest level); only the ghost-cell wall on a rank's share is rejected there by build() (docs/design/amr-octree.md).
+// sparse table of the finest level).
 // The viscous terms use the same neighbour codes: the cell-centre gradients (central differences of the four
 // neighbouring values, virtual cells across a jump, the diffusive ghost at a physical edge) feed the cross
 // derivatives, the normal derivative of a face is the two-point difference over the distance of its two cell centres.
@@ -100,6 +100,9 @@ public:
     bool ghost_enabled() const { return has_body() && phys_.ibm_ghost; }
     std::vector<int> ghost_referenced_cells(const CellMesh& mesh);
     void set_ghost_whole_ready(int v) { ghost_whole_ready_ = v; }
+    // 3-D: some leaf of `mesh` coarser than the finest level lies near the surface (the readiness rule of the wall): a rank tests its
+    // own leaves and the ranks reduce the answer.
+    bool ghost_band_violated(const CellMesh& mesh) const;
     // True if the side s (Face) has a mass-flow inlet.
     bool mass_flow_side(int s) const { return bc_.type(static_cast<Face>(s)) == BCType::MassflowInlet; }
     // True if every table of the build (virtual cells, neighbour codes, stencils, per-level lists, solid mask, steady sources,
@@ -312,7 +315,8 @@ private:
     int ghost_whole_ready_ = -1;
     bool ghost_ready_ = false;
     void map_ghost_cells(const CellMesh& m, const CellMesh* whole);
-    void map_ghost_cells_3d(const CellMesh& m);   // the sparse table of the finest level from the solid finest leaves
+    void map_ghost_cells_3d(const CellMesh& m, const CellMesh* whole);
+    bool same_fine_leaves(const CellFluxEngine& o) const;   // the sparse table of the finest level from the solid finest leaves
     void fill_ghost_leaves(const Field& U, Field& out, const std::vector<char>* only) const;
     std::vector<std::vector<char>> level_mask_;   // cache: mask of the uniform mesh of each level (2-D)
     // 3-D: the body built once on the base mesh; a leaf is solid when ImmersedBoundary::solid_at of its centre says so (no mask

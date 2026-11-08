@@ -106,12 +106,12 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
     for (int c = 0; c < own.num_leaves(); ++c)
         seeds[static_cast<size_t>(own.level[static_cast<size_t>(c)])].push_back(
             {own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)], own.ck[static_cast<size_t>(c)]});
-    // the ghost-cell wall is active if the cells it reads are all finest-level leaves of the whole mesh (a collective count; 2-D: the 3-D
-    // wall of a distributed run is rejected by partition())
+    // the ghost-cell wall is active if the cells it reads are all finest-level leaves of the whole mesh (a collective fact: 2-D a count
+    // of the cells found, 3-D that no leaf coarser than the finest level lies near the surface, tested on the owned leaves)
     int ghost_hint = -1;
-    if (engine_.ghost_enabled() && dim == 3)
-        throw std::invalid_argument("CellParallel: the ghost-cell wall of a distributed 3-D adaptive run is not available yet (ibm_method = mask)");
-    if (engine_.ghost_enabled()) {
+    if (engine_.ghost_enabled() && dim == 3) {
+        ghost_hint = reduce_max(engine_.ghost_band_violated(own) ? 1.0 : 0.0) == 0.0 ? 1 : 0;
+    } else if (engine_.ghost_enabled()) {
         const std::vector<int> cells = engine_.ghost_referenced_cells(mesh_);
         const int NX = mesh_.nx_at(M);
         double found = 0.0;

@@ -148,7 +148,7 @@ direction (`docs/proposals/ibm-wall-treatment.md` has the study). The monitor's 
 cells, as with the mask (below); `ImmersedBoundary::surface_loads` integrates the true surface from probes at $d$ and $2d$ along the
 normal (for surface distributions; that integral is 1-3 % low).
 Under MPI each rank fills its own ghost cells and fetches the few cells of other strips their image points read, so the result is
-identical for any number of ranks (also in 3-D); with AMR the finest-level band around the body is widened to the ghost stencils (2-D; a 3-D adaptive run uses the ghost wall serially only).
+identical for any number of ranks (also in 3-D); with AMR the finest-level band around the body is widened to the ghost stencils (2-D; in 3-D the band is six finest cells wide, and the wall is active once no leaf coarser than the finest level lies within that reach of the surface, a fact the ranks settle together).
 In 3-D there are no surface samples (`surface_loads` is zero): the monitor loads are the momentum flux into the solid cells, which is dimension independent.
 
 **Curvature correction (`ibm_curvature`, 2-D slip walls).** The zero normal gradient of the pressure is a first-order error on a curved wall, where

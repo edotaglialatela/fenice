@@ -34,8 +34,6 @@ void CellParallel::partition(const CellMesh* whole, const GlobalFacts* facts) {
 
 bool CellParallel::partition_local(const CellMesh* whole, const GlobalFacts* facts) {
     if (localized_) throw std::logic_error("CellParallel::partition: the mesh is localized (globalize() first)");
-    if (mesh_.dim == 3 && engine_.ghost_enabled())
-        throw std::invalid_argument("CellParallel: the ghost-cell wall of a distributed 3-D adaptive run is not available yet (ibm_method = mask)");
     // `whole`: the mesh is a partial one (CellMesh::build_from) and the splitters, the levels present and the global indices of the
     // blocks are those of the whole mesh; a face that reads what the rank does not keep makes this return false (nothing
     // communicated yet), on a whole mesh it is an error

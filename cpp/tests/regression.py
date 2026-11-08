@@ -200,6 +200,9 @@ CASES = {
     "amr3d_sphere_mask":   ("IBM Flow over Cylinder", dict(nx=24, ny=12, nz=6, Lz=1.0, use_mpi=False, ibm_shape="Sphere", ibm_cz=0.5,
                                                            ibm_radius=0.3, bc_front="wall", bc_back="wall", use_amr=True,
                                                            amr_max_level=1, amr_refine_every=3, max_steps=6)),
+    "amr3d_sphere_ghost":  ("IBM Flow over Cylinder", dict(nx=24, ny=12, nz=6, Lz=1.0, use_mpi=False, ibm_shape="Sphere", ibm_cz=0.5,
+                                                           ibm_radius=0.3, bc_front="wall", bc_back="wall", use_amr=True, ibm_method="ghost",
+                                                           amr_max_level=1, amr_refine_every=3, max_steps=6)),
 }
 # Cases also run under MPI (AMR: replicated mesh, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
@@ -211,7 +214,7 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk3_visc", "cavity_periodi
              "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_square_rk3", "amr_weno3_rk3", "amr_bo2_walls", "amr_bo2_weno3", "amr_cavity_b2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "amr_hot_start_from_amr", "hot_start_from_amr", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
              "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2", "cavity3d_noslip_z_b2", "cavity_xdecomp_b2", "cavity3d_xdecomp_b2",
-             "amr3d_sod_muscl", "amr3d_mms", "amr3d_tgv_box", "amr3d_sphere_mask"]
+             "amr3d_sod_muscl", "amr3d_mms", "amr3d_tgv_box", "amr3d_sphere_mask", "amr3d_sphere_ghost"]
 
 
 def riemann_case_file(k, tmp):

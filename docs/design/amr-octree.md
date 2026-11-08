@@ -714,7 +714,7 @@ centres `x0_box + (i + 0.5) dx` are not the bits of `x0 + (I0 + i + 0.5) dx`. As
 ### 15.7 Not in Q4
 The AVX2 twin of the 3-D viscous kernels (the "keep it only if faster" rule needs a measurement on real 3-D runs: Q8); `face_dependencies`
 already marks the six neighbours of both cells (gradients, `boundary_order = 2` tangential faces, outlet tangents) through the generic `ns_` loops,
-but it is untested in 3-D until Q6; the ghost wall on a rank's share (Q6).
+but it is untested in 3-D until Q6; the ghost wall on a rank's share (Q8b, section 20).
 
 ## 16. Phase Q5 as built (2026-11-07): indicator, remesh, body band and hot-start helpers in 3-D
 
@@ -811,7 +811,7 @@ and the CLI (Q6/Q7); the deep body interior at the finest level (not kept in 3-D
   tables), the sources carried through the migration with the state, a tighter reach per kind of read, larger blocks per rank.
 
 ### 17.4 Not in Q6
-The ghost-cell wall on a rank's share (its readiness and its table on a partial mesh), the I/O of Q7 (snapshots, checkpoints, resume,
+The ghost-cell wall on a rank's share (its readiness and its table on a partial mesh: Q8b, section 20), the I/O of Q7 (snapshots, checkpoints, resume,
 hot start, post-processing), the cost of 17.3 (Q8).
 
 ## 18. Phase Q7 as built (2026-11-08): the files of an octree run
@@ -848,7 +848,7 @@ hot start, post-processing), the cost of 17.3 (Q8).
 * The 2-D goldens (default), the regression, `ibm_ghost`, `postprocess` and the unit tests (190) are unchanged.
 
 ### 18.3 Not in Q7
-Body loads and force rows of a 3-D adaptive run, the ghost-cell wall on a rank's share (Q6.4), the cost of the distributed 3-D remesh (17.3):
+Body loads and force rows of a 3-D adaptive run, the ghost-cell wall on a rank's share (done in Q8b, section 20), the cost of the distributed 3-D remesh (17.3):
 the Q8 list.
 
 ## 19. Phase Q8a (2026-11-08): what the octree costs and gives on the sphere
@@ -920,8 +920,9 @@ Calibration: the octree with nothing refined against the uniform solver (mask, 1
   ghost wall moves more because the 10-cell mesh does not resolve the boundary layer; it ends at 1.364 at 20 cells per D, the mask at 1.317,
   and two meshes cannot say which is nearer the limit. The 20 -> 40 octree runs that would settle it were not run (deferred, 1-2 h each);
   `run --include-40` does them.
-* `ibm_method = auto` stays `mask` in 3-D: the ghost wall is rejected on rank shares (Q6), so flipping the default would make it depend on
-  the rank count. The agreement with the uniform solver supports flipping it once the wall exists on shares.
+* `ibm_method = auto` stays `mask` in 3-D. The ghost wall is now available on rank shares (section 20), so a flip would no longer depend on
+  the rank count; the agreement with the uniform solver supports it. It changes the results of every 3-D body run that leaves the key at
+  `auto`, so it is the user's decision (section 20.4).
 
 ### 19.5 Reading and what is not measured
 
@@ -931,9 +932,64 @@ Calibration: the octree with nothing refined against the uniform solver (mask, 1
   unsteady wake. One accuracy run each (the solver is deterministic); timings are the minimum of three.
 * The whole-run ratios (19.1) include the start-up, in which the leaf count grows; the steady-state ratios (19.2) are the lower ones.
 
-### 19.6 What 8b would be (for the user to decide)
+### 19.6 What 8b was proposed to be, and what the profile showed
 
-1. The remesh on ranks in steady state: skip the fetch when no flag changes (the `gather` and `indicator` rows of 19.3 are paid at every
-   remesh) and build the share incrementally when few leaves change. This is what limits MPI; it does not change one-node speed.
-2. The ghost-cell wall on a rank's share, then `auto` = ghost in 3-D.
+The first proposal (skip the fetch when no flag changes; build the share incrementally) was wrong on two counts. The flags are computed from
+the fetched region, so the fetch cannot be skipped; and a remesh that changes no leaf already returns before the rebuild
+(`CellParallel::remesh`). The share engine is 0.6-0.8 s of the 9.1 s remesh below, so an incremental engine build would save under 8 %.
+The profile that replaced it is in section 20.1.
+
+1. The remesh on ranks: section 20.1 (not done; no cheap change reaches the stopping rule).
+2. The ghost-cell wall on a rank's share: section 20.2-20.3 (done). `auto` = ghost in 3-D: section 20.4 (the user's decision).
 3. Optionally the 20 -> 40 self-convergence, and the body-load rows of a 3-D adaptive run.
+
+## 20. Phase Q8b (2026-11-08): the remesh profile and the ghost-cell wall on a rank's share
+
+### 20.1 The remesh on ranks: where the time goes (not changed)
+
+Re 20 sphere, base 5 cells / D, 2 levels, mask, 8 ranks, 200 steps resumed from the settled state, `FENICE_PROFILE=1`: time step 8.1 s, remesh
+9.1 s (50 remeshes, 23 of which change leaves). Remesh parts: region fetch 1.8-2.0 s, flags (indicator) 1.4-1.6 s, topology 0.37 s, migrate
+0.18 s, rebuild 4.75 s, partition 0.40 s. Inside the rebuild: `fetch_leaves` about 1.6 s, region mask 0.6-0.8 s, partial mesh 0.65 s, engine
+build 0.62-0.77 s, partition 0.2 s, localize 0.26 s. In all 73 `fetch_leaves` calls (3.4-3.7 s): frontier lists and their sorts 1.0-1.4 s, the
+exchange of the asks 0.5-1.1 s (mostly waiting for the other ranks), asks 0.35 s, finding the answers 0.3 s, assembling the partial mesh 0.3 s.
+
+A first cheap change (pushing consecutive duplicate ancestors once before the sort) moved the frontier time by less than the spread between
+ranks and was dropped. With the remesh at zero the 8-rank run would take about 7.6 s per unit time (stepping alone, against 10.8 on 16 OpenMP
+threads); halving it gives 11.8. Reaching the remesh share below 30 % needs a different fetch (the region of a rank is mostly its own leaves,
+so only the border needs asking; the lists of every cell of the region are built and sorted today) and a share that is edited rather than
+rebuilt: both are larger than a local change and neither is started. In a settled flow 23 of 50 remeshes change leaves because the indicator
+flickers at its threshold; a hysteresis in the indicator would remove most rebuilds, but it changes results, so it is a numerics choice for the
+user and is not implemented.
+
+### 20.2 The ghost-cell wall on a rank's share
+
+* Readiness is a fact of the whole mesh. In 2-D it is the count of referenced cells found as finest leaves; in 3-D it is the rule of the serial
+  engine: no leaf coarser than the finest level lies near the surface (`near_body_surface`, reach six finest widths). A rank tests its owned
+  leaves (`CellFluxEngine::ghost_band_violated`) and the ranks reduce the answer (`build_share_fetched`), so all ranks pick the same wall.
+  A share built from a whole topology (`build_share`, resume) looks the rule up in that mesh.
+* The table is the sparse one of Q4e made from the solid finest leaves the share has. Its entries are those of the serial table for these
+  leaves, so the ghost states filled are the serial ones. A ghost leaf whose image leaves the share lacks is marked incomplete (as in 2-D), and
+  the partition then asks for a wider reach (the retry path). The cells that only the ghost cells of other ranks read are not in the table of
+  a rank; the shadow check therefore compares the entries a share has, with the same leaf, and the ghost pairs and mask in full.
+* The guards of Q6 (`partition_local`, `build_share_fetched`, `CellFluxEngine::build`) are removed. The wall needs no change of the loads: the
+  monitor's Fx and Cd come from the residual of the solid cells, as with the mask.
+* Reach: the ghost images read at most 8 rings of the owner's level (measured on trees of three and four levels, slip and no-slip, with the
+  table of the halo-reach test as the bound); the region of a share asks `8 + extra` rings of the finest level around a body, which holds them.
+
+### 20.3 Tests
+
+* `cellparallel3d_ghost_wall_equals_serial_bitwise`: a sphere with the wall active (tree refined six finest cells around it, slip and
+  no-slip): serial == 1, 2, 3, 5, 7 ranks, replicated and localized (whole-mesh remesh), and the topology-free remesh with the shadow check
+  and a first reach too small (the retry runs); the wall active through the remeshes on every rank.
+* `cellparallel3d_ghost_images_lie_within_the_region_rings`: the halo reach with the ghost images against the table.
+* Mutation: not marking the incomplete ghost leaves is caught (the share differs from the one cut from the whole mesh, and the state differs).
+* `amr_mpi.py --check`: `sphere3d_ghost` (24 x 12 x 6, 2 levels, 30 steps, serial == 1-7 ranks, bitwise) and the restart `restart3dg`
+  (1->3, 3->5, 4->2, 2->7). Regression reference `amr3d_sphere_ghost` (the 75th; serial and 4 ranks). On the Q8a sphere (Re 20, base 5, 2
+  levels, viscous, 60 steps) the state, Cd and Fx are bitwise equal to the serial run on 2, 3 and 4 ranks.
+* Unit tests 192, check_all with the 2-D goldens bitwise unchanged.
+
+### 20.4 `ibm_method = auto` in 3-D (not changed)
+
+The evidence of 19.4 and the wall on ranks are both there. Flipping `auto` to `ghost` for `nz > 1` changes the results of every 3-D body run that
+leaves the key at `auto`: in the references `sphere3d_ibm_visc` and `amr3d_sphere_mask` (both would be regenerated). It is
+a change of default numerics, left to the user. The flip would be one line in `Params.cpp` plus those two references.
