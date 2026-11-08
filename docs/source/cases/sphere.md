@@ -40,6 +40,8 @@ steady and symmetric.</figcaption>
 * The two methods have not met at 20 cells per diameter (3.51 against 3.39); a third mesh would be needed to say where each is going.
 * The serial and distributed runs of the sphere agree bit for bit (`ibm_ghost.py --check`, 2 to 7 ranks).
 
+On the adaptive octree (`cases/validation/amr/octree_q8.py`) the same sphere at an equal finest resolution of 20 cells per diameter gives $C_d$ within 0.3 % (Re 20) and 0.9 % (Re 100) of the uniform solver with the mask, and within 0.1 % with the ghost wall, in 0.2-0.3 of the time and with 72 k leaves against 432 k cells; see [AMR]({{root}}modules/AMR.html).
+
 ## Related
 
 The sphere is also a regression reference of the sharp wall and of the 3-D adaptive mesh (see [AMR]({{root}}modules/AMR.html)).

@@ -228,6 +228,21 @@ stepping alone keeps scaling up to 16 ranks (2.68 s on 2, 1.09 s on 16) while th
 Right: time stepping and remesh. Every final state is bit for bit the serial one.</figcaption>
 </figure>
 
+### 3-D octree against the uniform solver (sphere)
+
+The sphere of the [sphere case]({{root}}cases/sphere.html) (diameter 1 in a 6 × 3 × 3 channel, Mach 0.3, run to $t = 30$, 16 threads),
+octree and uniform solver at the same finest resolution (`cases/validation/amr/octree_q8.py`):
+
+| finest resolution 20 cells / D | Re 20, mask | Re 20, ghost wall | Re 100, mask | Re 100, ghost wall |
+|---|---:|---:|---:|---:|
+| $C_d$ difference to the uniform solver | 0.19-0.27 % | 0.04 % | 0.25-0.84 % | 0.02-0.11 % |
+| time loop, octree / uniform | 0.20-0.21 | 0.24-0.25 | 0.24-0.27 | 0.30-0.32 |
+
+The octree at Re 20 ends with 72 k leaves (5 cells / D on the base mesh, 2 levels) against 432 k uniform cells. In steady state (200 steps resumed
+from the settled run) the octree needs 0.21 of the uniform time on 16 threads and 0.27-0.33 on one thread; memory is 98 MB (139 MB at the
+remesh peak). On MPI the remesh limits the speed-up: 2.8× on 8 ranks (1.4× on 2) with the remesh at 18-52 % of the time loop, against 4.3× on
+16 OpenMP threads. The peak memory per rank stops falling at 80-90 MB (the remesh fetches), the share itself at 42-55 MB on 8 ranks.
+
 {{widget:AMR}}
 
 ### References
