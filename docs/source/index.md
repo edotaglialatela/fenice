@@ -9,17 +9,28 @@ order: 0
 solver for the **Euler and Navier-Stokes equations** in 2-D and 3-D, written in C++17 with OpenMP threading and MPI
 domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz > 1`.
 
-* **Spatial schemes:** HLLC, Low-Mach HLLC (Thornber) and preconditioned HLLC
-  (Weiss-Smith) Riemann solvers, with 2nd-order MUSCL and four TVD limiters.
-* **Physics:** ideal and stiffened-gas EOS, Navier-Stokes viscous fluxes, body
-  forces, and an immersed boundary method for cylinders, spheres and airfoils (NACA
-  4-digit or any coordinate file), with lift / drag / moment monitoring.
-* **Time integration:** Explicit Euler, SSP-RK2 and SSP-RK3.
-* **Mesh:** uniform 2-D or 3-D Cartesian grids. Cell-based AMR (2-D quadtree, 3-D octree) refines single
-  cells and adds subcycling, conservative flux replacement and 2:1 balance.
-* **I/O:** VTK output for ParaView, plus `.npz` checkpoints with restart and
-  hot-start mapping between resolutions.
-* **GUI:** a PyQt6 setup dialog that configures and launches the solver.
+* **Numerics:** HLLC, Low-Mach and preconditioned Riemann solvers; first order, MUSCL (four TVD limiters) or WENO3-Z / WENO5-Z
+  reconstruction, with second-order boundary faces; Explicit Euler, SSP-RK2 and SSP-RK3. See [Schemes]({{root}}modules/Schemes.html)
+  and [TimeScheme]({{root}}modules/TimeScheme.html).
+* **Physics:** ideal and stiffened-gas EOS, Navier-Stokes, body forces, source terms, and immersed bodies (cylinder, sphere, airfoil)
+  with a sharp ghost-cell wall or a mask, with load monitoring. See [Physics]({{root}}modules/Physics.html).
+* **Meshes:** uniform 2-D / 3-D grids and cell-based adaptive refinement (quadtree, octree) with subcycling. See
+  [AMR]({{root}}modules/AMR.html).
+* **Parallelism:** OpenMP and MPI; the result does not depend on the number of threads or ranks, also for adaptive meshes. See
+  [Testing]({{root}}guide/testing.html) for the tests that prove it.
+* **I/O and tools:** VTK output, bitwise restart and hot start ([IO]({{root}}modules/IO.html)), a PyQt6 workbench
+  ([GUI]({{root}}guide/gui.html)), and the validation studies ([Validation]({{root}}guide/validation.html)).
+
+## Where to read what
+
+| You want to | Read |
+|---|---|
+| build and run a case | [Getting started]({{root}}guide/getting-started.html), [Parameters]({{root}}guide/parameters.html) |
+| write your own case | [Writing a test case]({{root}}guide/writing-cases.html) |
+| know what a module does | the Modules pages (one per header, with its API) |
+| see results against exact solutions or data | the Test cases pages and [Validation]({{root}}guide/validation.html) |
+| check that a change did not move the numerics | [Testing]({{root}}guide/testing.html) |
+| make a run faster | [Performance]({{root}}guide/performance.html), [Switches]({{root}}guide/switches.html) |
 
 ## Quick start
 
@@ -95,9 +106,9 @@ The orchestration lives in [Simulation]({{root}}modules/Simulation.html).
 | `cpp/tests/` | Unit tests (`fenice_tests`), regression references and `regression.py` |
 | `cases/` | Test cases, one folder with a `case.toml` each ([Writing a test case]({{root}}guide/writing-cases.html)) |
 | `cpp/third_party/` | toml++ and TinyExpr (case files) |
-| `gui/` | PyQt6 setup dialog and launcher |
+| `gui/` | PyQt6 workbench and launcher |
 | `python/fenice/` | Python package shared by the GUI, validation and docs tools: finds and runs the solver, reads its output |
-| `cases/validation/` | One script per validation study, grouped in `verification/`, `benchmarks/`, `amr/`, `features/`; results in `results/validation/<study>/` ([Testing]({{root}}guide/testing.html)) |
-| `docs/` | This documentation: `docs/source/` and `docs/img/`, built into `docs/site/` by `python docs/build.py` |
+| `cases/validation/` | One script per validation study, grouped in `verification/`, `benchmarks/`, `amr/`, `features/`; results in `results/validation/<study>/` ([Validation]({{root}}guide/validation.html)) |
+| `docs/` | This documentation, plus `docs/design/` and `docs/proposals/` (see `docs/README.md`): `docs/source/` and `docs/img/`, built into `docs/site/` by `python docs/build.py` |
 | `build/` | Builds: `build/release/`, `build/debug/` |
 | `results/` | Simulation output (not in git) |

@@ -99,9 +99,9 @@ benefit, the risk to the bit-reproducibility rule, and a size. The user decides 
 
 * Done (2026-11-09): `amr-distributed-handoff.md` removed (a phase-2 hand-over note; the facts are in `amr-distributed.md`, section 8, and the one
   reference to it was repointed); the status lines of the four design files and of the IBM and viscous-step proposals brought up to date; a
-  `docs/README.md` indexes `design/` and `proposals/` with their status; README and CLAUDE.md counts fixed. The repeated run commands and
-  bands of the validation pages were left: they sit next to the results they judge, and moving them to the script docstrings would split
-  each page from its numbers.
+  `docs/README.md` indexes `design/` and `proposals/` with their status; README and CLAUDE.md counts fixed. The validation material that was
+  mixed into `testing.md` is now its own page, `guide/validation.md` (see `paper-restructure.md`, part A); the index page lost its second feature
+  list and the shock-blend definition lives in `parameters.md` only.
 
 * `CLAUDE.md` is still untracked (ignored by .gitignore; tracking it is the owner's decision). It is long and had internal contradictions (reference counts 74 / 55 / 38, a path typo); the counts and
   the typo are fixed (the count is the number of files in `cpp/tests/reference/`). Open: keep the invariants (bit-reproducibility, the

@@ -29,13 +29,6 @@ after interpolation.
 (`method='linear'`, `bounds_error=False`, `fill_value=None`). The same interpolator fills
 AMR ghost layers from coarser neighbours.
 
-<figure style="margin:1em 0;">
-<img src="{{root}}img/cylinder_mesh_transition.gif" style="width:100%">
-<figcaption>Loads across a hot start: the 400×200 run of the loads study ($t \le 80$, developed street), then 800×400 mapped
-from its checkpoint for three more time units. Shedding carries on without a new start-up transient. After a short
-drag spike while the field adapts to the finer mask, C<sub>l</sub> has an amplitude of 0.21 (0.17 on the coarse mesh
-over the last two time units, where it is still decaying slowly) and C<sub>d</sub> averages 1.43 (1.40 on the coarse mesh)
-(<code>cases/validation/features/cylinder_mesh_transition.py</code>).</figcaption>
-</figure>
+A worked example, with the loads across a 400×200 → 800×400 hot start, is on the [cylinder page]({{root}}cases/cylinder.html).
 
 {{api}}

@@ -24,7 +24,7 @@ encoding together, with no exact solution of the real problem needed.
 
 ## The source term in the solver
 
-The source is part of the case file ([Parameters]({{root}}guide/parameters.html#source-terms-manufactured-solutions)):
+The source is part of the case file ([Parameters]({{root}}guide/parameters.html#source-terms)):
 
 ```toml
 [source]
