@@ -1,6 +1,6 @@
 # Paper restructure: outline proposal
 
-Status: approved by the owner on 2026-11-09 and being carried out, docs site first (part A below), then the paper (part B). Decisions:
+Status: approved by the owner on 2026-11-09 and carried out (section "Carried out" at the end), docs site first (part A below), then the paper (part B). Decisions:
 keep all verification and validation, shown shorter where less relevant (a table instead of a figure); the viscous time-step coefficient in
 the paper is corrected to the solver's. The Q8 results of the octree work are in, so the counts can be regenerated at the end. The current sections (from `main.tex`) are:
 Introduction, Software structure, Governing equations and discretisation (equations, mesh, solvers and reconstruction, fully discrete
@@ -80,3 +80,15 @@ Back up `fenice_paper/` first; reorder with a script that cuts at the section ma
 that every `\label` and `\cite` key survives; only then merge duplicates. Build with pdflatex, bibtex, pdflatex, pdflatex. Counts are
 regenerated last (reference states 75, unit tests 192, the fault-injection numbers), and the sources appendix lists the tracked files
 including the split ones (`Simulation*.cpp`, `CellFluxResidual.cpp`, `ViscousBound.hpp`, `parameter_table`).
+
+# Carried out (2026-11-09)
+
+* Part A: `guide/validation.md` split from `testing.md`; `index.md` current and with a reading map; README Run / GUI / Adding-a-case
+  sections shortened; the hot-start figure and the shock-blend definition kept on one page each; one broken anchor fixed. The site
+  builds and all 3122 links and anchors resolve. Verbatim repetition was small, so the gain is mostly structure and removed stale text.
+* Part B: the paper (outside the repository, backup `fenice_paper_backup_2026-11-09`) now reads Introduction, Bitwise reproducibility,
+  Software structure (with the graphical interface as a subsection), Numerical method, Cell-based AMR (new subsection on the octree with
+  the Q8 measurements), Code verification, Validation, Performance, Limitations, Conclusions. Counts (75 reference states), the abstract,
+  highlights, contributions, limitations and the sources appendix were updated; 40 pages, no undefined references. The viscous
+  time-step coefficient was already the solver's. Not done: re-running the fault-injection and mutation studies on the current sources
+  (their numbers are those of 2026-11-01 and 2026-11-03), and the Trixi.jl comparison results.
