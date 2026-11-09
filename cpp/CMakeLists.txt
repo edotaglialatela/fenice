@@ -23,6 +23,7 @@ add_library(fenice_core STATIC
   src/SolutionMapping.cpp
   src/CellMesh.cpp
   src/CellFlux.cpp
+  src/CellFluxResidual.cpp
   src/CellAdvance.cpp
   src/CellRemesh.cpp
   src/CellParallel.cpp

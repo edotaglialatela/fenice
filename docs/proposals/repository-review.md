@@ -1,6 +1,6 @@
 # Repository review: structural improvements and future-proofing
 
-Status: items 4 and 7 implemented (2026-11-09), the CLAUDE.md part of item 8 done, items 5 and 6 decided (no work); item 1 done (viscous bound, step length), items 2, 3, 9 open. Based on the file sizes and layout of the repository at the 3-D octree Q7 commit and on the
+Status: items 4 and 7 implemented (2026-11-09), the CLAUDE.md part of item 8 done, items 5 and 6 decided (no work); item 1 done (viscous bound, step length), items 3, 9 open. Based on the file sizes and layout of the repository at the 3-D octree Q7 commit and on the
 invariants written down in `CLAUDE.md`; it is a map of candidates, not an audit line by line. Each item gives the evidence, the
 benefit, the risk to the bit-reproducibility rule, and a size. The user decides what goes ahead.
 
@@ -23,6 +23,12 @@ benefit, the risk to the bit-reproducibility rule, and a size. The user decides 
   expression at a time.
 
 ## 2. Very large translation units
+
+* Done (2026-11-09): `Simulation.cpp` (2823 lines) is now `Simulation.cpp` (setup, initial field, residual assembly), `SimulationRestart.cpp`
+  (checkpoint, hot start, final dump) and `SimulationRun.cpp` (monitors, serial / AMR / MPI time loops), with the shared helpers and the
+  post-processing writer in the internal headers `SimulationInternal.hpp` / `SimulationPostprocess.hpp`; `CellFlux.cpp` (2133) is now the
+  face-list build (`CellFlux.cpp`) and the residual kernels (`CellFluxResidual.cpp`). Moves only: golden dumps bitwise equal in the three
+  modes, regression and unit tests unchanged. `Physics.cpp` (1273) was left as is.
 
 * Evidence: `Simulation.cpp` 2807 lines, `CellFlux.cpp` 2094, `Physics.cpp` 1273. `CellParallel` was already split in four files with
   good results.

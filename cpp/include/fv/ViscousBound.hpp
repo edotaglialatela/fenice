@@ -7,6 +7,10 @@
 
 namespace fv {
 
+// Weights of the viscous stress: tau_xx = mu (4/3 du_n - 2/3 (sum of the other derivatives)).
+constexpr double kMuDiag = 4.0 / 3.0;
+constexpr double kMuOff = 2.0 / 3.0;
+
 // D = max(4/3 mu/rho, k/(rho c_v)) + 1e-12, the diffusivity of the viscous stencil (k_cond (gamma - 1) / rho = k / (rho c_v) for the
 // ideal gas).
 inline double viscous_nu_eff(double mu, double k_cond, double gamma, double rho) {
