@@ -1,4 +1,4 @@
-// AMR in three dimensions, phase Q6 (docs/design/amr-octree.md): the distributed run of an octree (ranks emulated by threads).
+// AMR in three dimensions, phase Q6: the distributed run of an octree (ranks emulated by threads).
 // Part of the unit tests: see test_common.hpp for the harness; test_main.cpp holds main().
 #include "test_amr_common.hpp"
 

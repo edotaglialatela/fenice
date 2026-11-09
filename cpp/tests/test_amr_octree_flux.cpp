@@ -1,4 +1,4 @@
-// AMR in three dimensions, phase Q2 (docs/design/amr-octree.md): the convective residual of CellFluxEngine on octree leaves.
+// AMR in three dimensions, phase Q2: the convective residual of CellFluxEngine on octree leaves.
 // Part of the unit tests: see test_common.hpp for the harness; test_main.cpp holds main().
 #include "test_amr_common.hpp"
 

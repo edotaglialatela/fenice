@@ -1,7 +1,7 @@
 // Adaptation of a CellMesh from the solution: the face-variation indicator, the flags it gives, the
 // finest-level band around an immersed body, and the remesh / initial adaptation drivers.
 //
-// Indicator (docs/design/amr-cell-based.md section 11):
+// Indicator:
 // It is evaluated level by level on the cells of each level (the leaves of that level and the split ancestors of the deeper
 // leaves, a split cell holding the mean of its children: 4 in 2-D, 8 in 3-D, which has 6 sides and a periodic z), so a parent has
 // its own xi at the parent level:

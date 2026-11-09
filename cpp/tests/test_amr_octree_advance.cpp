@@ -1,4 +1,4 @@
-// AMR in three dimensions, phase Q3 (docs/design/amr-octree.md): CellAdvance (subcycling with flux replacement) on octree leaves.
+// AMR in three dimensions, phase Q3: CellAdvance (subcycling with flux replacement) on octree leaves.
 // Part of the unit tests: see test_common.hpp for the harness; test_main.cpp holds main().
 #include "test_amr_common.hpp"
 

@@ -215,7 +215,7 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
     // Speed that bounds the explicit time step. The convective eigenvalue (2 S / L) and the viscous one share one
     // stability budget. The viscous decay rate of the stencil (Fourier bound, frozen coefficients, uniform mesh) is
     // 4 D (1/dx^2 + 1/dy^2) with D = max(4/3 nu, kappa / (rho c_v)): the longitudinal stress mode and the energy mode
-    // (c_v = 1 / (gamma - 1) in the units of T = p / rho; docs/proposals/viscous-timestep-stability.md). The viscous
+    // (c_v = 1 / (gamma - 1) in the units of T = p / rho). The viscous
     // eigenvalue counts twice (a manufactured solution with mu = 0.02 is unstable at CFL 0.5 with the plain sum):
     // dt (2 S / L + 4 D sum 1/h^2) <= 2 CFL, so the solver divides CFL L by S = (|u| + c) + 2 L D sum 1/h^2 of the
     // worst cell. A maximum over cells is the same on any partition

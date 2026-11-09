@@ -261,7 +261,7 @@ TEST(cellparallel_equals_serial_bitwise_for_any_rank_count) {
 }
 
 TEST(cellparallel_localized_run_equals_serial_bitwise_and_keeps_only_its_halo) {
-    // Phase 2 of docs/design/amr-distributed.md: after partition() each rank keeps only its owned leaves and the halo
+    // Distributed storage: after partition() each rank keeps only its owned leaves and the halo
     // (CellParallel::localize), steps and remeshes on them (globalize() before the replicated remesh), and the final state is the
     // serial one bit for bit, with every physics of the replicated test.
     const BCType per = BCType::Periodic;
@@ -403,7 +403,7 @@ TEST(cellparallel_distributed_init_equals_serial_init_bitwise) {
 }
 
 TEST(fetch_leaves_returns_exactly_the_leaves_of_a_region_from_the_owners) {
-    // Phase 6 of docs/design/amr-distributed.md: the leaves of the mesh that intersect a region (boxes of cells of one level, a range
+    // The leaves of the mesh that intersect a region (boxes of cells of one level, a range
     // of leaf levels) are fetched from the owners, each answering from its own leaves only: the set and the state are those a brute-force
     // search of the whole mesh finds, for any partition, periodicity and region.
     const BCType per = BCType::Periodic;
@@ -580,7 +580,7 @@ static unsigned leaf_hash(int l, int i, int j, unsigned seed) {
 }
 
 TEST(topology_free_adapt_equals_whole_mesh_adapt_on_random_flags) {
-    // docs/design/amr-distributed.md section 14: random refine / coarsen flags (a hash of the leaf, the same for any partition) on random
+    // The remesh without a whole-mesh topology: random refine / coarsen flags (a hash of the leaf, the same for any partition) on random
     // balanced meshes: the leaves and the state the ranks make, with no rank holding the whole topology, are those of CellMesh::adapt
     // on the whole mesh, bit for bit. Counted, so that the test cannot pass without meeting a ripple that crosses a rank boundary
     // twice, a sibling group split over ranks, and a merge another rank's refinement blocks.
@@ -861,7 +861,7 @@ TEST(a_partial_mesh_throws_when_a_face_reads_a_leaf_it_does_not_keep) {
 }
 
 TEST(halo_reach_bounds_the_halo_of_any_partition) {
-    // Phase 0 of docs/design/amr-distributed.md: CellParallel::halo_reach measures every read of a distributed run from the leaf
+    // CellParallel::halo_reach measures every read of a distributed run from the leaf
     // whose owner makes it, independently of the partition. The real halo of partition() on 1-16 emulated ranks must lie in
     // the geometric halo it defines (every halo leaf within the reach, for its level difference, of an owned leaf), the mass-flow
     // side leaves apart (read on every rank). Guards the reach a halo by region (phase 4) will use: if a new read is added to
@@ -956,7 +956,7 @@ TEST(halo_reach_bounds_the_halo_of_any_partition) {
         if (outside) std::printf("    %s: %d halo leaves outside the reach\n", sp.name, outside);
         if (ghost) CHECK(hr.max(CellParallel::HaloReach::GhostImage) > hr.max(CellParallel::HaloReach::Interior));
     }
-    // the reach measured on these meshes (four levels; rings of the driver's level, docs/design/amr-distributed.md section 3.2):
+    // the reach measured on these meshes (four levels; rings of the driver's level):
     // a stencil that reaches further must be accounted for in the halo
     CHECK(worst[CellParallel::HaloReach::Interior] <= 5);
     CHECK(worst[CellParallel::HaloReach::CoarseFine] <= 10);
@@ -968,7 +968,7 @@ TEST(halo_reach_bounds_the_halo_of_any_partition) {
 }
 
 TEST(local_indicator_equals_the_whole_mesh_indicator_for_any_partition) {
-    // docs/design/amr-distributed.md phase 3: a rank evaluates the indicator on its owned leaves and the leaves
+    // A rank evaluates the indicator on its owned leaves and the leaves
     // CellIndicator::region lists for them (a partial mesh, with the state of those leaves only): xi and xi_parent of its leaves
     // are the whole mesh's, bit for bit, for any partition, periodicity and smoothing depth.
     const EOS eos = EOS::ideal(1.4);

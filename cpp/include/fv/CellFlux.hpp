@@ -320,7 +320,7 @@ private:
     void fill_ghost_leaves(const Field& U, Field& out, const std::vector<char>* only) const;
     std::vector<std::vector<char>> level_mask_;   // cache: mask of the uniform mesh of each level (2-D)
     // 3-D: the body built once on the base mesh; a leaf is solid when ImmersedBoundary::solid_at of its centre says so (no mask
-    // of a uniform mesh of a level: docs/design/amr-octree.md section 4.9)
+    // of a uniform mesh of a level)
     std::shared_ptr<ImmersedBoundary> ibm_geo_;
     Field src_;                                    // source terms per leaf
     // Mass-flow inlet: boundary faces of each side in increasing transverse position, and their weights

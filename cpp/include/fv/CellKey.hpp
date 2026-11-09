@@ -1,5 +1,5 @@
-// Key and neighbourhood arithmetic of the leaf engine in two and three dimensions (the dimension layer of
-// docs/design/amr-octree.md): Morton keys, children of a cell, the 3^D - 1 neighbour offsets, the transverse axes of a face.
+// Key and neighbourhood arithmetic of the leaf engine in two and three dimensions (the dimension layer):
+// Morton keys, children of a cell, the 3^D - 1 neighbour offsets, the transverse axes of a face.
 // Header-only; CellMesh picks the dimension at run time.
 #pragma once
 

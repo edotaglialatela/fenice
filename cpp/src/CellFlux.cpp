@@ -97,7 +97,7 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
     if (per(Face::Left, Face::Right) != m.periodic_x || per(Face::Bottom, Face::Top) != m.periodic_y ||
         (m.dim == 3 && per(Face::Front, Face::Back) != m.periodic_z))
         throw std::invalid_argument("CellFluxEngine: the periodic axes of the mesh and the boundary types differ");
-    if (m.dim == 3) {   // what the octree engine does not do yet (docs/design/amr-octree.md, phase Q4)
+    if (m.dim == 3) {   // what the octree engine does not do yet
         if (muscl_ && muscl_->scheme() == Reconstruction::Weno5)
             throw std::invalid_argument("CellFluxEngine: WENO5-Z is not available on an adaptive mesh");
     }
@@ -1019,7 +1019,7 @@ bool CellFluxEngine::ghost_band_violated(const CellMesh& m) const {
 }
 
 void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m, const CellMesh* whole) {
-    // The ghost-cell wall on octree leaves (docs/design/amr-octree.md 15.6): the table of the uniform finest level built sparsely
+    // The ghost-cell wall on octree leaves: the table of the uniform finest level built sparsely
     // from the solid finest leaves, active when it is that table bit for bit and every cell it reads is a finest leaf.
     const int M = m.max_level, NX = m.nx_at(M), NY = m.ny_at(M), NZ = m.nz_at(M);
     const double hf[3] = {m.dx(M), m.dy(M), m.dz(M)};

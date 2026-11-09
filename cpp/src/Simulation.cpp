@@ -370,7 +370,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         const bool per_x = boundaries.type(Face::Left) == BCType::Periodic;
         const bool per_y = boundaries.type(Face::Bottom) == BCType::Periodic;
         const bool per_z = boundaries.type(Face::Front) == BCType::Periodic;
-        if (mesh.is3d())   // an octree (docs/design/amr-octree.md); not written yet: snapshots, post-processing, checkpoints
+        if (mesh.is3d())   // an octree
             cells = std::make_unique<CellMesh>(CellMesh::make_3d(p.Lx, p.Ly, p.Lz, p.nx, p.ny, p.nz, p.amr_max_level, per_x, per_y,
                                                                  per_z, mesh.x0, mesh.y0, mesh.z0));
         else

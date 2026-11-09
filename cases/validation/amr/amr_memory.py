@@ -1,4 +1,4 @@
-"""Memory and time of the AMR on MPI ranks (docs/design/amr-distributed.md: the phase-0 baseline, FENICE_REPLICATED_REMESH=1, and phase 2).
+"""Memory and time of the AMR on MPI ranks (the replicated baseline, FENICE_REPLICATED_REMESH=1, and the distributed storage).
 
     python cases/validation/amr/amr_memory.py                    # results/validation/amr_memory/
     python cases/validation/amr/amr_memory.py --ranks 1 2 4 8    # a subset of the rank counts (1 = serial, one thread)

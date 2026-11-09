@@ -1,4 +1,4 @@
-// AMR in three dimensions, phase Q5 (docs/design/amr-octree.md): the indicator, the remesh and the initial adaptation on octree
+// AMR in three dimensions, phase Q5: the indicator, the remesh and the initial adaptation on octree
 // leaves, the body band, the hot-start helpers, and dynamic adaptive runs against uniform ones.
 // Part of the unit tests: see test_common.hpp for the harness; test_main.cpp holds main().
 #include "test_amr_common.hpp"

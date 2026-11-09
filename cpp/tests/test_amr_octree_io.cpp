@@ -1,4 +1,4 @@
-// AMR in three dimensions, phase Q7 (docs/design/amr-octree.md): the files of an octree run. VTK hexahedra, the checkpoint (leaf_k,
+// AMR in three dimensions, phase Q7: the files of an octree run. VTK hexahedra, the checkpoint (leaf_k,
 // five state columns), the guards of a resume, the hot start from a uniform and from an adaptive checkpoint.
 // Part of the unit tests: see test_common.hpp for the harness; test_main.cpp holds main().
 #include "test_amr_common.hpp"

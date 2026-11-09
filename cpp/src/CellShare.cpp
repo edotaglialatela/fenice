@@ -25,9 +25,8 @@ using detail::leaf_key;
 namespace {
 
 // Rings of the owned leaf's level within which a leaf of another level is read, by level difference d = owner level - level read
-// (docs/design/amr-distributed.md section 8.2 for 2-D, a ring more than the airfoil needs; 3-D: halo_reach measured on octrees of three
-// and four levels with every physics, a ring more: docs/design/amr-octree.md section 17, guarded by
-// cellparallel3d_halo_reach_lies_within_the_region_rings)
+// (2-D: a ring more than the airfoil needs; 3-D: halo_reach measured on octrees of three and four levels with every physics, a ring
+// more; guarded by cellparallel3d_halo_reach_lies_within_the_region_rings)
 int reach_rings(int dim, int d) {
     if (dim == 3) return d < 0 ? 8 : (d == 0 ? 11 : (d == 1 ? 10 : (d == 2 ? 9 : 11)));
     return d < 0 ? 4 : (d == 0 ? 6 : (d == 1 ? 8 : (d == 2 ? 9 : 11)));

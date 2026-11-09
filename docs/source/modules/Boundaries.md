@@ -111,4 +111,15 @@ The derivatives along the boundary use the strip halos across MPI interfaces (ce
 differences, one-sided at the ends of a side, wrapped on periodic axes), so MPI runs are
 identical to serial ones.
 
+## Accuracy at the boundary
+
+* **Corners of two walls** need no special rule: a manufactured solution with all four wall combinations (no-slip and slip on the four sides,
+  `mms_boundary.py --kinds box`) reaches L2 order 1.9 to 2.7 and L-infinity order 1.4 to 2.9 with `boundary_order = 2` for MUSCL, WENO3-Z and
+  WENO5-Z, Euler and Navier-Stokes. A lid that meets a wall has a velocity discontinuity at the corner, which no ghost rule restores.
+* **Inlets and outlets with a normal gradient** are first order in the free variables. A velocity inlet prescribes the velocity at the face (second
+  order) and copies rho and p from the cell (zero gradient); a pressure outlet fixes p and copies the velocity; the non-reflecting outlet corrects
+  only the incoming wave. Where the true normal gradient of a copied variable is not zero these are first order, also at `boundary_order = 2`
+  (the second ghost layer mirrors the first). The manufactured outflow solution has zero normal gradient by construction, so it reaches order 2
+  and does not test this.
+
 {{api}}

@@ -1,4 +1,4 @@
-// AMR in three dimensions, phase Q4 (docs/design/amr-octree.md): the physics of CellFluxEngine on octree leaves (viscous terms,
+// AMR in three dimensions, phase Q4: the physics of CellFluxEngine on octree leaves (viscous terms,
 // body force, sources, mass-flow inlet, non-reflecting outlet, immersed body).
 // Part of the unit tests: see test_common.hpp for the harness; test_main.cpp holds main().
 #include "test_amr_common.hpp"

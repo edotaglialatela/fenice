@@ -188,7 +188,7 @@ CASES = {
     "cavity_xdecomp_b2":   ("Lid Driven Cavity", dict(nx=40, ny=6, t_end=0.1, reconstruction="muscl", boundary_order=2)),
     "cavity3d_xdecomp_b2": ("Lid Driven Cavity", dict(nx=24, ny=6, nz=6, Lz=1.0, t_end=0.1, bc_front="no_slip",
                                                  bc_back="no_slip", reconstruction="muscl", boundary_order=2)),
-    # 3-D adaptive meshes (octree leaves, docs/design/amr-octree.md): the Sod tube along x with periodic transverse axes (three levels,
+    # 3-D adaptive meshes (octree leaves): the Sod tube along x with periodic transverse axes (three levels,
     # the shocks refined), the viscous manufactured solution with sources (two levels, level jumps), Taylor-Green with a forced box
     # that is off-axis in every direction (refinement varies along z, w != 0), and a sphere with the mask forcing and its body band
     "amr3d_sod_muscl":     ("Sod Shock Tube", dict(nx=40, ny=2, nz=2, Ly=0.05, Lz=0.05, t_end=0.05, use_amr=True, amr_max_level=2,

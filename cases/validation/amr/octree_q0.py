@@ -1,4 +1,4 @@
-"""Phase Q0 of docs/design/amr-octree.md: the measurements taken before any 3-D AMR code (no engine change).
+"""Phase Q0 of the 3-D octree AMR: the measurements taken before any 3-D AMR code (no engine change).
 
     python cases/validation/amr/octree_q0.py run        # the uniform fields the estimate needs (sphere Re 20 / 100 at 20 cells per D)
     python cases/validation/amr/octree_q0.py estimate   # octree leaf counts from the uniform fields (sphere, 3-D Taylor-Green 96^3)
@@ -9,8 +9,8 @@
 Everything goes to results/validation/amr_octree_q0/ (summary_<stage>.json). Set FENICE_EXE to the binary of record (Q0 keeps a
 copy in results/validation/amr_octree_q0/bin/ with its commit) so later phases compare against the same build.
 
-The leaf-count estimate reproduces the 2-D engine's rules in three dimensions, offline, on the uniform finest-level solution (as P0
-of amr-cell-based.md did for the patch AMR, but with the engine's indicator instead of a Lohner one):
+The leaf-count estimate reproduces the 2-D engine's rules in three dimensions, offline, on the uniform finest-level solution (as the
+first study of the patch AMR did, but with the engine's indicator instead of a Lohner one):
   * the cells of level l are the conservative means of the finest cells under them (2^dim children per parent);
   * xi = 1 where a face neighbour of the same level differs by >= amr_criterion (0.1) in density or in speed |m|/rho (relative to
     min(|a|, |b|), floors 1e-2 / 0.1, CellIndicator::evaluate); then amr_diffusion (2) iterations adding diffusion_coeff (0.1) to both

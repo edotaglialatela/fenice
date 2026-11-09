@@ -56,7 +56,7 @@ def fine_velocity(run):
     return u, v, h, meta
 
 
-# Accuracy per cost (docs/design/amr-cell-based.md, section 20): uniform 384 x 192 and the cell engine at stricter indicator settings
+# Accuracy per cost: uniform 384 x 192 and the cell engine at stricter indicator settings
 TABLE = [("uniform 384x192", CASE, ("nx=384", "ny=192")),
          ("cell engine, default (criterion 0.1)", CASE_AMR, ()),
          ("cell engine, criterion 0.01, diffusion 2", CASE_AMR, ("amr_criterion=0.01", "amr_diffusion=2")),

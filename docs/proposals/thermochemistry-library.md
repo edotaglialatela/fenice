@@ -84,7 +84,7 @@ second implementation of the chemistry stage selected at configuration time.
 A dispersed phase (droplets, bubbles, particles) would be a different extension: a population described by moments, with an inversion at
 each cell and source terms in phase space. It shares the same structure as the species array (extra transported fields, a per-cell stage
 that never reads another cell, a stage inside the splitting) but needs its own realizable reconstruction at the faces, which is the same
-class of problem as the open positivity items (`positivity-corners-open-boundaries.md`). If it is ever taken up, it comes after the species
+class of problem as the positivity question of the WENO schemes (`benchmarks-robustness-uq.md`). If it is ever taken up, it comes after the species
 array exists, and the choice between a small own implementation and a library is made then, on the same grounds as above (build cost,
 bitwise reproducibility, per-cell independence).
 

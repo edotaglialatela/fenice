@@ -49,8 +49,8 @@ uniform mesh): a leaf is solid if its centre is inside the body, and the body ba
 cell lies within the margin of the surface (`near_body_surface`). The mask forcing and the ghost-cell wall (`ibm_method = ghost`) work
 on octree leaves, also on the shares of an MPI run (bitwise equal to serial); `auto` chooses the ghost wall wherever `amr_refine_ibm` is on.
 
-Not available in 3-D: WENO5 (as in 2-D AMR). Cost of the octree against the uniform solver on a sphere: 0.2-0.3 of the time loop at the same finest resolution (measured before the OpenMP step was sped up by 1.7x on 16 threads, so now lower), drag within 1 %; MPI is efficient at 2-3 ranks only (the remesh is the limit). Design, phases and
-measurements: `docs/design/amr-octree.md`.
+Not available in 3-D: WENO5 (as in 2-D AMR). Cost of the octree against the uniform solver on a sphere: 0.2-0.3 of the time loop at the same finest resolution (measured before the OpenMP step was sped up by 1.7x on 16 threads, so now lower), drag within 1 %; MPI is efficient at 2-3 ranks only (the remesh is the limit). The open work of the adaptive engine
+(WENO5-Z, remesh cost on MPI, validation): `docs/design/weno-amr.md`.
 
 ## Faces and the residual
 
@@ -193,8 +193,7 @@ OpenMP is the better choice; MPI gives the same result for any rank count and a 
 leaves on rank 0 (a transient copy of the whole state); a restart cuts each rank's share from the leaf list of the checkpoint (three integer arrays) and reads only the state rows of its own leaves and their halo (`NpzFile`), so no rank holds the whole state or mesh; a hot start reads the whole source field.
 At the end of a run the solver prints the resident memory of the ranks (after setup, after the initial adaptation, at the end,
 the peak: minimum / maximum over the ranks) and the size of the tables of a rank: about 1.5 kB per leaf on the airfoil
-(`cases/validation/amr/amr_memory.py` measures it on 1 to 16 ranks; `docs/design/amr-distributed.md` is the plan to distribute
-the remesh as well).
+(`cases/validation/amr/amr_memory.py` measures it on 1 to 16 ranks; the remesh is distributed as well, see below).
 
 The table below compares AMR with itself on 1 to 16 cores; it says nothing about AMR against a uniform mesh (that comparison is
 at equal accuracy, time to a given error, see the [airfoil]({{root}}cases/airfoil.html) page). It does show that AMR parallelises

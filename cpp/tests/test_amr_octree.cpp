@@ -1,4 +1,4 @@
-// AMR in three dimensions (octree leaves, docs/design/amr-octree.md): the key layer and the CellMesh topology (phase Q1), the
+// AMR in three dimensions (octree leaves): the key layer and the CellMesh topology (phase Q1), the
 // convective residual of the face engine (phase Q2).
 // Part of the unit tests: see test_common.hpp for the harness; test_main.cpp holds main().
 #include "test_amr_common.hpp"

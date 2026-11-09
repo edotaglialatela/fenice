@@ -149,7 +149,7 @@ private:
     bool share_resumed_ = false;                 // the AMR state came from the checkpoint straight into each rank's share
     double cell_speed_ = 0.0;                    // wave-speed bound the next AMR time step is taken from
     MemoryUsage mem_setup_, mem_init_;           // resident memory after setup and after the initial adaptation (AMR report)
-    // FENICE_REPLICATED_REMESH=1: every rank keeps the whole AMR mesh (the storage before docs/design/amr-distributed.md phase 2)
+    // FENICE_REPLICATED_REMESH=1: every rank keeps the whole AMR mesh (the storage before the distributed one)
     static bool replicated_storage();
     void print_halo_reach(const char* when) const;   // FENICE_HALO_REACH=1: CellParallel::halo_reach of the AMR mesh
     // Monitor CSV (rank 0): header on open, one row per call.

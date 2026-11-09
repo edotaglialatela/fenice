@@ -430,7 +430,7 @@ CellBox dilate_cells3(const std::vector<std::array<int, 3>>& seeds, int NX, int 
 }
 
 void CellIndicator::region(const CellMesh& m, const std::vector<int>& leaves, std::vector<char>& need) const {
-    if (m.dim == 3) throw std::logic_error("CellIndicator::region: the distributed remesh is 2-D only (docs/design/amr-octree.md, Q6)");
+    if (m.dim == 3) throw std::logic_error("CellIndicator::region: the distributed remesh is 2-D only");
     const int M = m.max_level, r = diffusion + 1;
     // per level t the cells whose neighbourhood matters: the leaves of level t and the parents of the leaves of level t + 1
     std::vector<std::vector<std::array<int, 2>>> seeds(static_cast<size_t>(M) + 1);

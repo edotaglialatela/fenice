@@ -88,7 +88,7 @@ public:
     // the engine must be built again, then partition() and localize()) with the state of every leaf.
     void globalize();
     bool localized() const { return localized_; }
-    // The remesh of a localized run (collective), with no rank holding the topology of the whole mesh (docs/design/amr-distributed.md section 14): each rank
+    // The remesh of a localized run (collective), with no rank holding the topology of the whole mesh: each rank
     // fetches from the owners the leaves around its own (with their state, fetch_leaves), takes the indicator and the decisions of its
     // owned leaves from them, settles the ripple with the ranks around it (rounds of an exchange of the flags and a reduction), judges
     // the merges of the groups it owns a member of, makes the new leaves of its old ones, finds the new splitters (global_facts), sends
@@ -166,7 +166,7 @@ public:
     // Sum of the ranks' values (collective). Across rank counts it agrees to roundoff only (the partial sums are added in another order).
     double reduce_sum(double v) const { return comm_.size > 1 ? comm_.allreduce_sum(v) : v; }
 
-    // How far the reads of a distributed run reach (docs/design/amr-distributed.md, phase 0), independent of the partition: every
+    // How far the reads of a distributed run reach, independent of the partition: every
     // read is measured from the leaf whose owner makes it (the driver), in rings of the driver's level (see ring()).
     struct HaloReach {
         enum Kind { Interior, CoarseFine, Boundary, GhostImage, SolidReset, NumKinds };

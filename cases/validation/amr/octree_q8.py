@@ -1,4 +1,4 @@
-"""Phase Q8a of docs/design/amr-octree.md: what the 3-D octree costs and what it gives against the uniform 3-D solver (no engine change).
+"""Phase Q8a of the 3-D octree AMR: what the 3-D octree costs and what it gives against the uniform 3-D solver (no engine change).
 
     python cases/validation/amr/octree_q8.py calibrate    # level-0 octree against the uniform solver (the monitor's Cd), ghost wall active
     python cases/validation/amr/octree_q8.py run          # accuracy runs to t = 30, cached: sphere Re 20 and 100, uniform and octree
