@@ -1112,7 +1112,9 @@ void CellFluxEngine::prepare(const CellMesh& m, const Field& U, int level) {
         us_ = &U;
     }
     Vc_.resize(vroot_.size() + interp_.size());
-    for (size_t v = 0; v < vroot_.size(); ++v) Vc_[v] = eval(*us_, vroot_[v]);
+    const int nroot = static_cast<int>(vroot_.size());
+#pragma omp parallel for schedule(static) if (nroot >= kOmpMinWork)
+    for (int v = 0; v < nroot; ++v) Vc_[static_cast<size_t>(v)] = eval(*us_, vroot_[static_cast<size_t>(v)]);
     double u_target[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};   // mass-flow inlets: the ghost of a coarse leaf on such a side
     if (!interp_.empty() && muscl_ && bc_.params().boundary_order == 2) mass_flow_targets(m, u_target);
     eval_interp(u_target);
@@ -1131,7 +1133,11 @@ void CellFluxEngine::eval_interp(const double* u_target) {
     const Limiter lim = muscl_->limiter();
     const size_t nm = vroot_.size();
     Wint_.resize(interp_.size());
-    for (size_t k = 0; k < interp_.size(); ++k) {
+    const int nint = static_cast<int>(interp_.size());
+    // (each virtual cell reads the state and writes its own two entries: the loop is independent, the bits do not depend on the threads)
+#pragma omp parallel for schedule(static) if (nint >= kOmpMinWork)
+    for (int kk = 0; kk < nint; ++kk) {
+        const size_t k = static_cast<size_t>(kk);
         const InterpVirtual& iv = interp_[k];
         const int C = iv.coarse;
         const State Wc = eos.cons_to_prim((*us_)[C]);

@@ -21,7 +21,7 @@ thread_local Totals g_totals;
 }   // namespace
 
 const char* section_name(Section s) {
-    static const char* const names[kN] = {"time step",         "output",           "remesh",          "remesh: region",
+    static const char* const names[kN] = {"time step",         "output",           "  amr: stage copy", "  amr: fluxes", "    amr: prepare", "    amr: convective", "    amr: visc cells", "    amr: visc faces", "  amr: registers", "  amr: gather", "  amr: forcing", "  amr: exchange", "remesh",         "remesh: region",
                                           "remesh: flags",     "remesh: topology", "remesh: migrate", "remesh: rebuild",
                                           "remesh: partition", "fetch_leaves",     "  fetch: frontier", "  fetch: classify", "  fetch: exchange", "  fetch: serve", "  fetch: collect", "share: region",   "share: mesh",
                                           "share: engine",    "share: partition", "share: localize", "boundary",        "reconstruct",

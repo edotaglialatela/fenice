@@ -1017,3 +1017,20 @@ Q8a sphere, Re 20, base 5, 2 levels, mask, 8 ranks, 200 steps resumed: `fetch_le
 time loop 16.9 s -> 16.1 s. The final state hash is identical to the old binary's (same bits); unit tests 192, regression ALL MATCH,
 `amr_mpi.py --check` ALL MATCH. What remains in the fetch is the exchange (0.3-0.7 s, mostly waiting for the slowest rank) and the work per cell
 in classify / serve / collect; the rest of the rebuild (region mask, partial mesh, engine build, 0.6-0.8 s each) and the flags (1.3-1.6 s) are untouched.
+
+## 23. The octree time step on OpenMP threads (2026-11-09)
+
+What matters most on one node is the single process on all threads, not MPI: the Q8a sphere (Re 20, base 5, 2 levels, mask, 72 k leaves, 200 steps
+resumed) takes 10.2 s on 16 threads against 16.1 s on 8 ranks and 19.3 s on 4 (remesh 7 % of the first, 47 % of the 8-rank run). The time step
+scaled badly (1 -> 16 threads: 4.5x; the uniform solver scales 3.1x from 1 to 8). New profile sections `amr: stage copy / fluxes (prepare,
+convective, visc cells, visc faces) / registers / gather / forcing / exchange` under `FENICE_PROFILE=1` showed where: `prepare` took 2.3 s of
+4.5 s per 100 steps on 16 threads (1.9 s on one: it did not scale at all), and inside it `eval_interp` (the state of the virtual cells that
+interpolate a coarse leaf, evaluated for every coarse-fine face of every level at each level's flux call) was a serial loop: 1.4 s on one thread,
+2.1 s on 16. Each virtual cell reads the state and writes its own two entries, so the loop and the loop over the mean-of-fine-leaves virtual
+cells became `omp parallel for` (guarded by `kOmpMinWork`): the bits do not depend on the thread count.
+
+Result (100 steps, 16 threads): time step 4.5 s -> 2.66 s (scaling 1 -> 16 threads 4.5x -> 7.4x), `prepare` 2.3 s -> 0.43 s; the 200-step run 10.2 s ->
+6.6 s. Final-state hashes equal the old binary's for the sphere (mask and ghost wall) and the 2-D airfoil at 1 and 16 threads; unit tests 192,
+regression, `amr_mpi.py --check` and `ibm_ghost.py --check` ALL MATCH. Left in the step at 16 threads: convective faces 0.87 s, viscous faces 0.43 s,
+prepare 0.43 s, gather 0.36 s, viscous cells 0.24 s (each scales 6-7x except gather); evaluating only the virtual cells a level reads (all are
+computed at every level's call) is the next candidate and needs `need_` to cover the viscous reads first.

@@ -1,5 +1,6 @@
 #include "fv/Switches.hpp"
 #include "fv/CellFlux.hpp"
+#include "fv/Profile.hpp"
 #include "fv/ViscousBound.hpp"
 
 #include <algorithm>
@@ -840,12 +841,19 @@ double CellFluxEngine::wave_speed(const CellMesh& m, const Field& U) {
 double CellFluxEngine::compute_level_fluxes(const CellMesh& m, const Field& U, int l) {
     if (m.num_leaves() != nleaf_ || static_cast<int>(stencil_.size()) != static_cast<int>(m.faces.size()))
         throw std::logic_error("CellFluxEngine: build() was not called for this mesh");
+    ProfileScope ps_prep(Section::AmrPrepare);
     prepare(m, U, l);
+    ps_prep.stop();
     double u_target[6];
     mass_flow_targets(m, u_target);
+    ProfileScope ps_conv(Section::AmrConvective);
     double s = fluxes(m, lface_[static_cast<size_t>(l)], u_target);
+    ps_conv.stop();
     if (phys_.ns) {
+        ProfileScope ps_cells(Section::AmrViscousCells);
         cell_quantities(m, vcells_[static_cast<size_t>(l)]);
+        ps_cells.stop();
+        ProfileScope ps_faces(Section::AmrViscousFaces);
         viscous_fluxes(m, lface_[static_cast<size_t>(l)]);
         s = std::max(s, viscous_speed(m, lown_b_[static_cast<size_t>(l)], lown_e_[static_cast<size_t>(l)]));
     }
