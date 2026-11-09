@@ -9,8 +9,8 @@ Status: **not started; the owner decides whether to do it.** It is the one open 
 * Every interior face has a fixed four-cell stencil `(c0, c1, c2, c3)` along its normal, built once per mesh change (`stencil_[f]`). A cell
   beyond a coarser neighbour is read by injection, one beyond a finer neighbour as the mean of the leaves under it (a virtual cell, recursive).
   The rows of the primitive array `W_` are the leaves, then the averaged virtual cells, then the interpolated ones (the coarse value
-  at the centre of the fine cell that would sit across a jump); `prepare` refreshes them each stage. At `boundary_order = 2` the boundary leaves
-  also get their ghost layers there (the rule of the uniform solver's `fill_ghost_slab`).
+  at the centre of the fine cell that would sit across a jump); `prepare` refreshes them each stage. At `boundary_order = 2` `CellFluxEngine::fluxes`
+  evaluates the ghost layers where they are read (`ghost_state` of the boundary leaf, and of the leaf or virtual cell behind it; no table).
 * WENO3-Z reads exactly the four cells of that stencil, so it needed no new data. On a coarse-fine face both sides use the WENO formula
   with the interpolated / averaged value across the seam; the interpolated value still uses the `muscl_limiter` slopes of the coarse leaf.
   WENO faces take the scalar flux path (the batch kernel and its AVX2 twin are written for the limiter formula).
