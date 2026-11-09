@@ -1,6 +1,7 @@
 #include "fv/Profile.hpp"
 #include "fv/Switches.hpp"
 #include "fv/Simulation.hpp"
+#include "fv/ViscousBound.hpp"
 
 #include <algorithm>
 #include <chrono>
@@ -439,9 +440,9 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     if (verbose && mesh.is3d()) std::printf("[MESH] 3-D: %d x %d x %d cells\n", p.nx, p.ny, p.nz);
     // CFL length: min(dx, dy) in 2-D. In 3-D the unsplit fluxes add three directional Courant
     // numbers; 2 / sum(1/h) bounds that sum by 2 CFL, the same bound min(dx, dy) gives a 2-D square cell.
-    dt_length = std::min(mesh.Lx / mesh.nx, mesh.Ly / mesh.ny);
+    dt_length = step_length_2d(mesh.Lx / mesh.nx, mesh.Ly / mesh.ny);
     if (mesh.is3d())
-        dt_length = 2.0 / (1.0 / (mesh.Lx / mesh.nx) + 1.0 / (mesh.Ly / mesh.ny) + 1.0 / (mesh.Lz / mesh.nz));
+        dt_length = step_length_3d(mesh.Lx / mesh.nx, mesh.Ly / mesh.ny, mesh.Lz / mesh.nz);
 #ifdef _OPENMP
     if (verbose) std::printf("[OPENMP] Native kernels on %d thread(s)\n", omp_get_max_threads());
 #endif
@@ -2334,7 +2335,7 @@ void Simulation::solve_amr() {
     bool interrupted = false;
     while (t < p.t_end) {
         // the time-step length of the base mesh: min(dx, dy) in 2-D, 2 / sum 1/h in 3-D (Simulation::dt_length)
-        const double h0 = octree ? 2.0 / (1.0 / cm.dx(0) + 1.0 / cm.dy(0) + 1.0 / cm.dz(0)) : std::min(cm.dx(0), cm.dy(0));
+        const double h0 = octree ? step_length_3d(cm.dx(0), cm.dy(0), cm.dz(0)) : step_length_2d(cm.dx(0), cm.dy(0));
         double dt = std::min(scheme->cfl * h0 / std::max(S, 1e-10), p.t_end - t);
         if (p.dt_max > 0.0) dt = std::min(dt, p.dt_max);
         dt = std::min(dt, next_write_time - t);

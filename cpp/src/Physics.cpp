@@ -220,7 +220,7 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
     // dt (2 S / L + 4 D sum 1/h^2) <= 2 CFL, so the solver divides CFL L by S = (|u| + c) + 2 L D sum 1/h^2 of the
     // worst cell. A maximum over cells is the same on any partition
     // (MPI strips, adaptive-mesh levels), and it stays below the face wave speed as the viscosity goes to zero.
-    const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
+    const double L = step_length_2d(dx, dy), inv_h2 = inv_h2_2d(dx, dy);
     double s_max = 0.0;
 #pragma omp parallel if (n >= kOmpMinWork)
     {
@@ -373,7 +373,7 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
     };
 
     const double inv_area = 1.0 / mesh.cell_area();
-    const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
+    const double L = step_length_2d(dx, dy), inv_h2 = inv_h2_2d(dx, dy);
     double s_max = 0.0;
 #pragma omp parallel if (n >= kOmpMinWork)
     {
@@ -645,8 +645,8 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
 
     // Speed that bounds the explicit time step, as in the 2-D version: D = max(4/3 nu, kappa / (rho c_v)), the
     // convective length is L = 2 / sum(1/h), and the viscous part of the speed is 2 L D sum 1/h^2.
-    const double inv_h2 = 1.0 / (m.dx * m.dx) + 1.0 / (m.dy * m.dy) + 1.0 / (m.dz * m.dz);
-    const double L = length > 0.0 ? length : 2.0 / (1.0 / m.dx + 1.0 / m.dy + 1.0 / m.dz);
+    const double inv_h2 = inv_h2_3d(m.dx, m.dy, m.dz);
+    const double L = length > 0.0 ? length : step_length_3d(m.dx, m.dy, m.dz);
     double s_max = 0.0;
 #pragma omp parallel if (n >= kOmpMinWork)
     {

@@ -1453,7 +1453,7 @@ void viscous_cell_quantities_run(const EOS& eos, const State* U, const int* nbr,
 
 double viscous_cell_speed(const EOS& eos, double mu, double k_cond, const State& U, double dx, double dy) {
     const double gamma = eos.gamma;
-    const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
+    const double L = step_length_2d(dx, dy), inv_h2 = inv_h2_2d(dx, dy);
     const State W = eos.cons_to_prim(U);
     const double rho = W[0];
     const double nu_eff = viscous_nu_eff(mu, k_cond, gamma, rho);
@@ -1720,7 +1720,7 @@ double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
         for (int c = cb; c < ce; ++c) {
             const int l = m.level[c];
             const double dx = m.dx(l), dy = m.dy(l);
-            const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
+            const double L = step_length_2d(dx, dy), inv_h2 = inv_h2_2d(dx, dy);
             const State W = eos_.cons_to_prim(U[c]);
             const double rho = W[0];
             const double nu_eff = viscous_nu_eff(mu, k_cond, gamma, rho);
@@ -1886,8 +1886,8 @@ double CellFluxEngine::viscous_speed_3d(const CellMesh& m, int cb, int ce) const
             const int l = m.level[c];
             const double dx = m.dx(l), dy = m.dy(l), dz = m.dz(l);
             // the time-step length of the leaf, 2 / sum 1/h (Simulation::dt_length), and sum 1/h^2 (viscous_residual_3d)
-            const double inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy) + 1.0 / (dz * dz);
-            const double L = 2.0 / (1.0 / dx + 1.0 / dy + 1.0 / dz);
+            const double inv_h2 = inv_h2_3d(dx, dy, dz);
+            const double L = step_length_3d(dx, dy, dz);
             const State W = eos_.cons_to_prim(U[c]);
             const double rho = W[0];
             const double nu_eff = viscous_nu_eff(mu, k_cond, gamma, rho);

@@ -1,6 +1,6 @@
 # Repository review: structural improvements and future-proofing
 
-Status: items 4 and 7 implemented (2026-11-09), the CLAUDE.md part of item 8 done, items 5 and 6 decided (no work); item 1 partly done (viscous bound), items 2, 3, 9 open. Based on the file sizes and layout of the repository at the 3-D octree Q7 commit and on the
+Status: items 4 and 7 implemented (2026-11-09), the CLAUDE.md part of item 8 done, items 5 and 6 decided (no work); item 1 done (viscous bound, step length), items 2, 3, 9 open. Based on the file sizes and layout of the repository at the 3-D octree Q7 commit and on the
 invariants written down in `CLAUDE.md`; it is a map of candidates, not an audit line by line. Each item gives the evidence, the
 benefit, the risk to the bit-reproducibility rule, and a size. The user decides what goes ahead.
 
@@ -9,7 +9,9 @@ benefit, the risk to the bit-reproducibility rule, and a size. The user decides 
 * Done for the viscous speed bound (2026-11-09): `fv/ViscousBound.hpp` (`viscous_nu_eff`, `viscous_speed_bound`) now serves the six scalar
   copies (`Physics.cpp` x3, `CellFlux.cpp` x3). Golden dumps (10 AMR runs, 1/3/7 threads) bitwise equal to the binary before the change in
   the default, `FENICE_NO_SIMD=1` and `FENICE_FULL_REBUILD=1` modes; regression and unit tests unchanged. The header must not be included
-  by `SchemesAvx2.cpp`; the AVX2 twin stays hand-written. Open: the shock-blend sensor and the time-step length (`dt_length`).
+  by `SchemesAvx2.cpp`; the AVX2 twin stays hand-written. The time-step length and the 1/h^2 sums (`step_length_2d/3d`, `inv_h2_2d/3d`, 9 sites in `Simulation.cpp`, `Physics.cpp`, `CellFlux.cpp`) moved
+  into the same header, same checks. The shock-blend sensor has one scalar copy (`Schemes.cpp`) and its AVX2 twin, which cannot share it
+  (see above), so there was nothing to merge; the twin test `riemann_batch_equals_scalar_bit_for_bit` stays the guard.
 
 * Evidence: `assemble` / `assemble_3d`, `viscous_residual` / `viscous_residual_3d`, the uniform and the AMR copies of the viscous
   eigenvalue expression ("six copies ... must stay identical"), the scalar and AVX2 twins of the Riemann and viscous kernels. Every
