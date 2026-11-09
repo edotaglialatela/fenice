@@ -1,7 +1,7 @@
-# Cell-based AMR for Fenice: design and plan (branch `amr-cell-based`)
+# Cell-based AMR for Fenice: design and plan
 
 Status: P1-P7 done, remesh speed-up and the P8 measurements in section 20 (P6 = MPI, section 18; P7 = the engine behind the CLI, section 19); P1, P2, P3 done (2026-10-22: `CellMesh` topology, `CellFluxEngine` convective residual, `CellAdvance` subcycling with flux replacement); the user accepted the P2 gate (section 9); P4 done (same day); P5 done (indicator, remesh, initial adaptation; section 13); jump closure (b) and the parent-level join done (sections 14-15), the second-order coarse side (c) is now the default (decision of the user, section 17). The user chose the face-variation indicator as the only one (section 11). Written 2026-10-22 after a review of the source of several adaptive-mesh codes.
-`main` keeps the patch-based AMR (last good state: commit `f257ae1`); this branch replaces it. To go back: `git checkout main`.
+Merged to `main`, which now holds this engine only (the patch-based AMR it replaced was last seen at commit `f257ae1`). The optimisation options that followed are in `amr-optimisation.md`, the distributed storage in `amr-distributed.md`, the 3-D octree in `amr-octree.md`.
 
 ## 1. Why
 

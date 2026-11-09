@@ -1,6 +1,6 @@
 # Repository review: structural improvements and future-proofing
 
-Status: items 4 and 7 implemented (2026-11-09), the CLAUDE.md part of item 8 done, items 5 and 6 decided (no work); item 1 done (viscous bound, step length), item 3 partly done, item 9 open. Based on the file sizes and layout of the repository at the 3-D octree Q7 commit and on the
+Status: items 4 and 7 implemented (2026-11-09), the CLAUDE.md part of item 8 done, items 5 and 6 decided (no work); item 1 done (viscous bound, step length), items 3 (partly), 4, 8 and 9 done as decided below. Based on the file sizes and layout of the repository at the 3-D octree Q7 commit and on the
 invariants written down in `CLAUDE.md`; it is a map of candidates, not an audit line by line. Each item gives the evidence, the
 benefit, the risk to the bit-reproducibility rule, and a size. The user decides what goes ahead.
 
@@ -54,6 +54,10 @@ benefit, the risk to the bit-reproducibility rule, and a size. The user decides 
 
 ## 4. Versioned file formats
 
+* Decision (2026-11-09): `format_version` stays on the checkpoint only, the file that is read back. The `dump_state` / `leaf_meta` file is
+  diagnostic output, read by the regression and the Python tools by key, and adding a key would change the hash of every golden dump. No
+  fixture files per version: the unit test writes the old and the future layouts itself.
+
 * Done: the checkpoint writes `format_version` (1); a file without it is read as version 1, a higher number is refused with a message
   (`checkpoint_edge_cases`). Not done: the same key in the `dump_state` file / `leaf_meta`, and fixture files per released version.
 
@@ -92,6 +96,12 @@ benefit, the risk to the bit-reproducibility rule, and a size. The user decides 
 * Risk: none. Size: small.
 
 ## 8. Documentation and project guidance
+
+* Done (2026-11-09): `amr-distributed-handoff.md` removed (a phase-2 hand-over note; the facts are in `amr-distributed.md`, section 8, and the one
+  reference to it was repointed); the status lines of the four design files and of the IBM and viscous-step proposals brought up to date; a
+  `docs/README.md` indexes `design/` and `proposals/` with their status; README and CLAUDE.md counts fixed. The repeated run commands and
+  bands of the validation pages were left: they sit next to the results they judge, and moving them to the script docstrings would split
+  each page from its numbers.
 
 * `CLAUDE.md` is still untracked (ignored by .gitignore; tracking it is the owner's decision). It is long and had internal contradictions (reference counts 74 / 55 / 38, a path typo); the counts and
   the typo are fixed (the count is the number of files in `cpp/tests/reference/`). Open: keep the invariants (bit-reproducibility, the

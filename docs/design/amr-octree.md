@@ -1,6 +1,6 @@
 # 3-D adaptive mesh refinement (octree leaves): design and plan
 
-Status: **decisions answered; Q0 (measurements), Q1 (dimension layer and `CellMesh` in 3-D) and Q2 (the convective residual in 3-D) done.** Written 2026-11-07 after a read of the 2-D leaf engine
+Status: **decisions answered; phases Q0-Q8b done and merged (sections 11-20; the 40 cells/D runs of Q8a are left optional, `octree_q8.py --include-40`).** The phase list below is the plan as written; each phase's "as built" section follows it. Written 2026-11-07 after a read of the 2-D leaf engine
 (`docs/design/amr-cell-based.md`, `amr-distributed.md`), a grep inventory of its source and the residual of the 3-D uniform solver. Every
 number that was not measured is marked *(estimate)*. The decisions are in section 8 (the user took every recommendation, 2026-11-07); the Q0
 numbers are in section 11, Q1 as built in section 12, Q2 in section 13. Each phase of section 7 ends with a stop for the user's go-ahead, as the 2-D rebuild did.
@@ -193,7 +193,7 @@ becomes w x h x d), the ring neighbourhoods of the adapt region (the 8 neighbour
 * `Params`: the guard "AMR is 2-D only" is removed in the phase that opens the CLI (Q6); parameters, GUI keys, `parameters.md` and the docs pages follow.
 
 ### 4.12 Memory *(estimate)*
-The 2-D engine costs 1.1-1.5 kB per leaf on every rank (measured, `amr-distributed-handoff.md`; three quarters of it is the engine's tables). In 3-D a leaf has
+The 2-D engine costs 1.1-1.5 kB per leaf on every rank (measured in phase 0 of `amr-distributed.md`, section 8; three quarters of it is the engine's tables). In 3-D a leaf has
 6 sides, about 3 faces, and carries nine gradients instead of four: **about 2-2.5 kB per leaf** *(estimate)*. One million leaves is then about 2.5 GB
 in total, so distributed storage (already built) is not optional in 3-D, and the saving of registers only on coarse-fine faces (named in the handoff as
 a cheap saving) becomes worth doing early.

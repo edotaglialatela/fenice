@@ -251,7 +251,7 @@ build/release/fenice_tests                   # unit tests (fenice_tests.exe on W
 python cpp/tests/regression.py --mpi 4   # compare against the stored reference states
 ```
 
-`cpp/tests/reference/` holds the final states of 28 reference configurations; every
+`cpp/tests/reference/` holds the final states of 75 reference configurations; every
 change to the code must reproduce them (serial and on MPI ranks).
 
 The physical validation is one script per study in `cases/validation/`, grouped by what it

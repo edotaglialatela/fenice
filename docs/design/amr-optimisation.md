@@ -1,6 +1,7 @@
-# AMR optimisation: open problem and options
+# AMR optimisation: problem and options
 
-Branch `amr-optimisation`, started from `main` at the merge of `amr-cell-based` (commit 701048c).
+Status: all three options below are done and merged (1: the incremental rebuild; 2: distributed storage with a local remesh, in
+`amr-distributed.md`; 3: the SIMD flux kernel, "Decision and results" at the end). Written at the merge of `amr-cell-based` (commit 701048c).
 Measurements and the reasoning are in `docs/design/amr-cell-based.md`, section 20.
 
 ## The problem

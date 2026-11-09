@@ -1,6 +1,6 @@
 # AMR with distributed storage and a local remesh (plan)
 
-Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9), 2 (section 10) 3 (section 11), 4 and 5 (sections 12 and 13), 6 (section 14: the topology adapt without a whole-mesh topology, now the default) done.** Branch `amr-distributed`, from `main`
+Status: **approved (D1-D5 answered, section 7); phases 0 (section 8), 1 (section 9), 2 (section 10) 3 (section 11), 4 and 5 (sections 12 and 13), 6 (section 14: the topology adapt without a whole-mesh topology, now the default) done.** Merged to `main`; written on the branch `amr-distributed`, from `main`
 at 883c45d (both PRs #4 / #5 merged). This is option 2 of `docs/design/amr-optimisation.md`, as a step towards 3-D octree AMR.
 Every number below that was not measured is marked *(estimate)*.
 

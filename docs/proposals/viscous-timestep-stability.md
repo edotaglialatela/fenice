@@ -1,5 +1,8 @@
 # Stability study for the explicit viscous time step
 
+Status: implemented on 2026-11-05 (the Fourier bound with the 4/3 factor and `c_v`, weight 2 in the shared budget; the viscous references were
+regenerated); see `CLAUDE.md`, "Viscous time step". What follows is the study that led to it.
+
 ## Result
 
 The current viscous CFL blend is supported by useful case experiments, but its
