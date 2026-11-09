@@ -285,9 +285,6 @@ void Simulation::solve_amr() {
         if (cell_par) cell_par->gather_state();
         return {&cm.level, &cm.ci, &cm.cj, &cm.U, octree ? &cm.ck : nullptr};
     };
-    // (a 3-D adaptive run writes no force rows: the load of a body is a 2-D quantity here)
-    if (octree && root && !test_case->forces.empty())
-        std::printf("[AMR] 3-D adaptive mesh: the [[force]] rows are not written (probes, sample lines and averages are)\n");
     std::unique_ptr<PostprocessWriter> post;
     if (root) post = std::make_unique<PostprocessWriter>(*test_case, exporter.output_dir(), file_prefix, start_step);
     const auto post_state = [&](int st, bool force, bool reset_average, bool emit) {
@@ -389,7 +386,7 @@ void Simulation::solve_amr() {
                 if (cell_par)
                     for (double& v : loads) v = cell_par->reduce_sum(v);
             }
-            if (write_force && !octree) {
+            if (write_force) {
                 Field contributions(static_cast<size_t>(cm.num_leaves()));
                 const std::vector<char>& solid = eng.solid();
                 for (int l = 0; l <= cm.max_level; ++l)
@@ -400,7 +397,7 @@ void Simulation::solve_amr() {
                             rx -= cm.U[static_cast<size_t>(c)][0] * body_force->gx;
                             ry -= cm.U[static_cast<size_t>(c)][0] * body_force->gy;
                         }
-                        const double ex = rx * cm.area(c), ey = ry * cm.area(c);
+                        const double ex = rx * cm.volume(c), ey = ry * cm.volume(c);   // (the area in 2-D; Fx, Fy, Mz as the uniform solver's)
                         contributions[static_cast<size_t>(c)] =
                             {ex, ey, (cm.xc(c) - p.ibm_cx) * ey - (cm.yc(c) - p.ibm_cy) * ex, 0.0, 0.0};
                     }

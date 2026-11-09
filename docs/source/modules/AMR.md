@@ -49,7 +49,7 @@ uniform mesh): a leaf is solid if its centre is inside the body, and the body ba
 cell lies within the margin of the surface (`near_body_surface`). The mask forcing and the ghost-cell wall (`ibm_method = ghost`) work
 on octree leaves, also on the shares of an MPI run (bitwise equal to serial); `auto` chooses the ghost wall wherever `amr_refine_ibm` is on.
 
-Not yet available in 3-D: the body-load rows (`[[force]]`; a notice is printed) and WENO5 (as in 2-D AMR). Cost of the octree against the uniform solver on a sphere: 0.2-0.3 of the time loop at the same finest resolution, drag within 1 %; MPI is efficient at 2-3 ranks only (the remesh is the limit). Design, phases and
+Not available in 3-D: WENO5 (as in 2-D AMR). Cost of the octree against the uniform solver on a sphere: 0.2-0.3 of the time loop at the same finest resolution, drag within 1 %; MPI is efficient at 2-3 ranks only (the remesh is the limit). Design, phases and
 measurements: `docs/design/amr-octree.md`.
 
 ## Faces and the residual
@@ -166,8 +166,9 @@ The checkpoint `<case>_restart.npz` holds the leaf list (level, `i`, `j`, and `k
 bit, also on a different number of ranks. A checkpoint resumes only on the base mesh it was written for. The final state
 (`dump_state`) is the per-leaf `U` plus `leaf_meta` with columns `x0, x1, y0, y1, level` (`x0, x1, y0, y1, z0, z1, level` in 3-D).
 A hot start from a uniform or an adaptive checkpoint (of the same dimension) interpolates the source at the leaf centres, bilinearly
-in 2-D and trilinearly in 3-D. Probes, sample lines and time averages work on the leaves in 3-D too; the body loads (`[[force]]`)
-are written for a 2-D adaptive run only.
+in 2-D and trilinearly in 3-D. Probes, sample lines and time averages work on the leaves in 3-D too, and so do the body loads
+(`[[force]]`): Fx, Fy and Mz (about z) are the momentum balance of the solid leaves, summed in leaf order, the quantity the monitor and the
+uniform 3-D solver report, so a 3-D row equals the serial one for any number of ranks.
 
 ## Parallel runs
 

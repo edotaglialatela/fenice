@@ -828,8 +828,8 @@ hot start, post-processing), the cost of 17.3 (Q8).
   seed an octree by sampling at the leaf centres with `GridInterp3D`, the same arithmetic as `map_solution_3d`, on the share of every rank
   through `fill_cells`. A 2-D adaptive file does not seed a 3-D run and the reverse, as for the uniform solver.
 * **Post-processing**: probes, sample lines and time averages work on octree leaves (`leaf_at_point` with the Morton key of 3-D cells; the
-  averages weight by the volume). The body-load rows (`[[force]]`) are not written for a 3-D adaptive run (the load of a body is a 2-D
-  quantity in the monitor and the force file); the run says so at the start.
+  averages weight by the volume). The body-load rows (`[[force]]`) were not written for a 3-D adaptive run at Q7; they are since the
+  body-load step (section 21).
 * **Parameters, GUI, docs**: the guards that refused `resume` and `use_hot_start` with 3-D AMR are gone; `amr_force_box` validation accepts the
   six values the solver already read; the GUI no longer warns "AMR is 2-D only"; `parameters.md`, `AMR.md`, `IO.md`, `getting-started.md` and
   `testing.md` describe the 3-D files.
@@ -941,7 +941,16 @@ The profile that replaced it is in section 20.1.
 
 1. The remesh on ranks: section 20.1 (not done; no cheap change reaches the stopping rule).
 2. The ghost-cell wall on a rank's share: section 20.2-20.3 (done). `auto` = ghost in 3-D: section 20.4 (the user's decision).
-3. Optionally the 20 -> 40 self-convergence, and the body-load rows of a 3-D adaptive run.
+3. Optionally the 20 -> 40 self-convergence. The body-load rows of a 3-D adaptive run: done (section 21).
+
+## 21. Body loads of a 3-D adaptive run (2026-11-09)
+
+`[[force]]` rows are written for an octree as for a quadtree: per leaf of the solid set, the x and y momentum of the residual (the body force
+removed) times the leaf volume, moment about (`ibm_cx`, `ibm_cy`) in z, summed in global leaf order on rank 0 (`collect_field`), so the file
+does not depend on the rank count. This is the definition of the monitor's Fx, Fy and of the uniform 3-D solver's `ibm_loads` (no Fz, no
+surface samples); the coefficients use `reference_length * Lz` as area, as the uniform 3-D rows do. The change is the removed `!octree` gate and
+`volume()` for `area()` (the same bits in 2-D). Check: `amr_mpi.py --check` `forces3d` (sphere, ghost wall, 30 steps: the file of 1-4 ranks equals
+the serial one byte for byte, Fx equals the monitor's to 1e-8). Unit tests 192, regression ALL MATCH.
 
 ## 20. Phase Q8b (2026-11-08): the remesh profile and the ghost-cell wall on a rank's share
 

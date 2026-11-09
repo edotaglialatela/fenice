@@ -19,6 +19,8 @@ number of ranks (1->3, 3->5, 4->2, 2->7) against the uninterrupted serial run, t
 """
 import json
 
+from pathlib import Path
+
 import numpy as np
 
 import fenice
@@ -85,8 +87,36 @@ def check(ranks):
     ok = check_restart(RESTART_3D, ranks) and ok
     ok = check_restart(RESTART_3D_GHOST, ranks) and ok
     ok = check_hot_start_3d() and ok
+    ok = check_forces_3d(ranks) and ok
     print("ALL MATCH (bitwise)" if ok else "MISMATCH")
     return 0 if ok else 1
+
+
+def check_forces_3d(ranks):
+    """The [[force]] rows of a 3-D adaptive sphere (ghost wall): the file of 1..N ranks is the serial one, byte for byte, and
+    Fx equals the monitor's (the same momentum balance of the solid leaves)."""
+    out = study.study_dir(STUDY) / "check" / "forces3d"
+    case = out / "case"
+    case.mkdir(parents=True, exist_ok=True)
+    text = (Path(__file__).resolve().parents[3] / "cases" / "ibm_flow_over_cylinder" / "case.toml").read_text(encoding="utf-8")
+    text += "\n[[force]]\nname = \"sphere\"\nreference_length = 0.6\nreference_density = 1.0\nreference_velocity = 1.0\ninterval = 5\n"
+    (case / "case.toml").write_text(text, encoding="utf-8", newline="\n")
+    sets = ["use_amr=true", *SPHERE_GHOST, "amr_max_level=2", "amr_refine_every=3", "max_steps=30", "monitor_interval=30",
+            "save_interval=1000000000"]
+    rows = {}
+    for n in range(0, ranks + 1):   # 0 = serial
+        d = out / f"np{n}"
+        fenice.run(str(case), *sets, out_root=d, **({"mpi": n} if n else {}))
+        rows[n] = next(d.rglob("*_force.csv")).read_text()
+    mon = next((out / "np0").rglob("*_monitor.csv")).read_text().strip().splitlines()
+    fx_monitor = float(mon[-1].split(",")[5])
+    last = rows[0].strip().splitlines()[-1].split(",")
+    fx_force = float(last[2])
+    same = all(rows[n] == rows[0] for n in rows)
+    close = abs(fx_force - fx_monitor) <= 1e-8 * max(1.0, abs(fx_monitor)) and abs(fx_force) > 1e-3
+    print(f"forces3d      serial {len(rows[0].splitlines()) - 1} rows | ranks 1..{ranks} {'==' if same else 'DIFFER'} | "
+          f"Fx {fx_force:.6e} vs monitor {fx_monitor:.6e} {'ok' if close else 'DIFFERS'}")
+    return same and close
 
 
 RESTARTS = [(1, 3), (3, 5), (4, 2), (2, 7)]   # (ranks before, ranks after)
