@@ -40,6 +40,7 @@ import html
 import json
 import re
 import shutil
+import sys
 import webbrowser
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -463,7 +464,23 @@ def switches_md() -> str:
         f"| `{n}` | {kind} | {who} | {effect} |" for n, kind, who, effect in rows)
 
 
+def check_parameters_documented() -> None:
+    """Every parameter of the solver's table (``fenice --print-parameters``) must appear in guide/parameters.md."""
+    try:
+        solver = fenice.exe()
+    except FileNotFoundError:
+        print("note: solver not built, parameter table not checked against guide/parameters.md")
+        return
+    out = subprocess.run([solver, "--print-parameters"], capture_output=True, text=True, check=True).stdout
+    keys = [line.split("	", 1)[0] for line in out.splitlines() if line]
+    page = (SOURCE / "guide" / "parameters.md").read_text(encoding="utf-8")
+    missing = [k for k in keys if f"`{k}`" not in page]
+    if missing:
+        sys.exit("guide/parameters.md does not document: " + ", ".join(missing))
+
+
 def build(open_browser: bool = False) -> None:
+    check_parameters_documented()
     base_css = (TEMPLATES / "pdoc_base.css").read_text(encoding="utf-8")
     custom_css = (TEMPLATES / "custom.css").read_text(encoding="utf-8")
     pages = load_pages()

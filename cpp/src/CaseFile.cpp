@@ -29,30 +29,19 @@ namespace fv {
 
 namespace {
 
-// Canonical section of every parameter (test_case is the case itself, so never in a file).
+// Canonical section of every parameter (test_case is the case itself, so never in a file): grouped from `parameter_table`, sections in
+// order of first appearance, keys in table order.
 const std::vector<std::pair<std::string, std::vector<std::string>>>& section_table() {
-    static const std::vector<std::pair<std::string, std::vector<std::string>>> t = {
-        {"mesh", {"Lx", "Ly", "Lz", "nx", "ny", "nz"}},
-        {"thermo", {"eos_type", "gamma", "p_inf"}},
-        {"physics", {"use_viscous", "mu", "reynolds", "pr", "use_bodyforce", "gx", "gy", "gz"}},
-        {"source", {"source_rho", "source_mx", "source_my", "source_mz", "source_E"}},
-        {"boundaries",
-         {"bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back", "u_in", "v_in", "rho_in", "p_out",
-          "u_in_table", "v_in_table", "rho_in_table", "p_out_table", "nrbc_sigma", "nrbc_beta"}},
-        // use_muscl: the retired switch of the second-order path, still read as an alias of reconstruction (SimParams::from)
-        {"numerics",
-         {"riemann_solver", "reconstruction", "muscl_limiter", "weno_epsilon", "boundary_order", "time_scheme", "cfl", "shock_blend", "use_muscl"}},
-        {"run",
-         {"t_end", "save_interval", "write_interval_time", "dt_max", "monitor_interval", "max_steps", "resume", "output_root", "dump_state",
-          "vtk_format"}},
-        {"parallel", {"use_mpi", "n_cpus"}},
-        {"ibm",
-         {"use_ibm", "ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz", "ibm_file", "ibm_chord", "ibm_aoa", "ibm_method", "ibm_curvature"}},
-        {"hot_start", {"use_hot_start", "hot_start_file", "hot_start_src_nx", "hot_start_src_ny"}},
-        {"amr",
-         {"use_amr", "amr_max_level", "amr_indicator", "amr_criterion", "amr_refine_threshold", "amr_derefine_threshold",
-          "amr_diffusion", "amr_refine_every", "amr_init_levels", "amr_refine_ibm", "amr_force_box"}},
-    };
+    static const std::vector<std::pair<std::string, std::vector<std::string>>> t = [] {
+        std::vector<std::pair<std::string, std::vector<std::string>>> out;
+        for (const ParamSpec& s : parameter_table()) {
+            if (!*s.section) continue;
+            auto it = std::find_if(out.begin(), out.end(), [&](const auto& e) { return e.first == s.section; });
+            if (it == out.end()) it = out.insert(out.end(), {s.section, {}});
+            it->second.push_back(s.key);
+        }
+        return out;
+    }();
     return t;
 }
 

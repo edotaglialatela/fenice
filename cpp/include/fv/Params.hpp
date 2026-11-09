@@ -4,6 +4,7 @@
 
 #include <map>
 #include <string>
+#include <vector>
 
 namespace fv {
 
@@ -38,7 +39,17 @@ private:
     std::map<std::string, std::string> values_;
 };
 
-// Baseline defaults, applied before the test-case defaults.
+// One parameter: its key, the case-file section it is written in ("" = not in a file) and its baseline default (null = none).
+struct ParamSpec {
+    const char* key;
+    const char* section;
+    const char* default_value;
+};
+
+// Every parameter, in the order a case file writes them: the single source of the keys, their sections and their defaults.
+const std::vector<ParamSpec>& parameter_table();
+
+// Baseline defaults, applied before the test-case defaults (the defaults of `parameter_table`).
 Params baseline_defaults();
 
 // Typed view of the parameters.  Field names are the config keys; see the

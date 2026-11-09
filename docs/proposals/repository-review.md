@@ -1,6 +1,6 @@
 # Repository review: structural improvements and future-proofing
 
-Status: items 4 and 7 implemented (2026-11-09), the CLAUDE.md part of item 8 done, items 5 and 6 decided (no work); item 1 done (viscous bound, step length), items 3, 9 open. Based on the file sizes and layout of the repository at the 3-D octree Q7 commit and on the
+Status: items 4 and 7 implemented (2026-11-09), the CLAUDE.md part of item 8 done, items 5 and 6 decided (no work); item 1 done (viscous bound, step length), item 3 partly done, item 9 open. Based on the file sizes and layout of the repository at the 3-D octree Q7 commit and on the
 invariants written down in `CLAUDE.md`; it is a map of candidates, not an audit line by line. Each item gives the evidence, the
 benefit, the risk to the bit-reproducibility rule, and a size. The user decides what goes ahead.
 
@@ -38,6 +38,12 @@ benefit, the risk to the bit-reproducibility rule, and a size. The user decides 
 * Risk: none for the numerics (moves only). Do it when no long branch (the Q8 work) touches those files, to avoid conflicts.
 
 ## 3. One source of truth for parameters
+
+* Done in part (2026-11-09): `parameter_table()` (`Params.cpp`: key, case-file section, baseline default) is the one table; `baseline_defaults()`
+  and the case-file `section_table()` are built from it (resolved configuration of two cases identical before and after), `fenice
+  --print-parameters` lists it, and `docs/build.py` fails when a key is missing from `guide/parameters.md`. Not done: the typed defaults in
+  `SimParams::from` (fallbacks for absent keys, left as they are), one-line descriptions in the table, and generating the docs table or the
+  GUI tooltips from it (the page carries prose and links a generated table would lose).
 
 * Evidence: a new parameter must be added to `Params` / `SimParams`, `section_table()` in `CaseFile.cpp`, the table in
   `docs/source/guide/parameters.md`, and is picked up by the GUI through `--print-config`. A test enforces only the case-file part.
