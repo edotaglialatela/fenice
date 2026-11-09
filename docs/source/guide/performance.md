@@ -112,43 +112,7 @@ the Taylor-Green reference peak is 0.0127. The thread count never changes the re
 
 **Where the time goes.** `FENICE_PROFILE=1` prints the total time step and residual sections on uniform runs, including the time updates, viscous padding and conversion, viscous sweep, IBM forcing, body force and sources. It also prints the output and remesh sections on AMR runs (the region the indicator reads, the flags, the topology, the migration of the state, the rebuild of the share and its engine tables, the partition; inside the rebuild the fetch of the leaves, the mask, the partial mesh, the engine build, the partition and the localisation), with the minimum and maximum over the ranks. Sections are timed once per step or remesh, never per face. Nested sections are inclusive, so the total and its children must not be summed together. With the switch off, profile sections only take the cached flag check. An AMR time step is also split into the stage copy, the face fluxes (primitive state and virtual cells, convective faces, viscous cell quantities, viscous faces), the flux registers, the gather into the cell residuals, the forcing and the halo exchanges (`amr: ...`), and `fetch_leaves` into its frontier, classification, exchange, serving and collection (`fetch: ...`). On one node a single process on all threads is faster than MPI ranks: on a 3-D sphere with 72 k leaves, 200 steps took 6.6 s on 16 threads against 16 s on 8 ranks (the remesh is 11 % of the first and about half of the second). Use MPI to go beyond one node, not within it.
 
-## Where the AMR time goes (measured)
+## Adaptive meshes
 
-Ryzen 7 7800X3D (8 cores, 16 threads), `FENICE_PROFILE=1`. Times are wall seconds.
-
-**3-D octree, sphere** (Re 20, base mesh 5 cells per box edge, 2 levels, 72 k leaves, immersed mask, remesh every 4 steps).
-
-| Part of the time step (100 steps, 16 threads) | Time |
-|---|---:|
-| Whole time step | 2.6-2.7 s |
-| Convective faces | 0.87 s |
-| Viscous faces | 0.43 s |
-| Primitive state and virtual cells (`prepare`) | 0.43 s |
-| Rest: stage copy, flux registers, gather, forcing, exchanges | about 0.9 s |
-
-The virtual cells (means of the fine leaves under a coarse neighbour, interpolated values) are about 15 % of the step; they are evaluated for
-every level's call, and restricting them to the cells that level reads would gain a few percent on three levels. The step scales 7.4 times from 1 to 16 threads.
-
-| 200 steps | Time loop | Remesh share |
-|---|---:|---|
-| 16 threads, one process | 6.6 s | 7-11 % of the loop |
-| 8 MPI ranks | 16.1 s | about half (7.5 s of remesh) |
-| 4 MPI ranks | 19.3 s | |
-
-Inside the 7.5 s remesh on 8 ranks: the rebuild of each rank's share is 3.9 s, and within it the fetch of the leaves 2.0-2.3 s (its parts are
-the `fetch:` profile sections). The remesh is the limit of rank scaling; editing the share instead of rebuilding it is open work
-(`docs/design/weno-amr.md`).
-
-**2-D airfoil** (IBM, Re 1000, 192x96 base mesh, 2 levels, t = 20, 8 threads): the time loop takes 20.5 s, of which the remesh is 3.1 s.
-
-| Remesh part | Time |
-|---|---:|
-| Indicator | 0.98 s |
-| Engine build | 0.75 s |
-| Wave-speed bound | 0.71 s |
-| Adaptation of the mesh | 0.60 s |
-
-<img src="{{root}}img/amr_time_split.png" style="width:100%">
-
-The same splits as pie charts (`cases/validation/amr/time_split.py`). The slices "rest of the step", the time step of the two 200-step runs and the
-"rest" slices of the remesh are differences of measured totals.
+The cost of an adaptive run against the uniform solver on the same finest mesh, its scaling on threads and ranks and the split of its time
+(the step, the remesh, the fetch) are measured on the [AMR]({{root}}modules/AMR.html#cost-and-scaling) page.
