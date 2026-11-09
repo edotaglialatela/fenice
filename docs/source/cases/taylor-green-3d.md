@@ -102,7 +102,7 @@ Reading the curves:
 <figcaption>Left: shell-averaged energy spectrum of the velocity at the snapshot nearest to the dissipation peak, 32³
 (t = 6.6) and 96³ (t = 8.3). Middle: total dissipation −dK/dt (monitor) and the viscous part 2νZ from the spectral enstrophy of
 the snapshots; the gap is what the scheme dissipates. Right: spectrum of the wake of the Re = 100 cylinder
-(<a href="{{root}}cases/cylinder-low-blockage.html">low-blockage cylinder page</a>).</figcaption>
+(<a href="{{root}}cases/cylinder.html#re-100-in-a-large-box-amr">low-blockage cylinder page</a>).</figcaption>
 </figure>
 
 From the snapshots of the runs above (`benchmarks/spectra_application.py`, `fenice.spectra`):

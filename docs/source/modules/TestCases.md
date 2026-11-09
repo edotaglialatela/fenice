@@ -19,9 +19,9 @@ overrides those (see [Parameters]({{root}}guide/parameters.html)).
 | `Poiseuille Flow` | Viscous fluxes, inlet / outlet BCs | [Poiseuille]({{root}}cases/poiseuille.html) |
 | `Lid Driven Cavity` | 2-D Navier-Stokes at Re = 400 (Ghia 1982) | [Cavity]({{root}}cases/cavity.html) |
 | `IBM Flow over Cylinder` | IBM, vortex shedding at Re = 100, hot start | [Cylinder]({{root}}cases/cylinder.html) |
-| `IBM Cylinder Low Blockage AMR` | Re = 100 in a box with 1.7 % blockage: AMR, ghost-cell wall, Strouhal number | [Cylinder, low blockage]({{root}}cases/cylinder-low-blockage.html) |
+| `IBM Cylinder Low Blockage AMR` | Re = 100 in a box with 1.7 % blockage: AMR, ghost-cell wall, Strouhal number | [Cylinder]({{root}}cases/cylinder.html#re-100-in-a-large-box-amr) |
 | `Shu-Osher Test` | Shock / entropy-wave interaction, MUSCL accuracy | [Shu-Osher]({{root}}cases/shu-osher.html) |
-| `IBM Supersonic Flow over Cylinder` | IBM fringe treatment at Mach 2, bow shock | [Supersonic cylinder]({{root}}cases/supersonic-cylinder.html) |
+| `IBM Supersonic Flow over Cylinder` | IBM fringe treatment at Mach 2, bow shock | [Cylinder]({{root}}cases/cylinder.html#mach-2-the-bow-shock) |
 | `Woodward-Colella Blast Waves` | Strong shocks between walls, conservation, self-convergence | [Blast waves]({{root}}cases/blast-waves.html) |
 | `Noh Implosion` | Cold radial inflow, exact shock, wall heating | [Noh and Sedov]({{root}}cases/implosions.html) |
 | `Kelvin-Helmholtz` | Smooth shear layer, linear growth rate | [Kelvin-Helmholtz]({{root}}cases/kelvin-helmholtz.html) |

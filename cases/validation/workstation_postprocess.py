@@ -52,7 +52,7 @@ STUDIES = {
     "vv20": ("benchmarks/vv20.py", [], ["vv20"], "guide/validation.md (V&V section)"),
     "ibm_loads_cylinder": ("benchmarks/ibm_loads.py", ["cylinder"], ["cylinder_loads"], "cases/cylinder.md"),
     "ibm_loads_airfoil": ("benchmarks/ibm_loads.py", ["airfoil"], ["airfoil_loads"], "cases/airfoil.md"),
-    "cylinder_low_blockage": ("benchmarks/cylinder_low_blockage.py", [], ["cylinder_low_blockage"], "cases/cylinder-low-blockage.md"),
+    "cylinder_low_blockage": ("benchmarks/cylinder_low_blockage.py", [], ["cylinder_low_blockage"], "cases/cylinder.md"),
     "shu_osher_schemes": ("benchmarks/shu_osher_schemes.py", [], ["shu_osher_schemes"], "cases/shu-osher.md"),
     "taylor_green_3d": ("benchmarks/taylor_green_3d.py", [], ["taylor_green_3d"], "cases/taylor-green-3d.md and README.md"),
     "spectra_application": ("benchmarks/spectra_application.py", [], ["spectra_application"], "cases/taylor-green-3d.md"),
@@ -62,7 +62,7 @@ TABLES = {
     "compare_trixi/table.md": "no page yet: a comparison section (Trixi.jl DG degree 3 against MUSCL / WENO3-Z / WENO5-Z)",
     "variants/variants.md": "cases/sod.md, cases/shu-osher.md, cases/cavity.md (MUSCL against WENO, boundary_order 1 / 2)",
     "recent/recent.md": "cases/manufactured-solution.md (MUSCL at the outflow), cases/cylinder.md (probe loads), "
-                        "cases/cylinder-low-blockage.md (80 cells per diameter)",
+                        "cases/cylinder.md (large box, 80 cells per diameter)",
 }
 
 
