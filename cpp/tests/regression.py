@@ -13,7 +13,8 @@ their exact solutions (see the fenice_tests checks of the same names).
     python cpp/tests/regression.py --mpi 4     # also C++ MPI (4 ranks) vs references
     python cpp/tests/regression.py --only amr
     python cpp/tests/regression.py --create-missing   # write references for NEW cases only
-    python cpp/tests/regression.py --update CASE...   # overwrite these references (deliberate, validated change)
+    python cpp/tests/regression.py --update CASE...   # overwrite these references (deliberate, validated change);
+                                                     # refuses a dirty git tree (--force), writes a report for the commit message
 
 Only numpy is needed.  Exit code 0 when everything matches.
 """
@@ -277,6 +278,7 @@ def main():
     ap.add_argument("--update", nargs="+", metavar="CASE", choices=list(CASES),
                     help="overwrite the references of these cases with the current results, printing how far they "
                          "moved; only after a deliberate change of the numerics that was validated physically")
+    ap.add_argument("--force", action="store_true", help="let --update run on a dirty working tree")
     args = ap.parse_args()
     if not os.path.isfile(EXE):
         sys.exit(f"Solver not built: {EXE}\nRun .\\cpp\\build.ps1 first.")
@@ -290,11 +292,27 @@ def main():
             U, meta, steps, _ = run_cpp(name, tmp)
             np.savez(path, U=U, step=steps, **({} if meta is None else {"leaf_meta": meta}))
             print(f"created reference {name} ({steps} steps, {U.shape[0]} cells)")
-    for name in args.update or []:
-        U, meta, steps, _ = run_cpp(name, tmp)
-        _, diff, old_steps = compare(name, U, meta, steps, args.tol)
-        np.savez(os.path.join(REF, f"{name}.npz"), U=U, step=steps, **({} if meta is None else {"leaf_meta": meta}))
-        print(f"updated reference {name}: {old_steps} -> {steps} steps, max rel change {diff:.2e}")
+    if args.update:
+        # The old references must be recoverable from git: refuse to overwrite on a dirty tree.
+        st = subprocess.run(["git", "status", "--porcelain"], cwd=HERE, capture_output=True, text=True)
+        if st.returncode != 0:
+            sys.exit("--update needs a git checkout (the old references must be recoverable)")
+        if st.stdout.strip() and not args.force:
+            sys.exit("--update refused: the working tree has uncommitted changes (commit them first, "
+                     "or --force):\n" + st.stdout)
+        report = []
+        for name in args.update:
+            U, meta, steps, _ = run_cpp(name, tmp)
+            _, diff, old_steps = compare(name, U, meta, steps, args.tol)
+            np.savez(os.path.join(REF, f"{name}.npz"), U=U, step=steps, **({} if meta is None else {"leaf_meta": meta}))
+            line = f"{name}: {old_steps} -> {steps} steps, max rel change {diff:.2e}"
+            report.append(line)
+            print("updated reference " + line)
+        # Paste this into the commit message: it is the recorded reason and size of each change.
+        path = os.path.join(tmp, "reference_update_report.txt")
+        with open(path, "w", newline="\n") as f:
+            f.write("\n".join(report) + "\n")
+        print(f"report for the commit message: {path}")
     runs = [(n, 0) for n in CASES if args.only in n]
     if args.mpi:
         runs += [(n, args.mpi) for n in MPI_CASES if args.only in n]
