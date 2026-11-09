@@ -147,3 +147,8 @@ the `fetch:` profile sections). The remesh is the limit of rank scaling; editing
 | Engine build | 0.75 s |
 | Wave-speed bound | 0.71 s |
 | Adaptation of the mesh | 0.60 s |
+
+<img src="{{root}}img/amr_time_split.png" style="width:100%">
+
+The same splits as pie charts (`cases/validation/amr/time_split.py`). The slices "rest of the step", the time step of the two 200-step runs and the
+"rest" slices of the remesh are differences of measured totals.
