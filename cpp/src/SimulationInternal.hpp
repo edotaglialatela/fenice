@@ -18,7 +18,10 @@
 #include <sstream>
 #include <stdexcept>
 #include <unordered_map>
+
+#ifdef _OPENMP
 #include <omp.h>
+#endif
 
 #include "fv/Geometry.hpp"
 
