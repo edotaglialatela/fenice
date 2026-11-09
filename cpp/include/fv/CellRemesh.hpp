@@ -11,7 +11,8 @@
 //      variation = |c_r - c_l| / m; if variation >= criterion, the cells of the level on both sides get xi = 1.
 //   3. `diffusion` iterations: every interface of two cells with one of them above `diffusion_trigger`, or of a cell above it
 //      against a coarser leaf, adds `diffusion_coeff` to the cell(s) of the level; after all interfaces xi += added.
-//   4. A leaf is refined if its xi >= split; four sibling leaves are joined if the xi of their PARENT cell is < join.
+//   4. A leaf is refined if its xi >= split; four sibling leaves are joined if the xi of their PARENT cell is < join, where that
+//      xi is computed (steps 2-3) with criterion * join_band, so a join needs a variation clearly below the refine trigger.
 #pragma once
 
 #include <array>
@@ -41,6 +42,9 @@ struct CellIndicator {
     double diffusion_trigger = 0.05; // a face spreads only if a leaf has xi above this
     double split = 0.15;             // refine at xi >= split
     double join = 0.10;              // join siblings when all have xi < join
+    // The parent xi of the join test is evaluated with criterion * join_band (a dead band against the refine test: a flow whose
+    // variation sits at the criterion would otherwise be joined and refined again every few remeshes). Fixed, not a parameter.
+    static constexpr double join_band = 0.9;
 
     // Test switch: false joins four siblings when all four have xi < join at their own level (the rule of the first
     // version, which flickers at the edge of a refined region) instead of testing the parent's xi.

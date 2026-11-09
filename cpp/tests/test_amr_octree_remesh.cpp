@@ -48,10 +48,11 @@ void indicator_oracle(const CellMesh& m, const EOS& eos, const CellIndicator& in
         p = w[3];
         sp = std::sqrt(w[1] * w[1] + w[2] * w[2] + w[4] * w[4]);
     };
+    double crit = ind.criterion;   // the refine criterion; the parent xi of the join test uses criterion * join_band
     const auto test = [&](double a, double b, double floor_value) {
         double vmin = std::min(std::abs(a), std::abs(b));
         if (vmin < ind.value_floor) vmin = floor_value;
-        return std::abs(b - a) / vmin >= ind.criterion;
+        return std::abs(b - a) / vmin >= crit;
     };
     const auto flagged = [&](const State& a, const State& b) {
         double ra, pa, sa, rb, pb, sb;
@@ -61,6 +62,7 @@ void indicator_oracle(const CellMesh& m, const EOS& eos, const CellIndicator& in
                (ind.use_velocity && test(sa, sb, ind.velocity_floor));
     };
     const bool per[3] = {m.periodic_x, m.periodic_y, m.periodic_z};
+    const auto level_xi = [&]() {
     std::vector<std::vector<double>> xi(static_cast<size_t>(M) + 1);
     for (int l = 0; l <= M; ++l) {
         const auto& cl = cells[static_cast<size_t>(l)];
@@ -92,13 +94,18 @@ void indicator_oracle(const CellMesh& m, const EOS& eos, const CellIndicator& in
             }
         ind.diffuse(x, ifaces);
     }
+    return xi;
+    };
+    const std::vector<std::vector<double>> xi = level_xi();
+    crit = ind.criterion * CellIndicator::join_band;
+    const std::vector<std::vector<double>> xij = level_xi();
     xi_leaf.assign(static_cast<size_t>(N), 0.0);
     xi_parent.assign(static_cast<size_t>(N), 1e300);
     for (int c = 0; c < N; ++c) {
         const int l = m.level[c];
         xi_leaf[c] = xi[static_cast<size_t>(l)][static_cast<size_t>(index[static_cast<size_t>(l)].at({m.ci[c], m.cj[c], m.ck[c]}))];
         if (l > 0)
-            xi_parent[c] = xi[static_cast<size_t>(l) - 1][static_cast<size_t>(
+            xi_parent[c] = xij[static_cast<size_t>(l) - 1][static_cast<size_t>(
                 index[static_cast<size_t>(l) - 1].at({m.ci[c] >> 1, m.cj[c] >> 1, m.ck[c] >> 1}))];
     }
 }

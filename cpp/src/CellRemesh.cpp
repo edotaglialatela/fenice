@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <chrono>
 #include <cstdint>
 #include <cmath>
@@ -212,9 +213,10 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         kl = -1;
         return -1;
     };
-    // 2) xi of every level
+    // 2) xi of every level, for a given criterion (the refine test uses `criterion`; the parent xi of the join test a smaller one)
+    const auto level_xi = [&](double crit, int top) {
     std::vector<std::vector<double>> xi(static_cast<size_t>(M) + 1);
-    for (int l = 0; l <= M; ++l) {
+    for (int l = 0; l <= top; ++l) {
         const LevelCells& L = lev[static_cast<size_t>(l)];
         std::vector<double>& x = xi[static_cast<size_t>(l)];
         const int n = L.size();
@@ -225,7 +227,7 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         const auto test = [&](double ca, double cb, double floor_value) {
             double vmin = std::min(std::abs(ca), std::abs(cb));
             if (vmin < value_floor) vmin = floor_value;
-            return std::abs(cb - ca) / vmin >= criterion;
+            return std::abs(cb - ca) / vmin >= crit;
         };
         const auto flag = [&](const LevelCells& A, int ia, const LevelCells& B, int ib) {
             bool hit = false;
@@ -268,6 +270,12 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         }
         diffuse_cells(x, nbr, ns);
     }
+    return xi;
+    };
+    const std::vector<std::vector<double>> xi = level_xi(criterion, M);
+    // the join test reads the parent xi with a criterion join_band times smaller (a dead band against the refine test: a
+    // flow whose variation sits at the criterion would otherwise be joined and refined again every few remeshes)
+    const std::vector<std::vector<double>> xij = level_xi(criterion * join_band, M - 1);   // parents live at levels 0..M-1
     // 3) per leaf: its own xi, and the xi of its parent at the parent level
     Result r;
     r.xi.assign(static_cast<size_t>(N), 0.0);
@@ -282,7 +290,7 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         if (l > 0) {
             const LevelCells& P = lev[static_cast<size_t>(l) - 1];
             const int par = P.find(m.ci[c] >> 1, m.cj[c] >> 1, d3 ? m.ck[c] >> 1 : 0);
-            if (par >= 0) r.xi_parent[c] = xi[static_cast<size_t>(l) - 1][static_cast<size_t>(par)];
+            if (par >= 0) r.xi_parent[c] = xij[static_cast<size_t>(l) - 1][static_cast<size_t>(par)];
         }
     }
     return r;
