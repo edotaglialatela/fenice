@@ -556,6 +556,8 @@ void Simulation::solve_amr() {
     std::printf("[AMR] %d leaves at the end (", static_cast<int>(lf.level->size()));
     for (int l = 0; l <= cm.max_level; ++l) std::printf("%slevel %d: %d", l ? ", " : "", l, per_level[static_cast<size_t>(l)]);
     std::printf("); remesh %.2f s of the %.2f s time loop\n", remesh_wall, loop_wall);
+    std::printf("[AMR] over the run: %lld leaves refined, %lld groups joined\n", static_cast<long long>(cell_adaptor->n_refined),
+                static_cast<long long>(cell_adaptor->n_joined));
     // (a localized run has no gather: the "gather" is the region of the mesh the indicator reads and its state, the "indicator" the
     // flags of the owned leaves and their exchange, the "adapt" the adapt of the topology and the state of the new leaves, the
     // "partition" the partition, localize and halo fill after the engine build)

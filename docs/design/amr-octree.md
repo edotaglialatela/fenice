@@ -957,9 +957,7 @@ A first cheap change (pushing consecutive duplicate ancestors once before the so
 ranks and was dropped. With the remesh at zero the 8-rank run would take about 7.6 s per unit time (stepping alone, against 10.8 on 16 OpenMP
 threads); halving it gives 11.8. Reaching the remesh share below 30 % needs a different fetch (the region of a rank is mostly its own leaves,
 so only the border needs asking; the lists of every cell of the region are built and sorted today) and a share that is edited rather than
-rebuilt: both are larger than a local change and neither is started. In a settled flow 23 of 50 remeshes change leaves because the indicator
-flickers at its threshold; a hysteresis in the indicator would remove most rebuilds, but it changes results, so it is a numerics choice for the
-user and is not implemented.
+rebuilt: both are larger than a local change and neither is started. In a settled flow 23 of 50 remeshes change leaves; section 24 shows that a time hysteresis does not remove them (it is not implemented).
 
 ### 20.2 The ghost-cell wall on a rank's share
 
@@ -1042,3 +1040,29 @@ percent. It would also need a per-level read list, rebuilt in parallel at every 
 (the cost of a serial rebuild exceeds the saving); a deeper tree (five or more levels) would change that. The step now scales 7.4x on 16 threads
 (8 cores), close to what the hardware gives, and each remaining part is 10-30 % of it: the next gains are algorithmic (fewer leaves, fewer remeshes),
 not a loop that does not scale.
+
+## 24. Why the remeshes of a settled flow change leaves (2026-11-09)
+
+The end of a run now prints `[AMR] over the run: N leaves refined, M groups joined`. Q8a sphere (Re 20, base 5, 2 levels, mask), 200 steps resumed from
+the settled state, remesh every 4 steps (50 remeshes, 23 of them change leaves):
+
+| setting | leaves refined | groups joined | remeshes that change leaves |
+|---|---|---|---|
+| default (refine 0.15, join 0.10) | 108 | 104 | 23 |
+| `amr_derefine_threshold` 0.05 or 0.02 | the same state to the bit | | 23 |
+| `amr_derefine_threshold` 0 (no joins) | 28 | 0 | 3 |
+| `amr_refine_threshold` 0.3 | 0 | 0 | 0 |
+
+So the churn is join / re-refine cycles, not a slow drift: without joins only 28 leaves are ever refined (the first adaptation of the resumed
+state), with joins 108. Lowering the join threshold changes nothing (the parent's xi of the groups that join is already below 0.02: the indicator is a
+binary flag per cell, smoothed by `amr_diffusion` passes, so xi takes few values), which means the groups that join are re-refined by the indicator
+of the new coarse leaf, not by the old one's estimate. A time hysteresis was built (joins decided only every N-th remesh, a function of the step so
+that resume and ranks agree, default 1 = bit-identical) and measured: N = 2, 4, 8 gave 108 / 100 / 88 leaves refined and 104 / 96 / 72 joined, i.e. the
+same groups join at every window and are re-refined at the next remesh, so the cycle only gets slower. It was not merged: a parameter without a
+measured benefit.
+
+The cause is therefore a mismatch between the parent-level xi that decides a join and the xi the coarse leaf has once it exists (hypothesis, not
+yet traced to a face: the neighbours of the group change level at the join, and the diffusion sees a different neighbourhood). A fix would change
+the join test (for instance a join also requires the parent's xi to stay below the refine threshold after the other joins of the same remesh), so it
+changes results and is the user's numerics choice. Its payoff is 20 of 23 rebuilds on this case, which matters for MPI (rebuild 3.9 s of 7.5 s remesh
+on 8 ranks) and little for one process on all threads (remesh 7-11 % of the loop).
