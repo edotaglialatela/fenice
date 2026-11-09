@@ -103,6 +103,12 @@ benefit, the risk to the bit-reproducibility rule, and a size. The user decides 
 
 ## 9. Continuous integration time
 
+* Measured (2026-11-09, runs of 2026-11-08, `gh run view`; jobs run in parallel, so a push takes as long as the slowest): Windows 790-930 s,
+  macOS 730-820 s, Linux x64 550-600 s, Linux ARM64 430-480 s. The largest steps per job: `amr_mpi.py --check` on 1-7 ranks 100-400 s
+  (Windows 300-400 s, about 40 % of the job), the MMS quick study 90-180 s, build + unit tests 140-160 s on Windows (50 s + 55-95 s elsewhere),
+  regression on 4 ranks 40-120 s, ghost-cell IBM check 20-80 s. Moving rank counts 5-7 of the AMR check to the nightly workflow would cut
+  roughly 40 % of that step (an estimate: the time per rank count was not measured separately).
+
 * Evidence: CI runs unit tests, regression serial and on 4 ranks, `amr_mpi.py --check`, `ibm_ghost.py --check` and the MMS quick
   study on four platforms. Each addition (the 3-D AMR cases) lengthens it.
 * Proposal: measure the time per step of the workflow and move the slowest bitwise checks that do not depend on the platform
