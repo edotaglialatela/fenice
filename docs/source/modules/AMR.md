@@ -49,7 +49,7 @@ uniform mesh): a leaf is solid if its centre is inside the body, and the body ba
 cell lies within the margin of the surface (`near_body_surface`). The mask forcing and the ghost-cell wall (`ibm_method = ghost`) work
 on octree leaves, also on the shares of an MPI run (bitwise equal to serial); `auto` chooses the ghost wall wherever `amr_refine_ibm` is on.
 
-Not available in 3-D: WENO5 (as in 2-D AMR). Cost of the octree against the uniform solver on a sphere: 0.2-0.3 of the time loop at the same finest resolution, drag within 1 %; MPI is efficient at 2-3 ranks only (the remesh is the limit). Design, phases and
+Not available in 3-D: WENO5 (as in 2-D AMR). Cost of the octree against the uniform solver on a sphere: 0.2-0.3 of the time loop at the same finest resolution (measured before the OpenMP step was sped up by 1.7x on 16 threads, so now lower), drag within 1 %; MPI is efficient at 2-3 ranks only (the remesh is the limit). Design, phases and
 measurements: `docs/design/amr-octree.md`.
 
 ## Faces and the residual
