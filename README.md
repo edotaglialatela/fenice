@@ -103,35 +103,17 @@ provides ready-made run configurations: Sod, 3-D Taylor-Green, unit tests, regre
 
 ## Run
 
-Every run is a test case plus optional parameter overrides. Parameters come from the case
-defaults, then a `--config` file (`key = value` lines), then `--set key=value`.
-
-**Windows**
-
-```powershell
-build\release\fenice.exe --list-cases
-build\release\fenice.exe --case "Sod Shock Tube"
-build\release\fenice.exe --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
-build\release\fenice.exe --case "Taylor-Green Vortex 3D" --set monitor_interval=10
-build\release\fenice.exe --config run.cfg --threads 8
-mpiexec -n 8 build\release\fenice.exe --case "IBM Supersonic Flow over Cylinder"
-```
-
-**Linux / macOS**
+Every run is a test case plus optional parameter overrides (`--set key=value`, or a `--config` file):
 
 ```bash
-./build/release/fenice --list-cases
-./build/release/fenice --case "Sod Shock Tube"
-./build/release/fenice --case "Shu-Osher Test" --set nx=4000 --set muscl_limiter=MC
-./build/release/fenice --case "Taylor-Green Vortex 3D" --set monitor_interval=10
-./build/release/fenice --config run.cfg --threads 8
-mpiexec -n 8 ./build/release/fenice --case "IBM Supersonic Flow over Cylinder"
+build/release/fenice --list-cases                       # fenice.exe on Windows
+build/release/fenice --case "Sod Shock Tube"
+build/release/fenice --case "Taylor-Green Vortex 3D" --set monitor_interval=10 --threads 8
+mpiexec -n 8 build/release/fenice --case "IBM Supersonic Flow over Cylinder"
 ```
 
-With `--set use_mpi=true --set n_cpus=N` the solver re-launches itself under `mpiexec`,
-so you don't have to call it yourself. Output goes to `results/<case>/`: `.vtr` snapshots
-plus a `.pvd` time series (open it in ParaView) and a restart checkpoint. Ctrl+C stops a
-run cleanly and saves the checkpoint.
+Output goes to `results/<case>/`: `.vtr` snapshots plus a `.pvd` time series (open it in ParaView) and a restart checkpoint; Ctrl+C
+stops a run cleanly and saves it. The options, MPI launching and the output files are on the *Getting started* page of the documentation.
 
 ## GUI
 
@@ -139,38 +121,15 @@ run cleanly and saves the checkpoint.
   <img src="docs/img/gui_workbench.png" width="95%" alt="The Fenice workbench: modules linked on a canvas, live monitor below, the console on the right">
 </p>
 
-The PyQt6 **workbench** is an empty canvas of modules that you drag from the palette and link port to port
-(a link that does not fit is refused; *Delete* removes the selection). A new workbench holds a *Geometry*
-node linked to a *Solver* node; double-click a node to open its editor in a window of its own.
-
-- **Geometry:** the domain, base mesh (with *2×* / *½×* for a grid study), immersed body (cylinder, sphere,
-  NACA section, airfoil file), the boundary condition of each side, the adaptive mesh (levels, indicator
-  variables, thresholds, remesh interval; starts with all three variables, thresholds 0.11, every step) and a
-  picture of the solid cells on every AMR level. It owns its geometry and can be edited before it is linked; a solver does not run without one.
-- **Solver:** the setup (test case, thermodynamics, viscosity, body forces, numerical schemes, output, MPI
-  ranks, hot start) without the geometry, plus *Run* / *Stop* (a clean stop that saves the checkpoint),
-  a **Low-Mach** slider and the monitor interval on the node itself. Several solvers can run at once.
-- **Monitor** (link a solver's *run* port): live panels for the time step, the wave speed, the residuals
-  (log axis) and one monitor quantity, with the name and latest value written inside each panel, and a
-  progress bar. The solver's console, coloured, is a column on the right of the window. A monitor linked in
-  the middle of a run shows it from its start.
-- **Postprocessing** (link a solver's *results* port): the result viewer, following the run while it goes on.
-
-The list of test cases and their defaults come from the solver itself, so new cases appear in the GUI
-automatically. Build the solver first, then:
+The PyQt6 **workbench** is a canvas of modules (Geometry, Solver, Monitor, Postprocessing) that you drag from a palette and link port
+to port; the list of cases and their defaults come from the solver itself, so new cases appear automatically. Build the solver, then:
 
 ```bash
-python prerequisites.py      # one-time: PyQt6, numpy, matplotlib, sympy, scipy, markdown2 (python3 on Linux / macOS)
-python gui/workbench.py
+python prerequisites.py      # one-time: PyQt6, numpy, matplotlib, sympy, scipy, markdown2
+python gui/workbench.py      # the workbench; python gui/run.py is the original single-window setup dialog
 ```
 
-The original single-window **setup dialog** is still there and launches the solver in the terminal; it
-holds the geometry too (mesh, boundaries, immersed body) in its tabs: *Configuration*, *Immersed
-Boundaries*, *Solution Mapping* (hot start) and *AMR*; its AMR fields start at the same values.
-
-```bash
-python gui/run.py
-```
+The modules, tabs and result viewer are described on the *GUI* page of the documentation.
 
 ## Test cases
 
@@ -218,31 +177,9 @@ Copy an existing case, edit it, run it:
 ./build/release/fenice --case "Shock Hot Spot"
 ```
 
-In the GUI, **Save as case…** saves the configured run as a new case. Initial conditions
-are a background state plus geometric regions (box, half-space, sphere, cylinder) applied
-in order. Any value can also be an analytic expression of `x`, `y`, `z` and the run
-parameters:
-
-```toml
-[initial]
-state = { rho = 0.125, u = 0.0, v = 0.0, p = 0.1 }
-
-[[initial.region]]                 # high-pressure driver, x <= 0.3
-shape = "halfspace"
-point = [0.3, 0.0]
-normal = [-1.0, 0.0]
-state = { rho = 1.0, p = 1.0 }
-
-[[initial.region]]                 # hot spot: same gas, same pressure, lower density
-shape = "sphere"
-center = [0.55, "Ly/2"]
-radius = 0.1
-state = { rho = "0.02*(1 + 0.1*sin(20*pi*y))" }
-```
-
-Mistakes are caught when the file loads, with the line and a suggestion
-(`unknown parameter 'gama' (did you mean 'gamma'?)`). The full format is on the
-*Writing a test case* page of the documentation.
+Initial conditions are a background state plus geometric regions (box, half-space, sphere, cylinder), and any value can be an
+expression of `x`, `y`, `z` and the run parameters. Mistakes are caught when the file loads, with the line and a suggestion. The format
+and a worked example are on the *Writing a test case* page of the documentation.
 
 ## Testing
 
