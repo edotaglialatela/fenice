@@ -1653,6 +1653,18 @@ std::string Simulation::checkpoint_path() const {
     return (fs::path(exporter.output_dir()) / (file_prefix + "_restart.npz")).string();
 }
 
+namespace {
+// Version of the checkpoint layout (1 = the keys written below). A file without the key is older than the key and is read as
+// version 1 (missing keys have defaults); a file with a higher number is from a newer solver and is refused.
+constexpr int kCheckpointFormat = 1;
+
+void require_known_format(const std::string& path, bool present, double version) {
+    if (present && version > kCheckpointFormat)
+        throw std::runtime_error("The checkpoint " + path + " has format_version " + std::to_string(static_cast<int>(version)) +
+                                 ", newer than this solver reads (" + std::to_string(kCheckpointFormat) + "): use a newer fenice");
+}
+}  // namespace
+
 void Simulation::save_checkpoint(int step, const LeafArrays* leaves) {
     const std::string path = checkpoint_path();
     const std::string tmp = path.substr(0, path.size() - 4) + "_tmp.npz";
@@ -1686,6 +1698,7 @@ void Simulation::save_checkpoint(int step, const LeafArrays* leaves) {
     } else {
         a["U"] = field_to_npy(U, mesh.is3d() ? kNVar : 4);
     }
+    a["format_version"] = NpyArray::from_int(kCheckpointFormat);
     a["t"] = NpyArray::from_double(t);
     a["step"] = NpyArray::from_int(step);
     a["nx"] = NpyArray::from_int(mesh.nx);
@@ -1707,6 +1720,7 @@ int Simulation::load_checkpoint() {
         return 0;
     }
     const NpzFile file(path);
+    require_known_format(path, file.has("format_version"), file.has("format_version") ? file.read("format_version").scalar() : 0);
     const bool adaptive_file = file.has("leaf_level");
     // Several ranks keeping only their shares: the leaves (integers) give the topology every rank cuts its share from, and each rank
     // reads only the state rows of its own leaves and their halo; the whole state and the whole mesh are never held
@@ -1812,6 +1826,7 @@ Field Simulation::load_hot_start(const std::string& path) {
         std::printf("[Hot Start] Source checkpoint backed up to: %s\n", backup.c_str());
     }
     const NpzArchive a = read_npz(path);
+    require_known_format(path, a.count("format_version") > 0, a.count("format_version") ? a.at("format_version").scalar() : 0);
     int nx_c, ny_c;
     double Lx_c, Ly_c;
     if (a.count("nx")) {

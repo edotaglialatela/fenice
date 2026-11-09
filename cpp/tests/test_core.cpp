@@ -1154,6 +1154,27 @@ TEST(checkpoint_edge_cases) {
                                           {"output_root", ck2.c_str()}}),
             false);
     CHECK(c.load_hot_start(legacy).size() == 64);
+
+    // format_version: written as 1; a file without it (older) still loads; a newer one is refused with a clear message
+    NpzArchive cur = read_npz(a.checkpoint_path());
+    CHECK(cur.count("format_version") && cur.at("format_version").scalar() == 1.0);
+    NpzArchive old = cur;
+    old.erase("format_version");
+    write_npz(a.checkpoint_path(), old);
+    CHECK(b.load_checkpoint() == 2 && b.U[0][0] == 3.0);
+    NpzArchive future = cur;
+    future["format_version"] = NpyArray::from_int(99);
+    write_npz(a.checkpoint_path(), future);
+    std::string what;
+    try {
+        b.load_checkpoint();
+    } catch (const std::runtime_error& e) { what = e.what(); }
+    CHECK(what.find("format_version 99") != std::string::npos);
+    what.clear();
+    try {
+        b.load_hot_start(a.checkpoint_path());
+    } catch (const std::runtime_error& e) { what = e.what(); }
+    CHECK(what.find("format_version 99") != std::string::npos);
 }
 
 TEST(npz_file_reads_chosen_rows_and_entries) {
