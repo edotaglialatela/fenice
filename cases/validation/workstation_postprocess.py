@@ -55,6 +55,7 @@ STUDIES = {
     "cylinder_low_blockage": ("benchmarks/cylinder_low_blockage.py", [], ["cylinder_low_blockage"], "cases/cylinder.md"),
     "shu_osher_schemes": ("benchmarks/shu_osher_schemes.py", [], ["shu_osher_schemes"], "cases/shu-osher.md"),
     "taylor_green_3d": ("benchmarks/taylor_green_3d.py", [], ["taylor_green_3d"], "cases/taylor-green-3d.md and README.md"),
+    "taylor_green_3d_schemes": ("benchmarks/taylor_green_3d_schemes.py", [], ["taylor_green_3d"], "cases/taylor-green-3d.md and README.md"),
     "spectra_application": ("benchmarks/spectra_application.py", [], ["spectra_application"], "cases/taylor-green-3d.md"),
 }
 # tables written by the workstation's own helpers (not scripts of the repository: nothing to replot, only to read)

@@ -146,8 +146,8 @@ conditions, so adding a case needs no C++ and no recompilation. The shipped case
 | Manufactured Solution (Euler, 3D) | Code verification by manufactured solutions: source terms, observed orders |
 
 <p align="center">
-  <img src="docs/img/taylor_green_3d_vorticity.png" width="90%"
-       alt="Vorticity magnitude of the 3-D Taylor-Green vortex at four times">
+  <img src="docs/img/taylor_green_3d_vorticity_weno5.png" width="90%"
+       alt="Vorticity magnitude of the 3-D Taylor-Green vortex at four times (WENO5-Z, 64^3)">
 </p>
 
 Adaptive mesh refinement is judged by the time to a given error, not by the cost per step. On the

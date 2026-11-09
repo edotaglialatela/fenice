@@ -63,8 +63,8 @@ against 0.0127 at t ≈ 9 for the DNS; E<sub>k</sub>(20)/E<sub>k</sub>(0) = 0.23
 </figure>
 
 <figure>
-<img src="{{root}}img/taylor_green_3d_vorticity.png" style="width:100%">
-<figcaption>Vorticity magnitude at 96³ on three faces of the box (top) and on the periodic
+<img src="{{root}}img/taylor_green_3d_vorticity_weno5.png" style="width:100%">
+<figcaption>Vorticity magnitude of the WENO5-Z run at 64³ on three faces of the box (top) and on the periodic
 plane x = 0 (bottom). The initial large-scale vortices (t = 0) roll up into vortex sheets
 (t ≈ 4), the sheets break up near the dissipation peak (t ≈ 8), and small-scale structures
 fill the box (t ≈ 12).</figcaption>
@@ -94,6 +94,28 @@ Reading the curves:
   total at the peak.
 * **Small oscillations** of the 32³ $-dE_k/dt$ come from acoustic waves at Ma 0.1
   exchanging kinetic and internal energy; the total energy is conserved to round-off.
+
+### Reconstruction: MUSCL, WENO3-Z and WENO5-Z
+
+<figure>
+<img src="{{root}}img/taylor_green_3d_schemes.png" style="width:100%">
+<figcaption>Left: dissipation rate −dE<sub>k</sub>/dt of the three reconstructions at 32³ (dashed) and 64³ (solid), and the DNS peak.
+Middle: shell spectrum E(k) of the velocity at the peak of the dissipation at 64³, log-log up to the Nyquist shell k = 32 (dotted),
+with the k<sup>−5/3</sup> slope as a guide. Right: decay of the spectrum of the WENO5-Z run, from the peak to t = 20
+(<code>benchmarks/taylor_green_3d_schemes.py</code>).</figcaption>
+</figure>
+
+| scheme | 32³: peak ε at t | 64³: peak ε at t | 64³: E<sub>k</sub>(20)/E<sub>k</sub>(0) | 64³: share of ε added by the scheme at the peak |
+|---|---|---|---|---|
+| MUSCL (Van Leer, SSP-RK2) | 0.0110 at 6.4 | 0.0113 at 8.6 | 0.206 | 59 % |
+| WENO3-Z (SSP-RK3) | 0.0120 at 7.2 | 0.0109 at 8.7 | 0.207 | 57 % |
+| WENO5-Z (SSP-RK3) | 0.0116 at 7.4 | 0.0127 at 8.0 | 0.182 | 43 % |
+
+The DNS peak is 0.0127 at t ≈ 9. At 64³ the WENO5-Z run reaches it (MUSCL needs 96³ for 0.0125, 3.4 times the cells), and the share of the dissipation that the scheme adds falls from 59 % to 43 %. WENO3-Z is
+not better than MUSCL on this problem. The spectra of MUSCL and WENO3-Z at the peak are close; WENO5-Z carries somewhat more energy at the
+intermediate and high wavenumbers. The decay panel shows the spectrum reaching the grid scale around the peak ($t pprox 8$) and the whole spectrum then decaying.
+At 32³ the WENO5-Z peak is only a little higher than the others and its energy decays more slowly (0.28 at $t = 20$): at that resolution the
+smallest scales are under-resolved with every scheme.
 
 ### Spectrum at the peak of the dissipation
 

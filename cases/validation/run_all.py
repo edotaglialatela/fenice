@@ -62,6 +62,7 @@ GROUPS = {
         "cavity": (["benchmarks/cavity.py"], "medium", 2.1),   # measured: 32 min on 4 threads (the 128^2 runs to t = 40 dominate)
         "taylor_green_3d": (["benchmarks/taylor_green_3d.py", "--grids", "32", "64", "96", "--vorticity-n", "96",
                              "--mpi", "16", "--q-animation"], "long", None),   # the settings of the docs figures
+        "taylor_green_3d_schemes": (["benchmarks/taylor_green_3d_schemes.py"], "long", None),   # MUSCL / WENO3-Z / WENO5-Z at 32^3 and 64^3, spectra to Nyquist, WENO5 box images
         "vv20": (["benchmarks/vv20.py"], "long", None),   # validation uncertainty (needs the runs of gci.py)
         "gci": (["benchmarks/gci.py"], "long", None),   # grid convergence index of the cavity, airfoil and 3-D TG results
         "cylinder_loads": (["benchmarks/ibm_loads.py", "cylinder"], "long", None),
@@ -76,6 +77,7 @@ GROUPS = {
         "sod_amr_animation": (["amr/sod_amr_animation.py"], "quick", None),
         "airfoil_amr": (["amr/airfoil_amr.py"], "long", None),
         "amr_mpi": (["amr/amr_mpi.py"], "long", None),   # timings: needs an idle machine
+        "amr_advantage": (["amr/amr_advantage.py"], "long", None),   # airfoil: adaptive against uniform at the same finest mesh on 1-16 threads; idle machine
         "amr_memory": (["amr/amr_memory.py"], "long", None),   # memory per MPI rank, remesh parts (the distributed-storage baseline)
     },
     "features": {

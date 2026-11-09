@@ -69,6 +69,7 @@ uncertainty of the reference too.
 | `shu_osher_schemes.py` | Shu-Osher with MUSCL-MC and WENO3-Z / WENO5-Z, two references (the page's figures) |
 | `cavity.py` | cavity centrelines and vortex vs Ghia (1982), 32²-128², both orders |
 | `taylor_green_3d.py` | 3-D Taylor-Green energy, dissipation, vorticity, Q-criterion animation |
+| `taylor_green_3d_schemes.py` | 3-D Taylor-Green with MUSCL, WENO3-Z and WENO5-Z at 32³ and 64³: dissipation, spectra to the Nyquist wavenumber and their decay, WENO5 vorticity images |
 | `vv20.py` | validation uncertainty (V&V 20): $E = S - D$ and $U_{val}$ of the cavity extrema against Ghia and the 3-D Taylor-Green peak against the DNS |
 | `gci.py` | observed order, Grid Convergence Index and Richardson extrapolation of the cavity, airfoil and 3-D Taylor-Green results |
 | `ibm_loads.py cylinder` / `airfoil` | IBM loads from the monitor, Strouhal number |
@@ -81,6 +82,7 @@ uncertainty of the reference too.
 | `sod_amr.py` | AMR vs uniform meshes at the two finest levels (cells and L1 error) |
 | `sod_amr_animation.py` | animation of the AMR leaves following the waves of the Sod tube |
 | `airfoil_amr.py` | AMR airfoil against uniform 192×96 and 768×384 meshes (cells, time, rms error of Cd and Cl) |
+| `amr_advantage.py` | AMR airfoil against the uniform solver on the same finest mesh, 1 to 16 threads: time and memory |
 | `amr_mpi.py` | AMR airfoil on OpenMP threads and MPI ranks: states identical to serial, time and remesh share; `--check`: the adaptive cases (2-D and 3-D) on 1 to 7 ranks, a stop and resume on another rank count (2-D and 3-D), and a 3-D hot start on 1 to 4 ranks, bit for bit |
 
 **`features/`: demonstrations of solver features.**
