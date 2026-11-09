@@ -33,6 +33,27 @@ env:
   PRTE_MCA_rmaps_default_mapping_policy: ":oversubscribe"    # Open MPI 5
 
 jobs:
+  ranks:
+    name: AMR bitwise equality on 1-7 MPI ranks (Linux x64)
+    # CI checks 1-4 ranks on every push (amr_mpi.py --check --ranks 4); the larger rank counts, and the restarts through them, run here.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+      - name: Dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build libopenmpi-dev openmpi-bin
+          python -m pip install -e python numpy
+      - name: Build
+        run: |
+          cmake --preset release
+          cmake --build --preset release -j 4
+      - name: AMR on 1-7 MPI ranks bitwise equal to serial
+        run: python cases/validation/amr/amr_mpi.py --check
+
   studies:
     name: Studies up to the medium tier (Linux x64)
     runs-on: ubuntu-latest

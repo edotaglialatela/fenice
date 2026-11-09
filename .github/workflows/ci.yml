@@ -1,4 +1,4 @@
-# Build, unit tests, regression (serial and 4 MPI ranks), the AMR MPI check (1-7 ranks) and the ghost-cell IBM MPI check (2-7
+# Build, unit tests, regression (serial and 4 MPI ranks), the AMR MPI check (1-4 ranks on every push, 5-7 weekly in benchmarks.yml) and the ghost-cell IBM MPI check (2-7
 # ranks, both bitwise against serial) on Linux x64 / ARM64, macOS and Windows.
 # Every platform must reproduce the reference states in cpp/tests/reference/ (tolerance 1e-8).
 name: CI
@@ -70,8 +70,8 @@ jobs:
         run: python cpp/tests/regression.py
       - name: Regression (4 MPI ranks)
         run: python cpp/tests/regression.py --mpi 4
-      - name: AMR on 1-7 MPI ranks bitwise equal to serial
-        run: python cases/validation/amr/amr_mpi.py --check
+      - name: AMR on 1-4 MPI ranks bitwise equal to serial (5-7 ranks in benchmarks.yml, weekly)
+        run: python cases/validation/amr/amr_mpi.py --check --ranks 4
       - name: Ghost-cell IBM on 2-7 MPI ranks bitwise equal to serial
         run: python cases/validation/features/ibm_ghost.py --check
       - name: Post-processing outputs on 2-7 MPI ranks bitwise equal to serial
@@ -107,8 +107,8 @@ jobs:
         run: python cpp/tests/regression.py
       - name: Regression (4 MPI ranks)
         run: python cpp/tests/regression.py --mpi 4
-      - name: AMR on 1-7 MPI ranks bitwise equal to serial
-        run: python cases/validation/amr/amr_mpi.py --check
+      - name: AMR on 1-4 MPI ranks bitwise equal to serial (5-7 ranks in benchmarks.yml, weekly)
+        run: python cases/validation/amr/amr_mpi.py --check --ranks 4
       - name: Ghost-cell IBM on 2-7 MPI ranks bitwise equal to serial
         run: python cases/validation/features/ibm_ghost.py --check
       - name: Post-processing outputs on 2-7 MPI ranks bitwise equal to serial

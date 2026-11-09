@@ -108,6 +108,9 @@ benefit, the risk to the bit-reproducibility rule, and a size. The user decides 
   (Windows 300-400 s, about 40 % of the job), the MMS quick study 90-180 s, build + unit tests 140-160 s on Windows (50 s + 55-95 s elsewhere),
   regression on 4 ranks 40-120 s, ghost-cell IBM check 20-80 s. Moving rank counts 5-7 of the AMR check to the nightly workflow would cut
   roughly 40 % of that step (an estimate: the time per rank count was not measured separately).
+* Done (2026-11-09, decided by the owner): CI pushes run `amr_mpi.py --check --ranks 4`; rank counts 5-7 (and the restarts through them) run
+  in the `ranks` job of `benchmarks.yml` (weekly, Sundays, and on request). Check afterwards: the push time of Windows should drop by about
+  a third of the AMR step.
 
 * Evidence: CI runs unit tests, regression serial and on 4 ranks, `amr_mpi.py --check`, `ibm_ghost.py --check` and the MMS quick
   study on four platforms. Each addition (the 3-D AMR cases) lengthens it.

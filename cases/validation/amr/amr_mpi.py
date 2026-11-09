@@ -81,9 +81,9 @@ def check(ranks):
             ok = ok and same
             line += f" | np{n} {'==' if same else 'DIFFERS'}"
         print(line)
-    ok = check_restart() and ok
-    ok = check_restart(RESTART_3D) and ok
-    ok = check_restart(RESTART_3D_GHOST) and ok
+    ok = check_restart(RESTART_2D, ranks) and ok
+    ok = check_restart(RESTART_3D, ranks) and ok
+    ok = check_restart(RESTART_3D_GHOST, ranks) and ok
     ok = check_hot_start_3d() and ok
     print("ALL MATCH (bitwise)" if ok else "MISMATCH")
     return 0 if ok else 1
@@ -101,7 +101,7 @@ RESTART_3D = ("restart3d", "Manufactured Solution 3D", ["use_amr=true", "nx=6", 
 RESTART_3D_GHOST = ("restart3dg", "IBM Flow over Cylinder", ["use_amr=true", *SPHERE_GHOST, "amr_max_level=2", "amr_refine_every=2"])
 
 
-def check_restart(spec=RESTART_2D):
+def check_restart(spec=RESTART_2D, ranks=7):
     """A run stopped halfway and resumed on another number of ranks must end in the state of the uninterrupted serial run."""
     name, case, sets = spec
     out = study.study_dir(STUDY) / "check" / name
@@ -110,6 +110,8 @@ def check_restart(spec=RESTART_2D):
     ref = fenice.read_dump(out / "serial.npz")
     ok, line = True, f"{name:13s} serial ({len(ref['U'])} leaves)"
     for a, b in RESTARTS:
+        if max(a, b) > ranks:   # CI checks fewer ranks on every push; the weekly workflow runs all of them
+            continue
         d = out / f"np{a}_{b}"
         fenice.run(case, *sets, "max_steps=12", "save_interval=12", out_root=d, mpi=a)
         fenice.run(case, *sets, "max_steps=12", "save_interval=1000000000", "resume=true", out_root=d, mpi=b, dump=out / f"np{a}_{b}.npz")
@@ -146,9 +148,10 @@ def check_hot_start_3d():
 def main():
     ap = study.parser(__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="bitwise equality with serial on 1..7 ranks")
+    ap.add_argument("--ranks", type=int, default=7, help="with --check: the largest number of ranks (default 7; CI pushes use 4)")
     args = ap.parse_args()
     if args.check:
-        raise SystemExit(check(7))
+        raise SystemExit(check(args.ranks))
     plt = study.use_style()
     d0, serial = measure(args, "serial", threads=1)
     ref = fenice.read_dump(d0 / "final.npz")

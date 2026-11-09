@@ -18,6 +18,9 @@ python cases\validation\check_all.py --full     # + the unit tests without SIMD,
 python cases\validation\check_all.py --golden OLD   # + golden dumps of this build compared bit for bit with the dump OLD
 ```
 
+CI runs the AMR rank comparison on 1-4 ranks at every push (`amr_mpi.py --check --ranks 4`); the full 1-7 ranks (and the restarts
+through 5-7 ranks) run weekly in `benchmarks.yml` and in `check_all.py`.
+
 Each step is judged by its exit code and logs to `results/validation/check_all/`; the run stops at the first failure
 (`--keep-going` runs the rest). OLD is made before the change with `cases/validation/amr/golden.py dump OLD --exe <old fenice>`;
 `--full` also dumps with `FENICE_NO_SIMD=1` and `FENICE_FULL_REBUILD=1`, which must give the same states.
