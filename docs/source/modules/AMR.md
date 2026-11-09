@@ -47,9 +47,9 @@ work as described below.
 The immersed body is classified **per leaf** in 3-D (there is no uniform mask over the finest level, which would be as large as the
 uniform mesh): a leaf is solid if its centre is inside the body, and the body band is kept at the finest level wherever a finest
 cell lies within the margin of the surface (`near_body_surface`). The mask forcing and the ghost-cell wall (`ibm_method = ghost`) work
-on octree leaves; on the shares of an MPI run only the mask does (`auto` chooses it).
+on octree leaves, also on the shares of an MPI run (bitwise equal to serial); `auto` chooses the ghost wall wherever `amr_refine_ibm` is on.
 
-Not yet available in 3-D: the body-load rows (`[[force]]`; a notice is printed) and WENO5 (as in 2-D AMR). Design, phases and
+Not yet available in 3-D: the body-load rows (`[[force]]`; a notice is printed) and WENO5 (as in 2-D AMR). Cost of the octree against the uniform solver on a sphere: 0.2-0.3 of the time loop at the same finest resolution, drag within 1 %; MPI is efficient at 2-3 ranks only (the remesh is the limit). Design, phases and
 measurements: `docs/design/amr-octree.md`.
 
 ## Faces and the residual

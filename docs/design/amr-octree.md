@@ -1,6 +1,6 @@
 # 3-D adaptive mesh refinement (octree leaves): design and plan
 
-Status: **decisions answered; phases Q0-Q8b done and merged (sections 11-20; the 40 cells/D runs of Q8a are left optional, `octree_q8.py --include-40`).** The phase list below is the plan as written; each phase's "as built" section follows it. Written 2026-11-07 after a read of the 2-D leaf engine
+Status: **decisions answered; phases Q0-Q8b done and merged (sections 11-20; the 40 cells/D runs of Q8a are left optional, `octree_q8.py --include-40`).** Open: the remesh cost on MPI (a border-only fetch and an edited share; section 20.1), an indicator hysteresis (a numerics choice of the owner, not implemented), the 20 -> 40 cells/D runs, the body-load rows of a 3-D adaptive run and WENO5. The phase list below is the plan as written; each phase's "as built" section follows it. Written 2026-11-07 after a read of the 2-D leaf engine
 (`docs/design/amr-cell-based.md`, `amr-distributed.md`), a grep inventory of its source and the residual of the 3-D uniform solver. Every
 number that was not measured is marked *(estimate)*. The decisions are in section 8 (the user took every recommendation, 2026-11-07); the Q0
 numbers are in section 11, Q1 as built in section 12, Q2 in section 13. Each phase of section 7 ends with a stop for the user's go-ahead, as the 2-D rebuild did.
