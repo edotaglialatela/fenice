@@ -957,7 +957,7 @@ A first cheap change (pushing consecutive duplicate ancestors once before the so
 ranks and was dropped. With the remesh at zero the 8-rank run would take about 7.6 s per unit time (stepping alone, against 10.8 on 16 OpenMP
 threads); halving it gives 11.8. Reaching the remesh share below 30 % needs a different fetch (the region of a rank is mostly its own leaves,
 so only the border needs asking; the lists of every cell of the region are built and sorted today) and a share that is edited rather than
-rebuilt: both are larger than a local change and neither is started. In a settled flow 23 of 50 remeshes change leaves; section 24 shows that a time hysteresis does not remove them (it is not implemented).
+rebuilt: both are larger than a local change and neither is started. In a settled flow 23 of 50 remeshes change leaves; section 24 shows they are threshold chatter at `amr_criterion` and that a dead band on the join test removes them (a time hysteresis does not).
 
 ### 20.2 The ghost-cell wall on a rank's share
 
@@ -1061,8 +1061,20 @@ that resume and ranks agree, default 1 = bit-identical) and measured: N = 2, 4, 
 same groups join at every window and are re-refined at the next remesh, so the cycle only gets slower. It was not merged: a parameter without a
 measured benefit.
 
-The cause is therefore a mismatch between the parent-level xi that decides a join and the xi the coarse leaf has once it exists (hypothesis, not
-yet traced to a face: the neighbours of the group change level at the join, and the diffusion sees a different neighbourhood). A fix would change
-the join test (for instance a join also requires the parent's xi to stay below the refine threshold after the other joins of the same remesh), so it
-changes results and is the user's numerics choice. Its payoff is 20 of 23 rebuilds on this case, which matters for MPI (rebuild 3.9 s of 7.5 s remesh
+The trace (a refined level-1 leaf that had been joined four steps earlier: parent xi 0.000 at the join, 0.000 on the joined leaf right after, 0.200 at the
+next remesh): the velocity variation across the faces of the coarse cells there is 0.095-0.109 against `amr_criterion` 0.1 (1.0499 against 0.9469 across
+one face), so the flow sits on the criterion; four steps change the variation by a few per cent, a face crosses 0.1, the leaf is refined, its children see
+half the variation, the parent (the mean of the children) is evaluated against the coarse variation again, and the group is joined at a later remesh, and so
+on. There is no mismatch between the two xi values: refine and join use the same criterion, with no dead band between them. `amr_derefine_threshold`
+cannot make one, because xi takes few values (0, 0.1, 0.2, 1 after two diffusion passes), which is why 0.05 and 0.02 changed nothing.
+
+The fix is on the variation test, not a new parameter: the parent xi of the join test is computed (flags and smoothing, levels 0 to M-1) with
+`amr_criterion` times `CellIndicator::join_band` = 0.9. On the sphere any band from 0.95 to 0.5 gives 28 refined / 0 joined (the settled flow joins
+nothing). Elsewhere the band costs leaves, and 0.9 is the largest value that cures the sphere: Sod with AMR 2312 -> 2384 leaves (L1 0.01536 -> 0.01518,
+joins continue: 1960 groups); the AMR airfoil (Re 1000, t = 20) 22926 -> 23202 leaves with the same force and density ranges, whereas a band of 0.8 let a
+density pulse grow at the non-reflecting outlet from t = 18 (rho up to 1.195, 38229 leaves; the old rule with joins switched off, 39843 leaves, does not
+do it), so a larger band is not free. The 3-D indicator oracle test evaluates xi_parent with the same band. 12 AMR regression references were
+regenerated (`amr_*` and `amr3d_mms`: the leaf sets after the first adaptation differ), the others match; serial equals 1-7 ranks bitwise.
+
+The payoff is 20 of 23 rebuilds on this case, which matters for MPI (rebuild 3.9 s of 7.5 s remesh
 on 8 ranks) and little for one process on all threads (remesh 7-11 % of the loop).

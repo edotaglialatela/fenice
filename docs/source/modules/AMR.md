@@ -115,9 +115,12 @@ mean of its children):
    between two remeshes.
 4. A leaf is **refined** when $\xi \ge$ `amr_refine_threshold` (below `amr_max_level`). Four sibling
    leaves are **joined** when the $\xi$ of their **parent** cell, evaluated at the parent's own level,
-   is below `amr_derefine_threshold`. Judging the parent rather than the four children is what keeps a
-   marginal gradient from flickering: a refined child sees half the variation per face, and would
-   fall under the threshold the moment it is refined.
+   is below `amr_derefine_threshold`, where that $\xi$ is computed (steps 2 and 3) with the criterion
+   lowered to 0.9 times `amr_criterion`. Judging the parent rather than the four children keeps a marginal
+   gradient from flickering: a refined child sees half the variation per face, and would fall under the
+   threshold the moment it is refined. The lowered criterion is a dead band: a flow whose variation sits
+   exactly at `amr_criterion` (a settled flow past a body does) would otherwise be joined and refined
+   again every few remeshes.
 
 Refinement ripples: a leaf that must be refined next to a coarser one first refines that neighbour
 (2:1 balance, including diagonal neighbours). A relative variation floor (0.01 for density and pressure,
