@@ -13,6 +13,7 @@
 
 #include "fv/MemoryBytes.hpp"
 #include "fv/Profile.hpp"
+#include "fv/ViscousBound.hpp"
 
 namespace fv {
 
@@ -229,9 +230,8 @@ double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Fie
             for (int i = 0; i < nx; ++i) {
                 const State& w = W(j, i);
                 const double rho = w[0];
-                const double nu_eff = std::max((4.0 / 3.0) * (mu_ / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
-                const double s = std::max(std::abs(w[1]), std::abs(w[2])) + eos_.sound_speed(w[3], rho) +
-                                 2.0 * L * inv_h2 * nu_eff;
+                const double nu_eff = viscous_nu_eff(mu_, k_cond, gamma, rho);
+                const double s = viscous_speed_bound(std::max(std::abs(w[1]), std::abs(w[2])), eos_.sound_speed(w[3], rho), L, inv_h2, nu_eff);
                 local = std::max(local, s);
             }
 #pragma omp critical(fv_viscous_speed)
@@ -426,9 +426,8 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
                     // wave speed of the cell (as viscous_residual)
                     const State& w = cur.w[i];
                     const double rho = w[0];
-                    const double nu_eff = std::max((4.0 / 3.0) * (mu_ / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
-                    const double s = std::max(std::abs(w[1]), std::abs(w[2])) + eos_.sound_speed(w[3], rho) +
-                                     2.0 * L * inv_h2 * nu_eff;
+                    const double nu_eff = viscous_nu_eff(mu_, k_cond, gamma, rho);
+                    const double s = viscous_speed_bound(std::max(std::abs(w[1]), std::abs(w[2])), eos_.sound_speed(w[3], rho), L, inv_h2, nu_eff);
                     local = std::max(local, s);
                 }
                 below.swap(above);
@@ -658,9 +657,8 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
             for (int i = 0; i < nx; ++i) {
                 const State& w = W(i, j, k);
                 const double rho = w[0];
-                const double nu_eff = std::max((4.0 / 3.0) * (mu_ / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
-                const double s = std::max({std::abs(w[1]), std::abs(w[2]), std::abs(w[4])}) +
-                                 eos_.sound_speed(w[3], rho) + 2.0 * L * inv_h2 * nu_eff;
+                const double nu_eff = viscous_nu_eff(mu_, k_cond, gamma, rho);
+                const double s = viscous_speed_bound(std::max({std::abs(w[1]), std::abs(w[2]), std::abs(w[4])}), eos_.sound_speed(w[3], rho), L, inv_h2, nu_eff);
                 local = std::max(local, s);
             }
         }

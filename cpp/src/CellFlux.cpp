@@ -1,5 +1,6 @@
 #include "fv/Switches.hpp"
 #include "fv/CellFlux.hpp"
+#include "fv/ViscousBound.hpp"
 
 #include <algorithm>
 #include <cmath>
@@ -1455,8 +1456,8 @@ double viscous_cell_speed(const EOS& eos, double mu, double k_cond, const State&
     const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
     const State W = eos.cons_to_prim(U);
     const double rho = W[0];
-    const double nu_eff = std::max((4.0 / 3.0) * (mu / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
-    return std::max(std::abs(W[1]), std::abs(W[2])) + eos.sound_speed(W[3], rho) + 2.0 * L * inv_h2 * nu_eff;
+    const double nu_eff = viscous_nu_eff(mu, k_cond, gamma, rho);
+    return viscous_speed_bound(std::max(std::abs(W[1]), std::abs(W[2])), eos.sound_speed(W[3], rho), L, inv_h2, nu_eff);
 }
 
 double viscous_speed_range(const EOS& eos, double mu, double k_cond, const State* U, const int* level, const double* dx_of_level,
@@ -1722,9 +1723,8 @@ double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
             const double L = std::min(dx, dy), inv_h2 = 1.0 / (dx * dx) + 1.0 / (dy * dy);
             const State W = eos_.cons_to_prim(U[c]);
             const double rho = W[0];
-            const double nu_eff = std::max((4.0 / 3.0) * (mu / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
-            const double s =
-                std::max(std::abs(W[1]), std::abs(W[2])) + eos_.sound_speed(W[3], rho) + 2.0 * L * inv_h2 * nu_eff;
+            const double nu_eff = viscous_nu_eff(mu, k_cond, gamma, rho);
+            const double s = viscous_speed_bound(std::max(std::abs(W[1]), std::abs(W[2])), eos_.sound_speed(W[3], rho), L, inv_h2, nu_eff);
             local = std::max(local, s);
         }
 #pragma omp critical(fv_cellvisc_speed)
@@ -1890,9 +1890,8 @@ double CellFluxEngine::viscous_speed_3d(const CellMesh& m, int cb, int ce) const
             const double L = 2.0 / (1.0 / dx + 1.0 / dy + 1.0 / dz);
             const State W = eos_.cons_to_prim(U[c]);
             const double rho = W[0];
-            const double nu_eff = std::max((4.0 / 3.0) * (mu / rho), (k_cond * (gamma - 1.0)) / rho) + 1e-12;
-            const double s = std::max({std::abs(W[1]), std::abs(W[2]), std::abs(W[4])}) + eos_.sound_speed(W[3], rho) +
-                             2.0 * L * inv_h2 * nu_eff;
+            const double nu_eff = viscous_nu_eff(mu, k_cond, gamma, rho);
+            const double s = viscous_speed_bound(std::max({std::abs(W[1]), std::abs(W[2]), std::abs(W[4])}), eos_.sound_speed(W[3], rho), L, inv_h2, nu_eff);
             local = std::max(local, s);
         }
 #pragma omp critical(fv_cellvisc_speed3)
