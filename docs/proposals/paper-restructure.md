@@ -90,5 +90,8 @@ including the split ones (`Simulation*.cpp`, `CellFluxResidual.cpp`, `ViscousBou
   Software structure (with the graphical interface as a subsection), Numerical method, Cell-based AMR (new subsection on the octree with
   the Q8 measurements), Code verification, Validation, Performance, Limitations, Conclusions. Counts (75 reference states), the abstract,
   highlights, contributions, limitations and the sources appendix were updated; 40 pages, no undefined references. The viscous
-  time-step coefficient was already the solver's. Not done: re-running the fault-injection and mutation studies on the current sources
-  (their numbers predate the refactors of 2026-11-09, which were bit-for-bit), and the Trixi.jl comparison results.
+  time-step coefficient was already the solver's. The fault-injection and mutation numbers are unchanged (the refactors were bit-for-bit), but their scripts had to follow the code: F06's
+  patch had been ambiguous since the rank-share resume was added (now `count=2`, in `SimulationRestart.cpp`), all 12 patches apply again
+  (`--dry-run`), and the mutation pool now includes `CellFluxResidual.cpp`; its random draw therefore differs from the paper's 60 mutants,
+  whose numbers are those of the sources before the split (commit `28487d2`). Not done: the full re-run of both studies (hours), and the
+  Trixi.jl comparison results.

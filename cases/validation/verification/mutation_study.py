@@ -33,7 +33,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import fault_injection as FI   # noqa: E402  (detectors, build, git helpers)
 
 OUT = FI.ROOT / "results" / "validation" / "mutation_study"
-FILES = ["cpp/src/Schemes.cpp", "cpp/include/fv/Schemes.hpp", "cpp/src/Physics.cpp", "cpp/src/Boundaries.cpp", "cpp/src/CellFlux.cpp",
+FILES = ["cpp/src/Schemes.cpp", "cpp/include/fv/Schemes.hpp", "cpp/src/Physics.cpp", "cpp/src/Boundaries.cpp", "cpp/src/CellFlux.cpp", "cpp/src/CellFluxResidual.cpp",
          "cpp/src/TimeScheme.cpp", "cpp/src/MPIDecomposition.cpp", "cpp/src/CellParallel.cpp", "cpp/src/CellAdvance.cpp",
          "cpp/src/CellRemesh.cpp", "cpp/src/Core.cpp"]
 SKIP = re.compile(r'^\s*(#|//|template|static_assert|assert|throw|return\s*;)|"|std::cout|std::cerr|printf|getenv|FENICE_|\bfor\s*\(|\bwhile\s*\(')

@@ -82,7 +82,7 @@ FAULTS = [
                     "the branch never added a cell, over the unit tests, the 4-rank regression, and the 1-7 rank AMR and "
                     "ghost-wall comparisons)"),
     dict(id="F06", title="restart: stored wave-speed bound scaled by 1 + 1e-10", size="1e-10 in the first time step",
-         file="cpp/src/Simulation.cpp",
+         file="cpp/src/SimulationRestart.cpp", count=2,
          old='cell_speed_ = a.count("S") ? a.at("S").scalar() : 0.0;',
          new='cell_speed_ = a.count("S") ? a.at("S").scalar() * (1.0 + 1e-10) : 0.0;',
          predicted=pred("amr")),
@@ -142,8 +142,9 @@ def apply(fault):
     crlf = "\r\n" in raw
     text = raw.replace("\r\n", "\n")
     n = text.count(fault["old"])
-    if n != 1:
-        raise SystemExit(f"{fault['id']}: the text to replace occurs {n} times in {fault['file']} (must be once)")
+    want = fault.get("count", 1)   # F06: the resume reads the bound in two places (whole mesh and a rank's share)
+    if n != want:
+        raise SystemExit(f"{fault['id']}: the text to replace occurs {n} times in {fault['file']} (must be {want})")
     text = text.replace(fault["old"], fault["new"])
     f.write_bytes((text.replace("\n", "\r\n") if crlf else text).encode("utf-8"))
 
