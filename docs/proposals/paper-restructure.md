@@ -1,7 +1,8 @@
 # Paper restructure: outline proposal
 
-Status: proposal only; `fenice_paper/main.tex` is not touched. The paper's counts (references, tests, AMR figures) will change with
-the Q8 results of the 3-D octree work, so the rewrite should start after them. The current sections (from `main.tex`) are:
+Status: approved by the owner on 2026-11-09 and being carried out, docs site first (part A below), then the paper (part B). Decisions:
+keep all verification and validation, shown shorter where less relevant (a table instead of a figure); the viscous time-step coefficient in
+the paper is corrected to the solver's. The Q8 results of the octree work are in, so the counts can be regenerated at the end. The current sections (from `main.tex`) are:
 Introduction, Software structure, Governing equations and discretisation (equations, mesh, solvers and reconstruction, fully discrete
 scheme, time integration, immersed boundaries), Bitwise reproducibility, Cell-based AMR, Code verification (MMS, time accuracy, exact
 solutions, strong shocks), Validation (cavity and GCI, 3-D Taylor-Green, cylinder and airfoil), Graphical interface, Performance
@@ -45,3 +46,37 @@ Claim: *a compact compressible solver whose every feature (higher-order reconstr
 
 Open choice for the author: whether the target journal accepts a longer paper that keeps all of the above, or whether verification
 should be cut to the MMS, the exact solutions and the mutation study with the rest in a supplement.
+
+---
+
+# Part A: the documentation site (docs/source)
+
+Measured first (`shingles.py`, word 7-grams shared between files): verbatim repetition is small (one block shared by `cylinder.md` and
+`SolutionMapping.md`, a few lines between `parameters.md` and `studies.md`). The real problems are (1) `index.md` carries a second, older
+feature list (it still says "MUSCL, four limiters", "optional MUSCL", a "setup dialog") and the repository layout that the README also
+has; (2) `testing.md` (484 lines) mixes two audiences: how to run the tests and CI, and the physical-validation studies (GCI, V&V 20, fault
+injection, mutation); (3) validation pages repeat the run command, quick/full mode and the bands of the same study in the page, in
+`testing.md` and in the script docstring; (4) one broken anchor (`parameters.html#source-terms-manufactured-solutions`).
+
+Target map (file names and URLs stay, except one new page):
+
+| Page | Role after the restructure |
+|---|---|
+| `index.md` | Landing page: what Fenice is (current features, short), quick start, a "where to read what" map; equations, time step and data conventions stay here (unique content); the repository layout table goes to the README only |
+| `guide/getting-started.md`, `parameters.md`, `writing-cases.md`, `gui.md`, `switches.md`, `performance.md` | unchanged in role |
+| `guide/testing.md` | How the solver is tested: unit tests, regression references, CI, `check_all.py`, golden dumps |
+| `guide/validation.md` (new) | Physical validation: the one place for how to run the studies (`run_all.py`, tiers, `--full`, `--docs`), a table study -> quantity -> band -> page, and the GCI, V&V 20, fault-injection and mutation sections moved from `testing.md` |
+| `guide/studies.md` | Queue, stress cases, analysis layer (unchanged; the shock-blend paragraph links to `parameters.md`) |
+| `modules/*.md` | One fact one page: hot start only in `SolutionMapping.md` (its figure lives with the cylinder case), IBM only in `Physics.md`, AMR only in `AMR.md` |
+| `cases/*.md` | Result and figure of each case; the run command stays, bands are stated once in the validation table and linked |
+
+Checks for every group of pages: `docs/build.py` (also fails on an undocumented parameter), a link and anchor check of `docs/site`
+(baseline: 1 broken anchor, fixed), `check_switches.py`, and a "nothing lost" diff of the numbers in `docs/source` before and after; every
+number that disappears is a deliberate cut and is listed in the commit message.
+
+# Part B: the paper (outside the repository)
+
+Back up `fenice_paper/` first; reorder with a script that cuts at the section markers and checks that the multiset of lines is unchanged and
+that every `\label` and `\cite` key survives; only then merge duplicates. Build with pdflatex, bibtex, pdflatex, pdflatex. Counts are
+regenerated last (reference states 75, unit tests 192, the fault-injection numbers), and the sources appendix lists the tracked files
+including the split ones (`Simulation*.cpp`, `CellFluxResidual.cpp`, `ViscousBound.hpp`, `parameter_table`).
