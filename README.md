@@ -4,8 +4,8 @@
 
 **Fenice** (Italian for *phoenix*) is a compressible finite-volume solver for the Euler
 and Navier-Stokes equations on structured Cartesian grids, in 2-D and 3-D. It is written
-in C++17 with OpenMP threading and MPI domain decomposition, and comes with a PyQt6 setup
-GUI, validation scripts and full documentation.
+in C++17 with OpenMP threading and MPI domain decomposition, and comes with a PyQt6 workbench,
+validation scripts and full documentation.
 
 <p align="center">
   <img src="docs/img/cylinder_vortices.gif" height="260"
@@ -21,25 +21,24 @@ GUI, validation scripts and full documentation.
 
 ## Features
 
-- **Riemann solvers:** HLLC, Low-Mach HLLC (Thornber) and preconditioned HLLC (Weiss-Smith).
-- **Reconstruction:** 2nd-order MUSCL with Minmod, Van Leer, MC and Koren limiters, or WENO3-Z / WENO5-Z
-  (`reconstruction`; WENO5 is serial). `boundary_order = 2` reconstructs the faces on the physical
-  boundaries too (second-order walls and outflows, viscous terms included).
-- **Physics:** ideal and stiffened-gas equations of state, Navier-Stokes viscous and heat
-  fluxes, body forces, and an immersed boundary method (cylinder, sphere, or an airfoil from
-  the NACA 4-digit formulas or a coordinate file; a sharp ghost-cell wall, the default in 2-D, or a staircase mask),
-  with lift / drag monitoring.
-- **Time integration:** Explicit Euler, SSP-RK2 and SSP-RK3.
-- **Meshes:** uniform 2-D (`nz = 1`) or 3-D (`nz > 1`) grids, plus cell-based AMR (a quadtree in
-  2-D, an octree in 3-D, one engine for both) with subcycling, conservative flux replacement, 2:1 balance,
-  immersed bodies, VTK output, bitwise restart and distributed MPI runs.
-- **Boundary conditions:** slip and no-slip walls, moving walls, velocity and mass-flow
-  inlets, pressure outlets, transmissive and periodic.
-- **Parallelism:** OpenMP everywhere, plus MPI (strips of rows or columns; for AMR, the
-  leaves distributed over the ranks along a Morton curve). MPI results match the serial run
-  exactly for any number of ranks.
-- **I/O:** VTK output for ParaView, `.npz` checkpoints with restart, and hot start that maps
-  a solution onto a different resolution.
+- **Numerics:** HLLC, Low-Mach HLLC (Thornber) and preconditioned HLLC (Weiss-Smith) Riemann solvers; first order, 2nd-order MUSCL
+  (Minmod, Van Leer, MC, Koren) or WENO3-Z / WENO5-Z reconstruction, with `boundary_order = 2` for second-order walls and outflows;
+  Explicit Euler, SSP-RK2 and SSP-RK3.
+- **Physics:** ideal and stiffened-gas equations of state, Navier-Stokes viscous and heat fluxes, body forces, source terms, and an
+  immersed boundary method (cylinder, sphere, or an airfoil from the NACA 4-digit formulas or a coordinate file; a sharp ghost-cell
+  wall, the default, or a staircase mask) with lift / drag monitoring. Slip and no-slip walls, moving walls, velocity and mass-flow
+  inlets, pressure outlets, transmissive and periodic boundaries.
+- **Adaptive meshes in 2-D and 3-D:** cell-based AMR, a quadtree in 2-D and an octree in 3-D (`use_amr`, one engine for both), with
+  subcycling, conservative flux replacement, 2:1 balance, immersed bodies, bitwise restart and distributed MPI runs. On a 3-D sphere
+  the octree takes 0.2-0.3 of the uniform solver's time at the same finest resolution, with the drag within 1 %.
+- **Uniform meshes:** 2-D (`nz = 1`) or 3-D (`nz > 1`) Cartesian grids.
+- **Parallelism:** OpenMP everywhere, plus MPI (strips of rows or columns; for AMR, the leaves distributed over the ranks along a
+  Morton curve). Results match the serial run bit for bit for any number of threads or ranks.
+- **Graphical interface:** a PyQt6 workbench where Geometry, Solver, Monitor and Postprocessing modules are linked on a canvas, with
+  live monitors and a result viewer; it is a thin client of the solver, so new cases appear in it automatically.
+- **I/O:** VTK output for ParaView, `.npz` checkpoints with restart, and hot start that maps a solution onto a different resolution.
+- **Verification:** unit tests, 75 stored reference states, manufactured-solution and exact-solution studies, grid-convergence indices
+  and benchmark comparisons (see Testing).
 
 ## Build
 
@@ -94,12 +93,6 @@ every OS: `release` (into `build/release/`) and `debug` (into `build/debug/`). `
 uses `release`. On Windows run the presets from a Visual Studio developer prompt, or pick the
 Visual Studio toolchain in the IDE. In CLion the presets appear as CMake profiles, and `.run/`
 provides ready-made run configurations: Sod, 3-D Taylor-Green, unit tests, regression and the GUI.
-
-> **Tested platforms:** Windows 11 (MSVC 19.50, MS-MPI 10.1), Ubuntu 26.04 (GCC 15.2,
-> Open MPI 5.0) and macOS 27 on Apple M4 (Apple clang 21.0, Homebrew libomp, Open MPI
-> 5.0.9). On all three, every unit test passes and the regression suite reproduces the
-> reference states bit for bit, serial and on 4 MPI ranks. GitHub Actions repeats this on
-> every push on Linux x64 and ARM64, macOS and Windows (`.github/workflows/ci.yml`).
 
 ## Run
 
@@ -188,8 +181,14 @@ build/release/fenice_tests                   # unit tests (fenice_tests.exe on W
 python cpp/tests/regression.py --mpi 4   # compare against the stored reference states
 ```
 
-`cpp/tests/reference/` holds the final states of 75 reference configurations; every
-change to the code must reproduce them (serial and on MPI ranks).
+`cpp/tests/reference/` holds the final states of 75 reference configurations; every change to the code must reproduce them (serial and on MPI
+ranks).
+
+> **Tested platforms:** Windows 11 (MSVC 19.50, MS-MPI 10.1), Ubuntu 26.04 (GCC 15.2,
+> Open MPI 5.0) and macOS 27 on Apple M4 (Apple clang 21.0, Homebrew libomp, Open MPI
+> 5.0.9). On all three, every unit test passes and the regression suite reproduces the
+> reference states bit for bit, serial and on 4 MPI ranks. GitHub Actions repeats this on
+> every push on Linux x64 and ARM64, macOS and Windows (`.github/workflows/ci.yml`).
 
 The physical validation is one script per study in `cases/validation/`, grouped by what it
 establishes: `verification/` (exact solutions, orders of accuracy), `benchmarks/` (literature
