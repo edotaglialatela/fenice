@@ -1032,5 +1032,13 @@ cells became `omp parallel for` (guarded by `kOmpMinWork`): the bits do not depe
 Result (100 steps, 16 threads): time step 4.5 s -> 2.66 s (scaling 1 -> 16 threads 4.5x -> 7.4x), `prepare` 2.3 s -> 0.43 s; the 200-step run 10.2 s ->
 6.6 s. Final-state hashes equal the old binary's for the sphere (mask and ghost wall) and the 2-D airfoil at 1 and 16 threads; unit tests 192,
 regression, `amr_mpi.py --check` and `ibm_ghost.py --check` ALL MATCH. Left in the step at 16 threads: convective faces 0.87 s, viscous faces 0.43 s,
-prepare 0.43 s, gather 0.36 s, viscous cells 0.24 s (each scales 6-7x except gather); evaluating only the virtual cells a level reads (all are
-computed at every level's call) is the next candidate and needs `need_` to cover the viscous reads first.
+prepare 0.43 s, gather 0.36 s, viscous cells 0.24 s (each scales 6-7x except gather); an interleaved A/B of three runs each gave 4.47-4.63 s
+before and 2.61-2.71 s after (the workstation had background load, so single runs vary by 25 %).
+
+Not done, measured and judged not worth it: evaluating only the virtual cells a level reads (all are computed at every level's call). Their
+evaluation (mean-type and interpolated) is about 15 % of the step in all; a level reads the virtual cells around its own faces and those of its
+neighbour levels, and on a three-level tree the finest level (56 % of the calls) reads most of the interpolated ones, so the saving would be a few
+percent. It would also need a per-level read list, rebuilt in parallel at every remesh and invalidated in `build`, `localize` and `rebuild_lists`
+(the cost of a serial rebuild exceeds the saving); a deeper tree (five or more levels) would change that. The step now scales 7.4x on 16 threads
+(8 cores), close to what the hardware gives, and each remaining part is 10-30 % of it: the next gains are algorithmic (fewer leaves, fewer remeshes),
+not a loop that does not scale.
