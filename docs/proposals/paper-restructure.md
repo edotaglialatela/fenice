@@ -91,4 +91,4 @@ including the split ones (`Simulation*.cpp`, `CellFluxResidual.cpp`, `ViscousBou
   the Q8 measurements), Code verification, Validation, Performance, Limitations, Conclusions. Counts (75 reference states), the abstract,
   highlights, contributions, limitations and the sources appendix were updated; 40 pages, no undefined references. The viscous
   time-step coefficient was already the solver's. Not done: re-running the fault-injection and mutation studies on the current sources
-  (their numbers are those of 2026-11-01 and 2026-11-03), and the Trixi.jl comparison results.
+  (their numbers predate the refactors of 2026-11-09, which were bit-for-bit), and the Trixi.jl comparison results.
