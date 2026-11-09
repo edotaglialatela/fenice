@@ -20,6 +20,11 @@ enum class Section {
     RemeshRebuild,      // the share of the new mesh and its engine tables (contains the Share* parts)
     RemeshPartition,    // the partition, the localisation and the halo lists after the build
     Fetch,              // fetch_leaves: the leaves around a region asked from their owners
+    FetchFrontier,      // fetch_leaves (nested in Fetch): the cells of each level asked about, sorted and merged
+    FetchClassify,      // fetch_leaves: which of them are covered, local, or asked of an owner
+    FetchExchange,      // fetch_leaves: the exchange of the asks and of the replies (includes waiting for the other ranks)
+    FetchServe,         // fetch_leaves: finding the leaves asked of this rank
+    FetchCollect,       // fetch_leaves: the replies and the local leaves taken in, the split cells, the partial mesh
     ShareRegion,        // the mask of the leaves a share keeps
     ShareMesh,          // the partial mesh built from the kept leaves
     ShareEngine,        // CellFluxEngine::build on the partial mesh

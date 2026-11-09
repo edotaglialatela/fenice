@@ -1,5 +1,6 @@
 // CellParallel: the global facts of a mesh (counts, splitters) and the fetch of the leaves around a region from their owners.
 #include "fv/CellParallel.hpp"
+#include "fv/Profile.hpp"
 
 #include <algorithm>
 #include <array>
@@ -143,12 +144,34 @@ void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split,
         });
         if (!w.bi.empty()) work.push_back(std::move(w));
     }
-    const auto sort_unique = [](std::vector<long long>& v) {
+    // v sorted and without duplicates. The cell numbers of a region are dense in their range (a block of a few rows and columns of
+    // a mesh), so a scan over a byte per number in the range replaces the sort when the range is not much wider than the list
+    // (the result is the same either way; a sparse list takes the sort).
+    std::vector<char> seen;
+    const auto sort_unique = [&seen](std::vector<long long>& v) {
+        if (v.size() > 64) {
+            long long lo = v[0], hi = v[0];
+            for (const long long x : v) {
+                lo = std::min(lo, x);
+                hi = std::max(hi, x);
+            }
+            const long long span = hi - lo + 1;
+            if (span <= 16 * static_cast<long long>(v.size()) + 4096) {
+                seen.assign(static_cast<size_t>(span), 0);
+                for (const long long x : v) seen[static_cast<size_t>(x - lo)] = 1;
+                size_t n = 0;
+                for (long long e = 0; e < span; ++e)
+                    if (seen[static_cast<size_t>(e)]) v[n++] = lo + e;
+                v.resize(n);
+                return;
+            }
+        }
         std::sort(v.begin(), v.end());
         v.erase(std::unique(v.begin(), v.end()), v.end());
     };
     for (int t = 0; t <= M; ++t) {
         // 1) the cells of level t each item asks about: its box's ancestors above its level, the box, the children of the split cells below
+        ProfileScope ps_front(Section::FetchFrontier);
         std::vector<std::vector<long long>> frontier(work.size());
         std::vector<long long> ask_cells, want_cells;
         for (size_t q = 0; q < work.size(); ++q) {
@@ -175,16 +198,31 @@ void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split,
         }
         sort_unique(ask_cells);
         sort_unique(want_cells);
+        ps_front.stop();
         // 2) those not inside a leaf already found go to the owners: (i, j[, k], wanted)
+        ProfileScope ps_class(Section::FetchClassify);
         std::vector<std::vector<double>> ask(static_cast<size_t>(R));
         std::vector<long long> mine, covered_cells;
+        // want_cells is a sorted subset of ask_cells: one pointer walks it; the ancestors of consecutive cells are mostly the same,
+        // so the last answer of each level above is kept
+        size_t wp = 0;
+        std::vector<long long> last_anc(static_cast<size_t>(t), -1);
+        std::vector<char> last_hit(static_cast<size_t>(t), 0);
         for (const long long no : ask_cells) {
             int i, j, k;
             cell_of(t, no, i, j, k);
             bool covered = false;
-            for (int s = 0; s < t && !covered; ++s)
-                covered = std::binary_search(found[static_cast<size_t>(s)].begin(), found[static_cast<size_t>(s)].end(),
-                                             cell_no(s, i >> (t - s), j >> (t - s), k >> (t - s)));
+            for (int s = 0; s < t && !covered; ++s) {
+                const long long a = cell_no(s, i >> (t - s), j >> (t - s), k >> (t - s));
+                if (a != last_anc[static_cast<size_t>(s)]) {
+                    last_anc[static_cast<size_t>(s)] = a;
+                    last_hit[static_cast<size_t>(s)] =
+                        std::binary_search(found[static_cast<size_t>(s)].begin(), found[static_cast<size_t>(s)].end(), a) ? 1 : 0;
+                }
+                covered = last_hit[static_cast<size_t>(s)] != 0;
+            }
+            while (wp < want_cells.size() && want_cells[wp] < no) ++wp;
+            const bool wanted_cell = wp < want_cells.size() && want_cells[wp] == no;
             if (covered) {
                 covered_cells.push_back(no);
                 continue;
@@ -197,11 +235,16 @@ void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split,
                 a.push_back(i);
                 a.push_back(j);
                 if (dim == 3) a.push_back(k);
-                a.push_back(std::binary_search(want_cells.begin(), want_cells.end(), no) ? 1.0 : 0.0);
+                a.push_back(wanted_cell ? 1.0 : 0.0);
             }
         }
+        ps_class.stop();
         std::vector<std::vector<double>> got_ask, reply(static_cast<size_t>(R)), got_reply;
-        exchange_sized(ask, got_ask);
+        {
+            ProfileScope ps(Section::FetchExchange);
+            exchange_sized(ask, got_ask);
+        }
+        ProfileScope ps_serve(Section::FetchServe);
         for (int r = 0; r < R; ++r) {   // the leaves asked of this rank that it has: (i, j[, k], wanted) and, if wanted, the state
             if (r == me) continue;
             const std::vector<double>& q = got_ask[static_cast<size_t>(r)];
@@ -217,15 +260,22 @@ void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split,
                 }
             }
         }
-        exchange_sized(reply, got_reply);
+        ps_serve.stop();
+        {
+            ProfileScope ps(Section::FetchExchange);
+            exchange_sized(reply, got_reply);
+        }
+        ProfileScope ps_collect(Section::FetchCollect);
         std::vector<long long>& fl = found[static_cast<size_t>(t)];
+        size_t wq = 0;   // (mine is a subsequence of ask_cells, so of want_cells' order)
         for (const long long no : mine) {
             int i, j, k;
             cell_of(t, no, i, j, k);
             const int c = responder.find(t, i, j, k);
             if (c < 0) continue;
             fl.push_back(no);
-            if (!std::binary_search(want_cells.begin(), want_cells.end(), no)) continue;
+            while (wq < want_cells.size() && want_cells[wq] < no) ++wq;
+            if (!(wq < want_cells.size() && want_cells[wq] == no)) continue;
             lv.push_back(t);
             ii.push_back(i);
             jj.push_back(j);
@@ -265,6 +315,7 @@ void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split,
                     w.split_cells.push_back(no);
         }
     }
+    ProfileScope ps_assemble(Section::FetchCollect);
     if (dim == 3)
         out.assign_partial_leaves(lv, ii, jj, kk, states ? &U : nullptr);
     else

@@ -23,8 +23,8 @@ thread_local Totals g_totals;
 const char* section_name(Section s) {
     static const char* const names[kN] = {"time step",         "output",           "remesh",          "remesh: region",
                                           "remesh: flags",     "remesh: topology", "remesh: migrate", "remesh: rebuild",
-                                          "remesh: partition", "fetch_leaves",     "share: region",   "share: mesh",
-                                          "share: engine",     "share: partition", "share: localize", "boundary",        "reconstruct",
+                                          "remesh: partition", "fetch_leaves",     "  fetch: frontier", "  fetch: classify", "  fetch: exchange", "  fetch: serve", "  fetch: collect", "share: region",   "share: mesh",
+                                          "share: engine",    "share: partition", "share: localize", "boundary",        "reconstruct",
                                           "flux",              "divergence",       "viscous",         "padded copy",     "padded corner fix",
                                           "viscous conversion", "viscous sweep",    "update axpy",     "update SSP-RK2",  "update SSP-RK3",
                                           "IBM forcing",      "body force",      "source",          "snapshot (VTK)",

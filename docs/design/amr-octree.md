@@ -943,15 +943,6 @@ The profile that replaced it is in section 20.1.
 2. The ghost-cell wall on a rank's share: section 20.2-20.3 (done). `auto` = ghost in 3-D: section 20.4 (the user's decision).
 3. Optionally the 20 -> 40 self-convergence. The body-load rows of a 3-D adaptive run: done (section 21).
 
-## 21. Body loads of a 3-D adaptive run (2026-11-09)
-
-`[[force]]` rows are written for an octree as for a quadtree: per leaf of the solid set, the x and y momentum of the residual (the body force
-removed) times the leaf volume, moment about (`ibm_cx`, `ibm_cy`) in z, summed in global leaf order on rank 0 (`collect_field`), so the file
-does not depend on the rank count. This is the definition of the monitor's Fx, Fy and of the uniform 3-D solver's `ibm_loads` (no Fz, no
-surface samples); the coefficients use `reference_length * Lz` as area, as the uniform 3-D rows do. The change is the removed `!octree` gate and
-`volume()` for `area()` (the same bits in 2-D). Check: `amr_mpi.py --check` `forces3d` (sphere, ghost wall, 30 steps: the file of 1-4 ranks equals
-the serial one byte for byte, Fx equals the monitor's to 1e-8). Unit tests 192, regression ALL MATCH.
-
 ## 20. Phase Q8b (2026-11-08): the remesh profile and the ghost-cell wall on a rank's share
 
 ### 20.1 The remesh on ranks: where the time goes (not changed)
@@ -1001,3 +992,28 @@ user and is not implemented.
 
 `auto` now gives `ghost` for `nz > 1` as in 2-D (`Params.cpp`: the mask only where AMR runs with `amr_refine_ibm` off). No reference changes: the
 regression harness pins `ibm_method = mask` for the IBM references that are not ghost ones, and the unit tests set the method explicitly.
+
+## 21. Body loads of a 3-D adaptive run (2026-11-09)
+
+`[[force]]` rows are written for an octree as for a quadtree: per leaf of the solid set, the x and y momentum of the residual (the body force
+removed) times the leaf volume, moment about (`ibm_cx`, `ibm_cy`) in z, summed in global leaf order on rank 0 (`collect_field`), so the file
+does not depend on the rank count. This is the definition of the monitor's Fx, Fy and of the uniform 3-D solver's `ibm_loads` (no Fz, no
+surface samples); the coefficients use `reference_length * Lz` as area, as the uniform 3-D rows do. The change is the removed `!octree` gate and
+`volume()` for `area()` (the same bits in 2-D). Check (see below): `amr_mpi.py --check` `forces3d` (sphere, ghost wall, 30 steps: the file of 1-4 ranks equals
+the serial one byte for byte, Fx equals the monitor's to 1e-8). Unit tests 192, regression ALL MATCH.
+## 22. The fetch of a region, cheaper (2026-11-09)
+
+No border-only fetch: at the sizes that matter the region of a rank is mostly halo (a rank with 7 k finest leaves dilated by 4-10 rings has
+about 3x as many cells as it owns), so skipping the owned interior saves less than a third and needs a different structure. What the profile
+(new sub-sections `fetch: frontier / classify / exchange / serve / collect` under `FENICE_PROFILE=1`) showed instead was per-cell machinery:
+
+* the frontier lists were built with `push_back` and `std::sort`: the cell numbers of a region are dense in their range, so a byte scan over the
+  range replaces the sort when the range is at most 16 times the list (else the sort, as before): frontier 1.0-1.4 s -> 0.3-0.4 s;
+* the wanted flag and the ancestor test of every cell were binary searches: a pointer walk over the sorted wanted list (a subset of the asked
+  list) and the last answer per level above: classify and collect -25 %;
+* `set_sorted_leaves` sorts (key, index) records in place instead of an index array through a comparator (no measurable change).
+
+Q8a sphere, Re 20, base 5, 2 levels, mask, 8 ranks, 200 steps resumed: `fetch_leaves` 3.2-3.5 s -> 2.0-2.3 s, remesh 8.8 s -> 7.5 s,
+time loop 16.9 s -> 16.1 s. The final state hash is identical to the old binary's (same bits); unit tests 192, regression ALL MATCH,
+`amr_mpi.py --check` ALL MATCH. What remains in the fetch is the exchange (0.3-0.7 s, mostly waiting for the slowest rank) and the work per cell
+in classify / serve / collect; the rest of the rebuild (region mask, partial mesh, engine build, 0.6-0.8 s each) and the flags (1.3-1.6 s) are untouched.

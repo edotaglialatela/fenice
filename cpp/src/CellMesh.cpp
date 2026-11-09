@@ -418,18 +418,23 @@ void CellMesh::set_sorted_leaves(const std::vector<int>& lv, const std::vector<i
         (state && state->size() != n))
         throw std::invalid_argument(std::string(who) + ": the arrays differ in length");
     const auto kat = [&](size_t q) { return kk.empty() ? 0 : kk[q]; };
-    std::vector<SortKey> keys(n);
+    // (key, input index) records sorted in place: no indirect comparison through an index array
+    struct Rec {
+        SortKey key;
+        int index;
+    };
+    std::vector<Rec> recs(n);
     for (size_t q = 0; q < n; ++q) {
         if (lv[q] < 0 || lv[q] > max_level || ii[q] < 0 || ii[q] >= nx_at(lv[q]) || jj[q] < 0 || jj[q] >= ny_at(lv[q]) || kat(q) < 0 ||
             kat(q) >= nz_at(lv[q]))
             throw std::invalid_argument(std::string(who) + ": a leaf is outside the mesh or deeper than max_level");
-        keys[q] = {lv[q], key_of(ii[q], jj[q], kat(q))};
+        recs[q] = {{lv[q], key_of(ii[q], jj[q], kat(q))}, static_cast<int>(q)};
     }
-    std::vector<int> order(n);
-    std::iota(order.begin(), order.end(), 0);
-    std::sort(order.begin(), order.end(), [&](int a, int b) { return keys[a] < keys[b]; });
+    std::sort(recs.begin(), recs.end(), [](const Rec& a, const Rec& b) { return a.key < b.key; });
     for (size_t q = 1; q < n; ++q)
-        if (!(keys[order[q - 1]] < keys[order[q]])) throw std::invalid_argument(std::string(who) + ": a leaf is given twice");
+        if (!(recs[q - 1].key < recs[q].key)) throw std::invalid_argument(std::string(who) + ": a leaf is given twice");
+    std::vector<int> order(n);
+    for (size_t q = 0; q < n; ++q) order[q] = recs[q].index;
     level.resize(n);
     ci.resize(n);
     cj.resize(n);
