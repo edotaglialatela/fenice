@@ -36,6 +36,8 @@ add_library(fenice_core STATIC
   src/Profile.cpp
   src/MPIDecomposition.cpp
   src/Simulation.cpp
+  src/SimulationRestart.cpp
+  src/SimulationRun.cpp
 )
 target_include_directories(fenice_core PUBLIC include)
 target_include_directories(fenice_core PRIVATE src)
