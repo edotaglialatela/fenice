@@ -65,17 +65,17 @@ rms load error with respect to the 768×384 run (circles $C_l$, squares $C_d$).<
 
 | run | cells | wall time | rms error of $C_d$ | rms error of $C_l$ |
 |---|---:|---:|---:|---:|
-| uniform 192×96 | 18 432 | 1.7 s | 0.034 | 0.36 |
-| uniform 384×192 | 73 728 | 13.8 s | 0.015 | 0.087 |
-| uniform 768×384 | 294 912 | 190 s | (reference) | (reference) |
-| AMR, 192×96 + 2 levels | 23 526 | 7.0 s | 0.011 | 0.054 |
+| uniform 192×96 | 18 432 | 1.2 s | 0.043 | 0.29 |
+| uniform 384×192 | 73 728 | 7.5 s | 0.026 | 0.20 |
+| uniform 768×384 | 294 912 | 56.5 s | (reference) | (reference) |
+| AMR, 192×96 + 2 levels | 23 304 | 6.5 s | 0.010 | 0.048 |
 
 The errors are rms differences of $C_d(t)$ and $C_l(t)$ from the 768×384 run over
 $1 \le t \le 6$ (this is the impulsive start of the flow, not a statistically steady state).
 The comparison that matters is the time to a given error. AMR reaches the loads of the fine mesh (8 % of its cells)
-in 7 s against 190 s, about 27× faster, and it is both faster and more accurate than the uniform 384×192 run
-(7 s against 14 s, lift error 0.054 against 0.087). The cheap uniform 192×96 run takes 1.7 s, but its lift error
-is about 7× larger: "AMR is slower than the coarse mesh" compares two runs of different accuracy. The wall times
+in 6.5 s against 56.5 s, about 9× faster, and it is both faster and more accurate than the uniform 384×192 run
+(6.5 s against 7.5 s, lift error 0.048 against 0.20). The cheap uniform 192×96 run takes 1.2 s, but its lift error
+is about 6× larger: "AMR is slower than the coarse mesh" compares two runs of different accuracy. The wall times
 are one run each on 16 OpenMP threads.
 
 Caveats. The window is an impulsive start, not a statistically steady flow, so these figures are not a converged

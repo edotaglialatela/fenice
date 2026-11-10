@@ -30,7 +30,7 @@ validation scripts and full documentation.
   inlets, pressure outlets, transmissive and periodic boundaries.
 - **Adaptive meshes in 2-D and 3-D:** cell-based AMR, a quadtree in 2-D and an octree in 3-D (`use_amr`, one engine for both), with
   subcycling, conservative flux replacement, 2:1 balance, immersed bodies, bitwise restart and distributed MPI runs. On a 3-D sphere
-  the octree takes 0.2-0.3 of the uniform solver's time at the same finest resolution, with the drag within 1 %.
+  the octree takes 0.1-0.2 of the uniform solver's time at the same finest resolution, with the drag within 1 %.
 - **Uniform meshes:** 2-D (`nz = 1`) or 3-D (`nz > 1`) Cartesian grids.
 - **Parallelism:** OpenMP everywhere, plus MPI (strips of rows or columns; for AMR, the leaves distributed over the ranks along a
   Morton curve). Results match the serial run bit for bit for any number of threads or ranks.

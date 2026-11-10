@@ -54,8 +54,9 @@ path), tests, then the cases. A vector twin of the WENO face kernel only if the 
 
 ## Other open items of the adaptive engine
 
-* **MPI remesh cost.** On 8 ranks the share rebuild is about half of the remesh (3.9 s of 7.5 s on the 72 k-leaf sphere): editing the share
-  instead of rebuilding it would help multi-node runs. On one node 16 OpenMP threads beat 8 ranks (10.2 s against 16.1 s per 200 steps there), so
+* **MPI remesh cost.** On 8 ranks the remesh is 28 % of the time loop (2.8 s of 10.0 s per 200 steps on the 73 k-leaf sphere: the fetch of the leaves 1.2 s, the indicator and flags 1.5 s;
+  a rebuild of the share adds to it whenever leaves change): editing the share
+  instead of rebuilding it would help multi-node runs. On one node 16 OpenMP threads beat 8 ranks (4.6 s against 10.0 s per 200 steps there), so
   the OpenMP time step matters more than the remesh. A border-only fetch was judged not worth it (the region is mostly halo).
 * **OpenMP time step.** Virtual cells are evaluated for every level's call (about 15 % of the step; a per-level read list would gain a few
   percent on three levels and needs a parallel rebuild at each remesh); an AVX2 twin of the 3-D viscous kernels.

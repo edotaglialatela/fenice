@@ -11,7 +11,7 @@ against the leaves and the resident memory.
 
 The figure plots the wall time against the threads for both: the adaptive curve lies below the uniform one at every thread
 count; the gap narrows slowly (the adaptive step parallelises less well than the uniform one) but stays large.
-The 3-D octree sphere of octree_q8.py (time loop 0.2-0.3 of the uniform solver) is drawn beside it.
+The 3-D octree sphere of octree_q8.py (time loop 0.09-0.13 of the uniform solver, read from its summary.json) is drawn beside it.
 """
 import json
 
@@ -76,8 +76,11 @@ def main():
                fontsize=10, color="#2a78d6")
 
     names = ["airfoil 2-D\n(16 threads)", "sphere 3-D, Re 20\n(16 threads)"]
-    leaf_share = [leaves / cells, 72e3 / 432e3]
-    time_share = [amr[16]["wall"] / uni[16]["wall"], 0.25]   # sphere: octree_q8.py, time loop octree / uniform, mask and ghost wall
+    sph = json.loads((fenice.RESULTS / "validation" / "amr_octree_q8" / "summary.json").read_text())["runs"]
+    sph_leaves = np.mean([sph[f"re20_oct_{m}_b5M2"]["leaves"] for m in ("mask", "ghost")])
+    sph_time = np.mean([sph[f"re20_oct_{m}_b5M2"]["wall"] / sph[f"re20_uni_{m}_n20"]["wall"] for m in ("mask", "ghost")])
+    leaf_share = [leaves / cells, sph_leaves / 432e3]
+    time_share = [amr[16]["wall"] / uni[16]["wall"], sph_time]   # sphere: octree_q8.py, time loop octree / uniform, mask and ghost wall
     x = np.arange(2)
     ax[1].bar(x - 0.18, leaf_share, 0.34, color="#eb6834", label="leaves / uniform cells")
     ax[1].bar(x + 0.18, time_share, 0.34, color="#2a78d6", label="time / uniform time")

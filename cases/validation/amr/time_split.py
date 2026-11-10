@@ -5,7 +5,7 @@
 
 The numbers are wall times measured with FENICE_PROFILE=1 on a Ryzen 7 7800X3D (8 cores, 16 threads), listed in
 docs/source/guide/performance.md ("Where the AMR time goes"); nothing is run here. Cases: the 3-D octree sphere (Re 20,
-base mesh 5 cells per box edge, 2 levels, 72 k leaves, immersed mask, remesh every 4 steps) and the 2-D IBM airfoil
+base mesh 5 cells per box edge, 2 levels, 73 k leaves, immersed mask, remesh every 4 steps) and the 2-D IBM airfoil
 (Re 1000, 192 x 96 base mesh, 2 levels, t = 20, 8 threads). Figure: amr_time_split.png.
 """
 from fenice import study
@@ -17,16 +17,16 @@ INK, INK2, SURFACE = "#0b0b0b", "#52514e", "#fcfcfb"
 
 # (title, [(part, seconds), ...]); the "rest" slices are differences of measured totals
 PANELS = [
-    ("Octree step, 16 threads\n100 steps, 2.65 s",
-     [("convective faces", 0.87), ("viscous faces", 0.43), ("primitive state, virtual cells", 0.43), ("rest of the step", 0.92)]),
-    ("200 steps, 16 threads\n6.6 s",
-     [("time step", 5.87), ("remesh (11 %)", 0.73)]),
-    ("200 steps, 8 MPI ranks\n16.1 s",
-     [("time step", 8.6), ("remesh", 7.5)]),
-    ("Remesh on 8 ranks\n7.5 s",
-     [("fetch of the leaves (2.0-2.3 s)", 2.15), ("rest of the share rebuild", 1.75), ("rest of the remesh", 3.6)]),
-    ("Airfoil remesh, 8 threads\n3.1 s of a 20.5 s loop",
-     [("indicator", 0.98), ("engine build", 0.75), ("wave-speed bound", 0.71), ("mesh adaptation", 0.60)]),
+    ("Octree step, 16 threads\n100 steps, 1.94 s",
+     [("convective faces", 0.68), ("viscous cells and faces", 0.55), ("primitive state, virtual cells", 0.33), ("rest of the step", 0.38)]),
+    ("200 steps, 16 threads\n4.6 s",
+     [("time step", 4.23), ("remesh (7 %)", 0.34)]),
+    ("200 steps, 8 MPI ranks\n10.0 s",
+     [("time step", 7.26), ("remesh (28 %)", 2.79)]),
+    ("Remesh on 8 ranks\n2.8 s",
+     [("fetch of the leaves", 1.16), ("indicator and flags", 1.49), ("rest of the remesh", 0.14)]),
+    ("Airfoil remesh, 8 threads\n3.1 s of a 19.2 s loop",
+     [("indicator", 1.15), ("engine build", 0.75), ("wave-speed bound", 0.68), ("mesh adaptation", 0.55)]),
 ]
 
 
