@@ -66,6 +66,31 @@ CellMesh CellMesh::make_3d(double Lx_, double Ly_, double Lz_, int nx_, int ny_,
     return m;
 }
 
+CellMesh CellMesh::make_empty(const CellMesh& like) {
+    CellMesh m;
+    m.dim = like.dim;
+    m.Lx = like.Lx;
+    m.Ly = like.Ly;
+    m.Lz = like.Lz;
+    m.nx = like.nx;
+    m.ny = like.ny;
+    m.nz = like.nz;
+    m.max_level = like.max_level;
+    m.periodic_x = like.periodic_x;
+    m.periodic_y = like.periodic_y;
+    m.periodic_z = like.periodic_z;
+    m.x0 = like.x0;
+    m.y0 = like.y0;
+    m.z0 = like.z0;
+    m.dx0_ = like.dx0_;
+    m.dy0_ = like.dy0_;
+    m.dz0_ = like.dz0_;
+    m.face_level_begin.assign(static_cast<size_t>(m.max_level) + 2, 0);
+    m.side_ptr.assign(1, 0);
+    m.build_lookups();
+    return m;
+}
+
 void CellMesh::init_base() {
     const int NZ = nz_at(0);
     const size_t n = static_cast<size_t>(nx) * ny * NZ;

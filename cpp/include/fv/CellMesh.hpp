@@ -70,6 +70,9 @@ public:
     // 2^21 cells per axis.
     static CellMesh make_3d(double Lx, double Ly, double Lz, int nx, int ny, int nz, int max_level = 0, bool periodic_x = false,
                             bool periodic_y = false, bool periodic_z = false, double x0 = 0.0, double y0 = 0.0, double z0 = 0.0);
+    // A mesh with the geometry of `like` (2-D or 3-D) and no leaf, to be filled by assign_leaves / assign_partial_leaves: the base
+    // mesh is not built (its sort and its faces cost as much as a remesh of a share).
+    static CellMesh make_empty(const CellMesh& like);
 
     // --- leaves (parallel arrays, sorted by (level, Morton key) of (ci, cj[, ck])) ---
     // Number of leaves.

@@ -40,12 +40,9 @@ inline void for_box(const CellBox& b, const F& f) {
                 if (b.g[(static_cast<size_t>(k) * b.h + j) * b.w + i]) f(b.i0 + i, b.j0 + j, b.k0 + k);
 }
 
-// An empty mesh with the geometry of `m` (2-D or 3-D), for the partial meshes of the distributed layer
-inline CellMesh empty_like(const CellMesh& m) {
-    if (m.dim == 3)
-        return CellMesh::make_3d(m.Lx, m.Ly, m.Lz, m.nx, m.ny, m.nz, m.max_level, m.periodic_x, m.periodic_y, m.periodic_z, m.x0, m.y0, m.z0);
-    return CellMesh(m.Lx, m.Ly, m.nx, m.ny, m.max_level, m.periodic_x, m.periodic_y, m.x0, m.y0);
-}
+// An empty mesh with the geometry of `m` (2-D or 3-D), for the partial meshes of the distributed layer (no leaf: the base mesh is
+// not built, the caller assigns the leaves)
+inline CellMesh empty_like(const CellMesh& m) { return CellMesh::make_empty(m); }
 
 }   // namespace detail
 }   // namespace fv
