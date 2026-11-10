@@ -716,6 +716,8 @@ bool CellMesh::forced_by_finer(int b, const std::vector<char>& R, bool check) co
                 if (di >= 0 && di <= 1 && dj >= 0 && dj <= 1 && (dim == 2 || (dk >= 0 && dk <= 1))) continue;
                 int i = 2 * ci[b] + di, j = 2 * cj[b] + dj, k = 2 * ck[b] + dk;
                 if (!wrap(l + 1, i, j, k)) continue;
+                // (the usual case first: the level-l cell there is a leaf, so the cell is neither a leaf nor missing)
+                if (find(l, i >> 1, j >> 1, k >> 1) >= 0) continue;
                 const int a = find(l + 1, i, j, k);
                 if (a >= 0) {
                     if (R[a]) return true;

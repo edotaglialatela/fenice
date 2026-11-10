@@ -236,8 +236,9 @@ AxisMasks axis_masks(const int* axis) {
     return ax;
 }
 
-// RiemannSolver::face_flux for four faces given their left / right conservative states
-void flux4(const VEos& E, RiemannType type, double ma_cut, double sb, const AxisMasks& ax, Vec5 L, Vec5 R, Vec5& Fk, V& sm) {
+// The left / right states the Riemann solver of four faces starts from (RiemannSolver::face_flux before hllc): the low-Mach
+// scaling of the velocity jump, or the states as they are
+void prepare4(const VEos& E, RiemannType type, Vec5& L, Vec5& R) {
     if (type == RiemannType::LowMachHLLC) {
         // Thornber low-Mach scaling of the velocity jump, then standard HLLC
         Vec5 WL = E.cons_to_prim(L), WR = E.cons_to_prim(R);
@@ -256,8 +257,13 @@ void flux4(const VEos& E, RiemannType type, double ma_cut, double sb, const Axis
         L = E.prim_to_cons(WL);
         R = E.prim_to_cons(WR);
     }
-    hllc4(E, type, ma_cut, sb, ax, L, R, Fk, sm);
 }
+
+// The faces are taken in blocks of kBlock batches of four and each step of a face's flux (reconstruction, low-Mach states, HLLC) is
+// a loop over the block: the steps of one batch form a single chain of some 600 operations, longer than the window in which a
+// processor reorders instructions, so batches run back to back did not overlap; in the short loops they do. Same operations per
+// face, same bits.
+constexpr int kBlock = 8;
 
 void store_results(State* F, double* smax, int k, const Vec5& Fk, V sm) {
     store4(F + k, Fk);
@@ -305,11 +311,21 @@ inline V gather_q(const State* W, const int* st, int k, int point, int q) {
 void riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, double sb, const State* UL, const State* UR, const int* axis, int n,
                         State* F, double* smax) {
     const VEos E(eos);
-    for (int k = 0; k < n; k += 4) {
-        Vec5 Fk;
-        V sm;
-        flux4(E, type, ma_cut, sb, axis_masks(axis + k), load4(UL + k), load4(UR + k), Fk, sm);
-        store_results(F, smax, k, Fk, sm);
+    Vec5 Lb[kBlock], Rb[kBlock];
+    for (int k0 = 0; k0 < n; k0 += 4 * kBlock) {
+        const int nb = (n - k0) / 4 < kBlock ? (n - k0) / 4 : kBlock;
+        for (int b = 0; b < nb; ++b) {
+            Lb[b] = load4(UL + k0 + 4 * b);
+            Rb[b] = load4(UR + k0 + 4 * b);
+            prepare4(E, type, Lb[b], Rb[b]);
+        }
+        for (int b = 0; b < nb; ++b) {
+            const int k = k0 + 4 * b;
+            Vec5 Fk;
+            V sm;
+            hllc4(E, type, ma_cut, sb, axis_masks(axis + k), Lb[b], Rb[b], Fk, sm);
+            store_results(F, smax, k, Fk, sm);
+        }
     }
     _mm256_zeroupper();
 }
@@ -318,20 +334,32 @@ void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, d
                               const int* axis, int n, State* F, double* smax) {
     const VEos E(eos);
     const V half = set1(0.5);
-    for (int k = 0; k < n; k += 4) {
-        // MUSCL: wl = c1 + 0.5 phi(c1 - c0, c2 - c1), wr = c2 - 0.5 phi(c3 - c2, c2 - c1) for each primitive variable
-        Vec5 wl, wr;
-        for (int q = 0; q < kNVar; ++q) {
-            const V c0 = gather_q(W, st, k, 0, q), c1 = gather_q(W, st, k, 1, q), c2 = gather_q(W, st, k, 2, q),
-                    c3 = gather_q(W, st, k, 3, q);
-            const V bq = sub(c2, c1);
-            wl.q[q] = add(c1, mul(half, vlimiter(lim, sub(c1, c0), bq)));
-            wr.q[q] = sub(c2, mul(half, vlimiter(lim, sub(c3, c2), bq)));
+    Vec5 Lb[kBlock], Rb[kBlock];
+    for (int k0 = 0; k0 < n; k0 += 4 * kBlock) {
+        const int nb = (n - k0) / 4 < kBlock ? (n - k0) / 4 : kBlock;
+        for (int b = 0; b < nb; ++b) {
+            // MUSCL: wl = c1 + 0.5 phi(c1 - c0, c2 - c1), wr = c2 - 0.5 phi(c3 - c2, c2 - c1) for each primitive variable
+            const int k = k0 + 4 * b;
+            Vec5 wl, wr;
+            for (int q = 0; q < kNVar; ++q) {
+                const V c0 = gather_q(W, st, k, 0, q), c1 = gather_q(W, st, k, 1, q), c2 = gather_q(W, st, k, 2, q),
+                        c3 = gather_q(W, st, k, 3, q);
+                const V bq = sub(c2, c1);
+                wl.q[q] = add(c1, mul(half, vlimiter(lim, sub(c1, c0), bq)));
+                wr.q[q] = sub(c2, mul(half, vlimiter(lim, sub(c3, c2), bq)));
+            }
+            Lb[b] = E.prim_to_cons(wl);
+            Rb[b] = E.prim_to_cons(wr);
         }
-        Vec5 Fk;
-        V sm;
-        flux4(E, type, ma_cut, sb, axis_masks(axis + k), E.prim_to_cons(wl), E.prim_to_cons(wr), Fk, sm);
-        store_results(F, smax, k, Fk, sm);
+        if (type == RiemannType::LowMachHLLC)
+            for (int b = 0; b < nb; ++b) prepare4(E, type, Lb[b], Rb[b]);
+        for (int b = 0; b < nb; ++b) {
+            const int k = k0 + 4 * b;
+            Vec5 Fk;
+            V sm;
+            hllc4(E, type, ma_cut, sb, axis_masks(axis + k), Lb[b], Rb[b], Fk, sm);
+            store_results(F, smax, k, Fk, sm);
+        }
     }
     _mm256_zeroupper();
 }
