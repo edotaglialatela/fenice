@@ -68,8 +68,8 @@ def main() -> int:
     bad, n = 0, 0
     for case in (c.strip() for c in cases if c.strip()):
         p = resolved(case)
-        if p.get("use_ibm", "false").lower() != "true":
-            continue
+        if p.get("use_ibm", "false").lower() != "true" or int(p.get("nz", "1")) > 1:
+            continue   # (the preview is a 2-D mask: a 3-D body is checked by the sphere studies)
         for scale in (1.0, 0.5, 1.5):
             nx, ny = int(int(p["nx"]) * scale), int(int(p["ny"]) * scale)
             q = dict(p, nx=str(nx), ny=str(ny))
