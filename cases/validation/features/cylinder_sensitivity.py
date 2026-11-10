@@ -101,11 +101,19 @@ def main():
     rho = float(np.corrcoef(ranks(u), ranks(cd[:n]))[0, 1])
     cd_ref = ref[0]["qoi"]["cd"]
     err = abs(cd_ref / CD_REF - 1)
+    a_sample = {
+        "Re": (u * 0.2 / 5e-3).tolist(),
+        "cells_per_D": [float(r["point"]["nx"] / 20) for r in recs[:n]],
+        "limiter_index": [float(LIMITERS.index(r["point"]["muscl_limiter"])) for r in recs[:n]],
+        "Cd": cd[:n].tolist(),
+    }
     print(f"Spearman(u_in, Cd) on the A sample = {rho:.2f}; u_in = 1 at {ref[0]['point']['nx'] / 20:.1f} cells/D: "
           f"Cd = {cd_ref:.4f} against {CD_REF}: {100 * err:.1f} %")
     out = {"n": n, "names": names, "S1": S1.tolist(), "ST": ST.tolist(), "S1_ci": [s1_lo.tolist(), s1_hi.tolist()],
            "ST_ci": [st_lo.tolist(), st_hi.tolist()], "spearman_u": rho, "cd_ref_run": cd_ref, "cd_ref": CD_REF,
-           "ref_error": err, "max_drift": float(drift.max())}
+           "ref_error": err, "response_name": "Cd", "reference_value": CD_REF, "reference_observed": cd_ref,
+           "reference_error": err, "max_drift": float(drift.max()),
+           "diagnostics": [f"Spearman rank correlation for inlet speed and Cd = {rho:+.3f}."], "a_sample": a_sample}
     out["pass_finite_settled"] = bool(finite and drift.max() <= BAND_SETTLED)
     out["pass_inlet_speed"] = bool(ST[0] >= BAND_ST_U and rho <= BAND_RHO)
     out["pass_resolution"] = bool(ST[1] >= BAND_ST_CPD)
@@ -113,6 +121,10 @@ def main():
     out["pass_reference"] = bool(err <= band_ref)
     ok = all(out[k] for k in out if k.startswith("pass_"))
     out["passed"] = ok
+    sample_rows = ["Re,cells_per_D,limiter_index,Cd"]
+    sample_rows.extend(f"{a_sample['Re'][i]:.12g},{a_sample['cells_per_D'][i]:.12g},"
+                       f"{a_sample['limiter_index'][i]:.0f},{a_sample['Cd'][i]:.12g}" for i in range(n))
+    (study.study_dir(STUDY) / "a_sample.csv").write_text("\n".join(sample_rows) + "\n", encoding="utf-8")
     fenice.write_summary(STUDY, out)
 
     plt = study.use_style()

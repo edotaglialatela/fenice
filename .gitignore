@@ -8,7 +8,21 @@ results/
 
 # Local tool / assistant files
 .claude/
-.impeccable/
+.codex/
+.agent/
+.agents/skills/impeccable/
+.gemini/
+**/.impeccable/
+!/.impeccable/
+/.impeccable/*
+!/.impeccable/config.json
+!/.impeccable/surfaces/
+!/.impeccable/surfaces/**
+!/.impeccable/design.json
+!/.impeccable/live/
+!/.impeccable/live/config.json
+!/.impeccable/critique/
+!/.impeccable/critique/ignore.md
 CLAUDE.md
 
 # Python / editor clutter
@@ -23,7 +37,5 @@ __pycache__/
 .idea/
 Thumbs.db
 desktop.ini
-PRODUCT.md
-
 # Generated documentation site (python docs/build.py; published by .github/workflows/docs.yml)
 docs/site/

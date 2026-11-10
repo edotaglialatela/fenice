@@ -17,7 +17,7 @@ import os
 
 import numpy as np
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QPixmap
+from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame,
                              QInputDialog,
                              QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
@@ -51,7 +51,7 @@ class IndicatorBox(QWidget):
         super().__init__(parent)
         self.boxes = {key: QCheckBox(label) for key, label in self.VARIABLES}
         self.warning = QLabel("")
-        self.warning.setStyleSheet("color: #b00020;")
+        self.warning.setStyleSheet(f"color: {COLORS['error']};")
         lay = QVBoxLayout(self)
         lay.setContentsMargins(0, 0, 0, 0)
         for b in self.boxes.values():
@@ -99,23 +99,29 @@ class SetupDialog(QDialog):
 
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("Fenice — Simulation Setup")
+        self.setWindowTitle("Fenice — Run setup")
+        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
+        self.resize(1120, 820)
         self.setMinimumWidth(960)
         self.setMinimumHeight(660)
 
         master_layout = QHBoxLayout(self)
-        master_layout.setContentsMargins(20, 20, 20, 20)
-        master_layout.setSpacing(20)
+        master_layout.setContentsMargins(16, 16, 16, 14)
+        master_layout.setSpacing(14)
 
         self.tabs = QTabWidget()
+        self.tabs.setTabPosition(QTabWidget.TabPosition.West)
+        self.tabs.setDocumentMode(True)
         self.config_tab   = QWidget()
         self.ibm_tab      = QWidget()
         self.hotstart_tab = QWidget()
         self.amr_tab      = QWidget()
         self.tabs.addTab(self.config_tab,   "Configuration")
-        self.tabs.addTab(self.ibm_tab,      "Immersed Boundaries")
-        self.tabs.addTab(self.hotstart_tab, "Solution Mapping")
-        self.tabs.addTab(self.amr_tab,      "AMR")
+        self.tabs.addTab(self.ibm_tab,      "Immersed body")
+        self.tabs.addTab(self.hotstart_tab, "Hot start")
+        self.tabs.addTab(self.amr_tab,      "Adaptive mesh")
 
         self._setup_config_tab()
         self._setup_ibm_tab()
@@ -123,18 +129,18 @@ class SetupDialog(QDialog):
         self._setup_amr_tab()
 
         main_right_layout = QVBoxLayout()
-        main_right_layout.setSpacing(14)
+        main_right_layout.setSpacing(12)
         main_right_layout.addWidget(self._build_header())
         main_right_layout.addWidget(self.tabs, stretch=1)
 
         self.buttons = QDialogButtonBox(
             QDialogButtonBox.StandardButton.Ok | QDialogButtonBox.StandardButton.Cancel)
         ok_btn = self.buttons.button(QDialogButtonBox.StandardButton.Ok)
-        ok_btn.setText("Run Simulation")
-        ok_btn.setObjectName("primaryButton")
+        ok_btn.setText("Run simulation")
+        ok_btn.setObjectName("actionButton")
         cancel_btn = self.buttons.button(QDialogButtonBox.StandardButton.Cancel)
         cancel_btn.setObjectName("secondaryButton")
-        save_case_btn = self.buttons.addButton("Save as case…", QDialogButtonBox.ButtonRole.ActionRole)
+        save_case_btn = self.buttons.addButton("Save case…", QDialogButtonBox.ButtonRole.ActionRole)
         save_case_btn.setObjectName("secondaryButton")
         save_case_btn.setToolTip("Save this configuration as a new test case under cases/")
         save_case_btn.clicked.connect(self._save_as_case)
@@ -143,7 +149,6 @@ class SetupDialog(QDialog):
         main_right_layout.addWidget(self.buttons)
 
         master_layout.addLayout(main_right_layout, stretch=1)
-        master_layout.addWidget(self._build_logo_panel())
 
         self.sim_params = {}
 
@@ -187,63 +192,50 @@ class SetupDialog(QDialog):
         h = QVBoxLayout(header)
         h.setContentsMargins(2, 0, 2, 2)
         h.setSpacing(2)
-        title = QLabel("Fenice")
+        title = QLabel("Run setup")
         title.setObjectName("appTitle")
-        subtitle = QLabel("Compressible finite-volume simulation — run configuration")
+        subtitle = QLabel("Choose a case, review its settings, then start the solver.")
         subtitle.setObjectName("appSubtitle")
         h.addWidget(title)
         h.addWidget(subtitle)
         return header
 
-    def _build_logo_panel(self):
-        """The brand painting, matted and captioned like a gallery card."""
-        panel = QWidget()
-        panel.setObjectName("logoPanel")
-        v = QVBoxLayout(panel)
-        v.setContentsMargins(16, 16, 16, 14)
-        v.setSpacing(12)
-
-        self.image_label = QLabel()
-        self.image_label.setObjectName("logoImage")
-        image_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
-        if os.path.exists(image_path):
-            pixmap = QPixmap(image_path)
-            pixmap = pixmap.scaled(320, 560, Qt.AspectRatioMode.KeepAspectRatio,
-                                   Qt.TransformationMode.SmoothTransformation)
-            self.image_label.setPixmap(pixmap)
-        else:
-            self.image_label.setText("Logo not found")
-            self.image_label.setMinimumSize(320, 480)
-        self.image_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        v.addWidget(self.image_label, stretch=1)
-
-        caption = QLabel("Fenice")
-        caption.setObjectName("logoCaption")
-        caption_sub = QLabel("Euler · Navier–Stokes · MUSCL · HLLC · IBM · AMR")
-        caption_sub.setObjectName("logoCaptionSub")
-        caption_sub.setWordWrap(True)
-        v.addWidget(caption)
-        v.addWidget(caption_sub)
-        return panel
-
     def _setup_config_tab(self):
         layout = QVBoxLayout(self.config_tab)
-        scroll_area = QScrollArea()
-        scroll_area.setWidgetResizable(True)
-        scroll_widget = QWidget()
-        scroll_layout = QVBoxLayout(scroll_widget)
+        self.config_sections = QTabWidget()
+        self.config_sections.setDocumentMode(True)
+        self.config_sections.setTabPosition(QTabWidget.TabPosition.North)
+        self.geometry_section_index = 1
+        section_layouts = {}
+        for title in ("Case and physics", "Domain and boundaries", "Numerics and output"):
+            area = QScrollArea()
+            area.setWidgetResizable(True)
+            area.setFrameShape(QFrame.Shape.NoFrame)
+            page = QWidget()
+            page_layout = QVBoxLayout(page)
+            page_layout.setContentsMargins(8, 8, 8, 8)
+            page_layout.setSpacing(12)
+            page_layout.addStretch(1)
+            area.setWidget(page)
+            self.config_sections.addTab(area, title)
+            section_layouts[title] = page_layout
+
+        # Insert each group before its section's stretch spacer.
+        def add_group(section, group):
+            section_layout = section_layouts[section]
+            section_layout.insertWidget(section_layout.count() - 1, group)
 
         # 0. Test case
-        g0 = QGroupBox("0. Initial Problem")
+        g0 = QGroupBox("Initial problem")
         f0 = QFormLayout()
         self.combo_testcase = QComboBox()
         self.combo_testcase.addItems(available_cases())
         f0.addRow("Test case:", self.combo_testcase)
         g0.setLayout(f0)
-        scroll_layout.addWidget(g0)
+        add_group("Case and physics", g0)
 
         # 1. Mesh
-        g1 = QGroupBox("1. Spatial Domain")
+        g1 = QGroupBox("Spatial domain")
         f1 = QFormLayout()
         self.input_Lx = QLineEdit("1.0");  self.input_Ly = QLineEdit("1.0")
         self.input_nx = QLineEdit("100");  self.input_ny = QLineEdit("100")
@@ -254,11 +246,11 @@ class SetupDialog(QDialog):
         self.label_Lz = QLabel("Lz [m]:")
         f1.addRow(self.label_Lz, self.input_Lz)
         g1.setLayout(f1)
-        scroll_layout.addWidget(g1)
+        add_group("Domain and boundaries", g1)
         self.group_domain = g1   # the workbench hides it: the geometry node edits the domain
 
         # 2. Thermodynamics
-        g2 = QGroupBox("2. Thermodynamics")
+        g2 = QGroupBox("Thermodynamics")
         f2 = QFormLayout()
         self.eos_combo = QComboBox()
         self.eos_combo.addItems(["Ideal Gas", "Stiffened Gas"])
@@ -269,10 +261,10 @@ class SetupDialog(QDialog):
         f2.addRow("Gamma:",     self.input_gamma)
         f2.addRow(self.label_p_inf, self.input_p_inf)
         g2.setLayout(f2)
-        scroll_layout.addWidget(g2)
+        add_group("Case and physics", g2)
 
         # 3. Diffusive Physics
-        g2b = QGroupBox("3. Diffusive Physics")
+        g2b = QGroupBox("Diffusive physics")
         f2b = QFormLayout()
         self.check_viscous = QCheckBox("Enable Viscous Fluxes (Navier-Stokes)")
         self.input_mu = QLineEdit("1e-3")
@@ -283,10 +275,10 @@ class SetupDialog(QDialog):
         f2b.addRow(self.label_mu, self.input_mu)
         f2b.addRow(self.label_pr, self.input_pr)
         g2b.setLayout(f2b)
-        scroll_layout.addWidget(g2b)
+        add_group("Case and physics", g2b)
 
         # 4. Body Forces
-        g2c = QGroupBox("4. Body Forces")
+        g2c = QGroupBox("Body forces")
         f2c = QFormLayout()
         self.check_bodyforce = QCheckBox("Enable Body Forces (e.g. Gravity)")
         self.input_gx = QLineEdit("0.0")
@@ -300,10 +292,10 @@ class SetupDialog(QDialog):
         f2c.addRow(self.label_gy, self.input_gy)
         f2c.addRow(self.label_gz, self.input_gz)
         g2c.setLayout(f2c)
-        scroll_layout.addWidget(g2c)
+        add_group("Case and physics", g2c)
 
         # 5. Boundary Conditions
-        g3 = QGroupBox("5. Boundary Conditions")
+        g3 = QGroupBox("Boundary conditions")
         f3 = QFormLayout()
         bc_opts = ["Inviscid Wall (Slip)", "Viscous Wall (No-Slip)", "Moving Wall",
                    "Velocity Inlet", "Mass Flow Inlet", "Pressure Outlet",
@@ -324,11 +316,11 @@ class SetupDialog(QDialog):
         f3.addRow(self.label_u_in, self.input_u_in); f3.addRow(self.label_rho_in, self.input_rho_in)
         f3.addRow(self.label_p_out, self.input_p_out)
         g3.setLayout(f3)
-        scroll_layout.addWidget(g3)
+        add_group("Domain and boundaries", g3)
         self.form_bc = f3   # rows of the sides: the workbench hides them (the geometry node sets the sides)
 
         # 6. Numerical Schemes
-        g4 = QGroupBox("6. Numerical Schemes")
+        g4 = QGroupBox("Numerical schemes")
         f4 = QFormLayout()
         self.combo_riemann = QComboBox()
         self.combo_riemann.addItems(["HLLC", "HLLC (Low-Mach Thornber)", "HLLC (Preconditioned)"])
@@ -343,7 +335,7 @@ class SetupDialog(QDialog):
         self.label_recon = QLabel("Spatial reconstruction:")
         self.label_scheme_warning = QLabel("")
         self.label_scheme_warning.setWordWrap(True)
-        self.label_scheme_warning.setStyleSheet("color: #b45309;")
+        self.label_scheme_warning.setStyleSheet(f"color: {COLORS['warning']};")
         self.label_scheme_warning.setVisible(False)
         self.combo_bo = QComboBox()
         self.combo_bo.addItems(["2nd order (ghost layers, default)", "1st order"])
@@ -364,10 +356,10 @@ class SetupDialog(QDialog):
         f4.addRow("", self.label_scheme_warning)
         f4.addRow("CFL number:", self.input_cfl)
         g4.setLayout(f4)
-        scroll_layout.addWidget(g4)
+        add_group("Numerics and output", g4)
 
         # 7. Simulation & Output
-        g5 = QGroupBox("7. Simulation & Output")
+        g5 = QGroupBox("Simulation & output")
         f5 = QFormLayout()
         self.input_t_end = QLineEdit("0.005"); self.input_save_interval = QLineEdit("1")
         self.check_resume = QCheckBox("Resume from Checkpoint (.npz)")
@@ -375,10 +367,10 @@ class SetupDialog(QDialog):
         f5.addRow("Save every N steps:", self.input_save_interval)
         f5.addRow("", self.check_resume)
         g5.setLayout(f5)
-        scroll_layout.addWidget(g5)
+        add_group("Numerics and output", g5)
 
         # 8. Parallel Computation (MPI)
-        g6 = QGroupBox("8. Parallel Computation (MPI)")
+        g6 = QGroupBox("Parallel computation (MPI)")
         f6 = QFormLayout()
         self.check_mpi = QCheckBox("Enable MPI Domain Decomposition")
         self.label_ncpus = QLabel("Number of CPUs (Ncpus):")
@@ -386,10 +378,9 @@ class SetupDialog(QDialog):
         f6.addRow("", self.check_mpi)
         f6.addRow(self.label_ncpus, self.spin_ncpus)
         g6.setLayout(f6)
-        scroll_layout.addWidget(g6)
+        add_group("Numerics and output", g6)
 
-        scroll_area.setWidget(scroll_widget)
-        layout.addWidget(scroll_area)
+        layout.addWidget(self.config_sections)
 
     def _setup_ibm_tab(self):
         layout = QVBoxLayout(self.ibm_tab)
@@ -782,6 +773,120 @@ class SetupDialog(QDialog):
         self._update_hot_start_target_info()
         self._toggle_amr_inputs(self.check_amr.isChecked())
         self._update_dim_inputs()
+
+    def restore_params(self, params: dict) -> None:
+        """Restore the setup controls from a workbench state without starting a run."""
+        if not isinstance(params, dict):
+            return
+        values = _gui_values(params)
+        case = str(values.get("test_case", self.combo_testcase.currentText()))
+        if self.combo_testcase.findText(case) >= 0:
+            self.combo_testcase.setCurrentText(case)  # load that case's defaults before its saved overrides
+
+        text_fields = {
+            "Lx": self.input_Lx, "Ly": self.input_Ly, "Lz": self.input_Lz, "nx": self.input_nx, "ny": self.input_ny,
+            "nz": self.input_nz, "gamma": self.input_gamma, "p_inf": self.input_p_inf, "mu": self.input_mu, "pr": self.input_pr,
+            "gx": self.input_gx, "gy": self.input_gy, "gz": self.input_gz, "u_in": self.input_u_in, "rho_in": self.input_rho_in,
+            "p_out": self.input_p_out, "cfl": self.input_cfl, "t_end": self.input_t_end, "save_interval": self.input_save_interval,
+            "ibm_radius": self.input_radius, "ibm_cx": self.input_cx, "ibm_cy": self.input_cy, "ibm_cz": self.input_cz,
+            "amr_max_level": self.input_amr_max_level, "amr_criterion": self.input_amr_criterion,
+            "amr_refine_threshold": self.input_amr_refine_thr, "amr_derefine_threshold": self.input_amr_derefine_thr,
+            "amr_refine_every": self.input_amr_refine_every, "amr_init_levels": self.input_amr_init_levels,
+            "amr_diffusion": self.input_amr_diffusion, "hot_start_file": self.input_hot_start_file,
+            "hot_start_src_nx": self.input_src_nx, "hot_start_src_ny": self.input_src_ny,
+        }
+        for key, widget in text_fields.items():
+            if key in values:
+                widget.setText(str(values[key]))
+
+        bool_fields = {"use_viscous": self.check_viscous, "use_bodyforce": self.check_bodyforce, "resume": self.check_resume,
+                       "use_mpi": self.check_mpi, "use_ibm": self.check_ibm, "use_hot_start": self.check_hot_start,
+                       "use_amr": self.check_amr}
+        for key, widget in bool_fields.items():
+            if key in values:
+                value = values[key]
+                widget.setChecked(value.strip().lower() in ("1", "true", "yes", "on") if isinstance(value, str) else bool(value))
+
+        combo_fields = {"eos_type": self.eos_combo, "bc_left": self.bc_left, "bc_right": self.bc_right, "bc_bottom": self.bc_bottom,
+                        "bc_top": self.bc_top, "bc_front": self.bc_front, "bc_back": self.bc_back,
+                        "riemann_solver": self.combo_riemann, "time_scheme": self.combo_time, "muscl_limiter": self.combo_limiter,
+                        "ibm_shape": self.combo_shape}
+        for key, combo in combo_fields.items():
+            if key in values:
+                value = str(values[key])
+                index = combo.findText(value)
+                if index >= 0:
+                    combo.setCurrentIndex(index)
+                elif combo.isEditable():
+                    combo.setEditText(value)
+        if "reconstruction" in values:
+            self._set_recon(values["reconstruction"])
+        if "boundary_order" in values:
+            self.combo_bo.setCurrentIndex(0 if int(values["boundary_order"]) == 2 else 1)
+        if "shock_blend" in values:
+            self.check_blend.setChecked(float(values["shock_blend"]) > 0)
+        if "amr_indicator" in values:
+            self.input_amr_indicator.setText(str(values["amr_indicator"]))
+        if "n_cpus" in values:
+            self.spin_ncpus.setValue(int(values["n_cpus"]))
+        self._toggle_viscous_inputs(self.check_viscous.isChecked())
+        self._toggle_bodyforce_inputs(self.check_bodyforce.isChecked())
+        self._toggle_mpi_inputs(self.check_mpi.isChecked())
+        self._toggle_ibm_inputs(self.check_ibm.isChecked())
+        self._toggle_hot_start_inputs(self.check_hot_start.isChecked())
+        self._toggle_amr_inputs(self.check_amr.isChecked())
+        self._update_dim_inputs()
+        self._reconstruction_changed()
+
+    def save_ui_state(self) -> dict:
+        """Capture raw setup controls as well as typed parameters, including fields currently being edited."""
+        controls = {}
+        for name, widget in vars(self).items():
+            if isinstance(widget, IndicatorBox):
+                controls[name] = widget.text()
+            elif isinstance(widget, QLineEdit):
+                controls[name] = widget.text()
+            elif isinstance(widget, QCheckBox):
+                controls[name] = widget.isChecked()
+            elif isinstance(widget, QComboBox):
+                controls[name] = widget.currentText()
+            elif isinstance(widget, QSpinBox):
+                controls[name] = widget.value()
+        return controls
+
+    def restore_ui_state(self, controls: dict) -> None:
+        """Restore raw control contents without validating or launching the solver."""
+        if not isinstance(controls, dict):
+            return
+        case = str(controls.get("combo_testcase", ""))
+        if self.combo_testcase.findText(case) >= 0:
+            self.combo_testcase.setCurrentText(case)
+        for name, value in controls.items():
+            if name == "combo_testcase":
+                continue
+            widget = getattr(self, name, None)
+            if isinstance(widget, IndicatorBox):
+                widget.setText(str(value))
+            elif isinstance(widget, QLineEdit):
+                widget.setText(str(value))
+            elif isinstance(widget, QCheckBox):
+                widget.setChecked(bool(value))
+            elif isinstance(widget, QComboBox):
+                index = widget.findText(str(value))
+                if index >= 0:
+                    widget.setCurrentIndex(index)
+                elif widget.isEditable():
+                    widget.setEditText(str(value))
+            elif isinstance(widget, QSpinBox):
+                widget.setValue(int(value))
+        self._toggle_viscous_inputs(self.check_viscous.isChecked())
+        self._toggle_bodyforce_inputs(self.check_bodyforce.isChecked())
+        self._toggle_mpi_inputs(self.check_mpi.isChecked())
+        self._toggle_ibm_inputs(self.check_ibm.isChecked())
+        self._toggle_hot_start_inputs(self.check_hot_start.isChecked())
+        self._toggle_amr_inputs(self.check_amr.isChecked())
+        self._update_dim_inputs()
+        self._reconstruction_changed()
 
     def _error(self, title, text):
         """A message box for a rejected input, unless the dialog is only being read (peek_params)."""

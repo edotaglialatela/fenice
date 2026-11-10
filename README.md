@@ -34,8 +34,9 @@ validation scripts and full documentation.
 - **Uniform meshes:** 2-D (`nz = 1`) or 3-D (`nz > 1`) Cartesian grids.
 - **Parallelism:** OpenMP everywhere, plus MPI (strips of rows or columns; for AMR, the leaves distributed over the ranks along a
   Morton curve). Results match the serial run bit for bit for any number of threads or ranks.
-- **Graphical interface:** a PyQt6 workbench where Geometry, Solver, Monitor and Postprocessing modules are linked on a canvas, with
-  live monitors and a result viewer; it is a thin client of the solver, so new cases appear in it automatically.
+- **Graphical interface:** a PyQt6 workbench where Geometry, Solver, Monitor, Postprocessing and Analysis Tools modules connect on a
+  canvas. One Geometry can feed several Solvers. The workbench provides live monitors, result viewing, general-purpose field,
+  signal, modal and sensitivity analysis, and saveable session state; new cases appear automatically from the solver.
 - **I/O:** VTK output for ParaView, `.npz` checkpoints with restart, and hot start that maps a solution onto a different resolution.
 - **Verification:** unit tests, 75 stored reference states, manufactured-solution and exact-solution studies, grid-convergence indices
   and benchmark comparisons (see Testing).
@@ -111,18 +112,25 @@ stops a run cleanly and saves it. The options, MPI launching and the output file
 ## GUI
 
 <p align="center">
-  <img src="docs/img/gui_workbench.png" width="95%" alt="The Fenice workbench: modules linked on a canvas, live monitor below, the console on the right">
+  <img src="docs/img/gui_workbench.png" width="95%" alt="Fenice's empty modular workbench with the module palette and save and restore controls">
 </p>
 
-The PyQt6 **workbench** is a canvas of modules (Geometry, Solver, Monitor, Postprocessing) that you drag from a palette and link port
-to port; the list of cases and their defaults come from the solver itself, so new cases appear automatically. Build the solver, then:
+The PyQt6 **workbench** is a graph workspace. Add modules from the palette and connect matching ports: one Geometry can feed several
+Solver runs, and a Solver can connect to monitoring, result viewing and analysis. Case names and defaults come from the solver itself,
+so new cases appear automatically. Build the solver, then:
 
 ```bash
 python prerequisites.py      # one-time: PyQt6, numpy, matplotlib, sympy, scipy, markdown2
 python gui/workbench.py      # the workbench; python gui/run.py is the original single-window setup dialog
 ```
 
-The modules, tabs and result viewer are described on the *GUI* page of the documentation.
+Use **Save state...** and **Restore state...** to save the graph, node positions, setup, monitor layout, result folders and analysis
+selections in a `.fenice.json` file. Restore rebuilds the workbench with solver processes idle; it does not resume an in-progress run.
+
+The separate **Analysis Tools** module is general-purpose, not tied to the cylinder example. It includes field statistics and line
+profiles, monitor statistics and spectra, snapshot POD / DMD and monitor time-delay DMD, plus Sobol sensitivity indices and
+input-response plots. The modules, analysis controls and worked examples are described on the
+[*GUI* page of the documentation](https://edotaglialatela.github.io/fenice/guide/gui.html).
 
 ## Test cases
 

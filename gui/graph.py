@@ -1,8 +1,8 @@
 """The graph of the workbench, without any drawing: nodes made from module records, typed ports and the links between them.
 
 A link joins an output port to an input port of the same type; an input takes one link, an output with ``multi`` can feed several.
-The solver is the node that owns a project; every other node is bound to the solver found by following its input links upstream
-(``solver_of``), so linking a geometry, a monitor or a post-processing node to a solver is what gives it something to show.
+The solver is the node that owns a project; editors are bound through their links. A standalone Geometry editor can be bound to every
+Solver its output feeds, while ``solver_of`` returns the first linked solver for status and other single-project lookups.
 """
 from __future__ import annotations
 
@@ -90,8 +90,11 @@ class Graph:
         return [self.nodes[l.dst] for l in self.links if l.src == node_id]
 
     def solver_of(self, node_id: int) -> Node | None:
-        """The solver node a node is bound to: itself if it owns a project, else the one it is linked to, upstream (an input link
-        from a solver: monitor, post-processing) or downstream (the geometry feeds a solver)."""
+        """A solver for this node: itself if it owns a project, else the first linked solver found upstream or downstream.
+
+        A Geometry editor with several downstream Solver links binds to all of them in the Workbench; this helper returns the first
+        for callers that only need one project, such as the node status line.
+        """
         node = self.nodes[node_id]
         if node.spec.owns_project:
             return node

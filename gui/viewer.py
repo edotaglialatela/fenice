@@ -26,6 +26,7 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolb
 from matplotlib.collections import PolyCollection  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal  # noqa: E402
+from PyQt6.QtGui import QIcon  # noqa: E402
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QMainWindow,  # noqa: E402
                              QPushButton, QSlider, QTabWidget, QVBoxLayout, QWidget)
 
@@ -102,6 +103,19 @@ class FieldView(QWidget):
         self.name = name
         self._render()
 
+    def clear(self, message: str) -> None:
+        """Replace an old field with a clear waiting or empty state."""
+        self.frame = None
+        self._im = self._sig = self._leaves = None
+        self._clim = None
+        self.ax.clear()
+        self.cax.clear()
+        self.ax.set_axis_off()
+        self.cax.set_axis_off()
+        self.ax.text(0.5, 0.5, message, ha="center", va="center", transform=self.ax.transAxes, color=COLORS["ink_muted"])
+        self.readout.clear()
+        self.canvas.draw_idle()
+
     def _signature(self):
         f = self.frame
         return (f.kind, f.extent(), self.axis if f.is_3d else "z", self.name, self.cmap)
@@ -143,6 +157,8 @@ class FieldView(QWidget):
         f = self.frame
         self.ax.clear()
         self.cax.clear()
+        self.ax.set_axis_on()
+        self.cax.set_axis_on()
         cmap = copy.copy(colormaps[self.cmap])
         cmap.set_bad(COLORS["bg_panel"])
         self._im = self.ax.imshow(img, origin="lower", extent=ext, cmap=cmap, interpolation="nearest", aspect="equal")
@@ -246,7 +262,7 @@ class MonitorView(QWidget):
         if d is None or not c:
             self.ax.text(0.5, 0.5, "no monitor file in this folder", ha="center", va="center", transform=self.ax.transAxes)
         else:
-            self.ax.plot(d["t"], d[c], color=COLORS["primary"], lw=1.4)
+            self.ax.plot(d["t"], d[c], color=COLORS["route_results"], lw=1.4)
             if self.now is not None:
                 self.ax.axvline(self.now, color=COLORS["ink_muted"], lw=1.0, ls="--")
             self.ax.set_xlabel("t")
@@ -269,10 +285,13 @@ class ViewerPanel(QWidget):
         self.monitor = MonitorView()
 
         self.btn_open = QPushButton("Open folder...")
+        self.btn_open.setObjectName("secondaryButton")
         self.btn_open.clicked.connect(self._open_dialog)
         self.cb_field = QComboBox()
+        self.cb_field.setMinimumWidth(170)
         self.cb_cmap = QComboBox()
         self.cb_cmap.addItems(_COLORMAPS)
+        self.cb_cmap.setMinimumWidth(130)
         self.chk_lock = QCheckBox("Lock range")
         self.chk_leaves = QCheckBox("Leaf outlines")
         self.cb_axis = QComboBox()
@@ -280,22 +299,35 @@ class ViewerPanel(QWidget):
         self.sl_slice = QSlider(Qt.Orientation.Horizontal)
         self.lbl_slice = QLabel("")
         self.btn_play = QPushButton("Play")
+        self.btn_play.setObjectName("secondaryButton")
         self.btn_play.setCheckable(True)
         self.sl_step = QSlider(Qt.Orientation.Horizontal)
         self.lbl_step = QLabel("no snapshots")
-        self.lbl_step.setMinimumWidth(260)
+        self.lbl_step.setMinimumWidth(190)
         self.chk_follow = QCheckBox("Follow latest")
         self.chk_follow.setChecked(True)
 
         top = QHBoxLayout()
-        for w in (self.btn_open, QLabel("Field"), self.cb_field, QLabel("Colours"), self.cb_cmap, self.chk_lock, self.chk_leaves):
-            top.addWidget(w)
-        top.addStretch(1)
+        top.setSpacing(10)
+        top.addWidget(self.btn_open)
+        top.addWidget(QLabel("Field"))
+        top.addWidget(self.cb_field, 1)
+        top.addWidget(QLabel("Colour map"))
+        top.addWidget(self.cb_cmap)
+        options = QHBoxLayout()
+        options.addWidget(self.chk_lock)
+        options.addWidget(self.chk_leaves)
+        options.addStretch(1)
         self.slice_row = QWidget()
+        self.slice_row.setObjectName("viewerToolbar")
         sr = QHBoxLayout(self.slice_row)
-        sr.setContentsMargins(0, 0, 0, 0)
-        for w in (QLabel("Slice normal to"), self.cb_axis, self.sl_slice, self.lbl_slice):
+        sr.setContentsMargins(0, 2, 0, 2)
+        sr.setSpacing(10)
+        for w in (QLabel("Slice normal to"), self.cb_axis):
             sr.addWidget(w)
+        sr.addWidget(self.sl_slice, 1)
+        sr.addWidget(self.lbl_slice)
+        sr.addStretch(1)
         bottom = QHBoxLayout()
         for w, stretch in ((self.btn_play, 0), (self.sl_step, 1), (self.lbl_step, 0), (self.chk_follow, 0)):
             bottom.addWidget(w, stretch)
@@ -303,7 +335,10 @@ class ViewerPanel(QWidget):
         self.tabs.addTab(self.field, "Field")
         self.tabs.addTab(self.monitor, "Monitor")
         lay = QVBoxLayout(self)
+        lay.setContentsMargins(16, 14, 16, 14)
+        lay.setSpacing(10)
         lay.addLayout(top)
+        lay.addLayout(options)
         lay.addWidget(self.slice_row)
         lay.addWidget(self.tabs, 1)
         lay.addLayout(bottom)
@@ -334,6 +369,7 @@ class ViewerPanel(QWidget):
             self.open_path(d)
 
     def open_path(self, path: str, step: int | None = None) -> None:
+        self.btn_play.setChecked(False)
         p = os.path.abspath(path)
         folder = p if os.path.isdir(p) else os.path.dirname(p)
         self.series = Series(folder)
@@ -351,6 +387,37 @@ class ViewerPanel(QWidget):
         self.field._im = None
         self._show()
 
+    def save_state(self) -> dict:
+        """The current results selection and display options."""
+        step = None
+        if self.series is not None and self.series.snapshots and self.sl_step.value() < len(self.series.snapshots):
+            step = self.series.snapshots[self.sl_step.value()].step
+        return {
+            "folder": str(self.series.folder) if self.series is not None else None, "step": step,
+            "field": self.cb_field.currentText(), "colour_map": self.cb_cmap.currentText(),
+            "lock_range": self.chk_lock.isChecked(), "leaf_outlines": self.chk_leaves.isChecked(),
+            "axis": self.cb_axis.currentText(), "slice": self.sl_slice.value(), "follow_latest": self.chk_follow.isChecked(),
+            "tab": self.tabs.currentIndex(),
+        }
+
+    def restore_state(self, state: dict) -> None:
+        if not isinstance(state, dict):
+            return
+        folder = state.get("folder")
+        if folder:
+            self.open_path(str(folder), None if state.get("follow_latest", True) else state.get("step"))
+        if self.series is None:
+            return
+        for key, combo in (("field", self.cb_field), ("colour_map", self.cb_cmap), ("axis", self.cb_axis)):
+            if combo.findText(str(state.get(key, ""))) >= 0:
+                combo.setCurrentText(str(state[key]))
+        self.chk_lock.setChecked(bool(state.get("lock_range", self.chk_lock.isChecked())))
+        self.chk_leaves.setChecked(bool(state.get("leaf_outlines", self.chk_leaves.isChecked())))
+        self.sl_slice.setValue(int(state.get("slice", self.sl_slice.value())))
+        self.chk_follow.setChecked(bool(state.get("follow_latest", True)))
+        self.tabs.setCurrentIndex(max(0, min(int(state.get("tab", 0)), self.tabs.count() - 1)))
+        self._show()
+
     def _failed(self, message: str) -> None:
         self._retry = True   # the next tick of the live timer shows the snapshot again
         self.lbl_step.setText(f"cannot read the snapshot yet ({message})")
@@ -361,7 +428,20 @@ class ViewerPanel(QWidget):
         self._retry = False
         s = self.series
         if s is None or not s.snapshots:
-            self.lbl_step.setText("no snapshots in this folder" if s is not None else "no snapshots")
+            message = "No snapshots in this folder yet" if s is not None else "Waiting for the solver to create a results folder"
+            self.lbl_step.setText(message)
+            self.field.clear(message)
+            self.cb_field.blockSignals(True)
+            self.cb_field.clear()
+            self.cb_field.blockSignals(False)
+            self.cb_field.setEnabled(False)
+            self.cb_cmap.setEnabled(False)
+            self.chk_lock.setEnabled(False)
+            self.chk_leaves.setEnabled(False)
+            self.slice_row.setVisible(False)
+            self.btn_play.setChecked(False)
+            self.btn_play.setEnabled(False)
+            self.sl_step.setEnabled(False)
             self.monitor.set_data(s.monitor() if s else None, None)
             return
         i = min(self.sl_step.value(), len(s.snapshots) - 1)
@@ -375,6 +455,12 @@ class ViewerPanel(QWidget):
             self.cb_field.addItems(names)
             self.cb_field.setCurrentText(keep if keep in names else names[0])
             self.cb_field.blockSignals(False)
+        self.cb_field.setEnabled(bool(names))
+        self.cb_cmap.setEnabled(True)
+        self.chk_lock.setEnabled(True)
+        self.chk_leaves.setEnabled(frame.kind == "amr")
+        self.sl_step.setEnabled(len(s.snapshots) > 1)
+        self.btn_play.setEnabled(len(s.snapshots) > 1)
         self.slice_row.setVisible(frame.is_3d)
         axis = self.cb_axis.currentText() if frame.is_3d else "z"
         count = frame.slice_count(axis)
@@ -393,6 +479,15 @@ class ViewerPanel(QWidget):
             extra += f", plane z = {frame.mid_plane_z:g}"
         self.lbl_step.setText(f"snapshot {i + 1}/{len(s.snapshots)}   step {snap.step}   {when}   {extra}")
         self.monitor.set_data(s.monitor(), snap.time)
+
+    def wait_for_results(self) -> None:
+        """Clear the previous run when its solver starts a new one."""
+        self.series = None
+        self._retry = False
+        self.btn_play.setChecked(False)
+        self.chk_follow.setChecked(True)
+        self.sl_step.setRange(0, 0)
+        self._show()
 
     # ---- playback and live refresh
     def _play_toggled(self, on: bool) -> None:
@@ -437,6 +532,10 @@ class ViewerWindow(QMainWindow):
 
     def __init__(self, folder: str | None = None, step: int | None = None):
         super().__init__()
+        self.setWindowTitle("Fenice results")
+        icon_path = os.path.join(ROOT_DIR, "gui", "logo.png")
+        if os.path.exists(icon_path):
+            self.setWindowIcon(QIcon(icon_path))
         self.panel = ViewerPanel(folder, step)
         self.panel.title_changed.connect(self.setWindowTitle)
         self.setCentralWidget(self.panel)

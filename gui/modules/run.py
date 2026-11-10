@@ -17,13 +17,14 @@ from PyQt6.QtWidgets import QComboBox, QHBoxLayout, QLabel, QPlainTextEdit, QPro
 from gui import ansi
 from gui.modules import ModuleSpec, Port
 from gui.project import IDLE, RUNNING, STOPPING
+from gui.theme import COLORS
 
 import matplotlib
 
 matplotlib.rcParams["mathtext.fontset"] = "cm"   # the math of the labels in the Computer Modern of TeX, without needing a TeX installation
 
 _MAX_LINES = 20000
-_CONSOLE_BG, _CONSOLE_FG, _CONSOLE_DIM = "#1b1d23", "#d8dae0", "#8a8f9c"   # the banner colours are made for a dark terminal
+_CONSOLE_BG, _CONSOLE_FG, _CONSOLE_DIM = COLORS["console_bg"], COLORS["console_ink"], COLORS["console_dim"]
 
 
 class _MonitorTail:
@@ -129,17 +130,17 @@ class RunPanel(QWidget):
         self.cb_quantity = QComboBox()
         self.cb_quantity.setToolTip("The quantity of the lowest plot: a column of the monitor file, or the number of leaves of an AMR run")
         self.text = QPlainTextEdit()
+        self.text.setObjectName("console")
         self.text.setReadOnly(True)
         self.text.setMaximumBlockCount(_MAX_LINES)
         mono = QFont("Consolas")
         mono.setStyleHint(QFont.StyleHint.Monospace)
         self.text.setFont(mono)
         self.text.setLineWrapMode(QPlainTextEdit.LineWrapMode.WidgetWidth)   # a narrow column: long lines wrap, no sideways scrolling
-        self.text.setStyleSheet(f"QPlainTextEdit {{ background: {_CONSOLE_BG}; color: {_CONSOLE_FG}; border: 1px solid #3a3d46; }}")
+        self.text.setStyleSheet(f"QPlainTextEdit {{ background: {_CONSOLE_BG}; color: {_CONSOLE_FG}; border: 1px solid #31505B; }}")
 
         from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg
         from matplotlib.figure import Figure
-        from gui.theme import COLORS
         self._colors = COLORS
         self.fig = Figure(figsize=(8, 5))
         self.fig.set_facecolor(COLORS["bg_window"])
@@ -147,7 +148,7 @@ class RunPanel(QWidget):
         # the residuals are what a run is judged by: the largest panel; the time step and the wave speed the smallest
         self.ax_dt, self.ax_s, self.ax_r, self.ax_q = self.fig.subplots(4, 1, sharex=True, gridspec_kw={"height_ratios": [1, 1, 2.4, 1.4]})
         self.fig.subplots_adjust(left=0.065, right=0.985, top=0.985, bottom=0.085, hspace=0.07)
-        self.console = self.text   # shown by the workbench in its right-hand column, the full height of the window
+        self.console = self.text   # shown in the Console tab of this monitor's workbench page
 
         self.progress = QProgressBar()
         self.progress.setRange(0, 1000)
@@ -351,7 +352,7 @@ class RunPanel(QWidget):
         ax.text(0.008, 0.94, label, transform=ax.transAxes, ha="left", va="top", fontsize=9, color=c["ink"], zorder=5)
         if last is not None and np.isfinite(last):
             ax.text(0.992, 0.94, _tick_format(last, None), transform=ax.transAxes, ha="right", va="top", fontsize=8.5,
-                    color=c["primary"], fontweight="bold", zorder=5)
+                    color=c["route_run"], fontweight="bold", zorder=5)
 
     @staticmethod
     def _fit(ax, y) -> None:
@@ -385,12 +386,12 @@ class RunPanel(QWidget):
         self._prepare(self.ax_dt, r"$\Delta t$  [s]", dt[-1] if len(dt) else None, nbins=2)
         self._prepare(self.ax_s, r"$S_{\max}$  [m/s]", smax[-1] if len(smax) else None, nbins=2)
         if len(t_dt):
-            self.ax_dt.plot(*_thin(t_dt, dt), color=c["primary"], lw=1.2, marker=mark_dt, ms=3)
+            self.ax_dt.plot(*_thin(t_dt, dt), color=c["route_run"], lw=1.2, marker=mark_dt, ms=3)
             self._fit(self.ax_dt, dt)
         else:
             self._note(self.ax_dt, "the time step comes from the monitor file or the progress lines")
         if len(t):
-            self.ax_s.plot(t, smax, color=c["primary"], lw=1.2, marker=mark, ms=3)
+            self.ax_s.plot(t, smax, color=c["route_run"], lw=1.2, marker=mark, ms=3)
             self._fit(self.ax_s, smax)
         else:
             self._note(self.ax_s, "the wave speed comes from the progress lines (every save_interval steps)")
@@ -405,7 +406,7 @@ class RunPanel(QWidget):
             tq, y = np.asarray(self.monitor["t"], dtype=float), np.asarray(self.monitor[q], dtype=float)
         self._prepare(self.ax_q, label, y[-1] if y is not None and len(y) else None, bottom=True)
         if y is not None and len(y):
-            self.ax_q.plot(*_thin(tq, y), color=c["primary"], lw=1.2)
+            self.ax_q.plot(*_thin(tq, y), color=c["route_run"], lw=1.2)
             self._fit(self.ax_q, y)
         self.ax_q.set_xlabel(r"$t$  [s]", fontsize=8, labelpad=1)
         if pr.t_end > 0:

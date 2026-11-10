@@ -14,12 +14,18 @@ from PyQt6.QtWidgets import (QGraphicsItem, QGraphicsPathItem, QGraphicsProxyWid
 from gui.theme import COLORS
 
 MIME = "application/x-fenice-module"
-NODE_W, HEADER, STATUS, ROW, PORT_R = 220, 26, 22, 22, 6.5
-_TYPE_COLOR = {"geometry": "#2E7D52", "run": "#9A2D3A", "results": "#2B6CB0"}   # by port type, also used for the links
+NODE_W, HEADER, STATUS, ROW, PORT_R = 248, 32, 24, 24, 6.5
+_MODULE_COLOR = {
+    "geometry": "route_geometry",
+    "solver": "module_solver",
+    "monitor": "module_monitor",
+    "results": "module_results",
+    "analysis": "module_results",
+}
 
 
 def type_color(kind: str) -> QColor:
-    return QColor(_TYPE_COLOR.get(kind, COLORS["ink_soft"]))
+    return QColor(COLORS.get(f"route_{kind}", COLORS["ink_soft"]))
 
 
 class PortItem(QGraphicsItem):
@@ -33,6 +39,7 @@ class PortItem(QGraphicsItem):
         self.setAcceptHoverEvents(True)
         self.setCursor(Qt.CursorShape.CrossCursor)
         self._hover = False
+        self.setToolTip(f"{'Output' if output else 'Input'} · {port.label or port.name} ({port.type})")
 
     def boundingRect(self) -> QRectF:
         return QRectF(-PORT_R - 3, -PORT_R - 3, 2 * PORT_R + 6, 2 * PORT_R + 6)
@@ -68,6 +75,7 @@ class LinkItem(QGraphicsPathItem):
         super().__init__()
         self.a, self.b = a, b          # a is the first port pressed; b the port it ends on (None while dragging)
         self.end = a.scene_pos()
+        self._focus: bool | None = None
         self.setZValue(-1)
         self.setFlag(QGraphicsItem.GraphicsItemFlag.ItemIsSelectable, b is not None)
         self.update_path()
@@ -85,9 +93,18 @@ class LinkItem(QGraphicsPathItem):
         path.cubicTo(QPointF(src.x() + dx, src.y()), QPointF(dst.x() - dx, dst.y()), dst)
         self.setPath(path)
 
+    def set_focus(self, focused: bool | None) -> None:
+        if focused != self._focus:
+            self._focus = focused
+            self.update()
+
     def paint(self, painter: QPainter, option: QStyleOptionGraphicsItem, widget=None) -> None:
         colour = type_color(self.a.port.type)
-        pen = QPen(colour, 3.0 if self.isSelected() else 2.0)
+        if self._focus is False:
+            colour.setAlpha(140)
+        else:
+            colour.setAlpha(225 if self._focus is True else 180)
+        pen = QPen(colour, 3.0 if self.isSelected() else (2.5 if self._focus is True else 1.8))
         if self.b is None:
             pen.setStyle(Qt.PenStyle.DashLine)
         painter.setRenderHint(QPainter.RenderHint.Antialiasing)
@@ -114,11 +131,12 @@ class NodeItem(QGraphicsItem):
         self.out_ports = {p.name: PortItem(self, p, True) for p in spec.outputs}
         self._port_rows = max(len(spec.inputs), len(spec.outputs), 1)
         self._face_h = 0.0
+        self._type_colour = QColor(COLORS.get(_MODULE_COLOR.get(spec.name, "primary"), COLORS["primary"]))
         self._layout()
 
     def set_face(self, widget) -> None:
         self.face = QGraphicsProxyWidget(self)
-        widget.setStyleSheet("QWidget { background: transparent; } QPushButton, QSpinBox { background: #FFFFFF; }")
+        widget.setStyleSheet("QWidget { background: transparent; }")
         self.face.setWidget(widget)
         self._face_h = float(widget.sizeHint().height())
         self.face.resize(NODE_W - 12, self._face_h)
@@ -151,24 +169,21 @@ class NodeItem(QGraphicsItem):
         selected = self.isSelected()
         painter.setPen(QPen(QColor(COLORS["primary"]) if selected else QColor(COLORS["border_strong"]), 2 if selected else 1))
         painter.setBrush(QColor(COLORS["bg_surface"]))
-        painter.drawRoundedRect(rect, 7, 7)
-        painter.save()
-        painter.setClipRect(QRectF(0, 0, NODE_W, HEADER))   # the top of the rounded rectangle, square below
+        painter.drawRoundedRect(rect, 8, 8)
         painter.setPen(Qt.PenStyle.NoPen)
-        painter.setBrush(QColor(COLORS["primary"]))
-        painter.drawRoundedRect(QRectF(0, 0, NODE_W, HEADER + 10), 7, 7)
-        painter.restore()
+        painter.setBrush(self._type_colour)
+        painter.drawRoundedRect(QRectF(1, 1, NODE_W - 2, 4), 2, 2)
         bold = QFont(painter.font())
         bold.setBold(True)
         painter.setFont(bold)
-        painter.setPen(QColor(COLORS["on_primary"]))
-        painter.drawText(QRectF(10, 0, NODE_W - 20, HEADER), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.title)
+        painter.setPen(QColor(COLORS["ink"]))
+        painter.drawText(QRectF(12, 5, NODE_W - 24, HEADER - 4), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft, self.title)
         small = QFont(painter.font())
         small.setBold(False)
-        small.setPointSizeF(max(small.pointSizeF() - 1, 7))
+        small.setPointSizeF(max(small.pointSizeF() - 1, 8))
         painter.setFont(small)
         painter.setPen(QColor(COLORS["ink_muted"]))
-        painter.drawText(QRectF(10, HEADER, NODE_W - 20, STATUS), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
+        painter.drawText(QRectF(12, HEADER, NODE_W - 24, STATUS), Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignLeft,
                          painter.fontMetrics().elidedText(self.status, Qt.TextElideMode.ElideRight, NODE_W - 20))
         painter.setPen(QColor(COLORS["ink_soft"]))
         y0 = HEADER + STATUS
@@ -292,6 +307,8 @@ class GraphView(QGraphicsView):
         super().__init__(scene, parent)
         self.setRenderHints(QPainter.RenderHint.Antialiasing | QPainter.RenderHint.TextAntialiasing)
         self.setDragMode(QGraphicsView.DragMode.RubberBandDrag)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
         self.setTransformationAnchor(QGraphicsView.ViewportAnchor.AnchorUnderMouse)
         self.setBackgroundBrush(QColor(COLORS["bg_window"]))
         self.setAcceptDrops(True)
@@ -299,8 +316,8 @@ class GraphView(QGraphicsView):
 
     def drawBackground(self, painter: QPainter, rect: QRectF) -> None:
         super().drawBackground(painter, rect)
-        painter.setPen(QPen(QColor(COLORS["border"]), 1))   # a dotted grid, so that the space reads as a workbench
-        step = 30
+        painter.setPen(QPen(QColor(COLORS["grid"]), 1))
+        step = 48
         x0, y0 = int(rect.left() // step) * step, int(rect.top() // step) * step
         pts = [QPointF(x, y) for x in range(x0, int(rect.right()) + step, step) for y in range(y0, int(rect.bottom()) + step, step)]
         painter.drawPoints(pts)

@@ -1,8 +1,9 @@
 """Solver module: the setup dialog (case, physics, numerics, AMR, output, MPI) as the editor of a solver node.
 
-The geometry (domain, mesh, immersed body, the boundary condition of each side) is not edited here: it belongs to the geometry node linked
-to the solver, which writes into the same fields of this page (hidden), so that the page stays the only copy of every parameter. The
-node's face carries Run / Stop, the Low-Mach switch and the monitor interval.
+The geometry (domain, mesh, immersed body, the boundary condition of each side) is not edited here: it belongs to the Geometry node,
+which writes into the hidden fields of each connected Solver page. A shared Geometry node can write the same geometry into several
+Solver pages; each page keeps the parameter values its run reads. The node's face carries Run / Stop, the Low-Mach switch and the
+monitor interval.
 """
 from __future__ import annotations
 
@@ -12,6 +13,7 @@ from PyQt6.QtWidgets import (QDialogButtonBox, QHBoxLayout, QLabel, QMessageBox,
 
 from gui.modules import ModuleSpec, Port
 from gui.project import IDLE, RUNNING
+from gui.theme import COLORS
 
 LOW_MACH, PLAIN = "HLLC (Low-Mach Thornber)", "HLLC"
 
@@ -26,11 +28,11 @@ class Switch(QSlider):
         self.setRange(0, 1)
         self.setFixedSize(40, 22)
         self.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.setStyleSheet("QSlider::groove:horizontal { height: 10px; border-radius: 5px; background: #b8bfcc; }"
-                           "QSlider::sub-page:horizontal { border-radius: 5px; background: #9b2d3a; }"
-                           "QSlider::handle:horizontal { width: 18px; margin: -5px 0; border-radius: 9px; background: #ffffff;"
-                           " border: 1px solid #7a8190; }"
-                           "QSlider:disabled::sub-page:horizontal { background: #c9ced8; }")
+        self.setStyleSheet(f"QSlider::groove:horizontal {{ height: 10px; border-radius: 5px; background: {COLORS['border_strong']}; }}"
+                           f"QSlider::sub-page:horizontal {{ border-radius: 5px; background: {COLORS['primary']}; }}"
+                           f"QSlider::handle:horizontal {{ width: 18px; margin: -5px 0; border-radius: 9px; background: {COLORS['bg_surface']};"
+                           f" border: 1px solid {COLORS['primary']}; }}"
+                           f"QSlider:disabled::sub-page:horizontal {{ background: {COLORS['disabled_bg']}; }}")
         self.valueChanged.connect(lambda v: self.toggled.emit(bool(v)))
 
     def isChecked(self) -> bool:
@@ -77,6 +79,7 @@ def _make(project):
         def _hide_geometry(self) -> None:
             """The domain, the body and the sides are the geometry node's: hidden here, but still the fields that hold the values."""
             self.group_domain.hide()
+            self.config_sections.setTabVisible(self.geometry_section_index, False)
             self.tabs.setTabVisible(self.tabs.indexOf(self.ibm_tab), False)
             self.tabs.setTabVisible(self.tabs.indexOf(self.amr_tab), False)   # the refinement is the geometry node's too
             self._side_widgets = [self.bc_left, self.bc_right, self.bc_bottom, self.bc_top, self.bc_front, self.bc_back]

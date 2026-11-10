@@ -8,6 +8,7 @@ def _make(project):
     from gui.viewer import ViewerPanel
 
     panel = ViewerPanel()
+    project.started.connect(panel.wait_for_results)
     project.results_changed.connect(panel.open_path)
     if project.results_dir is not None:   # linked after the run (or in the middle of it): open what the solver has reported
         panel.open_path(str(project.results_dir))
@@ -16,4 +17,4 @@ def _make(project):
 
 MODULE = ModuleSpec("results", "Postprocessing", _make, order=40, requires=("PyQt6", "matplotlib", "numpy"),
                     inputs=(Port("results", "results"),),
-                    description="Fields, slices, adaptive meshes and monitor curves of the run; follows a run in progress.")
+                    description="Browse result fields, slices, adaptive meshes and monitor curves as snapshots are written.")

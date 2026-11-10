@@ -211,6 +211,12 @@ class Frame:
             return a[:, index, :], (self.x[0], self.x[-1], self.z[0], self.z[-1])
         return a[:, :, index], (self.y[0], self.y[-1], self.z[0], self.z[-1])
 
+    def section(self, name: str, axis: str = "z", index: int = 0) -> tuple[np.ndarray, tuple[float, float, float, float]]:
+        """Field values and plot bounds for the selected 2-D view of a snapshot."""
+        if self.kind == "grid":
+            return self._slice(name, axis, index)
+        return self.fields[name], self.extent()
+
     # ---- adaptive mesh
     def _tables(self):
         """Per level: the sorted packed (i, j) keys of its leaves, the leaf index in that order, and the cell sizes."""
@@ -274,7 +280,7 @@ class Frame:
         if self.kind == "amr":
             leaf = self._lookup(np.array([x]), np.array([y]))[0]
             return None if leaf < 0 else float(self.fields[name][leaf])
-        a, (x0, x1, y0, y1) = self._slice(name, axis, index)
+        a, (x0, x1, y0, y1) = self.section(name, axis, index)
         if not (x0 <= x <= x1 and y0 <= y <= y1):
             return None
         j = min(int((y - y0) / (y1 - y0) * a.shape[0]), a.shape[0] - 1)
@@ -285,7 +291,7 @@ class Frame:
         """(image, extent) of a field: the slice itself on a uniform mesh, the leaves rasterised on `size` pixels over `bounds`
         (the whole domain if None) on an adaptive one."""
         if self.kind == "grid":
-            a, ext = self._slice(name, axis, index)
-            return a, tuple(float(e) for e in ext)
+            data, ext = self.section(name, axis, index)
+            return data, tuple(float(e) for e in ext)
         b = bounds if bounds is not None else self.extent()
         return self.raster(name, b, size or (1200, 600)), b

@@ -1,7 +1,7 @@
 """Geometry module: the domain, the immersed body, the Cartesian mesh, the side conditions and the solid cells they make.
 
-The node owns its geometry (a parameter set of its own, from a case's defaults at first); linked to a solver it writes them into the
-solver's setup fields, which the run reads."""
+The node owns its geometry (a parameter set of its own, from a case's defaults at first); linked to one or more solvers it writes the
+shared geometry into their setup fields, which each run reads."""
 from __future__ import annotations
 
 from gui.modules import ModuleSpec, Port
@@ -17,7 +17,8 @@ def _make(project=None):
     from matplotlib.collections import LineCollection
     from matplotlib.figure import Figure
     from PyQt6.QtCore import QTimer
-    from PyQt6.QtWidgets import QCheckBox, QComboBox, QHBoxLayout, QLabel, QLineEdit, QPushButton, QVBoxLayout, QWidget
+    from PyQt6.QtWidgets import (QCheckBox, QComboBox, QFormLayout, QGroupBox, QHBoxLayout, QLabel, QLineEdit,
+                                 QPushButton, QScrollArea, QSplitter, QVBoxLayout, QWidget)
 
     import fenice
     from fenice import geometry
@@ -41,7 +42,9 @@ def _make(project=None):
             self.canvas = FigureCanvasQTAgg(self.fig)
             self.toolbar = NavigationToolbar2QT(self.canvas, self)
             self.btn_refresh = QPushButton("Refresh from Setup")
+            self.btn_refresh.setObjectName("secondaryButton")
             self.btn_zoom = QPushButton("Zoom to body")
+            self.btn_zoom.setObjectName("secondaryButton")
             self.cb_level = QComboBox()
             self.chk_grid = QCheckBox("Grid")
             self.chk_grid.setChecked(True)
@@ -51,11 +54,12 @@ def _make(project=None):
             self.info.setWordWrap(True)
             self.info.setObjectName("note")
             self.warn = QLabel("")
-            self.warn.setStyleSheet("color: #b00020;")
+            self.warn.setStyleSheet(f"color: {COLORS['error']};")
             self.warn.setWordWrap(True)
             self.edit_nx, self.edit_ny = QLineEdit(), QLineEdit()
             for e in (self.edit_nx, self.edit_ny):
-                e.setMaximumWidth(70)
+                e.setMinimumWidth(86)
+                e.setMaximumWidth(120)
             self.btn_apply = QPushButton("Apply mesh")
             self.btn_apply.setToolTip("Set nx and ny of the base mesh in Setup")
             self.btn_half = QPushButton("\u00bd\u00d7")
@@ -65,13 +69,15 @@ def _make(project=None):
             self.fields: dict[str, QLineEdit] = {}   # solver key -> edit: the domain and the body
             for key in ("Lx", "Ly", "Lz", "nz", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz"):
                 self.fields[key] = e = QLineEdit()
-                e.setMaximumWidth(70)
+                e.setMinimumWidth(86)
+                e.setMaximumWidth(120)
                 e.editingFinished.connect(lambda k=key: self._push({k: self.fields[k].text()}))
             self.amr_fields: dict[str, QLineEdit] = {}   # solver key -> edit: the adaptive mesh
             for key in ("amr_max_level", "amr_init_levels", "amr_criterion", "amr_refine_threshold", "amr_derefine_threshold",
                         "amr_diffusion", "amr_refine_every"):
                 self.amr_fields[key] = e = QLineEdit()
-                e.setMaximumWidth(54)
+                e.setMinimumWidth(86)
+                e.setMaximumWidth(120)
                 e.editingFinished.connect(lambda k=key: self._push({k: self.amr_fields[k].text()}))
             self.chk_amr = QCheckBox("AMR")
             self.chk_amr.setToolTip("Adaptive mesh refinement (quadtree in 2-D, octree in 3-D): leaves are refined where a chosen variable jumps across a face")
@@ -89,76 +95,119 @@ def _make(project=None):
                         "amr_refine_every": "Remesh every N steps"}
             for key, tip in amr_tips.items():
                 self.amr_fields[key].setToolTip(tip)
-            amr_row = QHBoxLayout()
-            amr_row.addWidget(self.chk_amr)
             self.domain_labels_amr: dict[str, QLabel] = {}
-            for key, text in (("amr_max_level", "levels"), ("amr_init_levels", "initial")):
+            for key, text in (("amr_max_level", "Maximum level"), ("amr_init_levels", "Initial levels"),
+                              ("amr_criterion", "Variation criterion"), ("amr_refine_threshold", "Refine at"),
+                              ("amr_derefine_threshold", "Join below"), ("amr_diffusion", "Smoothing passes"),
+                              ("amr_refine_every", "Remesh every (steps)")):
                 self.domain_labels_amr[key] = QLabel(text)
-                amr_row.addWidget(self.domain_labels_amr[key])
-                amr_row.addWidget(self.amr_fields[key])
-            self.domain_labels_amr["indicator"] = QLabel("indicator")
-            amr_row.addWidget(self.domain_labels_amr["indicator"])
-            for b in self.amr_ind.values():
-                amr_row.addWidget(b)
-            for key, text in (("amr_criterion", "criterion"), ("amr_refine_threshold", "refine \u2265"), ("amr_derefine_threshold", "join <"),
-                              ("amr_diffusion", "smooth"), ("amr_refine_every", "every")):
-                self.domain_labels_amr[key] = QLabel(text)
-                amr_row.addWidget(self.domain_labels_amr[key])
-                amr_row.addWidget(self.amr_fields[key])
-            amr_row.addWidget(QLabel("steps"))
-            amr_row.addStretch(1)
+            self.domain_labels_amr["indicator"] = QLabel("Refine on")
             self.chk_body = QCheckBox("Immersed body")
             self.cb_shape = QComboBox()
             self.cb_shape.setEditable(True)   # any "NACA dddd"; Airfoil reads the case's ibm_file
             self.cb_shape.addItems(["Cylinder", "Sphere", "NACA 0012", "Airfoil"])
-            self.cb_shape.setMaximumWidth(130)
+            self.cb_shape.setMinimumWidth(150)
+            self.cb_shape.setMaximumWidth(240)
             self.chk_body.toggled.connect(lambda on: self._push({"use_ibm": on}))
             self.cb_shape.activated.connect(lambda _: self._push({"ibm_shape": self.cb_shape.currentText()}))
             self.cb_shape.lineEdit().editingFinished.connect(lambda: self._push({"ibm_shape": self.cb_shape.currentText()}))
             self.domain_labels: dict[str, QLabel] = {}
-            domain_row = QHBoxLayout()
-            for key, text in (("Lx", "Domain Lx"), ("Ly", "Ly"), ("Lz", "Lz"), ("nz", "nz")):
+            domain_form = QFormLayout()
+            for key, text in (("Lx", "Width Lx"), ("Ly", "Height Ly"), ("Lz", "Depth Lz"), ("nz", "Cells in z")):
                 self.domain_labels[key] = QLabel(text)
-                domain_row.addWidget(self.domain_labels[key])
-                domain_row.addWidget(self.fields[key])
-            domain_row.addStretch(1)
-            body_row = QHBoxLayout()
-            body_row.addWidget(self.chk_body)
-            body_row.addWidget(self.cb_shape)
-            for key, text in (("ibm_radius", "radius"), ("ibm_cx", "cx"), ("ibm_cy", "cy"), ("ibm_cz", "cz")):
+                domain_form.addRow(self.domain_labels[key], self.fields[key])
+            body_form = QFormLayout()
+            body_form.addRow("", self.chk_body)
+            body_form.addRow("Shape", self.cb_shape)
+            for key, text in (("ibm_radius", "Radius"), ("ibm_cx", "Center x"), ("ibm_cy", "Center y"), ("ibm_cz", "Center z")):
                 self.domain_labels[key] = QLabel(text)
-                body_row.addWidget(self.domain_labels[key])
-                body_row.addWidget(self.fields[key])
-            body_row.addStretch(1)
+                body_form.addRow(self.domain_labels[key], self.fields[key])
             self.bc_combos: dict[str, QComboBox] = {}
-            bc_row = QHBoxLayout()
+            bc_form = QFormLayout()
             for side in ("left", "right", "bottom", "top", "front", "back"):
                 cb = QComboBox()
                 self.bc_combos[side] = cb
                 lbl = QLabel(side.capitalize())
                 cb._label = lbl
-                bc_row.addWidget(lbl)
-                bc_row.addWidget(cb)
-            bc_row.addStretch(1)
-            mesh_row = QHBoxLayout()
-            for w in (QLabel("Base mesh nx"), self.edit_nx, QLabel("ny"), self.edit_ny, self.btn_apply, self.btn_half, self.btn_double):
-                mesh_row.addWidget(w)
-            mesh_row.addStretch(1)
-            row = QHBoxLayout()
-            for w in (self.btn_refresh, QLabel("Mesh level"), self.cb_level, self.chk_grid, self.chk_solid, self.btn_zoom):
-                row.addWidget(w)
-            row.addStretch(1)
-            lay = QVBoxLayout(self)
-            lay.addLayout(row)
-            lay.addLayout(domain_row)
-            lay.addLayout(mesh_row)
-            lay.addLayout(body_row)
-            lay.addLayout(amr_row)
-            lay.addLayout(bc_row)
-            lay.addWidget(self.warn)
-            lay.addWidget(self.toolbar)
-            lay.addWidget(self.canvas, 1)
-            lay.addWidget(self.info)
+                bc_form.addRow(lbl, cb)
+
+            domain_group = QGroupBox("Domain")
+            domain_group.setLayout(domain_form)
+            mesh_group = QGroupBox("Base mesh")
+            mesh_layout = QVBoxLayout(mesh_group)
+            mesh_form = QFormLayout()
+            mesh_form.addRow("Cells in x (nx)", self.edit_nx)
+            mesh_form.addRow("Cells in y (ny)", self.edit_ny)
+            mesh_layout.addLayout(mesh_form)
+            self.btn_apply.setObjectName("primaryButton")
+            mesh_actions = QHBoxLayout()
+            mesh_actions.addWidget(self.btn_apply, 1)
+            mesh_actions.addWidget(self.btn_half)
+            mesh_actions.addWidget(self.btn_double)
+            mesh_layout.addLayout(mesh_actions)
+
+            body_group = QGroupBox("Immersed body")
+            body_group.setLayout(body_form)
+            amr_group = QGroupBox("Adaptive mesh refinement")
+            amr_layout = QVBoxLayout(amr_group)
+            amr_layout.addWidget(self.chk_amr)
+            indicator_row = QHBoxLayout()
+            indicator_row.addWidget(self.domain_labels_amr["indicator"])
+            for checkbox in self.amr_ind.values():
+                indicator_row.addWidget(checkbox)
+            indicator_row.addStretch(1)
+            amr_layout.addLayout(indicator_row)
+            amr_form = QFormLayout()
+            for key in ("amr_max_level", "amr_init_levels", "amr_criterion", "amr_refine_threshold",
+                        "amr_derefine_threshold", "amr_diffusion", "amr_refine_every"):
+                amr_form.addRow(self.domain_labels_amr[key], self.amr_fields[key])
+            amr_layout.addLayout(amr_form)
+            bc_group = QGroupBox("Boundary conditions")
+            bc_group.setLayout(bc_form)
+
+            controls = QWidget()
+            controls_layout = QVBoxLayout(controls)
+            controls_layout.setContentsMargins(8, 8, 8, 8)
+            controls_layout.setSpacing(12)
+            for group in (domain_group, mesh_group, body_group, amr_group, bc_group):
+                controls_layout.addWidget(group)
+            controls_layout.addStretch(1)
+            controls_scroll = QScrollArea()
+            controls_scroll.setWidgetResizable(True)
+            controls_scroll.setMinimumWidth(270)
+            controls_scroll.setMaximumWidth(400)
+            controls_scroll.setWidget(controls)
+
+            preview = QWidget()
+            preview_layout = QVBoxLayout(preview)
+            preview_layout.setContentsMargins(4, 4, 4, 4)
+            preview_layout.setSpacing(8)
+            toolbar_row = QHBoxLayout()
+            toolbar_row.addWidget(self.btn_refresh)
+            toolbar_row.addWidget(QLabel("Mesh level"))
+            self.cb_level.setMinimumWidth(112)
+            toolbar_row.addWidget(self.cb_level)
+            toolbar_row.addWidget(self.chk_grid)
+            toolbar_row.addWidget(self.chk_solid)
+            toolbar_row.addStretch(1)
+            toolbar_row.addWidget(self.btn_zoom)
+            preview_layout.addLayout(toolbar_row)
+            preview_layout.addWidget(self.warn)
+            preview_layout.addWidget(self.toolbar)
+            preview_layout.addWidget(self.canvas, 1)
+            preview_layout.addWidget(self.info)
+
+            splitter = QSplitter()
+            splitter.setChildrenCollapsible(False)
+            splitter.addWidget(controls_scroll)
+            splitter.addWidget(preview)
+            splitter.setStretchFactor(0, 0)
+            splitter.setStretchFactor(1, 1)
+            splitter.setSizes([340, 820])
+            lay = QHBoxLayout(self)
+            lay.setContentsMargins(12, 12, 12, 12)
+            lay.setSpacing(12)
+            lay.addWidget(splitter)
             self.p: dict | None = None
             self.body = None
             self._grid = None
@@ -171,6 +220,8 @@ def _make(project=None):
             self._timer.timeout.connect(self._draw_grid)
             self.btn_refresh.clicked.connect(self.refresh)
             self.project = None
+            self.projects = []
+            self._project_slots = []
             self._touched = False   # the user has edited this geometry: it wins over the solver's when they are linked
             self.btn_zoom.clicked.connect(self._zoom_to_body)
             self.btn_apply.clicked.connect(lambda: self._set_mesh(self.edit_nx.text(), self.edit_ny.text()))
@@ -184,7 +235,7 @@ def _make(project=None):
             self.chk_grid.toggled.connect(lambda _: self._draw())
             self.chk_solid.toggled.connect(lambda _: self._draw())
             self._grid_view = None
-            self.canvas.mpl_connect("draw_event", self._view_changed)   # the limits can also change while drawing (equal aspect)
+            self.canvas.mpl_connect("draw_event", self._view_changed)   # refresh cell-line density when the axes box changes
             self.canvas.mpl_connect("resize_event", lambda e: self._timer.start())
             self._drag = None
             self.canvas.mpl_connect("scroll_event", self._on_scroll)
@@ -192,26 +243,57 @@ def _make(project=None):
             self.canvas.mpl_connect("motion_notify_event", self._on_motion)
             self.canvas.mpl_connect("button_release_event", self._on_release)
 
-        def _on_setup_changed(self) -> None:
-            self.refresh(reset_view=True)
+        def _on_setup_changed(self, source=None) -> None:
+            source = self.project if source is None else source
+            if source is None or source not in self.projects or source.editor is None:
+                self.refresh(reset_view=True)
+                return
+            p = self._from_solver(source.editor, source)
+            if p is None:
+                return
+            self.p = p
+            self._after_load(p, reset_view=True)
+            self._apply_to_projects()
 
         def attach(self, new) -> None:
-            """Link to the project of a solver (None: unlinked). An edited geometry is written into the solver's fields, an untouched one
-            adopts the solver's."""
-            if self.project is not None:
+            """Bind to linked solver projects: adopt the first one if untouched, then share geometry edits across every link."""
+            projects = list(new) if isinstance(new, (list, tuple)) else ([new] if new is not None else [])
+            if projects == self.projects:
+                return
+            had_projects = bool(self.projects)
+            for old, slot in self._project_slots:
                 try:
-                    self.project.setup_changed.disconnect(self._on_setup_changed)
+                    old.setup_changed.disconnect(slot)
                 except (TypeError, RuntimeError):
                     pass
-            self.project = new
-            if new is not None:
-                new.setup_changed.connect(self._on_setup_changed)   # another case loaded on the solver
-                if self._touched and self.p is not None and new.editor is not None:
+            self.projects = projects
+            self.project = projects[0] if projects else None
+            self._project_slots = []
+            for project in projects:
+                slot = lambda p=project: self._on_setup_changed(p)
+                project.setup_changed.connect(slot)   # a case change makes that solver's geometry the shared geometry
+                self._project_slots.append((project, slot))
+            if not projects:
+                self.refresh(reset_view=True)
+                return
+            if not had_projects and not self._touched:
+                self.refresh(reset_view=True)   # the first linked solver supplies the initial geometry
+            self._apply_to_projects()           # new linked solvers inherit the shared geometry
+            self.refresh(reset_view=True)
+
+        def _apply_to_projects(self) -> None:
+            if self.p is None:
+                return
+            values = {key: self.p[key] for key in _GEOMETRY_KEYS if key in self.p}
+            for key in ("use_ibm", "use_amr"):
+                if key in values:
+                    values[key] = flag(self.p, key)
+            for project in self.projects:
+                if project.editor is not None:
                     try:
-                        new.editor.apply_geometry({k: v for k, v in self.p.items() if k in _GEOMETRY_KEYS})
+                        project.editor.apply_geometry(values)
                     except ValueError:
                         pass
-            self.refresh(reset_view=True)
 
         def _indicator_text(self) -> str:
             return "+".join(k for k, b in self.amr_ind.items() if b.isChecked())
@@ -248,8 +330,31 @@ def _make(project=None):
                 self.p = p
             self._after_load(p, reset_view)
 
-        def _from_solver(self, ed):
-            project = self.project
+        def save_state(self) -> dict:
+            """Geometry inputs and the current plot view, excluding its live project bindings."""
+            return {
+                "parameters": dict(self.p or {}), "touched": self._touched,
+                "level": self.cb_level.currentIndex(), "grid": self.chk_grid.isChecked(),
+                "solid": self.chk_solid.isChecked(), "view": [list(self.ax.get_xlim()), list(self.ax.get_ylim())],
+            }
+
+        def restore_state(self, state: dict) -> None:
+            if not isinstance(state, dict) or not isinstance(state.get("parameters"), dict):
+                return
+            self.p = dict(state["parameters"])
+            self._touched = bool(state.get("touched", False))
+            self._after_load(self.p, reset_view=True)
+            self.chk_grid.setChecked(bool(state.get("grid", self.chk_grid.isChecked())))
+            self.chk_solid.setChecked(bool(state.get("solid", self.chk_solid.isChecked())))
+            self.cb_level.setCurrentIndex(max(0, min(int(state.get("level", self.cb_level.currentIndex())), self.cb_level.count() - 1)))
+            view = state.get("view")
+            if isinstance(view, list) and len(view) == 2 and all(isinstance(pair, list) and len(pair) == 2 for pair in view):
+                self.ax.set_xlim(*map(float, view[0]))
+                self.ax.set_ylim(*map(float, view[1]))
+                self._draw()
+
+        def _from_solver(self, ed, project=None):
+            project = self.project if project is None else project
             case = ed.combo_testcase.currentText()
             try:
                 p = dict(case_defaults(case))   # what the case sets besides the geometry fields: chord, angle, file, AMR
@@ -286,12 +391,13 @@ def _make(project=None):
             self._fill_controls(p)
             self._draw(reset_view=reset_view)
 
-        # ---- editing: the changes go to the Setup page, which keeps the only copy
+        # ---- editing: the changes go to every linked Setup page, which keeps the values its run reads
         def _fill_controls(self, p: dict) -> None:
             choices = self._choices()
             by_name = {v: k for k, v in choices.items()}
             nz = int(p.get("nz", "1"))
             enabled = True
+            self.btn_zoom.setEnabled(self.body is not None)
             for e, key in ((self.edit_nx, "nx"), (self.edit_ny, "ny")):
                 e.setText(str(int(p[key])))
             for key, e in self.fields.items():
@@ -354,10 +460,11 @@ def _make(project=None):
 
         def _push(self, values: dict) -> None:
             self._touched = True
-            ed = self.project.editor if self.project is not None else None
             try:
-                if ed is not None:
-                    ed.apply_geometry(values)
+                if self.projects:
+                    for project in self.projects:
+                        if project.editor is not None:
+                            project.editor.apply_geometry(values)
                 else:
                     new = {k: ("true" if v is True else "false" if v is False else str(v)) for k, v in values.items()}
                     for key in ("Lx", "Ly", "Lz", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz"):
@@ -394,9 +501,11 @@ def _make(project=None):
             self._set_mesh(str(max(1, round(nx * factor))), str(max(1, round(ny * factor))))
 
         def _warn_mpi(self, nx: int, ny: int) -> None:
-            cur = self.project.current_params() if self.project is not None else None
-            if cur and str(cur.get("use_mpi")).lower() in ("true", "1") and int(cur.get("n_cpus", 1)) > max(nx, ny):
-                self.warn.setText("The number of MPI processes exceeds max(nx, ny): Setup will refuse the run.")
+            for project in self.projects:
+                cur = project.current_params()
+                if cur and str(cur.get("use_mpi")).lower() in ("true", "1") and int(cur.get("n_cpus", 1)) > max(nx, ny):
+                    self.warn.setText("The number of MPI processes exceeds max(nx, ny): Setup will refuse the run.")
+                    return
 
         def _set_bc(self, side: str) -> None:
             name = self._choices()[self.bc_combos[side].currentText()]
@@ -420,7 +529,7 @@ def _make(project=None):
                 ax.clear()
                 self._grid = None
                 self._bc_texts = []
-                ax.set_aspect("equal", adjustable="datalim")   # a zoomed region fills the plot, with square cells
+                ax.set_aspect("equal", adjustable="box")   # preserve the exact simulation-domain limits
                 ax.fill([0, Lx, Lx, 0], [0, 0, Ly, Ly], facecolor=COLORS["bg_surface"], edgecolor=COLORS["ink"], lw=1.2, zorder=0)
                 if self.body is not None:
                     if (nx << level) * (ny << level) <= _MAX_CELLS:
@@ -433,11 +542,10 @@ def _make(project=None):
                     else:
                         solid = "too many cells to count at this level"
                     o = np.vstack([self.body.outline, self.body.outline[:1]])
-                    ax.plot(o[:, 0], o[:, 1], color=COLORS["primary"], lw=1.6, zorder=3)
+                    ax.plot(o[:, 0], o[:, 1], color=COLORS["route_geometry"], lw=1.6, zorder=3)
                 if view is None:
-                    pad = 0.02 * max(Lx, Ly)
-                    ax.set_xlim(-pad, Lx + pad)
-                    ax.set_ylim(-pad, Ly + pad)
+                    ax.set_xlim(0.0, Lx)
+                    ax.set_ylim(0.0, Ly)
                 else:
                     ax.set_xlim(*view[0])
                     ax.set_ylim(*view[1])
@@ -523,9 +631,8 @@ def _make(project=None):
             if self.p is None:
                 return
             Lx, Ly = float(self.p["Lx"]), float(self.p["Ly"])
-            pad = 0.02 * max(Lx, Ly)
-            self.ax.set_xlim(-pad, Lx + pad)
-            self.ax.set_ylim(-pad, Ly + pad)
+            self.ax.set_xlim(0.0, Lx)
+            self.ax.set_ylim(0.0, Ly)
             self.canvas.draw_idle()
 
         def _view_changed(self, event=None) -> None:
@@ -576,5 +683,5 @@ _GEOMETRY_KEYS = ("Lx", "Ly", "Lz", "nx", "ny", "nz", "use_ibm", "ibm_shape", "i
                   "amr_init_levels", "amr_criterion", "amr_refine_threshold", "amr_derefine_threshold", "amr_diffusion", "amr_refine_every")
 
 MODULE = ModuleSpec("geometry", "Geometry", _make, order=10, standalone=True, requires=("PyQt6", "matplotlib", "numpy"),
-                    outputs=(Port("geometry", "geometry", label="geometry"),),
+                    outputs=(Port("geometry", "geometry", multi=True, label="geometry"),),
                     description="The domain, the immersed body, the Cartesian mesh and the solid cells it makes, as set up.")

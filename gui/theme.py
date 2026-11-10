@@ -3,16 +3,10 @@
 A single, reusable Qt theme: a named colour palette, a Qt Style Sheet (QSS)
 built from it, and :func:`apply_theme` to install both on a ``QApplication``.
 
-Design intent — *precise instrument*. The palette is derived from the project's
-own brand asset (``gui/logo.png``): the deep oxblood of the robe is the
-primary/brand accent, the halo gold carries warnings, and a clean bright red is
-reserved for errors so the interface never reads as "all error". Surfaces are a
-cool, low-chroma neutral — an instrument panel under office light, not the AI
-cream default and not the raw-Qt grey it replaces.
-
-Strategy is *restrained* (the product-UI default): tinted neutrals plus one
-accent used only for primary actions, current selection, focus, and state — never
-decoration. All body/label text is verified to clear WCAG AA (>=4.5:1).
+Design intent — *research campus wayfinding*. A marine rail and warm porcelain
+work surface make navigation easy to scan. Geometry, run, and results routes
+keep distinct colors across the graph and its readouts; labels and status text
+carry the same meaning for users who do not distinguish the colors.
 
 Public API
 ----------
@@ -28,57 +22,81 @@ from PyQt6.QtWidgets import QApplication
 
 
 # --- Palette -------------------------------------------------------------
-# Roles, not raw colours, are referenced everywhere. Values chosen in OKLCH
-# intent then pinned to hex (QSS has no oklch()). Contrast of every text role
-# against its background is verified >= 4.5:1 (see module docstring).
+# Roles, not raw colours, are referenced throughout the Qt surfaces.
 COLORS = {
-    # Cool neutral surfaces (the instrument panel)
-    "bg_window":     "#EEF2F6",  # app window / dialog ground
-    "bg_surface":    "#FFFFFF",  # inputs, group interiors
-    "bg_panel":      "#E4EAF0",  # secondary neutral: tab strip, read-only, hover
+    # Porcelain work surfaces and the marine navigation rail
+    "bg_window":     "#F2F1E9",
+    "bg_surface":    "#FCFCF8",
+    "bg_panel":      "#E7ECE6",
+    "bg_sidebar":    "#173F50",
+    "bg_sidebar_hover": "#245568",
+    "sidebar_ink":   "#F6F6EF",
+    "sidebar_muted": "#D1E0DD",
+    "grid":          "#D8E1DA",
+    "grid_major":    "#C8D5CD",
 
     # Hairlines
-    "border":        "#CBD5E0",
-    "border_strong": "#AEBBC9",
+    "border":        "#CED8D1",
+    "border_strong": "#A7B7AF",
 
-    # Ink ramp (all verified >= 4.5:1 on bg_window/bg_surface)
-    "ink":           "#1B2430",  # primary text  (~12:1)
-    "ink_soft":      "#3C4A5A",  # subheads
-    "ink_muted":     "#51606F",  # notes / secondary (~5.7:1 on bg_window)
+    # Ink ramp
+    "ink":           "#16333D",
+    "ink_soft":      "#3B5961",
+    "ink_muted":     "#506970",
 
-    # Brand / primary — oxblood (the robe). White-on-primary ~7.5:1.
-    "primary":         "#9A2D3A",
-    "primary_hover":   "#B23744",
-    "primary_pressed": "#7E2630",
-    "primary_tint":    "#F4E3E5",  # selection / soft highlight ground
+    # Actions / focus
+    "primary":         "#1B5361",
+    "primary_hover":   "#286878",
+    "primary_pressed": "#153F49",
+    "primary_tint":    "#DCEAE6",
     "on_primary":      "#FFFFFF",
+    "action":          "#B64E40",
+    "action_hover":    "#A8463A",
+    "action_pressed":  "#963F34",
+    "on_action":       "#FFFFFF",
 
-    # Semantic state — kept distinct from the brand oxblood
-    "warning": "#8A5708",  # halo ochre, darkened to ~4.8:1 for text
-    "error":   "#C62828",  # clean bright red (~5.6:1), clearly != oxblood
-    "success": "#2E7D52",  # muted orb green (~4.7:1)
+    # Typed routes: geometry, execution, results
+    "route_geometry":  "#2F7864",
+    "route_run":       "#8C5B12",
+    "route_results":   "#4D6598",
+    "module_solver":   "#B64E40",
+    "module_monitor":  "#8C5B12",
+    "module_results":  "#4D6598",
+
+    # Semantic state
+    "warning": "#83540B",
+    "error":   "#A63C35",
+    "success": "#286B50",
 
     # Disabled (contrast intentionally relaxed — non-interactive)
-    "disabled_ink": "#9AA7B4",
-    "disabled_bg":  "#EDF1F5",
+    "disabled_ink": "#899B99",
+    "disabled_bg":  "#E9EDE7",
 
-    # Logo gallery mat
-    "mat":          "#1B2430",
-    "mat_caption":  "#C9D2DC",
-    "mat_subtle":   "#8A97A6",
+    # Solver log
+    "console_bg":   "#142D37",
+    "console_ink":  "#E6EEE9",
+    "console_dim":  "#A2B7B5",
+
 }
 
 
 _QSS = Template(r"""
-* {
-    font-family: "Segoe UI", "Inter", system-ui, "Helvetica Neue", sans-serif;
-    font-size: 13px;
-}
+* { font-family: "Segoe UI", "Noto Sans", "Inter", sans-serif; font-size: 13px; }
 
 QDialog, QWidget#rootSurface {
     background-color: $bg_window;
 }
 QWidget { color: $ink; }
+
+QWidget#mainShell, QWidget#rootSurface { background-color: $bg_window; }
+QWidget#moduleSidebar { background-color: $bg_sidebar; }
+QLabel#sidebarTitle { color: $sidebar_ink; font-size: 17px; font-weight: 650; }
+QLabel#sidebarNote { color: $sidebar_muted; font-size: 12px; }
+QLabel#sidebarSection { color: $sidebar_muted; font-size: 11px; font-weight: 650; }
+QLabel#canvasTitle { color: $ink; font-size: 18px; font-weight: 650; }
+QLabel#canvasSubtitle { color: $ink_muted; font-size: 12px; }
+QLabel#emptyStateTitle { color: $ink; font-size: 20px; font-weight: 650; }
+QLabel#emptyStateBody { color: $ink_muted; font-size: 13px; }
 
 /* ---- Header ------------------------------------------------------------ */
 QWidget#appHeader { background: transparent; }
@@ -118,6 +136,14 @@ QLabel#fieldNote {
     color: $ink_muted;
     font-size: 12px;
 }
+QLabel#sectionTitle {
+    color: $ink;
+    font-size: 15px;
+    font-weight: 600;
+}
+QLabel#subsectionTitle { color: $ink_soft; font-size: 13px; font-weight: 650; }
+QLabel#statusPill { background-color: $primary_tint; color: $primary; border-radius: 8px; padding: 4px 9px; font-weight: 600; }
+QLabel#note { color: $ink_muted; }
 QLabel:disabled { color: $disabled_ink; }
 
 /* ---- Text / number inputs --------------------------------------------- */
@@ -198,8 +224,8 @@ QTabBar { background: transparent; qproperty-drawBase: 0; }
 QTabBar::tab {
     background: transparent;
     color: $ink_muted;
-    padding: 8px 18px;
-    margin-right: 3px;
+    padding: 9px 15px;
+    margin: 1px 2px;
     border: 1px solid transparent;
     border-top-left-radius: 7px;
     border-top-right-radius: 7px;
@@ -212,16 +238,23 @@ QTabBar::tab:selected {
     border-color: $border;
     border-bottom-color: $bg_surface;
 }
+QTabBar::tab:focus { border: 2px solid $primary; }
 
 /* ---- Buttons ----------------------------------------------------------- */
 QPushButton {
     background-color: $bg_surface;
     border: 1px solid $border_strong;
     border-radius: 6px;
-    padding: 7px 16px;
+    padding: 8px 14px;
+    min-height: 20px;
     color: $ink;
     font-weight: 600;
 }
+QPushButton#secondaryButton {
+    background-color: $bg_panel;
+    border-color: $border;
+}
+QPushButton#secondaryButton:hover { background-color: $primary_tint; }
 QPushButton:hover { border-color: $primary_hover; color: $primary; }
 QPushButton:pressed { background-color: $bg_panel; }
 QPushButton:disabled {
@@ -241,6 +274,67 @@ QPushButton#primaryButton:hover {
     color: $on_primary;
 }
 QPushButton#primaryButton:pressed { background-color: $primary_pressed; }
+QPushButton#secondaryButton:disabled,
+QPushButton#primaryButton:disabled,
+QPushButton#actionButton:disabled {
+    background-color: $disabled_bg;
+    border-color: $border;
+    color: $disabled_ink;
+}
+QPushButton#actionButton { background-color: $action; border-color: $action; color: $on_action; font-weight: 650; }
+QPushButton#actionButton:hover { background-color: $action_hover; border-color: $action_hover; color: $on_action; }
+QPushButton#actionButton:pressed { background-color: $action_pressed; }
+QPushButton#sidebarButton { background-color: $bg_sidebar_hover; border-color: #426C78; color: $sidebar_ink; text-align: left; }
+QPushButton#sidebarButton:hover { background-color: #2B6576; border-color: #6A929A; color: $sidebar_ink; }
+QPushButton#sidebarPrimary { background-color: $action; border-color: $action; color: $on_action; font-weight: 650; }
+QPushButton#sidebarPrimary:hover { background-color: $action_hover; border-color: $action_hover; color: $on_action; }
+QPushButton#sidebarPrimary:disabled { background-color: #6D7E7E; border-color: #6D7E7E; color: #D7E0DD; }
+
+/* ---- Module palette ---------------------------------------------------- */
+QListWidget {
+    background-color: $bg_surface;
+    border: 1px solid $border;
+    border-radius: 8px;
+    padding: 4px;
+    outline: none;
+}
+QListWidget::item {
+    border-radius: 5px;
+    padding: 8px 10px;
+}
+QListWidget::item:hover { background-color: $bg_panel; }
+QListWidget::item:selected {
+    background-color: $primary_tint;
+    color: $primary;
+}
+QGraphicsView {
+    border: 1px solid $border;
+    border-radius: 8px;
+}
+QWidget#moduleSidebar QListWidget#modulePalette {
+    background: transparent;
+    border: none;
+    padding: 0;
+    color: $sidebar_ink;
+}
+QWidget#moduleSidebar QListWidget#modulePalette::item {
+    background: transparent;
+    color: $sidebar_ink;
+    border: 1px solid transparent;
+    border-radius: 6px;
+    padding: 9px 10px;
+    margin: 1px 0;
+}
+QWidget#moduleSidebar QListWidget#modulePalette::item:hover { background-color: $bg_sidebar_hover; }
+QWidget#moduleSidebar QListWidget#modulePalette::item:selected {
+    background-color: #2B6576;
+    color: $sidebar_ink;
+    border-color: #56808A;
+}
+QSplitter::handle { background-color: $border; }
+QSplitter::handle:hover { background-color: $primary; }
+QProgressBar { background: $bg_panel; border: none; border-radius: 4px; text-align: center; color: $ink; }
+QProgressBar::chunk { background: $route_run; border-radius: 4px; }
 
 /* ---- Thin horizontal rule --------------------------------------------- */
 QFrame#hsep { background-color: $border; border: none; }
@@ -264,25 +358,6 @@ QScrollBar::handle:horizontal:hover { background: $ink_muted; }
 QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
 QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
 
-/* ---- Logo gallery panel ------------------------------------------------ */
-QWidget#logoPanel {
-    background-color: $mat;
-    border: 1px solid $border_strong;
-    border-radius: 10px;
-}
-QWidget#logoPanel QLabel { background: transparent; }
-QLabel#logoCaption {
-    color: $mat_caption;
-    font-size: 14px;
-    font-weight: 600;
-    letter-spacing: 0.3px;
-}
-QLabel#logoCaptionSub {
-    color: $mat_subtle;
-    font-size: 11px;
-    font-weight: 400;
-}
-
 /* ---- Tooltips ---------------------------------------------------------- */
 QToolTip {
     background-color: $ink;
@@ -291,6 +366,17 @@ QToolTip {
     padding: 4px 8px;
     border-radius: 4px;
 }
+QPlainTextEdit#console {
+    background-color: $console_bg;
+    color: $console_ink;
+    border: 1px solid #31505B;
+    border-radius: 6px;
+    selection-background-color: #346B76;
+    selection-color: #FFFFFF;
+}
+QMenu { background: $bg_surface; border: 1px solid $border_strong; padding: 4px; }
+QMenu::item { padding: 6px 24px; border-radius: 4px; }
+QMenu::item:selected { background: $primary_tint; color: $ink; }
 """)
 
 

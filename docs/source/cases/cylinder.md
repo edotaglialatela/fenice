@@ -151,6 +151,17 @@ and falls with the Reynolds number (rank correlation $-0.64$). At these meshes t
 a part of the variance as the whole 30-50 range of Re; the limiter hardly matters. A run at Re = 40 on 12 cells per diameter gives 1.918, 1.8 % above the converged 1.8836.
 The default mode (8 base points, 41 runs) is a smoke test: its intervals are wider than the indices.
 
+### Analysis in the workbench
+
+The workbench's Analysis Tools module is general-purpose; these settings reproduce selected analyses above:
+
+| Page | Cylinder example |
+|---|---|
+| **Fields / profiles** | Open the 40-cells-per-diameter AMR result, select `Velocity_y`, and choose **Apply wake-line example**. It samples at finest-leaf spacing from $x=4+h/2$ to $11-h/2$ along $y=6+h/2$, where $h$ is the finest cell width, then applies a Hann window and plots the spatial spectrum. The half-cell inset keeps samples within leaf cells; the line is near, but not exactly on, the $y=6$ centreline used for the reference plot. The report includes peak wavelength, high-wavenumber leakage and the fraction sampled on coarser leaves. |
+| **Signals / spectra** | Select `Cl`, set frequency axis to `fL/U`, $L=D=0.2$, $U=1$, start time 50 and peak band 0.05-0.4. Keep Hann and 32x zero padding, set the window to 12 time units sliding by 2, compare `Cd`, enable the 3x harmonic and upward crossings, and add the 0.164-0.166 reference band. The report gives load statistics, peak resolution, lift/drag frequency ratio, harmonic and crossing estimates, and window drift. |
+| **POD / DMD** | On the confined run select `Velocity`, component `y`, first snapshot time 50, every snapshot, step tolerance 0.005, $L=0.2$ and $U=1$. The page reports the leading POD energy pair and phase, exact-DMD frequency and growth, and its projection onto the POD plane. For low-blockage AMR runs, whose snapshots are four time units apart, select `Cl`, compare `Cd`, set **Length L** to 0.2, **Speed U** to 1, **Load step** to 0.1 and **Delay rows** to 60, then use **Run time-delay DMD only**. |
+| **Sensitivity** | Load `results/validation/cylinder_sensitivity/summary.json` and its `a_sample.csv`. Choose `Re` for X, `Cd` for response Y, `cells_per_D` for point color and 1.8836 as the reference. The left plot shows $S_1$ and $S_T$ with bootstrap intervals; the right shows the sampled drag response. |
+
 ## Re = 100 in a large box, AMR
 
 The $4\times2$ box above blocks 10 % of the channel, which raises both the drag and the Strouhal number above the
