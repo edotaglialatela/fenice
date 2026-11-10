@@ -12,7 +12,9 @@
 // exactly what the fine cells gained: conservation to roundoff for every explicit scheme.
 #pragma once
 
+#include <array>
 #include <functional>
+#include <vector>
 
 #include "fv/CellFlux.hpp"
 #include "fv/CellMesh.hpp"
@@ -49,6 +51,10 @@ private:
     CellMesh& mesh_;
     CellFluxEngine& engine_;
     TimeScheme& scheme_;
+    // per level: the state of the owned leaves being advanced and the work fields of the scheme (kept between the steps: a
+    // level's fields keep their size, nothing is allocated or filled in a step)
+    std::vector<Field> ul_;
+    std::vector<std::array<Field, 4>> work_;
 };
 
 }   // namespace fv

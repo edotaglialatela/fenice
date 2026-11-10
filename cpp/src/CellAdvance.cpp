@@ -7,6 +7,16 @@
 
 namespace fv {
 
+namespace {
+
+// dst[0, n) = src[0, n), on the threads of the face loops (a level's state is a memory-bound copy)
+void copy_states(const State* src, int n, State* dst) {
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+    for (int c = 0; c < n; ++c) dst[c] = src[c];
+}
+
+}   // namespace
+
 double CellAdvance::step(double dt, double t) {
     if (static_cast<int>(mesh_.U.size()) != mesh_.num_leaves())
         throw std::logic_error("CellAdvance::step: the mesh has no state");
@@ -44,11 +54,18 @@ double CellAdvance::advance_own(int l, double dt, double t) {
     const std::vector<double> weights = scheme_.stage_weights(), offsets = scheme_.stage_offsets();
     if (weights.size() != offsets.size()) throw std::logic_error("CellAdvance: inconsistent stage tables");
     size_t stage = 0;
-    Field Ul(mesh_.U.begin() + b, mesh_.U.begin() + e);
+    if (ul_.size() != static_cast<size_t>(mesh_.max_level) + 1) {
+        ul_.assign(static_cast<size_t>(mesh_.max_level) + 1, {});
+        work_.assign(static_cast<size_t>(mesh_.max_level) + 1, {});
+    }
+    Field& Ul = ul_[static_cast<size_t>(l)];
+    Ul.resize(static_cast<size_t>(e - b));
+    copy_states(mesh_.U.data() + b, e - b, Ul.data());
     const ResidualFn res = [&](const Field& Uin, Field& R) {
         if (stage >= weights.size()) throw std::logic_error("CellAdvance: the scheme made more stages than it declares");
         ProfileScope ps_stage(Section::AmrStage);
-        std::copy(Uin.begin(), Uin.end(), mesh_.U.begin() + b);   // this level's stage state, seen by its neighbours
+        // this level's stage state, seen by its neighbours (the first stage's is the state the mesh holds already)
+        if (&Uin != &Ul) copy_states(Uin.data(), e - b, mesh_.U.data() + b);
         ps_stage.stop();
         if (par) {                                                // ... including the ones on other ranks
             ProfileScope ps(Section::AmrExchange);
@@ -77,9 +94,11 @@ double CellAdvance::advance_own(int l, double dt, double t) {
         ++stage;
         return s;
     };
+    scheme_.swap_work(work_[static_cast<size_t>(l)]);   // the work fields of this level's size
     const double S = scheme_.advance_fixed_dt(Ul, res, dt);
+    scheme_.swap_work(work_[static_cast<size_t>(l)]);
     if (stage != weights.size()) throw std::logic_error("CellAdvance: the scheme made fewer stages than it declares");
-    std::copy(Ul.begin(), Ul.end(), mesh_.U.begin() + b);   // the result, not the last stage's input
+    copy_states(Ul.data(), e - b, mesh_.U.data() + b);   // the result, not the last stage's input
     if (par) {
         ProfileScope ps(Section::AmrExchange);
         par->exchange_final(l);

@@ -214,16 +214,64 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         return -1;
     };
     // 2) xi of every level, for a given criterion (the refine test uses `criterion`; the parent xi of the join test a smaller one)
-    const auto level_xi = [&](double crit, int top) {
+    // the cell of level l across side s of cell c: false at an edge of the domain that is not periodic
+    const auto across = [&](const LevelCells& L, int l, int c, int s, int& i, int& j, int& z) {
+        const int NX = m.nx_at(l), NY = m.ny_at(l), NZ = m.nz_at(l);
+        i = L.ci[c] + (s == 1 ? 1 : (s == 0 ? -1 : 0));
+        j = L.cj[c] + (s == 3 ? 1 : (s == 2 ? -1 : 0));
+        z = d3 ? L.ck[c] + (s == 5 ? 1 : (s == 4 ? -1 : 0)) : 0;
+        if (i < 0 || i >= NX) {
+            if (!m.periodic_x) return false;
+            i = (i + NX) % NX;
+        }
+        if (j < 0 || j >= NY) {
+            if (!m.periodic_y) return false;
+            j = (j + NY) % NY;
+        }
+        if (z < 0 || z >= NZ) {
+            if (!m.periodic_z) return false;
+            z = (z + NZ) % NZ;
+        }
+        return true;
+    };
+    // `parents_only`: only the cells that are the parent of a leaf are read afterwards. The xi of a cell after the smoothing
+    // depends on the tests of the cells within `diffusion` same-level steps of it, so the tests are made for those cells only (the
+    // other cells keep 0; the values of the cells read are the ones of a pass over every cell).
+    const auto level_xi = [&](double crit, int top, bool parents_only) {
     std::vector<std::vector<double>> xi(static_cast<size_t>(M) + 1);
     for (int l = 0; l <= top; ++l) {
         const LevelCells& L = lev[static_cast<size_t>(l)];
         std::vector<double>& x = xi[static_cast<size_t>(l)];
         const int n = L.size();
         x.assign(static_cast<size_t>(n), 0.0);
+        std::vector<char> active;
+        if (parents_only) {
+            active.assign(static_cast<size_t>(n), 0);
+            std::vector<int> front, next;
+            for (int c = m.level_begin[l + 1]; c < m.level_begin[l + 2]; ++c) {
+                const int par = L.find(m.ci[c] >> 1, m.cj[c] >> 1, d3 ? m.ck[c] >> 1 : 0);
+                if (par >= 0 && !active[static_cast<size_t>(par)]) {
+                    active[static_cast<size_t>(par)] = 1;
+                    front.push_back(par);
+                }
+            }
+            for (int it = 0; it < diffusion && !front.empty(); ++it) {
+                next.clear();
+                for (const int c : front)
+                    for (int s = 0; s < ns; ++s) {
+                        int i, j, z;
+                        if (!across(L, l, c, s, i, j, z)) continue;
+                        const int nb = L.find(i, j, z);
+                        if (nb >= 0 && !active[static_cast<size_t>(nb)]) {
+                            active[static_cast<size_t>(nb)] = 1;
+                            next.push_back(nb);
+                        }
+                    }
+                front.swap(next);
+            }
+        }
         // per cell and side: the same-level cell across it (>= 0), -1 against a coarser leaf, -2 at an edge
         std::vector<int> nbr(static_cast<size_t>(ns) * n, -2);
-        const int NX = m.nx_at(l), NY = m.ny_at(l), NZ = m.nz_at(l);
         const auto test = [&](double ca, double cb, double floor_value) {
             double vmin = std::min(std::abs(ca), std::abs(cb));
             if (vmin < value_floor) vmin = floor_value;
@@ -238,22 +286,11 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         };
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
         for (int c = 0; c < n; ++c) {
+            if (parents_only && !active[static_cast<size_t>(c)]) continue;
             bool hit = false;
             for (int s = 0; s < ns; ++s) {
-                int i = L.ci[c] + (s == 1 ? 1 : (s == 0 ? -1 : 0)), j = L.cj[c] + (s == 3 ? 1 : (s == 2 ? -1 : 0));
-                int z = d3 ? L.ck[c] + (s == 5 ? 1 : (s == 4 ? -1 : 0)) : 0;
-                if (i < 0 || i >= NX) {
-                    if (!m.periodic_x) continue;
-                    i = (i + NX) % NX;
-                }
-                if (j < 0 || j >= NY) {
-                    if (!m.periodic_y) continue;
-                    j = (j + NY) % NY;
-                }
-                if (z < 0 || z >= NZ) {
-                    if (!m.periodic_z) continue;
-                    z = (z + NZ) % NZ;
-                }
+                int i, j, z;
+                if (!across(L, l, c, s, i, j, z)) continue;
                 const int nb = L.find(i, j, z);
                 if (nb >= 0) {
                     nbr[static_cast<size_t>(ns) * c + s] = nb;
@@ -272,10 +309,10 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
     }
     return xi;
     };
-    const std::vector<std::vector<double>> xi = level_xi(criterion, M);
+    const std::vector<std::vector<double>> xi = level_xi(criterion, M, false);
     // the join test reads the parent xi with a criterion join_band times smaller (a dead band against the refine test: a
     // flow whose variation sits at the criterion would otherwise be joined and refined again every few remeshes)
-    const std::vector<std::vector<double>> xij = level_xi(criterion * join_band, M - 1);   // parents live at levels 0..M-1
+    const std::vector<std::vector<double>> xij = level_xi(criterion * join_band, M - 1, true);   // parents live at levels 0..M-1
     // 3) per leaf: its own xi, and the xi of its parent at the parent level
     Result r;
     r.xi.assign(static_cast<size_t>(N), 0.0);

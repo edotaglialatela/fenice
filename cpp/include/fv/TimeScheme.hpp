@@ -1,6 +1,7 @@
 // Time integration schemes.
 #pragma once
 
+#include <array>
 #include <functional>
 #include <memory>
 #include <vector>
@@ -44,6 +45,16 @@ public:
     // Time of the residual R_i evaluated by advance_fixed_dt: t + offsets[i] * dt (0, 1/2 or 1; the stage time
     // is t, t + 0.5 * dt or t + dt exactly as in step()).
     virtual std::vector<double> stage_offsets() const { return {0.0}; }
+
+    // The work fields of the scheme (stage residuals, stage state) exchanged with `w`. A caller that advances fields of several
+    // sizes in turn (the levels of an adaptive mesh) keeps one set per size: with a single set every change of size would
+    // resize the fields, and growing one fills it with zeros on one thread.
+    void swap_work(std::array<Field, 4>& w) {
+        R1_.swap(w[0]);
+        R2_.swap(w[1]);
+        R3_.swap(w[2]);
+        tmp_.swap(w[3]);
+    }
 
     double cfl;   // CFL number
 
