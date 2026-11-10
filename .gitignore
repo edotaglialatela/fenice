@@ -6,7 +6,7 @@ cmake-build-*/
 # Simulation output (VTK snapshots, checkpoints, logs): regenerate by running the solver
 results/
 
-# Local tool / assistant files (AGENTS.md, CLAUDE.md and PRODUCT.md are tracked; CLAUDE.local.md is the private layer)
+# Local tool / assistant files (AGENTS.md and CLAUDE.md are tracked; CLAUDE.local.md is the private layer)
 .claude/
 .codex/
 .agent/
@@ -15,6 +15,7 @@ results/
 .impeccable/
 .run/
 CLAUDE.local.md
+PRODUCT.md
 
 # Python / editor clutter
 __pycache__/
