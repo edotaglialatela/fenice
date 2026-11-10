@@ -6,24 +6,15 @@ cmake-build-*/
 # Simulation output (VTK snapshots, checkpoints, logs): regenerate by running the solver
 results/
 
-# Local tool / assistant files
+# Local tool / assistant files (AGENTS.md, CLAUDE.md and PRODUCT.md are tracked; CLAUDE.local.md is the private layer)
 .claude/
 .codex/
 .agent/
-.agents/skills/impeccable/
+.agents/
 .gemini/
-**/.impeccable/
-!/.impeccable/
-/.impeccable/*
-!/.impeccable/config.json
-!/.impeccable/surfaces/
-!/.impeccable/surfaces/**
-!/.impeccable/design.json
-!/.impeccable/live/
-!/.impeccable/live/config.json
-!/.impeccable/critique/
-!/.impeccable/critique/ignore.md
-CLAUDE.md
+.impeccable/
+.run/
+CLAUDE.local.md
 
 # Python / editor clutter
 __pycache__/

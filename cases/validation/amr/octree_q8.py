@@ -19,7 +19,7 @@ Claims and bands, fixed before the first run:
   3. The ghost wall moves Cd between two finest resolutions less than the mask does (ratio <= 0.6, the band of ibm_sphere.py), on the octree
      (finest 20 -> 40, Re 20; needs `run --include-40`, skipped otherwise).
   4. Level-0 octree against the uniform solver (calibration): the Cd of the monitor within 0.5 % after 200 steps. (The two IBM resets are not
-     bitwise the same, CLAUDE.md; the loads use the same normalisation.)
+     bitwise the same, AGENTS.md; the loads use the same normalisation.)
 Reported without a band: scaling over threads and ranks, remesh share, memory per leaf and per rank, the observed order of Cd on the octree.
 """
 import argparse

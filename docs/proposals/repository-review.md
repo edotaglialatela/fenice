@@ -14,7 +14,7 @@ what was left on purpose or decided against. The owner decides what goes ahead.
 * **`format_version` in the `dump_state` file.** Only the checkpoint carries it (the file that is read back). The dump / `leaf_meta` file is
   diagnostic output read by key by the regression and the Python tools; a new key would change the hash of every golden dump. No fixture files per
   released version (the unit test writes the old and the future layouts itself).
-* **`CLAUDE.md` is untracked** (ignored by `.gitignore`); whether to track it is the owner's decision.
+* **`AGENTS.md` is tracked** (the shared rules; `CLAUDE.md` imports it, `CLAUDE.local.md` is the ignored private layer).
 
 ## Decided: no work
 
