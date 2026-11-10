@@ -298,6 +298,7 @@ class Solution:
             f'description = "Code verification by manufactured solution, {self.kind_label()}, source terms"',
             f"order = {order}",
             f"requires_viscous = {'true' if self.viscous else 'false'}",
+            "gui = false",
             *(["requires_3d = true"] if self.dim == 3 else []),
             "",
             "[mesh]",

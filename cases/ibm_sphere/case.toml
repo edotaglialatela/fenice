@@ -1,0 +1,69 @@
+# Flow past a sphere (diameter 1) in a 6 x 3 x 3 channel with walls on four sides, Re = 100, Mach 0.3. The octree AMR keeps the sphere
+# at 20 cells per diameter (a 30 x 15 x 15 base mesh and two levels) with the sharp ghost-cell wall and follows the wake with the
+# velocity-and-density indicator; the uniform mesh of the same resolution has 432 000 cells and the octree about 100 000 leaves.
+# The flow is steady and axisymmetric at this Reynolds number (shedding starts above Re ~ 270: raise u_in, or lower mu, and lengthen
+# the channel). Snapshots every 0.5 time units for ParaView; the monitor has the drag and lift.
+
+[case]
+name = "IBM Sphere"
+description = "3-D sphere in a channel, Re = 100: octree AMR, ghost-cell wall"
+order = 96
+requires_viscous = true
+requires_3d = true
+
+[mesh]
+Lx = 6.0
+Ly = 3.0
+Lz = 3.0
+nx = 30
+ny = 15
+nz = 15
+
+[physics]
+use_viscous = true
+mu = 0.01
+use_bodyforce = false
+
+[boundaries]
+bc_left = "vel_inlet"
+bc_right = "transmissive"
+bc_bottom = "wall"
+bc_top = "wall"
+bc_front = "wall"
+bc_back = "wall"
+u_in = 1.0
+rho_in = 1.0
+p_out = 7.936507936507938
+
+[numerics]
+riemann_solver = "HLLC (Low-Mach Thornber)"
+reconstruction = "muscl"
+muscl_limiter = "Van Leer"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.5
+
+[run]
+t_end = 30.0
+save_interval = 1000000000
+write_interval_time = 0.5
+monitor_interval = 50
+
+[parallel]
+use_mpi = false
+
+[amr]
+use_amr = true
+amr_max_level = 2
+amr_refine_every = 4
+amr_refine_ibm = true
+
+[ibm]
+use_ibm = true
+ibm_shape = "Sphere"
+ibm_radius = 0.5
+ibm_cx = 2.0
+ibm_cy = 1.5
+ibm_cz = 1.5
+
+[initial]
+state = { rho = 1.0, u = 1.0, v = 0.0, p = 7.936507936507938, w = 0.0 }

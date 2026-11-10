@@ -37,8 +37,8 @@ def _run(*args: str) -> str:
 
 @functools.lru_cache(maxsize=None)
 def available_cases() -> tuple[str, ...]:
-    """Registry keys of the built-in test cases, in registry order."""
-    return tuple(line.strip() for line in _run("--list-cases").splitlines() if line.strip())
+    """Registry keys of the test cases the GUI offers, in registry order (the cases that only check the code stay on the command line)."""
+    return tuple(line.strip() for line in _run("--list-gui-cases").splitlines() if line.strip())
 
 
 @functools.lru_cache(maxsize=None)

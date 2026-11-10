@@ -7,6 +7,7 @@ name = "Manufactured Solution Euler"
 description = "Code verification by manufactured solution, periodic, source terms"
 order = 101
 requires_viscous = false
+gui = false
 
 [mesh]
 Lx = 1.0

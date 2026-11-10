@@ -389,6 +389,8 @@ class ViewerPanel(QWidget):
                               self.chk_lock.isChecked(), self.chk_leaves.isChecked())
         when = f"t = {snap.time:.6g}" if snap.time is not None else "t unknown"
         extra = f"{frame.n_leaves():,} leaves" if frame.kind == "amr" else f"{frame.nx} x {frame.ny}" + (f" x {frame.nz}" if frame.nz > 1 else "")
+        if frame.mid_plane_z is not None:
+            extra += f", plane z = {frame.mid_plane_z:g}"
         self.lbl_step.setText(f"snapshot {i + 1}/{len(s.snapshots)}   step {snap.step}   {when}   {extra}")
         self.monitor.set_data(s.monitor(), snap.time)
 

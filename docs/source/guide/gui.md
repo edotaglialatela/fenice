@@ -114,7 +114,7 @@ the `.vtu` / `.pvtu` snapshots of an adaptive one (also from an MPI run) through
 * **Field tab.** Density, pressure, temperature, Mach number, the speed and the velocity components, and for an adaptive mesh the
   refinement level and, for a run on MPI ranks, `MPI_Rank` (the rank that owns each leaf; a uniform-mesh MPI run writes one file and has
   none); the colour map, an optional locked colour range, pan and zoom (matplotlib's toolbar), and the value under the
-  pointer (with the leaf level). A 3-D snapshot is shown as a slice normal to z, y or x, picked with a slider. An adaptive mesh is
+  pointer (with the leaf level). A 3-D snapshot on a uniform mesh is shown as a slice normal to z, y or x, picked with a slider; a 3-D adaptive snapshot (the sphere) is shown on its mid-plane z = Lz / 2. An adaptive mesh is
   sampled on the pixels of the view, so zooming shows the finest leaves in sight; *Leaf outlines* draws them when fewer than 4000
   are in the view.
 * **Monitor tab.** Any column of the monitor CSV against time, with the time of the snapshot on show marked.
@@ -136,7 +136,7 @@ right away. To change its initial conditions, edit the file; see
 ## Single source of truth
 
 The dialog has no physics or defaults of its own. The test-case list comes from
-`fenice --list-cases`, and picking a case loads `fenice --case NAME --print-config`.
+`fenice --list-gui-cases` (the cases that only check the code, such as the manufactured solutions, are run from the command line), and picking a case loads `fenice --case NAME --print-config`.
 A new case file under `cases/` therefore appears in the GUI with its defaults
 automatically.
 

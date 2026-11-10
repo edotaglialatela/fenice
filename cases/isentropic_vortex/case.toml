@@ -3,6 +3,7 @@
 name = "Isentropic Vortex"
 description = "2nd-order accuracy on smooth advection, periodic BCs"
 order = 80
+gui = false
 
 [mesh]
 Lx = 10.0

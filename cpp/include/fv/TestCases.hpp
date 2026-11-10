@@ -16,6 +16,7 @@ struct TestCase {
     std::string source;                // the case.toml it came from
     bool requires_viscosity = false;   // warn when run without Navier-Stokes
     bool three_d = false;              // initialize() expects a 3-D mesh (otherwise 2-D, extruded along z)
+    bool gui = true;                   // listed in the GUI; false for cases that only check the code (run them from the command line)
     Params defaults;                   // case parameters (override baseline_defaults)
     InitialSpec initial;               // as written in the case file
     std::vector<ProbeSpec> probes;

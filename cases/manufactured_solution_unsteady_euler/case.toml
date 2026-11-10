@@ -8,6 +8,7 @@ name = "Manufactured Solution Unsteady Euler"
 description = "Code verification by manufactured solution, periodic, unsteady, source terms"
 order = 105
 requires_viscous = false
+gui = false
 
 [mesh]
 Lx = 1.0

@@ -5,6 +5,7 @@ name = "Poiseuille Flow"
 description = "Viscous fluxes, inlet / outlet BCs"
 order = 20
 requires_viscous = true
+gui = false
 
 [mesh]
 Lx = 3.0

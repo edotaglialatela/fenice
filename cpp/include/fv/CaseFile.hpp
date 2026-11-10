@@ -74,6 +74,7 @@ struct CaseFile {
     int order = 1000;                // position in --list-cases and the GUI
     bool requires_viscous = false;   // warn when run without Navier-Stokes
     bool requires_3d = false;        // needs nz > 1 (otherwise a 2-D case, extruded on 3-D meshes)
+    bool gui = true;                 // listed in the GUI (--list-gui-cases); false for cases that only check the code
     Params params;                   // parameter overrides, flattened from the sections
     InitialSpec initial;
     std::vector<ProbeSpec> probes;

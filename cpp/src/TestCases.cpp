@@ -66,6 +66,7 @@ TestCase make_test_case(const CaseFile& cf) {
     tc.source = cf.path;
     tc.requires_viscosity = cf.requires_viscous;
     tc.three_d = cf.requires_3d;
+    tc.gui = cf.gui;
     tc.defaults = cf.params;
     tc.initial = cf.initial;
     tc.probes = cf.probes;

@@ -55,7 +55,7 @@ const std::vector<std::string> kStateKeys = {"rho", "u", "v", "w", "p"};
 const std::vector<std::string> kRegionKeys = {"shape",  "min",    "max",  "point", "normal",
                                               "center", "radius", "axis", "state"};
 const std::vector<std::string> kShapes = {"box", "halfspace", "sphere", "cylinder"};
-const std::vector<std::string> kCaseKeys = {"name", "description", "order", "requires_viscous", "requires_3d"};
+const std::vector<std::string> kCaseKeys = {"name", "description", "order", "requires_viscous", "requires_3d", "gui"};
 
 std::string hint(const std::string& word, const std::vector<std::string>& options) {
     const std::string m = closest_match(word, options);
@@ -625,9 +625,9 @@ CaseFile load_case_file(const std::string& path_in) {
                 else if (key == "order") {
                     if (!v.is_integer()) fail(file, &v, "case.order must be an integer");
                     cf.order = static_cast<int>(v.as_integer()->get());
-                } else if (key == "requires_viscous" || key == "requires_3d") {
+                } else if (key == "requires_viscous" || key == "requires_3d" || key == "gui") {
                     if (!v.is_boolean()) fail(file, &v, "case." + key + " must be true or false");
-                    (key == "requires_viscous" ? cf.requires_viscous : cf.requires_3d) = v.as_boolean()->get();
+                    (key == "requires_viscous" ? cf.requires_viscous : key == "requires_3d" ? cf.requires_3d : cf.gui) = v.as_boolean()->get();
                 } else {
                     fail(file, &v, "unknown key '" + key + "' in [case]" + hint(key, kCaseKeys));
                 }
@@ -725,6 +725,7 @@ void save_case_file(const CaseFile& cf, const std::string& path_in) {
     o << "order = " << cf.order << "\n";
     if (cf.requires_viscous) o << "requires_viscous = true\n";
     if (cf.requires_3d) o << "requires_3d = true\n";
+    if (!cf.gui) o << "gui = false\n";
 
     for (const auto& [section, skeys] : section_table()) {
         bool header = false;

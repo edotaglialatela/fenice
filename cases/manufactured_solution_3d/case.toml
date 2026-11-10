@@ -7,6 +7,7 @@ name = "Manufactured Solution 3D"
 description = "Code verification by manufactured solution, periodic, source terms"
 order = 102
 requires_viscous = true
+gui = false
 requires_3d = true
 
 [mesh]

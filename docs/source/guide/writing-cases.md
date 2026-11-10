@@ -97,6 +97,7 @@ case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 | `order` | Sort position in the case list (default 1000; the built-in cases use 10 … 102) |
 | `requires_viscous` | `true`: warn if the run has Navier-Stokes switched off |
 | `requires_3d` | `true`: the initial condition needs `nz > 1` (otherwise a 2-D case, extruded along z on a 3-D mesh) |
+| `gui` | `false`: not offered by the GUI (`--list-gui-cases`), for a case that only checks the code; default `true` |
 
 **Parameter sections** hold the run parameters, with exactly the names on the
 [Parameters]({{root}}guide/parameters.html) page. Each parameter has one home section:

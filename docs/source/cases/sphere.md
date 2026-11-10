@@ -17,7 +17,7 @@ between two meshes than the mask, whose effective size depends on the resolution
 python cases\validation\features\ibm_sphere.py --docs      # 10 and 20 cells per diameter, mask and ghost
 ```
 
-The study writes its own case file (`results/validation/ibm_sphere/`); there is no sphere folder under `cases/`.
+The study writes its own case file (`results/validation/ibm_sphere/`). The showcase case `cases/ibm_sphere` (`fenice --case "IBM Sphere"`, also in the GUI) is the Re = 100 flow on the octree with the ghost wall, 20 cells per diameter, snapshots every 0.5.
 
 ## Results
 

@@ -137,6 +137,7 @@ conditions, so adding a case needs no C++ and no recompilation. The shipped case
 | Lid Driven Cavity | 2-D Navier-Stokes at Re = 400 vs Ghia et al. (1982) |
 | IBM Flow over Cylinder | IBM, vortex shedding at Re = 100, hot start |
 | IBM Cylinder Low Blockage AMR | Re = 100 in a 1.7 % blockage box with AMR and the ghost-cell wall: St = 0.166 |
+| IBM Sphere | 3-D sphere in a channel, Re = 100, octree AMR with the ghost-cell wall |
 | IBM Airfoil | NACA 4-digit or any coordinate file, Re = 1000, lift / drag / moment |
 | Shu-Osher Test | Shock / entropy-wave interaction |
 | IBM Supersonic Flow over Cylinder | IBM at Mach 2, bow shock |

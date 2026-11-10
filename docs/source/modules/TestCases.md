@@ -27,6 +27,7 @@ overrides those (see [Parameters]({{root}}guide/parameters.html)).
 | `Kelvin-Helmholtz` | Smooth shear layer, linear growth rate | [Kelvin-Helmholtz]({{root}}cases/kelvin-helmholtz.html) |
 | `Taylor-Green Vortex` | Viscous decay vs exact solution, periodic BCs | [Taylor-Green]({{root}}cases/taylor-green.html) |
 | `Isentropic Vortex` | 2nd-order accuracy on smooth advection, periodic BCs | [Isentropic vortex]({{root}}cases/isentropic-vortex.html) |
+| `IBM Sphere` | 3-D sphere in a channel, Re = 100, octree AMR, ghost-cell wall | [Sphere]({{root}}cases/sphere.html) |
 | `Taylor-Green Vortex 3D` | 3-D solver: vortex stretching, transition, dissipation peak (Re = 1600) | [Taylor-Green 3-D]({{root}}cases/taylor-green-3d.html) |
 | `Manufactured Solution`, `... Euler`, `... 3D`, `... Walls`, `... Outflow`, `... Unsteady Euler` | Code verification: source terms, observed orders of accuracy, wall and outflow boundary conditions (generated cases) | [Manufactured solutions]({{root}}cases/manufactured-solution.html) |
 

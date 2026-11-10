@@ -142,12 +142,20 @@ class Series:
 
 
 class Frame:
-    """One snapshot. `kind` is "grid" (uniform mesh; 2-D or 3-D) or "amr" (leaf list)."""
+    """One snapshot. `kind` is "grid" (uniform mesh; 2-D or 3-D) or "amr" (leaf list). A 3-D adaptive snapshot (an octree) is shown
+    on its mid-plane z = Lz / 2: the leaves that the plane cuts, drawn like those of a 2-D mesh (`n_total` counts all of them)."""
 
     def __init__(self, path: str | Path):
         self.path = Path(path)
         self.kind = "grid" if self.path.suffix == ".vtr" else "amr"
         raw = fenice.read_vtr(self.path) if self.kind == "grid" else fenice.read_vtu(self.path, ranks=True)
+        self.n_total = int(len(raw["level"])) if self.kind == "amr" else 0
+        self.mid_plane_z: float | None = None
+        if self.kind == "amr" and "z0" in raw:
+            self.mid_plane_z = zc = 0.5 * (float(raw["z0"].min()) + float(raw["z1"].max()))
+            cut = (raw["z0"] <= zc) & (zc < raw["z1"])
+            raw = {k: (v[cut] if isinstance(v, np.ndarray) and v.shape[:1] == (self.n_total,) else v) for k, v in raw.items()}
+            raw.pop("z0"), raw.pop("z1")
         self.fields: dict[str, np.ndarray] = {}
         for k, v in raw.items():
             if k in ("Velocity",):
@@ -189,7 +197,7 @@ class Frame:
         return {"z": self.nz, "y": self.ny, "x": self.nx}[axis] if self.kind == "grid" else 1
 
     def n_leaves(self) -> int:
-        return int(self.level.size) if self.kind == "amr" else self.nx * self.ny * self.nz
+        return self.n_total if self.kind == "amr" else self.nx * self.ny * self.nz
 
     # ---- uniform mesh
     def _slice(self, name: str, axis: str, index: int) -> tuple[np.ndarray, tuple[float, float, float, float]]:

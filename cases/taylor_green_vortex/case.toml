@@ -4,6 +4,7 @@ name = "Taylor-Green Vortex"
 description = "Viscous decay vs exact solution, periodic BCs"
 order = 70
 requires_viscous = true
+gui = false
 
 [mesh]
 Lx = 6.283185307179586

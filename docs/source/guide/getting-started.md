@@ -84,6 +84,7 @@ build\release\fenice.exe --case "Lid Driven Cavity" --print-config
 | `--set KEY=VALUE` | Override one parameter (repeatable) |
 | `--threads N` | OpenMP threads (default: all cores; 1 per rank under MPI) |
 | `--list-cases` | List the built-in test cases |
+| `--list-gui-cases` | List the ones the GUI offers |
 | `--print-config` | Print the fully resolved parameters and exit |
 | `--print-case-defaults` | Print only the test case's own defaults and exit |
 | `--no-logo` | Do not print the banner (coloured on a terminal; set `NO_COLOR=1` for plain text) |
