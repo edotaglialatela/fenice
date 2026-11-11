@@ -16,6 +16,7 @@ results/
 .run/
 CLAUDE.local.md
 PRODUCT.md
+DESIGN.md
 
 # Python / editor clutter
 __pycache__/
