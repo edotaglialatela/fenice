@@ -143,8 +143,8 @@ the `.vtu` / `.pvtu` snapshots of an adaptive one (also from an MPI run) through
   snapshots are found from the files, since the `.pvd` index is only written when a run ends. The time of a snapshot comes from the
   `.pvd` if there is one, else from the monitor CSV at that step.
 
-The viewer is a widget (`gui.viewer.ViewerPanel`), so it can sit in its own window, as here, or in a larger front end
-(`docs/proposals/gui-workbench.md`).
+The viewer is a widget (`gui.viewer.ViewerPanel`), so it can sit in its own window, as here, or in a larger front end, the workbench
+(`python gui/workbench.py`).
 
 ## Analysis Tools
 

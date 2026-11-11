@@ -17,8 +17,8 @@ Pass criterion, fixed before the first run (it is a robustness criterion, not an
      still hold the initial states to 1e-6).
 Reported, not judged: the density L1 error against the exact Riemann solution (1-D) and, for the odd-even test, the spread
 of the shock position over the rows in cells (a clean planar shock stays within 1 cell; more is the decoupling).
-The outcome of every case is written to results/validation/stress_shocks/summary.json; a failing case is a finding for
-track B of docs/proposals/benchmarks-robustness-uq.md, not an error of this script (unless --strict).
+The outcome of every case is written to results/validation/stress_shocks/summary.json; a failing case is a finding to report,
+not an error of this script (unless --strict).
 """
 import subprocess
 

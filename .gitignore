@@ -18,6 +18,11 @@ CLAUDE.local.md
 PRODUCT.md
 DESIGN.md
 
+# Local design notes and proposals (kept on disk, not published)
+docs/design/
+docs/proposals/
+docs/README.md
+
 # Python / editor clutter
 __pycache__/
 *.pyc

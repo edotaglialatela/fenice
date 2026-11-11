@@ -144,7 +144,7 @@ In 3-D the velocity has three components: slip removes only the normal part (a s
 The deeper solid cells stay at rest and are reset to the reference state each step (energy from the EOS). The wall position is
 exact, so the staircase waves disappear and the solution converges much faster with the grid: on a cylinder at Re = 40 the drag
 is within 0.15 % of its converged value at 20 cells per diameter, where the mask needs about four times the resolution per
-direction (`docs/proposals/ibm-wall-treatment.md` has the study). The monitor's loads are the momentum flux into the solid
+direction. The monitor's loads are the momentum flux into the solid
 cells, as with the mask (below); `ImmersedBoundary::surface_loads` integrates the true surface from probes at $d$ and $2d$ along the
 normal (for surface distributions; that integral is 1-3 % low).
 Under MPI each rank fills its own ghost cells and fetches the few cells of other strips their image points read, so the result is

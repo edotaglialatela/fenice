@@ -109,6 +109,6 @@ The orchestration lives in [Simulation]({{root}}modules/Simulation.html).
 | `gui/` | PyQt6 workbench and launcher |
 | `python/fenice/` | Python package shared by the GUI, validation and docs tools: finds and runs the solver, reads its output |
 | `cases/validation/` | One script per validation study, grouped in `verification/`, `benchmarks/`, `amr/`, `features/`; results in `results/validation/<study>/` ([Validation]({{root}}guide/validation.html)) |
-| `docs/` | This documentation, plus `docs/design/` and `docs/proposals/` (see `docs/README.md`): `docs/source/` and `docs/img/`, built into `docs/site/` by `python docs/build.py` |
+| `docs/` | This documentation: `docs/source/` and `docs/img/`, built into `docs/site/` by `python docs/build.py` |
 | `build/` | Builds: `build/release/`, `build/debug/` |
 | `results/` | Simulation output (not in git) |

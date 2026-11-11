@@ -28,7 +28,7 @@ cpp/third_party/  toml++ and TinyExpr, vendored unmodified
 cases/            one folder per case with a case.toml (read at run time); cases/validation/ = studies
 python/fenice/    shared Python package (pip install -e python): runner, readers, uq / modal / spectra / convergence / vv20
 gui/              PyQt6 workbench + setup dialog (no physics; talks to fenice)
-docs/             source/*.md -> docs/site/ (gitignored) via docs/build.py; design/ = open design notes
+docs/             source/*.md -> docs/site/ (gitignored) via docs/build.py; design/ and proposals/ = local notes (gitignored)
 results/, build/  output and builds, gitignored
 ```
 

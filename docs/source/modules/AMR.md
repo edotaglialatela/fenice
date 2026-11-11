@@ -61,8 +61,7 @@ mesh): a leaf is solid if its centre is inside the body, and the body band is ke
 the margin of the surface (`near_body_surface`). The mask forcing and the ghost-cell wall (`ibm_method = ghost`) work on leaves in 2-D and 3-D,
 also on the shares of an MPI run (bitwise equal to serial); `auto` chooses the ghost wall wherever `amr_refine_ibm` is on.
 
-Not available on the adaptive mesh in either dimension: WENO5 (WENO3-Z is). The open items (WENO5-Z, remesh cost on MPI, validation):
-`docs/design/weno-amr.md`.
+Not available on the adaptive mesh in either dimension: WENO5 (WENO3-Z is). The open items are WENO5-Z, the remesh cost on MPI and the validation runs.
 
 ## Faces and the residual
 
@@ -284,7 +283,7 @@ Pie charts of the measured splits (`cases/validation/amr/time_split.py`; the "re
   registers, the gather of the cell fluxes, the immersed-body forcing, halo exchanges) about a fifth.
 * **The remesh is the price of adaptivity** and what limits the parallel efficiency: 7-11 % of a 200-step run on 16 threads, but a fifth to a half of it on 8 ranks:
   2.35 s of 10.9 s on the sphere, where no leaf changes and the fetch of the region the indicator reads is 1.3 s of it, and 1.0 s of 2.05 s on the airfoil above, where
-  the leaves change at every remesh and each rank builds its new share over the old one (what is left of that cost: `docs/design/weno-amr.md`).
+  the leaves change at every remesh and each rank builds its new share over the old one.
 * **On the 2-D airfoil** (192×96 base mesh, 8 threads, t = 20) the remesh is 3.1 s of a 19.2 s loop: the indicator 1.15 s, the engine build 0.75 s, the wave-speed
   bound 0.68 s, the adaptation of the mesh 0.55 s. A remesh that changes no leaf costs only the indicator, and the engine tables are updated, not rebuilt.
 

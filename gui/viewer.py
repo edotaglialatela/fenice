@@ -272,7 +272,7 @@ class MonitorView(QWidget):
 
 
 class ViewerPanel(QWidget):
-    """The viewer as a widget, to sit in its own window or in a workbench (docs/proposals/gui-workbench.md): everything it needs is
+    """The viewer as a widget, to sit in its own window or in a workbench: everything it needs is
     its folder, and it tells the host its title through `title_changed`."""
 
     title_changed = pyqtSignal(str)
