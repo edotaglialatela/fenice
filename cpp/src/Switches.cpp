@@ -33,6 +33,9 @@ const std::vector<EnvSwitch>& env_switches() {
         {"FENICE_DEBUG_TABLES", "flag", "solver",
          "AMR: when the engine tables of an incremental and of a full build are compared and differ, print which table differs "
          "(standard error)."},
+        {"FENICE_CHECK_HALO", "flag", "solver",
+         "AMR on MPI: when a rank prunes the mesh to its share, walk the dependencies of every face it computes a second time and "
+         "stop if one of them is a leaf it does not hold. The unit tests and amr_mpi.py --check run with it; the results are the same."},
         {"FENICE_CASES", "path", "solver",
          "The folder that holds the test cases (one folder per case with a case.toml). Default: the cases folder of the repository."},
         {"FENICE_EXE", "path", "python",

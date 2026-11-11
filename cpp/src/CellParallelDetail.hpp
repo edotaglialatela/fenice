@@ -40,6 +40,15 @@ inline void for_box(const CellBox& b, const F& f) {
                 if (b.g[(static_cast<size_t>(k) * b.h + j) * b.w + i]) f(b.i0 + i, b.j0 + j, b.k0 + k);
 }
 
+// Clear the given cells (i, j, k) of a box (those outside its range are ignored)
+inline void clear_cells(CellBox& b, const std::vector<std::array<int, 3>>& cells) {
+    for (const std::array<int, 3>& c : cells) {
+        const int i = c[0] - b.i0, j = c[1] - b.j0, k = c[2] - b.k0;
+        if (i < 0 || i >= b.w || j < 0 || j >= b.h || k < 0 || k >= b.d) continue;
+        b.g[(static_cast<size_t>(k) * b.h + j) * b.w + i] = 0;
+    }
+}
+
 // An empty mesh with the geometry of `m` (2-D or 3-D), for the partial meshes of the distributed layer (no leaf: the base mesh is
 // not built, the caller assigns the leaves)
 inline CellMesh empty_like(const CellMesh& m) { return CellMesh::make_empty(m); }

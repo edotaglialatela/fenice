@@ -126,7 +126,12 @@ void CellMesh::init_base() {
 int CellMesh::find(int l, int i, int j, int k) const {
     if (l < 0 || l > max_level || i < 0 || j < 0 || k < 0 || i >= nx_at(l) || j >= ny_at(l) || k >= nz_at(l)) return -1;
     const std::vector<int>& g = grid_[static_cast<size_t>(l)];
-    if (!g.empty()) return g[(static_cast<size_t>(k) * ny_at(l) + j) * nx_at(l) + i];
+    if (!g.empty()) {
+        const std::array<int, 6>& b = gbox_[static_cast<size_t>(l)];
+        const int a = i - b[0], c = j - b[1], d = k - b[2];
+        if (a < 0 || a >= b[3] || c < 0 || c >= b[4] || d < 0 || d >= b[5]) return -1;
+        return g[(static_cast<size_t>(d) * b[4] + c) * b[3] + a];
+    }
     const uint64_t key = key_of(i, j, k);
     const auto b = mkey_.begin() + level_begin[l], e = mkey_.begin() + level_begin[l + 1];
     const auto it = std::lower_bound(b, e, key);
@@ -198,19 +203,32 @@ void CellMesh::build_lookups() {
 #pragma omp parallel for schedule(static) if (N >= kOmpMinWork)
     for (int c = 0; c < N; ++c) mkey_[c] = key_of(ci[c], cj[c], ck[c]);
     grid_.resize(static_cast<size_t>(max_level) + 1);
+    gbox_.assign(static_cast<size_t>(max_level) + 1, {0, 0, 0, 0, 0, 0});
     for (int l = 0; l <= max_level; ++l) {
-        const long long cells = static_cast<long long>(nx_at(l)) * ny_at(l) * nz_at(l);
+        const int cb = level_begin[l], ce = level_begin[l + 1];
         std::vector<int>& g = grid_[static_cast<size_t>(l)];
-        if (cells > 4ll * N + 65536) {
+        // the bounding box of the level's leaves
+        int lo[3] = {0, 0, 0}, hi[3] = {-1, -1, -1};
+        for (int c = cb; c < ce; ++c) {
+            const int x[3] = {ci[c], cj[c], ck[c]};
+            for (int a = 0; a < 3; ++a) {
+                if (c == cb || x[a] < lo[a]) lo[a] = x[a];
+                if (c == cb || x[a] > hi[a]) hi[a] = x[a];
+            }
+        }
+        const int w = hi[0] - lo[0] + 1, h = hi[1] - lo[1] + 1, d = hi[2] - lo[2] + 1;
+        const long long cells = static_cast<long long>(w) * h * d;
+        if (ce == cb || cells > 4ll * N + 65536) {
             std::vector<int>().swap(g);
             continue;
         }
+        gbox_[static_cast<size_t>(l)] = {lo[0], lo[1], lo[2], w, h, d};
         g.resize(static_cast<size_t>(cells));   // the table of the last rebuild, overwritten
-        const int nc = static_cast<int>(cells), cb = level_begin[l], ce = level_begin[l + 1], NX = nx_at(l), NY = ny_at(l);
+        const int nc = static_cast<int>(cells);
 #pragma omp parallel for schedule(static) if (nc >= kOmpMinWork)
         for (int k = 0; k < nc; ++k) g[static_cast<size_t>(k)] = -1;
 #pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
-        for (int c = cb; c < ce; ++c) g[(static_cast<size_t>(ck[c]) * NY + cj[c]) * NX + ci[c]] = c;
+        for (int c = cb; c < ce; ++c) g[(static_cast<size_t>(ck[c] - lo[2]) * h + (cj[c] - lo[1])) * w + (ci[c] - lo[0])] = c;
     }
 }
 
@@ -455,7 +473,13 @@ void CellMesh::set_sorted_leaves(const std::vector<int>& lv, const std::vector<i
             throw std::invalid_argument(std::string(who) + ": a leaf is outside the mesh or deeper than max_level");
         recs[q] = {{lv[q], key_of(ii[q], jj[q], kat(q))}, static_cast<int>(q)};
     }
-    std::sort(recs.begin(), recs.end(), [](const Rec& a, const Rec& b) { return a.key < b.key; });
+    // (a fetched region starts with the rank's own leaves, already in order: only the rest is sorted, then merged in)
+    const auto by_key = [](const Rec& a, const Rec& b) { return a.key < b.key; };
+    const auto tail = std::is_sorted_until(recs.begin(), recs.end(), by_key);
+    if (tail != recs.end()) {
+        std::sort(tail, recs.end(), by_key);
+        std::inplace_merge(recs.begin(), tail, recs.end(), by_key);
+    }
     for (size_t q = 1; q < n; ++q)
         if (!(recs[q - 1].key < recs[q].key)) throw std::invalid_argument(std::string(who) + ": a leaf is given twice");
     std::vector<int> order(n);
@@ -500,7 +524,35 @@ void CellMesh::assign_leaves(const std::vector<int>& lv, const std::vector<int>&
     rebuild();
 }
 
-void CellMesh::build_from(const CellMesh& whole, const std::vector<char>& keep_leaf, const Field* whole_state) {
+void CellMesh::mark_around(int ln, int i, int j, int k) {
+    const int x[3] = {i, j, k};
+    for (int s = 0; s < sides(); ++s) {
+        const int axis = s / 2, dir = (s & 1) ? 1 : -1;
+        int d[3] = {0, 0, 0};
+        d[axis] = dir;
+        for (int lc = std::max(0, ln - 2); lc <= ln; ++lc) {
+            int b[3];
+            for (int a = 0; a < 3; ++a) b[a] = (x[a] >> (ln - lc)) + d[a];
+            if (!wrap(lc, b[0], b[1], b[2])) continue;
+            const int c = find(lc, b[0], b[1], b[2]);
+            if (c >= 0) topo_dirty[static_cast<size_t>(c)] = 1;
+        }
+        if (ln == max_level) continue;
+        int b[3] = {x[0] + d[0], x[1] + d[1], x[2] + d[2]};
+        if (!wrap(ln, b[0], b[1], b[2])) continue;
+        const int t1 = transverse1(axis), t2 = transverse2(axis);
+        for (int t = 0; t < fine_faces(); ++t) {   // the children of the block across side s that touch the cell
+            int o[3] = {0, 0, 0};
+            o[axis] = dir > 0 ? 0 : 1;
+            o[t1] = t & 1;
+            o[t2] = t >> 1;
+            const int c = find(ln + 1, 2 * b[0] + o[0], 2 * b[1] + o[1], 2 * b[2] + o[2]);
+            if (c >= 0) topo_dirty[static_cast<size_t>(c)] = 1;
+        }
+    }
+}
+
+void CellMesh::build_from(const CellMesh& whole, const std::vector<char>& keep_leaf, const Field* whole_state, bool reuse) {
     const int NW = whole.num_leaves(), ns = sides();
     if (static_cast<int>(keep_leaf.size()) != NW)
         throw std::invalid_argument("CellMesh::build_from: one flag per leaf of the whole mesh");
@@ -513,6 +565,27 @@ void CellMesh::build_from(const CellMesh& whole, const std::vector<char>& keep_l
             from_whole.push_back(c);
         }
     const int N = static_cast<int>(from_whole.size());
+    // reuse: where every kept leaf was in this mesh as it is now, the leaves it has that are not kept, and its side lists
+    static const bool force_full = switch_on("FENICE_FULL_REBUILD");
+    const bool track = reuse && partial && !force_full && !side_ptr.empty();
+    std::vector<int> prev, old_side_ptr, old_side_face;
+    std::vector<std::array<int, 4>> gone;
+    if (track) {
+        const int old_n = num_leaves();
+        std::vector<char> matched(static_cast<size_t>(old_n), 0);
+        prev.resize(static_cast<size_t>(N));
+        for (int k = 0; k < N; ++k) {
+            const size_t c = static_cast<size_t>(from_whole[static_cast<size_t>(k)]);
+            const int o = find(whole.level[c], whole.ci[c], whole.cj[c], whole.ck[c]);
+            prev[static_cast<size_t>(k)] = o;
+            if (o >= 0) matched[static_cast<size_t>(o)] = 1;
+        }
+        for (int o = 0; o < old_n; ++o)
+            if (!matched[static_cast<size_t>(o)])
+                gone.push_back({level[static_cast<size_t>(o)], ci[static_cast<size_t>(o)], cj[static_cast<size_t>(o)], ck[static_cast<size_t>(o)]});
+        old_side_ptr.swap(side_ptr);
+        old_side_face.swap(side_face);
+    }
     level.resize(static_cast<size_t>(N));
     ci.resize(static_cast<size_t>(N));
     cj.resize(static_cast<size_t>(N));
@@ -532,9 +605,29 @@ void CellMesh::build_from(const CellMesh& whole, const std::vector<char>& keep_l
     ++version;
     partial = true;
     build_lookups();
+    // The bookkeeping of the change: a leaf is dirty if it was not there, or if a leaf came or went in a square of its size across
+    // one of its sides (a new leaf, a leaf that is not kept any more).
+    std::vector<int> old2new, pf;
+    std::vector<CellFace> old_faces;
+    if (track) {
+        old_faces.swap(faces);
+        prev_leaf.swap(prev);
+        topo_dirty.assign(static_cast<size_t>(N), 0);
+        for (int k = 0; k < N; ++k)
+            if (prev_leaf[static_cast<size_t>(k)] < 0) {
+                topo_dirty[static_cast<size_t>(k)] = 1;
+                mark_around(level[static_cast<size_t>(k)], ci[static_cast<size_t>(k)], cj[static_cast<size_t>(k)], ck[static_cast<size_t>(k)]);
+            }
+        for (const std::array<int, 4>& g : gone) mark_around(g[0], g[1], g[2], g[3]);
+        old2new.assign(old_side_ptr.size() / static_cast<size_t>(ns), -1);
+        for (int k = 0; k < N; ++k)
+            if (prev_leaf[static_cast<size_t>(k)] >= 0) old2new[static_cast<size_t>(prev_leaf[static_cast<size_t>(k)])] = k;
+    }
     // The faces the kept leaves make (face_of, the neighbours looked up in the whole mesh), in the order of the leaves; the other
     // end is kOutside if that leaf is not kept. expected[ns k + s]: the faces side s has in the whole mesh (one per finer leaf,
     // which make them), so a side is listed only if all of them are there.
+    // A clean leaf has the neighbours it had: a side whose old list is known gives the face it makes there (the old one, its
+    // leaves renumbered), or that it makes none; a side the old share did not know is looked up.
     std::vector<CellFace> fs;
     std::vector<char> expected(static_cast<size_t>(ns) * N, 1);
     const auto local = [&](int whole_leaf) {
@@ -542,7 +635,41 @@ void CellMesh::build_from(const CellMesh& whole, const std::vector<char>& keep_l
     };
     for (int k = 0; k < N; ++k) {
         const size_t q = static_cast<size_t>(k);
+        const bool cl = track && !topo_dirty[q];
         for (int s = 0; s < ns; ++s) {
+            if (cl) {
+                const size_t sq = static_cast<size_t>(ns) * prev_leaf[q] + s;
+                const int nb = old_side_ptr[sq + 1] - old_side_ptr[sq];
+                if (nb > 1) {   // finer leaves: they make the faces
+                    expected[static_cast<size_t>(ns) * k + s] = static_cast<char>(fine_faces());
+                    continue;
+                }
+                if (nb == 1) {
+                    const int of = old_side_face[static_cast<size_t>(old_side_ptr[sq])];
+                    CellFace f = old_faces[static_cast<size_t>(of)];
+                    // the leaf on the lower side makes a same-level face, the finer one a coarse-fine face, the only one a boundary face
+                    const bool made = f.kind == CellFaceKind::Boundary ||
+                                      (f.kind == CellFaceKind::Interior ? (s & 1) != 0 : f.level == level[q]);
+                    if (!made) continue;
+                    bool ok = true;
+                    if (f.kind == CellFaceKind::Boundary) {
+                        (f.left >= 0 ? f.left : f.right) = k;
+                    } else {
+                        int& self = (s & 1) ? f.left : f.right;
+                        int& other = (s & 1) ? f.right : f.left;
+                        self = k;
+                        if (other >= 0) {
+                            other = old2new[static_cast<size_t>(other)];
+                            ok = other >= 0;
+                        }
+                    }
+                    if (ok) {
+                        fs.push_back(f);
+                        pf.push_back(of);
+                        continue;
+                    }
+                }
+            }
             CellFace f;
             const int r = face_of(whole, k, level[q], ci[q], cj[q], ck[q], s, f);
             if (r < 0) {
@@ -555,8 +682,10 @@ void CellMesh::build_from(const CellMesh& whole, const std::vector<char>& keep_l
                 else f.left = local(f.left);
             }
             fs.push_back(f);
+            if (track) pf.push_back(-1);
         }
     }
+    if (track) prev_face.swap(pf);
     faces.swap(fs);
     face_level_begin.resize(static_cast<size_t>(max_level) + 2);
     for (int l = 0; l <= max_level + 1; ++l)

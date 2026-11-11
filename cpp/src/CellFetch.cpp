@@ -104,7 +104,8 @@ int CellParallel::owner_in(const std::vector<std::vector<uint64_t>>& split, int 
 }
 
 void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split, const CellMesh& responder, const Field* resp_state,
-                                const std::vector<RegionItem>& items, CellMesh& out, FetchPlan* plan) const {
+                                const std::vector<RegionItem>& items, CellMesh& out, FetchPlan* plan,
+                                const std::vector<int>* direct) const {
     const int R = comm_.size, me = comm_.rank, M = responder.max_level, dim = responder.dim;
     const int nch = dim == 3 ? 8 : 4;
     const size_t crec = dim == 3 ? 3 : 2;   // the coordinates of a cell in a message
@@ -126,6 +127,22 @@ void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split,
         j = static_cast<int>((no / nx) % ny);
         k = static_cast<int>(no / (nx * ny));
     };
+    // The leaves given directly: in the result as they are, and found from the start (sorted cell numbers per level), so that a cell
+    // that is one of them, or lies inside one, is not asked again
+    std::vector<std::vector<long long>> pre(static_cast<size_t>(M) + 1);
+    if (direct) {
+        for (const int c : *direct) {
+            const int t = responder.level[static_cast<size_t>(c)], i = responder.ci[static_cast<size_t>(c)],
+                      j = responder.cj[static_cast<size_t>(c)], k = responder.ck[static_cast<size_t>(c)];
+            pre[static_cast<size_t>(t)].push_back(cell_no(t, i, j, k));
+            lv.push_back(t);
+            ii.push_back(i);
+            jj.push_back(j);
+            kk.push_back(k);
+            if (states) U.push_back((*resp_state)[static_cast<size_t>(c)]);
+        }
+        for (std::vector<long long>& p : pre) std::sort(p.begin(), p.end());
+    }
     // Per item the cells of its box (at its own level), and the cells of the level reached that hold no leaf (they are split: the
     // next level asks about their children)
     struct Work {
@@ -208,7 +225,9 @@ void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split,
         size_t wp = 0;
         std::vector<long long> last_anc(static_cast<size_t>(t), -1);
         std::vector<char> last_hit(static_cast<size_t>(t), 0);
+        const std::vector<long long>& pt = pre[static_cast<size_t>(t)];
         for (const long long no : ask_cells) {
+            if (!pt.empty() && std::binary_search(pt.begin(), pt.end(), no)) continue;   // a leaf given directly
             int i, j, k;
             cell_of(t, no, i, j, k);
             bool covered = false;
@@ -267,6 +286,7 @@ void CellParallel::fetch_leaves(const std::vector<std::vector<uint64_t>>& split,
         }
         ProfileScope ps_collect(Section::FetchCollect);
         std::vector<long long>& fl = found[static_cast<size_t>(t)];
+        fl.insert(fl.end(), pt.begin(), pt.end());
         size_t wq = 0;   // (mine is a subsequence of ask_cells, so of want_cells' order)
         for (const long long no : mine) {
             int i, j, k;

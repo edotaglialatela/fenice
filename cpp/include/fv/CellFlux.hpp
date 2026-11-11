@@ -175,8 +175,9 @@ public:
     // A rank's share of the mesh (CellParallel::localize): the engine was built for the whole mesh and has a partition set; `m` is
     // that mesh after CellMesh::keep_partial, leaf_map / face_map its maps. Re-indexes every table to the kept leaves and faces
     // (the numbers are the same as a build would give for them, only renumbered), keeps the virtual cells whose leaves are all
-    // kept (a code that points at anything else is kOutside), and frees the rest. Throws if a face this rank computes, the ghost
-    // fill or a mass-flow face reads a leaf that is not kept.
+    // kept (a code that points at anything else is kOutside), and frees the rest. Throws if a face this rank computes or a
+    // mass-flow face is not kept, or if a row its faces read is not; with FENICE_CHECK_HALO=1 it also walks the dependencies of
+    // every face this rank computes (face_dependencies) and throws if one of them is not a kept leaf.
     void localize(const CellMesh& m, const std::vector<int>& leaf_map, const std::vector<int>& face_map);
     // Owned range [begin, end) of level l (the whole level without a partition).
     int owned_begin(int l) const { return lown_b_[static_cast<size_t>(l)]; }

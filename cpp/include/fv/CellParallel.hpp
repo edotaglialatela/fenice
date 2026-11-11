@@ -115,8 +115,11 @@ public:
     // the splitters `split` (split[level][rank] = first key of the rank, then the end); each answers from `responder`, a mesh that holds
     // at least its own leaves (with their state `resp_state`, or none: then the result has no state). `out` gets the leaves found,
     // the rank's own among them, as a partial mesh. Level by level, coarse to fine; a cell inside a leaf already found is not asked.
+    // `direct`: leaves of `responder` this rank owns that go into `out` as they are (the owned leaves a region is grown from); their
+    // cells may then be left out of the boxes, so that only the margin around them is walked.
     void fetch_leaves(const std::vector<std::vector<uint64_t>>& split, const CellMesh& responder, const Field* resp_state,
-                      const std::vector<RegionItem>& items, CellMesh& out, FetchPlan* plan = nullptr) const;
+                      const std::vector<RegionItem>& items, CellMesh& out, FetchPlan* plan = nullptr,
+                      const std::vector<int>* direct = nullptr) const;
     // The rank that owns the cell (level, key) under the splitters `split`.
     static int owner_in(const std::vector<std::vector<uint64_t>>& split, int level, uint64_t key);
     const std::vector<std::vector<uint64_t>>& splitters() const { return split_; }

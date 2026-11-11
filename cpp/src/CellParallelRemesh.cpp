@@ -33,11 +33,12 @@ bool CellParallel::remesh(CellAdaptor& ad) {
         for (int c = engine_.owned_begin(l); c < engine_.owned_end(l); ++c) owned.push_back(c);
     std::vector<RegionItem> items;
     {
-        std::vector<std::vector<std::array<int, 3>>> seeds(static_cast<size_t>(M) + 1);
+        std::vector<std::vector<std::array<int, 3>>> seeds(static_cast<size_t>(M) + 1), leaves(static_cast<size_t>(M) + 1);
         for (const int c : owned) {
             const int l = mesh_.level[static_cast<size_t>(c)], i = mesh_.ci[static_cast<size_t>(c)], j = mesh_.cj[static_cast<size_t>(c)],
                       k = mesh_.ck[static_cast<size_t>(c)];
             seeds[static_cast<size_t>(l)].push_back({i, j, k});
+            leaves[static_cast<size_t>(l)].push_back({i, j, k});
             if (l > 0) seeds[static_cast<size_t>(l) - 1].push_back({i >> 1, j >> 1, k >> 1});
         }
         for (int t = 0; t <= M; ++t) {   // (the cells CellIndicator::region marks: the ring of the smoothing, which holds the one of the ripple)
@@ -45,6 +46,7 @@ bool CellParallel::remesh(CellAdaptor& ad) {
             RegionItem it;
             it.level = t;
             it.box = detail::dilate_seeds(mesh_, t, seeds[static_cast<size_t>(t)], ad.indicator().diffusion + 1 + region_shrink);
+            detail::clear_cells(it.box, leaves[static_cast<size_t>(t)]);   // (the owned leaves are given to the fetch directly)
             it.tmin = 0;
             it.tmax = M;
             items.push_back(std::move(it));
@@ -54,7 +56,7 @@ bool CellParallel::remesh(CellAdaptor& ad) {
     FetchPlan plan;
     {
         ProfileScope ps(Section::Fetch);
-        fetch_leaves(split_, mesh_, &mesh_.U, items, W, &plan);
+        fetch_leaves(split_, mesh_, &mesh_.U, items, W, &plan, &owned);
     }
     const int NW = W.num_leaves();
     std::vector<int> owned_w(owned.size());

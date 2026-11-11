@@ -2,6 +2,8 @@
 // Self-contained harness: run `fenice_tests` (exit code = number of failed checks).
 #include "test_common.hpp"
 
+#include <cstdlib>
+
 int g_fail = 0, g_checks = 0;
 
 std::vector<TestCaseReg>& registry() {
@@ -13,6 +15,12 @@ std::vector<TestCaseReg>& registry() {
 // fenice_tests --list          the names, one per line
 // fenice_tests NAME [NAME ..]  the tests whose name contains any of the arguments; a filter that matches nothing is an error
 int main(int argc, char** argv) {
+    // the tests run with the halo check of a rank's share on (CellFluxEngine::localize), whatever the environment says
+#ifdef _WIN32
+    _putenv_s("FENICE_CHECK_HALO", "1");
+#else
+    setenv("FENICE_CHECK_HALO", "1", 1);
+#endif
     std::vector<std::string> filters;
     for (int a = 1; a < argc; ++a) {
         if (std::string(argv[a]) == "--list") {

@@ -128,7 +128,22 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
         old_special.swap(special_);
     }
     nleaf_ = m.num_leaves();
-    const auto clean = [&](int c) { return inc && !m.topo_dirty[static_cast<size_t>(c)]; };
+    // A rank's share built over the one before (CellMesh::build_from with reuse): the old tables are those of a partial mesh, where
+    // kOutside stands for what that share did not hold. Such a leaf or face is computed, not copied.
+    std::vector<char> stale;
+    if (inc && m.partial) {
+        stale.assign(static_cast<size_t>(nleaf_), 0);
+        for (int c = 0; c < nleaf_; ++c) {
+            const int o = m.prev_leaf[static_cast<size_t>(c)];
+            if (o < 0) continue;
+            for (int s = 0; s < ns_; ++s)
+                if (old_raw[static_cast<size_t>(ns_) * o + s] == kOutside || old_nbr[static_cast<size_t>(ns_) * o + s] == kOutside)
+                    stale[static_cast<size_t>(c)] = 1;
+        }
+    }
+    const auto clean = [&](int c) {
+        return inc && c >= 0 && !m.topo_dirty[static_cast<size_t>(c)] && (stale.empty() || !stale[static_cast<size_t>(c)]);
+    };
     // 1) Virtual cells. Only a leaf with a finer side (the mean of the block across it) or, with interpolated jumps, a coarser
     // side (the interpolated cell next to it) needs one; they are numbered by key (block, resp. fine leaf and side), so the
     // numbering depends on the mesh only, and every table below is filled in parallel by lookups (or copied).
@@ -207,7 +222,9 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
         for (int f = 0; f < static_cast<int>(m.faces.size()); ++f) {
             const CellFace& face = m.faces[static_cast<size_t>(f)];
             const int pf = m.prev_face[static_cast<size_t>(f)];
-            if (face.kind == CellFaceKind::Boundary || pf < 0 || !clean(face.left) || !clean(face.right)) {
+            bool copy = face.kind != CellFaceKind::Boundary && pf >= 0 && clean(face.left) && clean(face.right);
+            for (int k = 0; copy && k < 4; ++k) copy = old_st[static_cast<size_t>(pf)][k] != kOutside;
+            if (!copy) {
                 face_stencil(m, f);
                 continue;
             }
@@ -799,7 +816,9 @@ void CellFluxEngine::localize(const CellMesh& m, const std::vector<int>& leaf_ma
     size_work_arrays(m);
     built_mesh_ = &m;
     built_version_ = m.version;
-    // every read of every face this rank computes is a kept leaf or a kept virtual cell (kOutside throws in mark_code)
+    // FENICE_CHECK_HALO (on in the tests): every read of every face this rank computes is a kept leaf or a kept virtual cell
+    // (kOutside throws in mark_code). A second walk of the dependencies the partition was made from, so off in a run.
+    if (!switch_on("FENICE_CHECK_HALO")) return;
     std::vector<int> reads;
     for (size_t l = 0; l < L; ++l)
         for (const int f : lface_[l]) {

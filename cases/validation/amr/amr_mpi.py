@@ -18,6 +18,7 @@ number of ranks (1->3, 3->5, 4->2, 2->7) against the uninterrupted serial run, t
 (an octree checkpoint: leaf_k and rho w), and a hot start from an octree checkpoint on 1 to 4 ranks; CI runs it on every platform.
 """
 import json
+import os
 
 from pathlib import Path
 
@@ -181,6 +182,7 @@ def main():
     ap.add_argument("--ranks", type=int, default=7, help="with --check: the largest number of ranks (default 7; CI pushes use 4)")
     args = ap.parse_args()
     if args.check:
+        os.environ["FENICE_CHECK_HALO"] = "1"   # every rank checks that its share holds what its faces read
         raise SystemExit(check(args.ranks))
     plt = study.use_style()
     d0, serial = measure(args, "serial", threads=1)

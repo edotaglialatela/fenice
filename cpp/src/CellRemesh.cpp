@@ -24,13 +24,19 @@ struct LevelCells {
     std::vector<int> ci, cj, ck;   // ck: 3-D only
     std::unique_ptr<State[]> val;   // conservative state
     std::vector<int> leaf;       // leaf index, -1 for a split cell
-    std::vector<int> grid;       // dense table (k * NY + j) * NX + i -> cell (-1: none), when the level is small enough; else empty
+    // dense table over the bounding box of the cells (i0, j0, k0, w, h, d) -> cell (-1: none), when the box is small enough; else empty
+    std::vector<int> grid;
+    int box[6] = {0, 0, 0, 0, 0, 0};
     int NX = 0, NY = 0, dim = 2;
     // the quantities the tests look at, per cell (the same cons_to_prim as the pair test would do)
     std::vector<double> rho, p, speed;
 
     int find(int i, int j, int kk = 0) const {
-        if (!grid.empty()) return grid[(static_cast<size_t>(kk) * NY + j) * NX + i];
+        if (!grid.empty()) {
+            const int a = i - box[0], b = j - box[1], c = kk - box[2];
+            if (a < 0 || a >= box[3] || b < 0 || b >= box[4] || c < 0 || c >= box[5]) return -1;
+            return grid[(static_cast<size_t>(c) * box[4] + b) * box[3] + a];
+        }
         const uint64_t k = dim == 3 ? morton_key3(static_cast<uint32_t>(i), static_cast<uint32_t>(j), static_cast<uint32_t>(kk))
                                     : morton_key(static_cast<uint32_t>(i), static_cast<uint32_t>(j));
         const auto it = std::lower_bound(key.begin(), key.end(), k);
@@ -174,15 +180,27 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         }
         L.NX = m.nx_at(l);
         L.NY = m.ny_at(l);
-        const long long cells = static_cast<long long>(L.NX) * m.ny_at(l) * m.nz_at(l);
-        if (cells <= 4ll * L.size() + 65536) {
+        // the bounding box of the level's cells (a rank's region covers a part of the domain only)
+        int lo[3] = {0, 0, 0}, hi[3] = {-1, -1, -1};
+        for (int c = 0; c < n; ++c) {
+            const int x[3] = {L.ci[c], L.cj[c], d3 ? L.ck[c] : 0};
+            for (int a = 0; a < 3; ++a) {
+                if (c == 0 || x[a] < lo[a]) lo[a] = x[a];
+                if (c == 0 || x[a] > hi[a]) hi[a] = x[a];
+            }
+        }
+        const int bw = hi[0] - lo[0] + 1, bh = hi[1] - lo[1] + 1, bd = hi[2] - lo[2] + 1;
+        const long long cells = static_cast<long long>(bw) * bh * bd;
+        if (n > 0 && cells <= 4ll * L.size() + 65536) {
             const int ncell = static_cast<int>(cells);
+            const int bx[6] = {lo[0], lo[1], lo[2], bw, bh, bd};
+            for (int a = 0; a < 6; ++a) L.box[a] = bx[a];
             L.grid.resize(static_cast<size_t>(ncell));
 #pragma omp parallel for schedule(static) if (ncell >= kOmpMinWork)
             for (int k = 0; k < ncell; ++k) L.grid[k] = -1;
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
             for (int c = 0; c < n; ++c)
-                L.grid[(static_cast<size_t>(d3 ? L.ck[c] : 0) * L.NY + L.cj[c]) * L.NX + L.ci[c]] = c;
+                L.grid[(static_cast<size_t>((d3 ? L.ck[c] : 0) - lo[2]) * bh + (L.cj[c] - lo[1])) * bw + (L.ci[c] - lo[0])] = c;
         }
         L.rho.resize(static_cast<size_t>(n));
         L.p.resize(static_cast<size_t>(n));

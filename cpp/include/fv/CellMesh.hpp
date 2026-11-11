@@ -165,7 +165,11 @@ public:
     // a face list of the whole mesh: the kept leaves in their order, the faces they make (a leaf that is not kept is kOutside
     // at the other end of a face), a side whose faces are not all there empty. The state of a leaf comes from whole_state (one
     // entry per leaf of `whole`) if given.
-    void build_from(const CellMesh& whole, const std::vector<char>& keep_leaf, const Field* whole_state = nullptr);
+    // `reuse`: this mesh is the partial mesh the share was before (the same rank's share before a remesh). The bookkeeping of an
+    // adapt is then filled against it, so that dependent tables are updated instead of rebuilt: prev_leaf (the index the leaf had,
+    // -1 if it was not there), topo_dirty (a leaf that was not there, or one with a leaf that came or went in a square of its size
+    // across a side) and prev_face (the face the leaf had on that side, -1 if it was not kept). FENICE_FULL_REBUILD turns it off.
+    void build_from(const CellMesh& whole, const std::vector<char>& keep_leaf, const Field* whole_state = nullptr, bool reuse = false);
     // The leaves given (any subset of a mesh, in any order) as a partial mesh without faces: sorted by (level, key), with the lookups
     // (find, covering). The state, if given, follows the leaves. For a fetched region (CellParallel::fetch_leaves). `ks` empty in 2-D.
     void assign_partial_leaves(const std::vector<int>& levels, const std::vector<int>& is, const std::vector<int>& js, Field* state);
@@ -218,9 +222,11 @@ public:
 private:
     CellMesh() = default;   // make_3d fills the fields
     double dx0_ = 0.0, dy0_ = 0.0, dz0_ = 1.0;
-    // Lookup (position -> leaf): a dense table per level where the level's cell count is small compared with the leaf count, else
-    // a binary search of the Morton keys of the level's leaves (mkey_, parallel to the leaf arrays).
+    // Lookup (position -> leaf): a dense table per level over the bounding box of the level's leaves (gbox_: i0, j0, k0, w, h, d)
+    // where the box's cell count is small compared with the leaf count, else a binary search of the Morton keys of the level's
+    // leaves (mkey_, parallel to the leaf arrays). The box, not the whole level: a rank's share covers a part of the domain only.
     std::vector<std::vector<int>> grid_;
+    std::vector<std::array<int, 6>> gbox_;
     std::vector<uint64_t> mkey_;
 
     std::vector<int> face_off_;   // faces made by leaf c: faces[face_off_[c] .. face_off_[c + 1])
@@ -234,6 +240,10 @@ private:
     void rebuild(bool incremental = false);
     // Level runs and the position -> leaf lookup of the current leaves.
     void build_lookups();
+    // Set topo_dirty of the leaves whose square (cube) of their size across a side holds the cell (ln, i, j, k): the leaves of
+    // level ln - 2 .. ln next to the block of their level that holds it, and the finer leaves on its sides (as rebuild marks them
+    // around a new leaf).
+    void mark_around(int ln, int i, int j, int k);
     // Wrap (i, j, k) of level l into the domain on periodic axes; false if it falls outside a non-periodic edge.
     bool wrap(int l, int& i, int& j, int& k) const;
     // Face that leaf c makes on side s, looked up in `in` (this mesh, or the whole mesh of build_from with the leaf's coordinates

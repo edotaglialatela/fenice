@@ -66,7 +66,10 @@ void CellParallel::region_mask(const CellMesh& topo, const std::vector<int>& own
             if (topo.level_begin[t + 1] == topo.level_begin[t]) continue;
             int r = std::max(0, rings(o - t) + extra);
             if (body && t == o && o == M) r = std::max(r, 8 + extra);   // the images of the ghost cells (7 rings)
-            const CellBox b = detail::dilate_seeds(topo, o, seeds[static_cast<size_t>(o)], r);
+            CellBox b = detail::dilate_seeds(topo, o, seeds[static_cast<size_t>(o)], r);
+            // an owned leaf's own cell holds no leaf of another level, above or below it, and the leaf is kept already: only the
+            // margin around the owned leaves is looked up
+            detail::clear_cells(b, seeds[static_cast<size_t>(o)]);
             detail::for_box(b, [&](int ci, int cj, int ck) {
                 if (t <= o) {
                     const int c = topo.find(t, ci >> (o - t), cj >> (o - t), ck >> (o - t));
@@ -101,6 +104,8 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
         own.assign_partial_leaves(lv, ii, jj, kk, &own_u);   // what this rank answers from
     else
         own.assign_partial_leaves(lv, ii, jj, &own_u);
+    std::vector<int> own_all(static_cast<size_t>(own.num_leaves()));
+    for (int c = 0; c < own.num_leaves(); ++c) own_all[static_cast<size_t>(c)] = c;
     std::vector<std::vector<std::array<int, 3>>> seeds(static_cast<size_t>(M) + 1);
     for (int c = 0; c < own.num_leaves(); ++c)
         seeds[static_cast<size_t>(own.level[static_cast<size_t>(c)])].push_back(
@@ -122,6 +127,7 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
     }
     // rings of the owned leaf's level within which a leaf of another level is read (see region_mask), by level difference
     const auto rings = [dim](int d) { return reach_rings(dim, d); };
+    bool reuse = true;   // the first try is built over the share as it was: the tables of the leaves it keeps are copied
     for (int extra = first_extra;; extra += 2) {
         std::vector<RegionItem> items;
         for (int o = 0; o <= M; ++o) {   // one item per level of the owned leaves, with the widest of the rings of the levels read (a superset of what region_mask keeps)
@@ -138,6 +144,7 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
             RegionItem it;
             it.level = o;
             it.box = detail::dilate_seeds(mesh_, o, seeds[static_cast<size_t>(o)], r);
+            detail::clear_cells(it.box, seeds[static_cast<size_t>(o)]);   // (the owned leaves are given to the fetch directly)
             it.tmin = 0;
             it.tmax = M;
             items.push_back(std::move(it));
@@ -169,7 +176,7 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
         CellMesh T = detail::empty_like(mesh_);
         {
             ProfileScope ps(Section::Fetch);
-            fetch_leaves(gf.split, own, nullptr, items, T);   // (no state: the halo is filled by exchange_final)
+            fetch_leaves(gf.split, own, nullptr, items, T, nullptr, &own_all);   // (no state: the halo is filled by exchange_final)
         }
         std::vector<int> owned_t;
         for (int c = 0; c < own.num_leaves(); ++c)
@@ -184,7 +191,8 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
         try {
             {
                 ProfileScope ps(Section::ShareMesh);
-                mesh_.build_from(T, keep, nullptr);
+                mesh_.build_from(T, keep, nullptr, reuse);
+                reuse = false;
             }
             for (int c = 0; c < own.num_leaves(); ++c)   // the state of the owned leaves
                 mesh_.U[static_cast<size_t>(mesh_.find(own.level[static_cast<size_t>(c)], own.ci[static_cast<size_t>(c)], own.cj[static_cast<size_t>(c)],
