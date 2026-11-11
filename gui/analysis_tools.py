@@ -261,18 +261,8 @@ class LoadAnalysisTab(QWidget):
 
     @staticmethod
     def _spectrum(t, values, pad: int = 32, window_name: str = "Hann"):
-        t, values = np.asarray(t, float), np.asarray(values, float)
-        if len(t) < 4 or np.any(np.diff(t) <= 0):
-            raise ValueError("Need at least four rows with strictly increasing time values.")
-        uniform_t = np.linspace(t[0], t[-1], 4 * len(t))
-        uniform_y = np.interp(uniform_t, t, values)
-        uniform_y -= uniform_y.mean()
-        window = {"Hann": np.hanning, "Hamming": np.hamming}.get(window_name)
-        weights = window(len(uniform_y)) if window else np.ones(len(uniform_y))
-        nfft = pad * len(uniform_y)
-        amplitude = 2.0 * np.abs(np.fft.rfft(uniform_y * weights, nfft)) / max(float(weights.sum()), np.finfo(float).tiny)
-        frequency = np.fft.rfftfreq(nfft, uniform_t[1] - uniform_t[0])
-        return frequency, amplitude, float(uniform_t[-1] - uniform_t[0])
+        from fenice import spectra
+        return spectra.amplitude_spectrum(t, values, pad, window_name)
 
     @staticmethod
     def _peak(frequency, amplitude, lo: float, hi: float) -> tuple[float, float]:
@@ -789,13 +779,7 @@ class ModalAnalysisTab(QWidget):
                                    max(float(pod["energies"][0] + pod["energies"][1]), np.finfo(float).tiny))
             phase_difference = float("nan")
             if pod["coefficients"].shape[0] >= 2:
-                phase = []
-                for coeff in pod["coefficients"][:2]:
-                    design = np.column_stack((np.cos(2 * np.pi * frequency * snap["times"]),
-                                              np.sin(2 * np.pi * frequency * snap["times"])))
-                    c, s = np.linalg.lstsq(design, coeff - coeff.mean(), rcond=None)[0]
-                    phase.append(float(np.degrees(np.arctan2(s, c))))
-                phase_difference = abs((phase[0] - phase[1] + 180) % 360 - 180)
+                phase_difference = modal.phase_difference(pod["coefficients"], snap["times"], frequency)
 
             mode_plane = []
             norm_w = weights / weights.sum()

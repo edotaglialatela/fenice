@@ -126,6 +126,18 @@ def dmd(X, dt, rank=None, tol=1e-10):
             "modes": modes, "amplitudes": amp}
 
 
+def phase_difference(coefficients, times, frequency):
+    """Phase difference in degrees (0 to 180) between the first two time coefficients (rows) of a POD at `frequency`: each
+    mean-removed row is fitted by a cos + b sin of 2 pi frequency t, and the phases are atan2(b, a)."""
+    times = np.asarray(times, float)
+    design = np.column_stack((np.cos(2 * np.pi * frequency * times), np.sin(2 * np.pi * frequency * times)))
+    phase = []
+    for coeff in np.asarray(coefficients, float)[:2]:
+        c, s = np.linalg.lstsq(design, coeff - coeff.mean(), rcond=None)[0]
+        phase.append(float(np.degrees(np.arctan2(s, c))))
+    return abs((phase[0] - phase[1] + 180) % 360 - 180)
+
+
 def export_modes_vtr(path, mode, x, y, name="mode"):
     """Write a 2-D mode (flattened (ny*nx) or (ny, nx), real) as an ASCII .vtr cell field `name` on the node
     coordinates x (nx+1), y (ny+1), for the workbench Postprocessing node or any VTK viewer."""

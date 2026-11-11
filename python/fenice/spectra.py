@@ -77,6 +77,25 @@ def psd(y, dt, nperseg=None, overlap=0.5, detrend="linear", window="hann"):
     return f, P, 1.0 / (nperseg * dt)
 
 
+def amplitude_spectrum(t, values, pad=32, window="Hann"):
+    """Single-window amplitude spectrum of a record sampled at increasing, possibly uneven times: (frequency, amplitude, span).
+    The record is interpolated linearly onto a uniform grid of 4 len(t) points, its mean removed, multiplied by a window
+    ("Hann", "Hamming", anything else = rectangular) and transformed with zero padding to pad x len(t) points; the amplitude is
+    2 |FFT| / sum(window), so a sine of amplitude A on an integer number of periods peaks at A. `span` is the record length."""
+    t, values = np.asarray(t, float), np.asarray(values, float)
+    if len(t) < 4 or np.any(np.diff(t) <= 0):
+        raise ValueError("Need at least four rows with strictly increasing time values.")
+    uniform_t = np.linspace(t[0], t[-1], 4 * len(t))
+    uniform_y = np.interp(uniform_t, t, values)
+    uniform_y -= uniform_y.mean()
+    win = {"Hann": np.hanning, "Hamming": np.hamming}.get(window)
+    weights = win(len(uniform_y)) if win else np.ones(len(uniform_y))
+    nfft = pad * len(uniform_y)
+    amplitude = 2.0 * np.abs(np.fft.rfft(uniform_y * weights, nfft)) / max(float(weights.sum()), np.finfo(float).tiny)
+    frequency = np.fft.rfftfreq(nfft, uniform_t[1] - uniform_t[0])
+    return frequency, amplitude, float(uniform_t[-1] - uniform_t[0])
+
+
 def peaks(f, P, count=3):
     """The `count` strongest local maxima of P as [(frequency, power)], parabola-interpolated, strongest first."""
     f, P = np.asarray(f), np.asarray(P)

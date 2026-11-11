@@ -240,6 +240,10 @@ def test_spectra_derived():
         fine = True
     check(gap and fine, "resample_amr: a missing leaf and a leaf finer than h are errors")
 
+    tt = np.linspace(0, 10, 400)
+    pd = modal.phase_difference(np.array([np.cos(2 * np.pi * 0.8 * tt + 0.3) + 5, np.cos(2 * np.pi * 0.8 * tt + 0.3 - np.pi / 2)]), tt, 0.8)
+    check(abs(pd - 90.0) < 0.01, f"phase_difference of two coefficients a quarter period apart: {pd:.6f} degrees (90; band 0.01)")
+
 
 def test_spectra():
     dt, n, f0, amp = 0.01, 4096, 7.0, 1.7
@@ -256,6 +260,16 @@ def test_spectra():
     check(par < 1e-12, f"PSD Parseval, one segment: {par:.1e}")
     tu, yu, ratio = spectra.resample_uniform(t[::2] + 0.001 * np.sin(t[::2]), y[::2])
     check(ratio < 1.01 and len(tu) > 2000, f"resample_uniform: step ratio {ratio:.3f}")
+    ta = np.linspace(0.0, 10.0, 1001)
+    fa, aa, span = spectra.amplitude_spectrum(ta, 2.0 * np.sin(2 * np.pi * 5.0 * ta) + 3.0, pad=8, window="none")
+    check(abs(fa[np.argmax(aa)] - 5.0) < 0.02 and abs(aa.max() - 2.0) < 0.05 and span == 10.0,
+          f"amplitude_spectrum of a sine on whole periods: peak {fa[np.argmax(aa)]:.4f} at amplitude {aa.max():.4f} (A = 2, f = 5; band 0.02, 0.05)")
+    raised = False
+    try:
+        spectra.amplitude_spectrum([0, 1, 1, 2], [0, 1, 2, 3])
+    except ValueError:
+        raised = True
+    check(raised, "amplitude_spectrum: a record with a repeated time is refused")
     # Taylor-Green initial field
     for N, dim in ((64, 2), (32, 3)):
         x = (np.arange(N) + 0.5) * 2 * np.pi / N
