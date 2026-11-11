@@ -10,4 +10,6 @@
     `benchmarks-robustness-uq.md` (the benchmarks still to build), `memory-traffic-measurement.md` (what is left after the uniform-solver
     measurements), `repository-review.md` (what was left on purpose).
   * Not started, the owner's choice: `postprocessing-and-species.md`, `thermochemistry-library.md`, `unstructured-solver.md`,
-    `distributed-checkpoint-write.md`, `gui-workbench.md` (the graph exists; the thermochemistry node and saving are proposals).
+    `distributed-checkpoint-write.md`, `gui-workbench.md` (the graph exists; the thermochemistry node and saving are proposals),
+    `performance-improvements.md` (measured candidates for the kernels, and the questions of operator splitting, threads against ranks
+    and the fifth state slot in 2-D).
