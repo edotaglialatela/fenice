@@ -107,6 +107,12 @@ State RiemannSolver::hllc(const State& UL, const State& UR, int axis, double& sm
     double inv_L, inv_R;
     const State WL = eos_.cons_to_prim(UL, &inv_L);
     const State WR = eos_.cons_to_prim(UR, &inv_R);
+    return hllc_core(WL, WR, UL, UR, inv_L, inv_R, eos_.sound_speed_inv(WL[3], inv_L), eos_.sound_speed_inv(WR[3], inv_R), axis, smax);
+}
+
+// HLLC from the primitive and conservative states of both sides (WL, WR floored as by cons_to_prim, inv_* = 1 / rho, c_* = sound speed).
+State RiemannSolver::hllc_core(const State& WL, const State& WR, const State& UL, const State& UR, double inv_L, double inv_R,
+                               double c_L, double c_R, int axis, double& smax) const {
     const double rho_L = WL[0], p_L = WL[3];
     const double rho_R = WR[0], p_R = WR[3];
     const double vel_L[3] = {WL[1], WL[2], WL[4]};
@@ -129,9 +135,6 @@ State RiemannSolver::hllc(const State& UL, const State& UR, int axis, double& sm
     FR[mn] = FR[mn] + p_R;
     FL[3] = Vn_L * (rho_L * E_L + p_L);
     FR[3] = Vn_R * (rho_R * E_R + p_R);
-
-    const double c_L = eos_.sound_speed_inv(p_L, inv_L);
-    const double c_R = eos_.sound_speed_inv(p_R, inv_R);
 
     // Einfeldt bounds
     const double S_L = std::min(Vn_L - c_L, Vn_R - c_R);
@@ -196,12 +199,19 @@ State RiemannSolver::hllc(const State& UL, const State& UR, int axis, double& sm
 
 State RiemannSolver::face_flux(const State& UL, const State& UR, int axis, double& smax) const {
     if (type_ != RiemannType::LowMachHLLC) return hllc(UL, UR, axis, smax);
+    double inv_L, inv_R;
+    const State WL = eos_.cons_to_prim(UL, &inv_L);
+    const State WR = eos_.cons_to_prim(UR, &inv_R);
+    return lowmach_flux(WL, WR, inv_L, inv_R, axis, smax);
+}
 
-    // Thornber (2008) low-Mach velocity-jump scaling, then standard HLLC
-    State WL = eos_.cons_to_prim(UL);
-    State WR = eos_.cons_to_prim(UR);
-    const double c_L = eos_.sound_speed(WL[3], WL[0]);
-    const double c_R = eos_.sound_speed(WR[3], WR[0]);
+// Thornber (2008) low-Mach velocity-jump scaling, then standard HLLC, from the primitive states of both sides (floored as by
+// cons_to_prim; inv_* = 1 / rho). The scaling changes the velocities only: the density, the pressure and so 1 / rho and the sound
+// speed are those of the entry states, and the conservative states are built once from the scaled ones.
+State RiemannSolver::lowmach_flux(const State& W0L, const State& W0R, double inv_L, double inv_R, int axis, double& smax) const {
+    State WL = W0L, WR = W0R;
+    const double c_L = eos_.sound_speed_inv(WL[3], inv_L);
+    const double c_R = eos_.sound_speed_inv(WR[3], inv_R);
     const double M_L = std::sqrt(WL[1] * WL[1] + WL[2] * WL[2] + WL[4] * WL[4]) / (c_L + kMachEps);
     const double M_R = std::sqrt(WR[1] * WR[1] + WR[2] * WR[2] + WR[4] * WR[4]) / (c_R + kMachEps);
     const double z = std::min(std::max(std::max(M_L, M_R), 1e-4), 1.0);
@@ -213,7 +223,7 @@ State RiemannSolver::face_flux(const State& UL, const State& UR, int axis, doubl
         WL[m] = avg + z * half;
         WR[m] = avg - z * half;
     }
-    return hllc(eos_.prim_to_cons(WL), eos_.prim_to_cons(WR), axis, smax);
+    return hllc_core(WL, WR, eos_.prim_to_cons(WL), eos_.prim_to_cons(WR), inv_L, inv_R, c_L, c_R, axis, smax);
 }
 
 void RiemannSolver::face_flux_batch(const State* UL, const State* UR, const int* axis, int n, State* F, double* smax) const {

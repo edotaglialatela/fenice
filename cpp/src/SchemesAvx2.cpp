@@ -109,10 +109,17 @@ struct AxisMasks {
     V select(V a0, V a1, V a2) const { return blend(blend(a0, a1, m1), a2, m2); }
 };
 
-// RiemannSolver::hllc for four faces
-void hllc4(const VEos& E, RiemannType type, double sb, const AxisMasks& ax, const Vec5& UL, const Vec5& UR, Vec5& F, V& smax) {
-    V inv_L, inv_R;
-    const Vec5 WL = E.cons_to_prim(UL, &inv_L), WR = E.cons_to_prim(UR, &inv_R);
+// The two sides of four faces as the HLLC core reads them: primitive and conservative states (primitive floored as by cons_to_prim),
+// 1 / rho and the sound speed
+struct Face4 {
+    Vec5 WL, WR, UL, UR;
+    V inv_L, inv_R, c_L, c_R;
+};
+
+// RiemannSolver::hllc_core for four faces
+void hllc4(const VEos& E, double sb, const AxisMasks& ax, const Face4& f, Vec5& F, V& smax) {
+    const Vec5 &UL = f.UL, &UR = f.UR, &WL = f.WL, &WR = f.WR;
+    const V inv_L = f.inv_L, inv_R = f.inv_R;
     const V rho_L = WL.q[0], p_L = WL.q[3], rho_R = WR.q[0], p_R = WR.q[3];
     const V velL[3] = {WL.q[1], WL.q[2], WL.q[4]}, velR[3] = {WR.q[1], WR.q[2], WR.q[4]};
     const V E_L = mul(UL.q[3], inv_L), E_R = mul(UR.q[3], inv_R);
@@ -133,7 +140,7 @@ void hllc4(const VEos& E, RiemannType type, double sb, const AxisMasks& ax, cons
     FL.q[3] = mul(Vn_L, add(mul(rho_L, E_L), p_L));
     FR.q[3] = mul(Vn_R, add(mul(rho_R, E_R), p_R));
 
-    const V c_L = E.sound_speed_inv(p_L, inv_L), c_R = E.sound_speed_inv(p_R, inv_R);
+    const V c_L = f.c_L, c_R = f.c_R;
     const V S_L = vmin(sub(Vn_L, c_L), sub(Vn_R, c_R));
     const V S_R = vmax(add(Vn_L, c_L), add(Vn_R, c_R));
 
@@ -215,27 +222,31 @@ AxisMasks axis_masks(const int* axis) {
     return ax;
 }
 
-// The left / right states the Riemann solver of four faces starts from (RiemannSolver::face_flux before hllc): the low-Mach
-// scaling of the velocity jump, or the states as they are
-void prepare4(const VEos& E, RiemannType type, Vec5& L, Vec5& R) {
-    if (type == RiemannType::LowMachHLLC) {
-        // Thornber low-Mach scaling of the velocity jump, then standard HLLC
-        Vec5 WL = E.cons_to_prim(L), WR = E.cons_to_prim(R);
-        const V c_L = E.sound_speed(WL.q[3], WL.q[0]), c_R = E.sound_speed(WR.q[3], WR.q[0]);
-        const V meps = set1(kMachEps);
-        const V M_L = dv(vsqrt(add(add(mul(WL.q[1], WL.q[1]), mul(WL.q[2], WL.q[2])), mul(WL.q[4], WL.q[4]))), add(c_L, meps));
-        const V M_R = dv(vsqrt(add(add(mul(WR.q[1], WR.q[1]), mul(WR.q[2], WR.q[2])), mul(WR.q[4], WR.q[4]))), add(c_R, meps));
-        const V z = vmin(vmax(vmax(M_L, M_R), set1(1e-4)), set1(1.0));
-        const V half = set1(0.5);
-        for (int m : {1, 2, 4}) {
-            const V avg = mul(half, add(WL.q[m], WR.q[m]));
-            const V hf = mul(half, sub(WL.q[m], WR.q[m]));
-            WL.q[m] = add(avg, mul(z, hf));
-            WR.q[m] = sub(avg, mul(z, hf));
-        }
-        L = E.prim_to_cons(WL);
-        R = E.prim_to_cons(WR);
+// Entry of the Riemann solver from conservative states f.UL, f.UR (RiemannSolver::hllc / face_flux): primitive states, 1 / rho, sound speed
+void entry_cons4(const VEos& E, Face4& f) {
+    f.WL = E.cons_to_prim(f.UL, &f.inv_L);
+    f.WR = E.cons_to_prim(f.UR, &f.inv_R);
+    f.c_L = E.sound_speed_inv(f.WL.q[3], f.inv_L);
+    f.c_R = E.sound_speed_inv(f.WR.q[3], f.inv_R);
+}
+
+// RiemannSolver::lowmach_flux before the HLLC core: Thornber scaling of the velocity jump of the primitive states, conservative states
+// from the scaled ones (density, pressure, 1 / rho and the sound speed are not touched)
+void lowmach4(const VEos& E, Face4& f) {
+    Vec5 &WL = f.WL, &WR = f.WR;
+    const V meps = set1(kMachEps);
+    const V M_L = dv(vsqrt(add(add(mul(WL.q[1], WL.q[1]), mul(WL.q[2], WL.q[2])), mul(WL.q[4], WL.q[4]))), add(f.c_L, meps));
+    const V M_R = dv(vsqrt(add(add(mul(WR.q[1], WR.q[1]), mul(WR.q[2], WR.q[2])), mul(WR.q[4], WR.q[4]))), add(f.c_R, meps));
+    const V z = vmin(vmax(vmax(M_L, M_R), set1(1e-4)), set1(1.0));
+    const V half = set1(0.5);
+    for (int m : {1, 2, 4}) {
+        const V avg = mul(half, add(WL.q[m], WR.q[m]));
+        const V hf = mul(half, sub(WL.q[m], WR.q[m]));
+        WL.q[m] = add(avg, mul(z, hf));
+        WR.q[m] = sub(avg, mul(z, hf));
     }
+    f.UL = E.prim_to_cons(WL);
+    f.UR = E.prim_to_cons(WR);
 }
 
 // The faces are taken in blocks of kBlock batches of four and each step of a face's flux (reconstruction, low-Mach states, HLLC) is
@@ -290,19 +301,20 @@ inline V gather_q(const State* W, const int* st, int k, int point, int q) {
 void riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, const State* UL, const State* UR, const int* axis, int n,
                         State* F, double* smax) {
     const VEos E(eos);
-    Vec5 Lb[kBlock], Rb[kBlock];
+    Face4 fb[kBlock];
     for (int k0 = 0; k0 < n; k0 += 4 * kBlock) {
         const int nb = (n - k0) / 4 < kBlock ? (n - k0) / 4 : kBlock;
         for (int b = 0; b < nb; ++b) {
-            Lb[b] = load4(UL + k0 + 4 * b);
-            Rb[b] = load4(UR + k0 + 4 * b);
-            prepare4(E, type, Lb[b], Rb[b]);
+            fb[b].UL = load4(UL + k0 + 4 * b);
+            fb[b].UR = load4(UR + k0 + 4 * b);
+            entry_cons4(E, fb[b]);
+            if (type == RiemannType::LowMachHLLC) lowmach4(E, fb[b]);
         }
         for (int b = 0; b < nb; ++b) {
             const int k = k0 + 4 * b;
             Vec5 Fk;
             V sm;
-            hllc4(E, type, sb, axis_masks(axis + k), Lb[b], Rb[b], Fk, sm);
+            hllc4(E, sb, axis_masks(axis + k), fb[b], Fk, sm);
             store_results(F, smax, k, Fk, sm);
         }
     }
@@ -313,7 +325,7 @@ void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, Limit
                               const int* axis, int n, State* F, double* smax, bool planar) {
     const VEos E(eos);
     const V half = set1(0.5);
-    Vec5 Lb[kBlock], Rb[kBlock];
+    Face4 fb[kBlock];
     for (int k0 = 0; k0 < n; k0 += 4 * kBlock) {
         const int nb = (n - k0) / 4 < kBlock ? (n - k0) / 4 : kBlock;
         for (int b = 0; b < nb; ++b) {
@@ -328,16 +340,17 @@ void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, Limit
                 wl.q[q] = add(c1, mul(half, vlimiter(lim, sub(c1, c0), bq)));
                 wr.q[q] = sub(c2, mul(half, vlimiter(lim, sub(c3, c2), bq)));
             }
-            Lb[b] = E.prim_to_cons(wl);
-            Rb[b] = E.prim_to_cons(wr);
+            // the face states go to the solver as conservative variables, as in the two-pass residual
+            fb[b].UL = E.prim_to_cons(wl);
+            fb[b].UR = E.prim_to_cons(wr);
+            entry_cons4(E, fb[b]);
+            if (type == RiemannType::LowMachHLLC) lowmach4(E, fb[b]);
         }
-        if (type == RiemannType::LowMachHLLC)
-            for (int b = 0; b < nb; ++b) prepare4(E, type, Lb[b], Rb[b]);
         for (int b = 0; b < nb; ++b) {
             const int k = k0 + 4 * b;
             Vec5 Fk;
             V sm;
-            hllc4(E, type, sb, axis_masks(axis + k), Lb[b], Rb[b], Fk, sm);
+            hllc4(E, sb, axis_masks(axis + k), fb[b], Fk, sm);
             store_results(F, smax, k, Fk, sm);
         }
     }

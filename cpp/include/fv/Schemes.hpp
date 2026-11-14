@@ -52,6 +52,9 @@ public:
 
 private:
     State hllc(const State& UL, const State& UR, int axis, double& smax) const;
+    State hllc_core(const State& WL, const State& WR, const State& UL, const State& UR, double inv_L, double inv_R, double c_L,
+                    double c_R, int axis, double& smax) const;
+    State lowmach_flux(const State& WL, const State& WR, double inv_L, double inv_R, int axis, double& smax) const;
 
     EOS eos_;
     RiemannType type_ = RiemannType::HLLC;

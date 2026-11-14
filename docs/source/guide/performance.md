@@ -20,7 +20,7 @@ at a time, and on AMR meshes the MUSCL reconstruction of the interior faces is f
 IEEE operations in the same order as the scalar code (no fused multiply-add, no vector min / max, every branch computed and
 selected by a mask), so the results are **bit-identical** with and without it, on any CPU. The scalar code is used on other CPUs
 and for the leftover faces of a batch; `FENICE_NO_SIMD=1` switches the vector kernels off (to time them, or to check the bits).
-The Riemann solver costs 48 / 75 ns per face (HLLC / Low-Mach) as scalar code and 18 / 23 ns vectorised
+The Riemann solver costs 47 / 71 ns per face (HLLC / Low-Mach) as scalar code and 16 / 21 ns vectorised
 (`bench_riemann`).
 The viscous cell quantities (velocities, temperature and the gradients from the four neighbours) and the viscous time-step bound of
 AMR meshes also run four leaves at a time, for runs of consecutive leaves whose neighbours are leaves (the others take the scalar
