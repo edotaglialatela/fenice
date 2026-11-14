@@ -8,6 +8,7 @@
 //   fenice --case "Shu-Osher Test" --set nx=2000 --set reconstruction=muscl
 //   fenice --config run.cfg               (as written by the GUI launcher)
 //   mpiexec -n 8 fenice --case "IBM Supersonic Flow over Cylinder"
+#include <algorithm>
 #include <csignal>
 #include <cstdio>
 #include <cstdlib>
@@ -51,7 +52,7 @@ void usage() {
                 "  --case NAME|PATH   test case: a name from --list-cases, or a case folder / case.toml\n"
                 "  --config FILE      'key = value' parameter file\n"
                 "  --set KEY=VALUE    override one parameter (repeatable)\n"
-                "  --threads N        OpenMP threads (default: all cores; 1 per rank under MPI)\n"
+                "  --threads N        OpenMP threads (default: all cores; 1 per rank under MPI, at most cores / ranks)\n"
                 "  --list-cases       list the built-in test cases\n"
                 "  --list-gui-cases   list the cases the GUI offers (the others are run from the command line)\n"
                 "  --print-switches   list the FENICE_* environment switches and exit\n"
@@ -262,9 +263,8 @@ int main(int argc, char** argv) {
     const bool under_mpi = mpi_child || launched_by_mpiexec();
     if (sp.use_amr && sp.use_mpi && !under_mpi)
         std::printf(
-            "[AMR] Under MPI the leaves of each level are distributed over the ranks (every rank still stores the whole\n"
-            "      mesh, and the remesh is replicated): the result is identical to serial, but on one node OpenMP threads\n"
-            "      (use_mpi = false) are usually faster.\n");
+            "[AMR] Under MPI the leaves of each level and the remesh are distributed over the ranks: the result is identical\n"
+            "      to serial, but on one node OpenMP threads (use_mpi = false) are usually faster.\n");
 #ifdef FV_USE_MPI
     if (sp.use_mpi && sp.n_cpus > 1 && !under_mpi) {
         // The ranks write to mpiexec's pipe: pass the colour decision down to them
@@ -290,10 +290,23 @@ int main(int argc, char** argv) {
     if (rank > 0) std::freopen(FV_NULL_DEVICE, "w", stdout);   // only rank 0 writes to the console (errors still go to stderr)
 #endif
 #ifdef _OPENMP
-    if (threads > 0)
+    if (size > 1) {
+        // ranks x threads must not exceed the logical cores (16 ranks x 16 threads ran five times slower than 16 threads): a request
+        // above the share of a rank is cut to it. Default: one thread per rank, or OMP_NUM_THREADS.
+        const int procs = omp_get_num_procs(), share = std::max(1, procs / size);
+        const char* env = std::getenv("OMP_NUM_THREADS");
+        const int asked = threads > 0 ? threads : (env && std::atoi(env) > 0 ? std::atoi(env) : 1);
+        const int use = std::min(asked, share);
+        omp_set_num_threads(use);
+        if (rank == 0 && use < asked)
+            std::printf("[PARALLEL] %d ranks x %d threads would exceed the %d logical cores: using %d thread(s) per rank\n", size,
+                        asked, procs, use);
+        if (rank == 0 && size > procs)
+            std::printf("[PARALLEL] %d ranks on %d logical cores: the ranks outnumber the cores (slower than fewer ranks)\n", size,
+                        procs);
+    } else if (threads > 0) {
         omp_set_num_threads(threads);
-    else if (size > 1 && !std::getenv("OMP_NUM_THREADS"))
-        omp_set_num_threads(1);   // avoid oversubscription
+    }
 #endif
     std::signal(SIGINT, on_sigint);
     if (logo && rank == 0) fv::print_logo(terminal_colors());

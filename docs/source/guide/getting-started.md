@@ -114,6 +114,11 @@ With `use_mpi = true` and `n_cpus > 1`, `fenice` re-launches itself under
 mpiexec -n 8 build\release\fenice.exe --case "IBM Supersonic Flow over Cylinder"
 ```
 
+Each rank runs one OpenMP thread unless `--threads N` (or `OMP_NUM_THREADS`) says otherwise; ranks times threads is
+capped at the logical cores (a message tells when a request was cut), because more threads than cores run several times
+slower. On one node threads alone (`use_mpi = false`) are as fast as ranks for uniform meshes and faster for AMR; use MPI
+for more than one node or more memory than one node has.
+
 Each rank owns a strip of rows or columns; see
 [MPIDecomposition]({{root}}modules/MPIDecomposition.html). The MPI result is
 identical to the serial one, also for AMR (the leaves of each level are distributed over
