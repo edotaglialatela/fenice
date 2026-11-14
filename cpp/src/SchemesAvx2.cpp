@@ -331,7 +331,7 @@ void riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, double 
 }
 
 void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, double sb, Limiter lim, const State* W, const int* st,
-                              const int* axis, int n, State* F, double* smax) {
+                              const int* axis, int n, State* F, double* smax, bool planar) {
     const VEos E(eos);
     const V half = set1(0.5);
     Vec5 Lb[kBlock], Rb[kBlock];
@@ -341,7 +341,8 @@ void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, d
             // MUSCL: wl = c1 + 0.5 phi(c1 - c0, c2 - c1), wr = c2 - 0.5 phi(c3 - c2, c2 - c1) for each primitive variable
             const int k = k0 + 4 * b;
             Vec5 wl, wr;
-            for (int q = 0; q < kNVar; ++q) {
+            if (planar) wl.q[4] = wr.q[4] = set1(0.0);   // rho w = 0 in 2-D: the limited reconstruction of +0 is +0
+            for (int q = 0; q < (planar ? 4 : kNVar); ++q) {
                 const V c0 = gather_q(W, st, k, 0, q), c1 = gather_q(W, st, k, 1, q), c2 = gather_q(W, st, k, 2, q),
                         c3 = gather_q(W, st, k, 3, q);
                 const V bq = sub(c2, c1);

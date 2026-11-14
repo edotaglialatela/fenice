@@ -164,6 +164,46 @@ TEST(riemann_batch_equals_scalar_bit_for_bit) {
     }
 }
 
+TEST(muscl_batch_planar_equals_the_full_reconstruction_bit_for_bit) {
+    // A 2-D run (rho w = +0 in every cell) skips the fifth variable of the reconstruction: the batch with `planar` must give the bits
+    // of the batch that reconstructs it, AVX2 and scalar tail, every limiter and solver, all axes of a plane, jumps that fire the
+    // limiter clipping and the shock-face blend, a batch length that is not a multiple of four.
+    unsigned long long seed = 12345ull;
+    const auto rnd = [&]() {
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        return static_cast<double>(seed >> 11) * (1.0 / 9007199254740992.0);
+    };
+    const EOS eos = EOS::ideal(1.4);
+    const int nw = 5000, n = 4099;
+    std::vector<State> W(nw);
+    for (State& w : W) {
+        const double jump = rnd() < 0.2 ? 3.0 : 0.05;
+        w = {0.5 + jump * rnd(), jump * (rnd() - 0.5), jump * (rnd() - 0.5), 0.4 + jump * rnd(), 0.0};
+    }
+    std::vector<int> st(4 * n), axis(n);
+    for (int k = 0; k < n; ++k) {
+        const int b = static_cast<int>(rnd() * (nw - 4));
+        for (int c = 0; c < 4; ++c) st[4 * k + c] = b + c;
+        axis[k] = k % 2;
+    }
+    for (const Limiter lim : {Limiter::Minmod, Limiter::VanLeer, Limiter::MC, Limiter::Koren})
+        for (const RiemannType type : {RiemannType::HLLC, RiemannType::LowMachHLLC, RiemannType::PreconditionedHLLC})
+            for (const double blend : {0.0, 0.2}) {
+                const RiemannSolver rs(eos, type, 0.1, blend);
+                std::vector<State> Fa(n), Fb(n);
+                std::vector<double> sa(n), sb(n);
+                rs.muscl_face_flux_batch(lim, W.data(), st.data(), axis.data(), n, Fa.data(), sa.data(), false);
+                rs.muscl_face_flux_batch(lim, W.data(), st.data(), axis.data(), n, Fb.data(), sb.data(), true);
+                int bad = 0;
+                for (int k = 0; k < n; ++k) {
+                    bool ok = std::memcmp(&sa[k], &sb[k], sizeof(double)) == 0;
+                    for (int c = 0; c < kNVar; ++c) ok = ok && std::memcmp(&Fa[k][c], &Fb[k][c], sizeof(double)) == 0;
+                    bad += ok ? 0 : 1;
+                }
+                CHECK(bad == 0);
+            }
+}
+
 TEST(viscous_cell_kernels_equal_scalar_bit_for_bit) {
     // The viscous cell kernels of the AMR engine (AVX2 where the CPU has it: viscous_cell_quantities_run, viscous_speed_range) must
     // give the bits of the one-cell functions for both equations of state, runs and ranges that start anywhere and whose length is

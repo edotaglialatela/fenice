@@ -247,18 +247,22 @@ void RiemannSolver::face_flux_batch(const State* UL, const State* UR, const int*
 }
 
 void RiemannSolver::muscl_face_flux_batch(Limiter lim, const State* W, const int* st, const int* axis, int n, State* F,
-                                          double* smax) const {
+                                          double* smax, bool planar) const {
     int done = 0;
 #ifdef FV_SIMD_AVX2
     if (detail::avx2_available()) {
         done = n & ~3;
-        if (done > 0) detail::muscl_riemann_batch_avx2(eos_, type_, ma_cut_, shock_blend_, lim, W, st, axis, done, F, smax);
+        if (done > 0) detail::muscl_riemann_batch_avx2(eos_, type_, ma_cut_, shock_blend_, lim, W, st, axis, done, F, smax, planar);
     }
 #endif
     for (int k = done; k < n; ++k) {
         const State &w0 = W[st[4 * k]], &w1 = W[st[4 * k + 1]], &w2 = W[st[4 * k + 2]], &w3 = W[st[4 * k + 3]];
         State wl, wr;
         for (int q = 0; q < kNVar; ++q) {
+            if (planar && q == 4) {   // rho w = 0 in 2-D: the limited reconstruction of +0 is +0
+                wl[q] = wr[q] = 0.0;
+                continue;
+            }
             const double c0 = w0[q], c1 = w1[q], c2 = w2[q], c3 = w3[q];
             const double bq = c2 - c1;
             wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, bq);
@@ -683,7 +687,7 @@ void fused_line(const FusedGrid& g, int axis, int j, int k, State* F_line, doubl
             s.st[4 * c + 3] = static_cast<int>(base + 3 * stride);
             s.ax[c] = axis;
         }
-        g.riemann->muscl_face_flux_batch(g.lim, g.Wp, s.st, s.ax, cnt, F_line + i0, s.sm);
+        g.riemann->muscl_face_flux_batch(g.lim, g.Wp, s.st, s.ax, cnt, F_line + i0, s.sm, nz == 1);
         for (int c = 0; c < cnt; ++c)
             if (s.sm[c] > local) local = s.sm[c];
     }

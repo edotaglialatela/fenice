@@ -45,7 +45,9 @@ public:
     // Like face_flux_batch for faces whose left / right states are the MUSCL reconstruction from the primitive states
     // W[st[4k]] .. W[st[4k+3]] (two cells each side of face k) with limiter `lim`: wl = c1 + 0.5 phi(c1 - c0, c2 - c1),
     // wr = c2 - 0.5 phi(c3 - c2, c2 - c1) per variable, converted to conservative form. Bit-identical to doing so one face at a time.
-    void muscl_face_flux_batch(Limiter lim, const State* W, const int* st, const int* axis, int n, State* F, double* smax) const;
+    // `planar`: a 2-D run (rho w = 0 everywhere): the fifth variable is not reconstructed, its face states are +0 (the same bits).
+    void muscl_face_flux_batch(Limiter lim, const State* W, const int* st, const int* axis, int n, State* F, double* smax,
+                               bool planar = false) const;
 
     // Solver variant.
     RiemannType type() const { return type_; }

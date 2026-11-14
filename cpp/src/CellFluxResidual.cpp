@@ -94,7 +94,7 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
         double msm[kChunk];
         int nm = 0;
         const auto flush_muscl = [&]() {
-            riemann_.muscl_face_flux_batch(lim, W_.data(), mst, max_, nm, mF, msm);
+            riemann_.muscl_face_flux_batch(lim, W_.data(), mst, max_, nm, mF, msm, dim_ == 2);
             for (int k = 0; k < nm; ++k) {
                 F_[mface[k]] = mF[k];
                 if (msm[k] > local) local = msm[k];
