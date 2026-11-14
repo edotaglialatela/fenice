@@ -47,8 +47,6 @@ private:
 
 // Central-difference cell-centre gradients from a (ny+2)*(nx+2) padded state.
 void compute_gradients(const Field& U_pad, int nx, int ny, double dx, double dy, Field& grad_x, Field& grad_y);
-// 3-D version from a (nz+2)*(ny+2)*(nx+2) padded state.
-void compute_gradients_3d(const Field& U_pad, const Mesh& mesh, Field& grad_x, Field& grad_y, Field& grad_z);
 
 // Tangential velocity derivatives in the ghost cells across MPI interfaces, so
 // the cross-derivative face averages match the serial stencil.
@@ -92,9 +90,9 @@ public:
     double viscous_residual_rows(const Field& U, const PaddedFrame& frame, const Mesh& mesh, Field& R_visc,
                                  const CrossGhosts* cross = nullptr, bool accumulate = false) const;
     // 3-D version: full stress tensor tau_ij = mu (du_i/dx_j + du_j/dx_i) - 2/3 mu delta_ij div u. `length`
-    // is the time-step length L of the solver (0: 2 / sum(1/h)).
-    double viscous_residual_3d(const Field& U, const Field& grad_x, const Field& grad_y, const Field& grad_z,
-                               const Mesh& mesh, const Field& U_pad, Field& R_visc,
+    // is the time-step length L of the solver (0: 2 / sum(1/h)). `U_pad` is the (nz+2)*(ny+2)*(nx+2) padded state; the
+    // cell-centre gradients are the central differences of it, computed in the sweep.
+    double viscous_residual_3d(const Field& U, const Mesh& mesh, const Field& U_pad, Field& R_visc,
                                const CrossGhosts* cross = nullptr, double length = 0.0, bool accumulate = false) const;
 
     // Second-order physical-boundary faces (boundary_order = 2): the cross derivatives on a face on a physical

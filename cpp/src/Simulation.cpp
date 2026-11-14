@@ -1047,8 +1047,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
             ProfileScope profile(Section::PadCornerFix);
             bm.fix_padded_corners(Upad_, halos ? (halos->dir == 'x' ? 0 : 1) : -1, halos && halos->lo, halos && halos->hi);
         }
-        compute_gradients_3d(Upad_, m, gX_, gY_, gZ_);
-        const double s_visc = ns->viscous_residual_3d(Uv, gX_, gY_, gZ_, m, Upad_, R, &cg, dt_length, true);
+        const double s_visc = ns->viscous_residual_3d(Uv, m, Upad_, R, &cg, dt_length, true);
         S = std::max(S, s_visc);
     }
 

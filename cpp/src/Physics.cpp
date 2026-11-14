@@ -37,27 +37,6 @@ void compute_gradients(const Field& P, int nx, int ny, double dx, double dy, Fie
         }
 }
 
-void compute_gradients_3d(const Field& P, const Mesh& m, Field& gx, Field& gy, Field& gz) {
-    const int nx = m.nx, ny = m.ny, nz = m.nz, n = nx * ny * nz;
-    const int PX = nx + 2, PY = ny + 2;
-    auto at = [&](int ii, int jj, int kk) -> const State& { return P[(static_cast<size_t>(kk) * PY + jj) * PX + ii]; };
-    gx.resize(n);
-    gy.resize(n);
-    gz.resize(n);
-#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-    for (int kj = 0; kj < ny * nz; ++kj) {
-        const int j = kj % ny, k = kj / ny;
-        for (int i = 0; i < nx; ++i) {
-            const int c = m.cell(i, j, k);
-            for (int q = 0; q < kNVar; ++q) {
-                gx[c][q] = (at(i + 2, j + 1, k + 1)[q] - at(i, j + 1, k + 1)[q]) / (2.0 * m.dx);
-                gy[c][q] = (at(i + 1, j + 2, k + 1)[q] - at(i + 1, j, k + 1)[q]) / (2.0 * m.dy);
-                gz[c][q] = (at(i + 1, j + 1, k + 2)[q] - at(i + 1, j + 1, k)[q]) / (2.0 * m.dz);
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Navier-Stokes viscous residual
 // ---------------------------------------------------------------------------
@@ -502,8 +481,7 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
 // 3-D viscous residual.  For a face normal to axis d the velocity-gradient tensor
 // G[a][b] = du_a/dx_b uses compact differences across the face for b == d and
 // face averages of the cell-centre gradients otherwise (the "cross" terms).
-double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const Field& gY, const Field& gZ,
-                                         const Mesh& m, const Field& U_pad, Field& Rv, const CrossGhosts* cg,
+double NavierStokes::viscous_residual_3d(const Field& U, const Mesh& m, const Field& U_pad, Field& Rv, const CrossGhosts* cg,
                                          double length, bool accumulate) const {
     constexpr double MU_DIAG = 4.0 / 3.0;
     constexpr double MU_OFF = 2.0 / 3.0;
@@ -531,19 +509,47 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
     double* G[3][3];
     for (int a = 0; a < 3; ++a)
         for (int b = 0; b < 3; ++b) G[a][b] = scratch_.data() + (4 + 3 * a + b) * static_cast<size_t>(n);
-    const Field* grads[3] = {&gX, &gY, &gZ};
+    // Cell quantities: the central differences of the conservative state (the padded array U_pad, as compute_gradients of the
+    // 2-D sweep) feed G[a][b] = (d(rho u_a)/dx_b - u_a d(rho)/dx_b) / rho. The energy gradient is not needed.
+    const auto cons_at = [&](int ii, int jj, int kk) -> const State& {
+        return U_pad[(static_cast<size_t>(kk) * PY + jj) * PX + ii];
+    };
+#ifdef FV_SIMD_AVX2
+    const bool simd_cells = detail::avx2_available();
+#endif
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int kj = 0; kj < ny * nz; ++kj) {
         const int j = kj % ny, k = kj / ny;
-        for (int i = 0; i < nx; ++i) {
+        int i0 = 0;
+#ifdef FV_SIMD_AVX2
+        if (simd_cells && nx >= 4) {
+            const size_t cc0 = (static_cast<size_t>(k) * ny + j) * nx;
+            double* gp[9];
+            for (int a = 0; a < 3; ++a)
+                for (int b = 0; b < 3; ++b) gp[3 * a + b] = G[a][b] + cc0;
+            double* const op[4] = {vel[0] + cc0, vel[1] + cc0, vel[2] + cc0, sT + cc0};
+            const int nv = (nx / 4) * 4;
+            detail::viscous_cells3d_avx2(m.dx, m.dy, m.dz, &W(0, j, k), &cons_at(0, j + 1, k + 1), &cons_at(2, j + 1, k + 1),
+                                         &cons_at(1, j, k + 1), &cons_at(1, j + 2, k + 1), &cons_at(1, j + 1, k),
+                                         &cons_at(1, j + 1, k + 2), nv, op, gp);
+            i0 = nv;
+        }
+#endif
+        for (int i = i0; i < nx; ++i) {
             const int cc = (k * ny + j) * nx + i;
             const State& w = W(i, j, k);
             const double rho = w[0];
             sT[cc] = w[3] / rho;
+            const State* nb[3][2] = {{&cons_at(i, j + 1, k + 1), &cons_at(i + 2, j + 1, k + 1)},
+                                     {&cons_at(i + 1, j, k + 1), &cons_at(i + 1, j + 2, k + 1)},
+                                     {&cons_at(i + 1, j + 1, k), &cons_at(i + 1, j + 1, k + 2)}};
+            double grad[3][5];   // grad[b][slot]: slots 0, 1, 2, 4
+            for (int b = 0; b < 3; ++b)
+                for (int q : {0, 1, 2, 4}) grad[b][q] = ((*nb[b][1])[q] - (*nb[b][0])[q]) / (2.0 * h[b]);
             for (int a = 0; a < 3; ++a) {
                 const double ua = w[kMom[a]];
                 vel[a][cc] = ua;
-                for (int b = 0; b < 3; ++b) G[a][b][cc] = ((*grads[b])[cc][kMom[a]] - ua * (*grads[b])[cc][0]) / rho;
+                for (int b = 0; b < 3; ++b) G[a][b][cc] = (grad[b][kMom[a]] - ua * grad[b][0]) / rho;
             }
         }
     }

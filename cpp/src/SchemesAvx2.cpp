@@ -558,6 +558,33 @@ void viscous_faces3d_avx2(int d, double mu, double k_cond, double h, double area
     _mm256_zeroupper();
 }
 
+void viscous_cells3d_avx2(double dx, double dy, double dz, const State* W, const State* xm, const State* xp, const State* ym,
+                          const State* yp, const State* zm, const State* zp, int n, double* const* out, double* const* g) {
+    const V td[3] = {set1(2.0 * dx), set1(2.0 * dy), set1(2.0 * dz)};
+    const State* lo[3] = {xm, ym, zm};
+    const State* hi[3] = {xp, yp, zp};
+    static const int kSlot3[3] = {1, 2, 4};
+    for (int k = 0; k < n; k += 4) {
+        const Vec5 w = load4(W + k);
+        const V rho = w.q[0];
+        const V vel[3] = {w.q[1], w.q[2], w.q[4]};
+        _mm256_storeu_pd(out[0] + k, vel[0]);
+        _mm256_storeu_pd(out[1] + k, vel[1]);
+        _mm256_storeu_pd(out[2] + k, vel[2]);
+        _mm256_storeu_pd(out[3] + k, dv(w.q[3], rho));
+        for (int b = 0; b < 3; ++b) {
+            const auto slot = [&](int q) {
+                const State* l = lo[b] + k;
+                const State* h = hi[b] + k;
+                return dv(sub(_mm256_set_pd(h[3][q], h[2][q], h[1][q], h[0][q]), _mm256_set_pd(l[3][q], l[2][q], l[1][q], l[0][q])), td[b]);
+            };
+            const V g0 = slot(0);
+            for (int a = 0; a < 3; ++a) _mm256_storeu_pd(g[3 * a + b] + k, dv(sub(slot(kSlot3[a]), mul(vel[a], g0)), rho));
+        }
+    }
+    _mm256_zeroupper();
+}
+
 }   // namespace detail
 }   // namespace fv
 

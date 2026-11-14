@@ -46,6 +46,12 @@ void viscous_row_yfaces_avx2(double mu, double k_cond, double dx, double dy, con
 // components, temperature, the four cross-derivative arrays in CrossGhosts order); the right cell of a face is `delta` cells further.
 void viscous_faces3d_avx2(int d, double mu, double k_cond, double h, double area, const double* const* vel, const double* T,
                           const double* const* gc, long delta, int n, State* out);
+// Cell quantities of the uniform 3-D viscous sweep for n cells (a multiple of 4) consecutive along x: velocity (3 arrays), temperature
+// (`out`, 4 arrays) and the nine G[a][b] = (d(rho u_a)/dx_b - u_a d(rho)/dx_b) / rho (`g`, index 3 a + b) from the central differences
+// of the conservative state. `W`: primitive state of the first cell; `xm`, `xp`, `ym`, `yp`, `zm`, `zp`: the conservative
+// neighbour cell of the first cell on each side. Bit-identical to the scalar loop of NavierStokes::viscous_residual_3d.
+void viscous_cells3d_avx2(double dx, double dy, double dz, const State* W, const State* xm, const State* xp, const State* ym,
+                          const State* yp, const State* zm, const State* zp, int n, double* const* out, double* const* g);
 #else
 inline bool avx2_available() { return false; }
 #endif
