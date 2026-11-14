@@ -16,20 +16,41 @@ namespace fv {
 
 namespace {
 
+// A vector whose resize leaves the new elements uninitialised: the scratch arrays below are written completely by the parallel loops
+// that follow, so the threads touch the pages instead of one thread clearing them first.
+template <class T>
+struct UninitAlloc : std::allocator<T> {
+    template <class U>
+    struct rebind {
+        using other = UninitAlloc<U>;
+    };
+    using std::allocator<T>::allocator;
+    template <class U>
+    void construct(U* p) const noexcept {
+        ::new (static_cast<void*>(p)) U;
+    }
+    template <class U, class... A>
+    void construct(U* p, A&&... a) const {
+        ::new (static_cast<void*>(p)) U(std::forward<A>(a)...);
+    }
+};
+template <class T>
+using UVec = std::vector<T, UninitAlloc<T>>;
+
 // The cells of one level of the hierarchy: the leaves of that level and the split ancestors of the deeper leaves (whose
 // value is the mean of their 2^D children), sorted by Morton key. A cell at level l exists wherever a leaf of level >= l
 // lies; coarser leaves are not cells of this level.
 struct LevelCells {
-    std::vector<uint64_t> key;   // morton_key(i, j) (3-D: morton_key3(i, j, k)), ascending
-    std::vector<int> ci, cj, ck;   // ck: 3-D only
+    UVec<uint64_t> key;   // morton_key(i, j) (3-D: morton_key3(i, j, k)), ascending
+    UVec<int> ci, cj, ck;   // ck: 3-D only
     std::unique_ptr<State[]> val;   // conservative state
-    std::vector<int> leaf;       // leaf index, -1 for a split cell
+    UVec<int> leaf;       // leaf index, -1 for a split cell
     // dense table over the bounding box of the cells (i0, j0, k0, w, h, d) -> cell (-1: none), when the box is small enough; else empty
-    std::vector<int> grid;
+    UVec<int> grid;
     int box[6] = {0, 0, 0, 0, 0, 0};
     int NX = 0, NY = 0, dim = 2;
     // the quantities the tests look at, per cell (the same cons_to_prim as the pair test would do)
-    std::vector<double> rho, p, speed;
+    UVec<double> rho, p, speed;
 
     int find(int i, int j, int kk = 0) const {
         if (!grid.empty()) {
@@ -64,7 +85,7 @@ void CellIndicator::diffuse(std::vector<double>& xi, const std::vector<std::arra
     }
 }
 
-void CellIndicator::diffuse_cells(std::vector<double>& xi, const std::vector<int>& nbr, int sides) const {
+void CellIndicator::diffuse_cells(std::vector<double>& xi, const int* nbr, int sides) const {
     const int n = static_cast<int>(xi.size());
     std::vector<double> add(xi.size());
     for (int it = 0; it < diffusion; ++it) {
@@ -95,9 +116,9 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
     for (int l = M; l >= 0; --l) {
         LevelCells& L = lev[static_cast<size_t>(l)];
         // parents of the cells one level down (sorted, each preceded by its four children there)
-        std::vector<uint64_t> pkey;
-        std::vector<State> pval;
-        std::vector<int> pi, pj, pk;
+        UVec<uint64_t> pkey;
+        UVec<State> pval;
+        UVec<int> pi, pj, pk;
         if (l < M) {
             const LevelCells& D = lev[static_cast<size_t>(l) + 1];
             // On a whole mesh the cells one level down come in groups of 2^D consecutive siblings. On a partial one (the leaves
@@ -141,8 +162,8 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         // merge with the leaves of level l (already in Morton order in the leaf arrays): the sources of the cells in order,
         // leaf a >= 0 or parent -1 - b (distinct keys)
         const int la = m.level_begin[l], na = m.level_begin[l + 1] - la, nb = static_cast<int>(pkey.size()), n = na + nb;
-        std::vector<uint64_t> lkey(static_cast<size_t>(na));
-        std::vector<int> sa(static_cast<size_t>(na)), sb(static_cast<size_t>(nb)), src(static_cast<size_t>(n));
+        UVec<uint64_t> lkey(static_cast<size_t>(na));
+        UVec<int> sa(static_cast<size_t>(na)), sb(static_cast<size_t>(nb)), src(static_cast<size_t>(n));
 #pragma omp parallel for schedule(static) if (na >= kOmpMinWork)
         for (int a = 0; a < na; ++a) {
             lkey[a] = d3 ? morton_key3(static_cast<uint32_t>(m.ci[la + a]), static_cast<uint32_t>(m.cj[la + a]),
@@ -182,11 +203,23 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         L.NY = m.ny_at(l);
         // the bounding box of the level's cells (a rank's region covers a part of the domain only)
         int lo[3] = {0, 0, 0}, hi[3] = {-1, -1, -1};
-        for (int c = 0; c < n; ++c) {
-            const int x[3] = {L.ci[c], L.cj[c], d3 ? L.ck[c] : 0};
+#pragma omp parallel if (n >= kOmpMinWork)
+        {   // (thread-local extremes, merged in a critical section: MSVC's OpenMP 2.0 has no min / max reductions)
+            int tlo[3] = {1 << 30, 1 << 30, 1 << 30}, thi[3] = {-1, -1, -1};
+#pragma omp for schedule(static)
+            for (int c = 0; c < n; ++c) {
+                const int x[3] = {L.ci[c], L.cj[c], d3 ? L.ck[c] : 0};
+                for (int a = 0; a < 3; ++a) {
+                    tlo[a] = std::min(tlo[a], x[a]);
+                    thi[a] = std::max(thi[a], x[a]);
+                }
+            }
+#pragma omp critical(indicator_bbox)
             for (int a = 0; a < 3; ++a) {
-                if (c == 0 || x[a] < lo[a]) lo[a] = x[a];
-                if (c == 0 || x[a] > hi[a]) hi[a] = x[a];
+                if (tlo[a] <= thi[a]) {
+                    lo[a] = hi[a] < 0 ? tlo[a] : std::min(lo[a], tlo[a]);
+                    hi[a] = std::max(hi[a], thi[a]);
+                }
             }
         }
         const int bw = hi[0] - lo[0] + 1, bh = hi[1] - lo[1] + 1, bd = hi[2] - lo[2] + 1;
@@ -289,7 +322,7 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
             }
         }
         // per cell and side: the same-level cell across it (>= 0), -1 against a coarser leaf, -2 at an edge
-        std::vector<int> nbr(static_cast<size_t>(ns) * n, -2);
+        UVec<int> nbr(static_cast<size_t>(ns) * n);   // (set to -2 in the loop below)
         const auto test = [&](double ca, double cb, double floor_value) {
             double vmin = std::min(std::abs(ca), std::abs(cb));
             if (vmin < value_floor) vmin = floor_value;
@@ -304,6 +337,7 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
         };
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
         for (int c = 0; c < n; ++c) {
+            for (int s = 0; s < ns; ++s) nbr[static_cast<size_t>(ns) * c + s] = -2;
             if (parents_only && !active[static_cast<size_t>(c)]) continue;
             bool hit = false;
             for (int s = 0; s < ns; ++s) {
@@ -323,7 +357,7 @@ CellIndicator::Result CellIndicator::evaluate(const CellMesh& m, const Field& U,
             }
             if (hit) x[c] = 1.0;
         }
-        diffuse_cells(x, nbr, ns);
+        diffuse_cells(x, nbr.data(), ns);
     }
     return xi;
     };

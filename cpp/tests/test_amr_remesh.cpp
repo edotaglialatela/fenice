@@ -376,7 +376,7 @@ TEST(cellindicator_cell_gather_diffusion_equals_the_interface_rule_bit_for_bit) 
             for (int c = 0; c < n; ++c) xa[c] = (rnd() % 5 == 0) ? 1.0 : (rnd() % 7 == 0 ? 0.07 : 0.0);
             xb = xa;
             ind.diffuse(xa, ifaces);
-            ind.diffuse_cells(xb, sym);
+            ind.diffuse_cells(xb, sym.data());
             CHECK(xa == xb);
         }
     }

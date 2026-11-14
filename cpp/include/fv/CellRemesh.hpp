@@ -55,7 +55,7 @@ struct CellIndicator {
     // The same smoothing gathered per cell (and parallel): nbr[sides c + s] is the cell across side s of cell c in the same level,
     // -1 if a coarser leaf lies there, -2 if nothing does (sides: 4 in 2-D, 6 in 3-D). Gives the same bits as diffuse() on the
     // interfaces of that table.
-    void diffuse_cells(std::vector<double>& xi, const std::vector<int>& nbr, int sides = 4) const;
+    void diffuse_cells(std::vector<double>& xi, const int* nbr, int sides = 4) const;
     // Per leaf of `mesh`: its xi at its own level, and the xi of its parent cell at the parent level (1e300 at level 0).
     struct Result {
         std::vector<double> xi, xi_parent;
