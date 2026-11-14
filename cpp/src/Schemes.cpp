@@ -263,6 +263,32 @@ void RiemannSolver::muscl_face_flux_batch(Limiter lim, const State* W, const int
     }
 }
 
+void RiemannSolver::muscl_line_flux_batch(Limiter lim, const double* W, size_t plane, size_t base, size_t stride, int axis, int n,
+                                          State* F, double* smax, bool planar) const {
+    int done = 0;
+#ifdef FV_SIMD_AVX2
+    if (detail::avx2_available()) {
+        done = n & ~3;
+        if (done > 0) detail::muscl_riemann_line_avx2(eos_, type_, shock_blend_, lim, W, plane, base, stride, axis, done, F, smax, planar);
+    }
+#endif
+    for (int k = done; k < n; ++k) {
+        State wl, wr;
+        for (int q = 0; q < kNVar; ++q) {
+            if (planar && q == 4) {   // rho w = 0 in 2-D: the limited reconstruction of +0 is +0
+                wl[q] = wr[q] = 0.0;
+                continue;
+            }
+            const double* p = W + q * plane + base + k;
+            const double c0 = p[0], c1 = p[stride], c2 = p[2 * stride], c3 = p[3 * stride];
+            const double bq = c2 - c1;
+            wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, bq);
+            wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, bq);
+        }
+        F[k] = face_flux(eos_.prim_to_cons(wl), eos_.prim_to_cons(wr), axis, smax[k]);
+    }
+}
+
 double RiemannSolver::compute_flux(const Field& UL, const Field& UR, const Mesh& mesh, Field& F) const {
     const int nf = mesh.num_faces();
     const int nxf = mesh.num_xfaces(), nxyf = nxf + mesh.num_yfaces();
@@ -606,7 +632,8 @@ struct FusedGrid {
     const RiemannSolver* riemann;
     const EOS* eos;
     Limiter lim;
-    const State* Wp;       // padded primitive state (MUSCL); null for the first-order scheme
+    const double* Wp;      // padded primitive state, one plane per variable (MUSCL); null for the first-order scheme
+    size_t plane;          // size of a plane of Wp
     const Field* U;        // cell states (first order)
     const Field* UL;
     const Field* UR;
@@ -618,7 +645,7 @@ struct FusedGrid {
 
 constexpr int kFusedChunk = 256;
 struct FusedScratch {
-    int st[4 * kFusedChunk], ax[kFusedChunk];
+    int ax[kFusedChunk];
     double sm[kFusedChunk];
     State ul[kFusedChunk], ur[kFusedChunk];   // first order: the states on both sides of the faces of a chunk
 };
@@ -668,17 +695,10 @@ void fused_line(const FusedGrid& g, int axis, int j, int k, State* F_line, doubl
     }
     for (int i0 = first; g.Wp != nullptr && i0 <= last; i0 += kFusedChunk) {
         const int cnt = std::min(kFusedChunk, last - i0 + 1);
-        for (int c = 0; c < cnt; ++c) {
-            const int i = i0 + c;
-            const size_t base = axis == 0 ? g.P(i, j + pad, k + zp)
-                                          : (axis == 1 ? g.P(i + pad, t_line, k + zp) : g.P(i + pad, j + pad, t_line));
-            s.st[4 * c] = static_cast<int>(base);
-            s.st[4 * c + 1] = static_cast<int>(base + stride);
-            s.st[4 * c + 2] = static_cast<int>(base + 2 * stride);
-            s.st[4 * c + 3] = static_cast<int>(base + 3 * stride);
-            s.ax[c] = axis;
-        }
-        g.riemann->muscl_face_flux_batch(g.lim, g.Wp, s.st, s.ax, cnt, F_line + i0, s.sm, nz == 1);
+        // face i of the line has its stencil at base + i + p * stride: the faces of a chunk are consecutive in memory
+        const size_t base = axis == 0 ? g.P(i0, j + pad, k + zp)
+                                      : (axis == 1 ? g.P(i0 + pad, t_line, k + zp) : g.P(i0 + pad, j + pad, t_line));
+        g.riemann->muscl_line_flux_batch(g.lim, g.Wp, g.plane, base, stride, axis, cnt, F_line + i0, s.sm, nz == 1);
         for (int c = 0; c < cnt; ++c)
             if (s.sm[c] > local) local = s.sm[c];
     }
@@ -702,7 +722,7 @@ void fused_line(const FusedGrid& g, int axis, int j, int k, State* F_line, doubl
 
 // The primitive state padded by kHaloDepth cells (edge replication; halos replace it where present). The layouts of Halos reduce to
 // the 2-D ones when nz = 1.
-void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& h, Field& Wp, int& PX, int& PY, int& zp) {
+void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& h, std::vector<double>& Wp, int& PX, int& PY, int& zp) {
     constexpr int pad = kHaloDepth;
     const int nx = m.nx, ny = m.ny, nz = m.nz;
     const bool three_d = nz > 1;
@@ -710,7 +730,11 @@ void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& 
     PX = nx + 2 * pad;
     PY = ny + 2 * pad;
     const int PZ = nz + 2 * zp;
-    Wp.resize(static_cast<size_t>(PZ) * PY * PX);
+    const size_t plane = static_cast<size_t>(PZ) * PY * PX;
+    Wp.resize(5 * plane);
+    const auto put = [&](size_t idx, const State& w) {
+        for (int q = 0; q < kNVar; ++q) Wp[q * plane + idx] = w[q];
+    };
     const auto P = [&](int ii, int jj, int kk) -> size_t { return (static_cast<size_t>(kk) * PY + jj) * PX + ii; };
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
     for (int kj = 0; kj < PZ * PY; ++kj) {   // rows of the padded array (in 2-D, PZ = 1: the rows themselves)
@@ -718,37 +742,38 @@ void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& 
         const int k = std::min(std::max(kk - zp, 0), nz - 1);
         const int j = std::min(std::max(jj - pad, 0), ny - 1);
         for (int ii = 0; ii < PX; ++ii)
-            Wp[P(ii, jj, kk)] = eos.cons_to_prim(U[m.cell(std::min(std::max(ii - pad, 0), nx - 1), j, k)]);
+            put(P(ii, jj, kk), eos.cons_to_prim(U[m.cell(std::min(std::max(ii - pad, 0), nx - 1), j, k)]));
     }
     for (int k = 0; k < nz; ++k)
         for (int d = 0; d < pad; ++d) {
             if (h.b)
-                for (int i = 0; i < nx; ++i) Wp[P(i + pad, d, k + zp)] = eos.cons_to_prim((*h.b)[(d * nz + k) * nx + i]);
+                for (int i = 0; i < nx; ++i) put(P(i + pad, d, k + zp), eos.cons_to_prim((*h.b)[(d * nz + k) * nx + i]));
             if (h.t)
                 for (int i = 0; i < nx; ++i)
-                    Wp[P(i + pad, ny + pad + d, k + zp)] = eos.cons_to_prim((*h.t)[(d * nz + k) * nx + i]);
+                    put(P(i + pad, ny + pad + d, k + zp), eos.cons_to_prim((*h.t)[(d * nz + k) * nx + i]));
             if (h.l)
-                for (int j = 0; j < ny; ++j) Wp[P(d, j + pad, k + zp)] = eos.cons_to_prim((*h.l)[(k * ny + j) * pad + d]);
+                for (int j = 0; j < ny; ++j) put(P(d, j + pad, k + zp), eos.cons_to_prim((*h.l)[(k * ny + j) * pad + d]));
             if (h.r)
                 for (int j = 0; j < ny; ++j)
-                    Wp[P(nx + pad + d, j + pad, k + zp)] = eos.cons_to_prim((*h.r)[(k * ny + j) * pad + d]);
+                    put(P(nx + pad + d, j + pad, k + zp), eos.cons_to_prim((*h.r)[(k * ny + j) * pad + d]));
         }
     if (three_d)
         for (int d = 0; d < pad; ++d)
             for (int j = 0; j < ny; ++j)
                 for (int i = 0; i < nx; ++i) {
-                    if (h.f) Wp[P(i + pad, j + pad, d)] = eos.cons_to_prim((*h.f)[(d * ny + j) * nx + i]);
-                    if (h.bk) Wp[P(i + pad, j + pad, nz + pad + d)] = eos.cons_to_prim((*h.bk)[(d * ny + j) * nx + i]);
+                    if (h.f) put(P(i + pad, j + pad, d), eos.cons_to_prim((*h.f)[(d * ny + j) * nx + i]));
+                    if (h.bk) put(P(i + pad, j + pad, nz + pad + d), eos.cons_to_prim((*h.bk)[(d * ny + j) * nx + i]));
                 }
 }
 
-FusedGrid make_grid(const RiemannSolver& riemann, const EOS& eos, Limiter lim, const Field& Wp, const Field& UL, const Field& UR,
+FusedGrid make_grid(const RiemannSolver& riemann, const EOS& eos, Limiter lim, const std::vector<double>& Wp, const Field& UL, const Field& UR,
                     const Mesh& m, const Halos& h, int PX, int PY, int zp) {
     FusedGrid g{};
     g.riemann = &riemann;
     g.eos = &eos;
     g.lim = lim;
     g.Wp = Wp.data();
+    g.plane = Wp.size() / 5;
     g.U = nullptr;
     g.UL = &UL;
     g.UR = &UR;
@@ -774,7 +799,7 @@ FusedGrid make_grid(const RiemannSolver& riemann, const EOS& eos, Limiter lim, c
 double MusclReconstruction::muscl_fluxes(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U,
                                          const Mesh& m, const Halos& h, Field& F) const {
     const int nx = m.nx, ny = m.ny, nz = m.nz;
-    thread_local Field W_pad;
+    thread_local std::vector<double> W_pad;
     int PX, PY, zp;
     pad_primitives(eos_, U, m, h, W_pad, PX, PY, zp);
     F.resize(m.num_faces());
@@ -852,7 +877,7 @@ double fused_residual_2d(const FusedGrid& g, const Mesh& m, Field& R) {
 
 double MusclReconstruction::muscl_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U,
                                               const Mesh& m, const Halos& h, Field& R) const {
-    thread_local Field W_pad;
+    thread_local std::vector<double> W_pad;
     int PX, PY, zp;
     pad_primitives(eos_, U, m, h, W_pad, PX, PY, zp);
     R.resize(U.size());

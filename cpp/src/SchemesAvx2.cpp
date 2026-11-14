@@ -321,8 +321,13 @@ void riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, const State
     _mm256_zeroupper();
 }
 
-void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, Limiter lim, const State* W, const int* st,
-                              const int* axis, int n, State* F, double* smax, bool planar) {
+namespace {
+
+// The MUSCL face batch for any way of reading the stencil: load(k, point, q) = the four faces k .. k+3 of the batch, point 0..3 of
+// their stencils, primitive variable q; axes(k) = AxisMasks of the faces k .. k+3.
+template <class Load, class Axes>
+void muscl_riemann_body(const EOS& eos, RiemannType type, double sb, Limiter lim, int n, State* F, double* smax, bool planar,
+                        const Load& load, const Axes& axes) {
     const VEos E(eos);
     const V half = set1(0.5);
     Face4 fb[kBlock];
@@ -334,8 +339,7 @@ void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, Limit
             Vec5 wl, wr;
             if (planar) wl.q[4] = wr.q[4] = set1(0.0);   // rho w = 0 in 2-D: the limited reconstruction of +0 is +0
             for (int q = 0; q < (planar ? 4 : kNVar); ++q) {
-                const V c0 = gather_q(W, st, k, 0, q), c1 = gather_q(W, st, k, 1, q), c2 = gather_q(W, st, k, 2, q),
-                        c3 = gather_q(W, st, k, 3, q);
+                const V c0 = load(k, 0, q), c1 = load(k, 1, q), c2 = load(k, 2, q), c3 = load(k, 3, q);
                 const V bq = sub(c2, c1);
                 wl.q[q] = add(c1, mul(half, vlimiter(lim, sub(c1, c0), bq)));
                 wr.q[q] = sub(c2, mul(half, vlimiter(lim, sub(c3, c2), bq)));
@@ -350,11 +354,31 @@ void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, Limit
             const int k = k0 + 4 * b;
             Vec5 Fk;
             V sm;
-            hllc4(E, sb, axis_masks(axis + k), fb[b], Fk, sm);
+            hllc4(E, sb, axes(k), fb[b], Fk, sm);
             store_results(F, smax, k, Fk, sm);
         }
     }
     _mm256_zeroupper();
+}
+
+}   // namespace
+
+void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, Limiter lim, const State* W, const int* st,
+                              const int* axis, int n, State* F, double* smax, bool planar) {
+    muscl_riemann_body(
+        eos, type, sb, lim, n, F, smax, planar, [&](int k, int point, int q) { return gather_q(W, st, k, point, q); },
+        [&](int k) { return axis_masks(axis + k); });
+}
+
+void muscl_riemann_line_avx2(const EOS& eos, RiemannType type, double sb, Limiter lim, const double* W, size_t plane, size_t base,
+                             size_t stride, int axis, int n, State* F, double* smax, bool planar) {
+    AxisMasks ax;
+    ax.m1 = _mm256_castsi256_pd(_mm256_set1_epi64x(axis == 1 ? -1 : 0));
+    ax.m2 = _mm256_castsi256_pd(_mm256_set1_epi64x(axis == 2 ? -1 : 0));
+    muscl_riemann_body(
+        eos, type, sb, lim, n, F, smax, planar,
+        [&](int k, int point, int q) { return _mm256_loadu_pd(W + q * plane + base + k + point * stride); },
+        [&](int) { return ax; });
 }
 
 // ---------------------------------------------------------------------------------------------------------------------

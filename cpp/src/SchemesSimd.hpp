@@ -21,6 +21,10 @@ void riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, const State
 // (the four points of its stencil) and applies the limiter `lim` before the Riemann solver, as the scalar reconstruction does.
 void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, Limiter lim, const State* W, const int* st,
                               const int* axis, int n, State* F, double* smax, bool planar);
+// The same for the faces of one line of the uniform mesh, normal to `axis`: the primitive state is stored per variable (plane q at
+// W + q * plane), face k of the batch has its stencil at the indices base + k + point * stride, point 0 .. 3. n a multiple of 4.
+void muscl_riemann_line_avx2(const EOS& eos, RiemannType type, double sb, Limiter lim, const double* W, size_t plane, size_t base,
+                             size_t stride, int axis, int n, State* F, double* smax, bool planar);
 // Viscous cell kernels of the AMR engine for the leaves c0 .. c0+n-1 (n a multiple of 4), bit-identical to the scalar functions of
 // CellFlux.cpp; the arguments are those of viscous_cell_quantities_run and viscous_speed_range (CellFlux.hpp), with `out` the seven
 // arrays of ViscousCellArrays in their order (u, v, T, du/dx, du/dy, dv/dx, dv/dy).

@@ -47,6 +47,11 @@ public:
     void muscl_face_flux_batch(Limiter lim, const State* W, const int* st, const int* axis, int n, State* F, double* smax,
                                bool planar = false) const;
 
+    // The same for the faces of one line of the uniform mesh, normal to `axis`: the primitive state is stored per variable (plane q
+    // at W + q * plane) and face k of the batch has its four stencil points at base + k + p * stride, p = 0 .. 3.
+    void muscl_line_flux_batch(Limiter lim, const double* W, size_t plane, size_t base, size_t stride, int axis, int n, State* F,
+                               double* smax, bool planar) const;
+
     // Solver variant.
     RiemannType type() const { return type_; }
 
