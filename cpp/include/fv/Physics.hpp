@@ -151,6 +151,10 @@ public:
 
     // Zero the velocity in solid cells (safe inside RK stages).
     void apply_forcing(Field& U, const EOS& eos) const;
+    // Ghost-cell wall only: apply_forcing on U itself, after saving the states of the cells it writes (ghost cells and deeper
+    // solid cells) in `saved`; restore_forced puts them back. The same bits as forcing a copy of U, without the copy.
+    void force_in_place(Field& U, const EOS& eos, std::vector<State>& saved) const;
+    void restore_forced(Field& U, const std::vector<State>& saved) const;
     // Once per complete step: fringe Neumann + deep-solid reset.
     void apply_solid_reset(Field& U, const EOS& eos, const SolidResetHalo* halo = nullptr) const;
 
@@ -261,6 +265,8 @@ private:
     std::vector<Ghost> ghost_;
     std::vector<SurfacePoint> surface_;
     std::vector<char> ghost_mask_;
+    mutable std::vector<int> forced_cells_;   // the cells apply_forcing writes with the ghost wall (built on first use)
+    mutable bool forced_built_ = false;
     bool make_probe(const Mesh& m, double x, double y, Probe& pr, int layer = 0) const;   // bilinear in the layer `layer`
     bool make_probe3(const Mesh& m, double x, double y, double z, Probe& pr) const;       // trilinear (sphere)
     double wall_curvature(double wx, double wy, double nx, double ny, double w) const;   // signed, convex > 0   // false: no fluid cell around (x, y)

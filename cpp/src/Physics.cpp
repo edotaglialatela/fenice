@@ -832,6 +832,23 @@ void ImmersedBoundary::apply_forcing(Field& U, const EOS& eos) const {
     }
 }
 
+void ImmersedBoundary::force_in_place(Field& U, const EOS& eos, std::vector<State>& saved) const {
+    if (!forced_built_) {
+        forced_cells_.clear();
+        for (const Ghost& g : ghost_) forced_cells_.push_back(g.cell);
+        for (int c = 0; c < static_cast<int>(mask_.size()); ++c)
+            if (mask_[c] && !ghost_mask_[c]) forced_cells_.push_back(c);
+        forced_built_ = true;
+    }
+    saved.resize(forced_cells_.size());
+    for (size_t k = 0; k < forced_cells_.size(); ++k) saved[k] = U[static_cast<size_t>(forced_cells_[k])];
+    apply_forcing(U, eos);
+}
+
+void ImmersedBoundary::restore_forced(Field& U, const std::vector<State>& saved) const {
+    for (size_t k = 0; k < forced_cells_.size(); ++k) U[static_cast<size_t>(forced_cells_[k])] = saved[k];
+}
+
 void ImmersedBoundary::apply_solid_reset(Field& U, const EOS& eos, const SolidResetHalo* h) const {
     if (ghost_on_) {   // ghost states from the fluid, the deeper solid cells at rest at the reference state
         fill_ghosts_part([](int c) { return c; }, [&U](int c) -> const State& { return U[c]; }, U, eos, true);

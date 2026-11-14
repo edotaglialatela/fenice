@@ -685,15 +685,33 @@ static bool fused_enabled() {
 }
 static bool fused_muscl(const MusclReconstruction& mu) { return fused_enabled() && mu.scheme() == Reconstruction::Muscl; }
 
+// Puts the cells of an in-place forcing back when the residual is done (also when it throws).
+struct Simulation::InPlaceForcing {
+    const ImmersedBoundary* ib = nullptr;
+    Field* U = nullptr;
+    const std::vector<State>* saved = nullptr;
+    void set(const ImmersedBoundary* b, Field* u, const std::vector<State>* s) { ib = b; U = u; saved = s; }
+    ~InPlaceForcing() {
+        if (ib) ib->restore_forced(*U, *saved);
+    }
+};
+
 double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const ImmersedBoundary* ib,
                             const MusclReconstruction* mu, const Field& U_in, Field& R, const StripHalos* halos) {
     if (m.is3d()) return assemble_3d(m, bm, ib, mu, U_in, R, halos);
     const Field* Uc = &U_in;
+    InPlaceForcing guard;
     if (ib) {
         ProfileScope profile(Section::IBMForcing);
-        Uf_ = U_in;
-        ib->apply_forcing(Uf_, fluid);
-        Uc = &Uf_;
+        if (ib->ghost_cells()) {
+            // only the cells of the body change: force U_in itself and put them back at the end (no copy of the field)
+            ib->force_in_place(const_cast<Field&>(U_in), fluid, Usaved_);
+            guard.set(ib, const_cast<Field*>(&U_in), &Usaved_);
+        } else {
+            Uf_ = U_in;
+            ib->apply_forcing(Uf_, fluid);
+            Uc = &Uf_;
+        }
     }
     const int nx = m.nx, ny = m.ny, nxf = m.num_xfaces();
     constexpr int D = kHaloDepth;
@@ -847,11 +865,18 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
 double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const ImmersedBoundary* ib,
                                const MusclReconstruction* mu, const Field& U_in, Field& R, const StripHalos* halos) {
     const Field* Uc = &U_in;
+    InPlaceForcing guard;
     if (ib) {
         ProfileScope profile(Section::IBMForcing);
-        Uf_ = U_in;
-        ib->apply_forcing(Uf_, fluid);
-        Uc = &Uf_;
+        if (ib->ghost_cells()) {
+            // only the cells of the body change: force U_in itself and put them back at the end (no copy of the field)
+            ib->force_in_place(const_cast<Field&>(U_in), fluid, Usaved_);
+            guard.set(ib, const_cast<Field*>(&U_in), &Usaved_);
+        } else {
+            Uf_ = U_in;
+            ib->apply_forcing(Uf_, fluid);
+            Uc = &Uf_;
+        }
     }
     const Field& Uv = *Uc;
     const int nx = m.nx, ny = m.ny, nz = m.nz;
