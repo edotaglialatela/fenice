@@ -164,6 +164,11 @@ public:
     double muscl_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
                              const Halos& h, Field& R) const;
 
+    // The same for a 3-D mesh (nz > 1): the balance ((0 - (Fr Ax - Fl Ax)) - (Ft Ay - Fb Ay)) - (Fk Az - Ff Az)) * (1 / volume) in the
+    // same pass, a plane of cells at a time (the face fluxes of a plane are kept, not the whole face array).
+    double muscl_residual_3d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
+                             const Halos& h, Field& R) const;
+
     // The WENO3-Z value at the face on the right of c1 from the cells (c0, c1, c2) (the right-hand state of the same face is
     // weno3_value(c3, c2, c1)): the very function the uniform reconstruction calls, so another engine (the adaptive face
     // list) gets the same bits. `weno_eps`: the relative regularisation of the scheme.

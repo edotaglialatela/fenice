@@ -414,6 +414,24 @@ TEST(fused_residual_passes_equal_the_two_pass_residual_bit_for_bit) {
                     for (int q = 0; q < kNVar; ++q) same = same && F1[f][q] == F2[f][q];
                 CHECK(same);
                 compared += static_cast<long long>(F1.size());
+                if (nz > 1) {
+                    // 3-D flux balance in the same pass
+                    Field R1;
+                    const double s3 = mu.muscl_residual_3d(rs, ULs, URs, U, m, h, R1);
+                    CHECK(s3 == s2);
+                    const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
+                    bool rsame = R1.size() == U.size();
+                    for (int k = 0; rsame && k < m.nz; ++k)
+                        for (int j = 0; j < m.ny; ++j)
+                            for (int i = 0; i < m.nx; ++i)
+                                for (int q = 0; q < kNVar; ++q) {
+                                    const State &fl = F2[m.xface(i, j, k)], &fr = F2[m.xface(i + 1, j, k)], &fb = F2[m.yface(i, j, k)],
+                                                &ft = F2[m.yface(i, j + 1, k)], &ff = F2[m.zface(i, j, k)], &fk = F2[m.zface(i, j, k + 1)];
+                                    const double r = (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) * inv_vol;
+                                    rsame = rsame && R1[m.cell(i, j, k)][q] == r;
+                                }
+                    CHECK(rsame);
+                }
                 if (nz == 1) {
                     // flux balance in the same pass
                     Field R1;

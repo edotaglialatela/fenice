@@ -884,6 +884,64 @@ double MusclReconstruction::muscl_residual_2d(const RiemannSolver& riemann, cons
     return fused_residual_2d(make_grid(riemann, eos_, lim_, W_pad, UL, UR, m, h, PX, PY, zp), m, R);
 }
 
+namespace {
+
+// The plane-pipelined residual of a 3-D mesh: a thread takes a block of consecutive z planes; for each plane it solves the x faces of
+// every row, the y faces above and below the rows and the z faces below and above the plane (the upper ones are the lower ones of the
+// next plane), and balances the cells at once. The planes at the seam of two blocks are solved by both threads (the same bits).
+double fused_residual_3d(const FusedGrid& g, const Mesh& m, Field& R) {
+    const int nx = m.nx, ny = m.ny, nz = m.nz;
+    const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
+    double smax_all = 0.0;
+#pragma omp parallel if (nx * ny * nz >= kOmpMinWork)
+    {
+        double local = 0.0;
+        FusedScratch scratch;
+        int nthreads = 1, tid = 0;
+#ifdef _OPENMP
+        nthreads = omp_get_num_threads();
+        tid = omp_get_thread_num();
+#endif
+        const int k0 = static_cast<int>(static_cast<long long>(nz) * tid / nthreads);
+        const int k1 = static_cast<int>(static_cast<long long>(nz) * (tid + 1) / nthreads);
+        if (k0 < k1) {
+            std::vector<State> fx(nx + 1), below(nx), above(nx), zlow(static_cast<size_t>(nx) * ny), zhigh(zlow.size());
+            for (int j = 0; j < ny; ++j) fused_line(g, 2, j, k0, &zlow[static_cast<size_t>(j) * nx], local, scratch);
+            for (int k = k0; k < k1; ++k) {
+                for (int j = 0; j < ny; ++j) fused_line(g, 2, j, k + 1, &zhigh[static_cast<size_t>(j) * nx], local, scratch);
+                fused_line(g, 1, 0, k, below.data(), local, scratch);
+                for (int j = 0; j < ny; ++j) {
+                    fused_line(g, 0, j, k, fx.data(), local, scratch);
+                    fused_line(g, 1, j + 1, k, above.data(), local, scratch);
+                    for (int i = 0; i < nx; ++i) {
+                        const State &fl = fx[i], &fr = fx[i + 1], &fb = below[i], &ft = above[i];
+                        const State &ff = zlow[static_cast<size_t>(j) * nx + i], &fk = zhigh[static_cast<size_t>(j) * nx + i];
+                        State& r = R[m.cell(i, j, k)];
+                        for (int q = 0; q < kNVar; ++q)
+                            r[q] = (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) * inv_vol;
+                    }
+                    below.swap(above);
+                }
+                zlow.swap(zhigh);
+            }
+        }
+#pragma omp critical(fv_muscl_residual3d_max)
+        if (local > smax_all) smax_all = local;
+    }
+    return smax_all;
+}
+
+}   // namespace
+
+double MusclReconstruction::muscl_residual_3d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U,
+                                              const Mesh& m, const Halos& h, Field& R) const {
+    thread_local std::vector<double> W_pad;
+    int PX, PY, zp;
+    pad_primitives(eos_, U, m, h, W_pad, PX, PY, zp);
+    R.resize(U.size());
+    return fused_residual_3d(make_grid(riemann, eos_, lim_, W_pad, UL, UR, m, h, PX, PY, zp), m, R);
+}
+
 double RiemannSolver::first_order_residual_2d(const Field& UL, const Field& UR, const Field& U, const Mesh& m, Field& R) const {
     R.resize(U.size());
     FusedGrid g{};

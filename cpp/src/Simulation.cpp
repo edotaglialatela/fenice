@@ -971,9 +971,10 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     }
 
     double S;
-    if (mu && fused_muscl(*mu)) {
-        ProfileScope ps(Section::Flux);   // reconstruction and Riemann solver in one pass
-        S = mu->muscl_fluxes(riemann, UL_, UR_, Uv, m, mh, F_);
+    const bool fused_balance = mu && fused_muscl(*mu);
+    if (fused_balance) {
+        ProfileScope ps(Section::Flux);   // reconstruction, Riemann solver and flux balance in one pass over planes
+        S = mu->muscl_residual_3d(riemann, UL_, UR_, Uv, m, mh, R);
     } else {
         if (mu) {
             ProfileScope ps(Section::Reconstruct);
@@ -984,6 +985,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     }
 
     ProfileScope divergence_scope(Section::Divergence);
+    if (!fused_balance) {
     R.resize(Uv.size());
     const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
@@ -1001,6 +1003,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
                 r[q] =
                     (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) * inv_vol;
         }
+    }
     }
 
     divergence_scope.stop();
