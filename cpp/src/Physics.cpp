@@ -14,6 +14,7 @@
 #include "fv/MemoryBytes.hpp"
 #include "fv/Profile.hpp"
 #include "fv/ViscousBound.hpp"
+#include "SchemesSimd.hpp"
 
 namespace fv {
 
@@ -285,35 +286,57 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
         return w[3] / w[0];
     };
 
-    // Cell quantities of one row: primitive state, u, v, T, du/dx, du/dy, dv/dx, dv/dy (as viscous_residual; the gradients of
+    // Cell quantities of one row: u, v, T, du/dx, du/dy, dv/dx, dv/dy (as viscous_residual; the gradients of
     // the conserved variables are the central differences of compute_gradients)
     struct Row {
-        State* w;
         double *u, *v, *T, *dudx, *dudy, *dvdx, *dvdy;
     };
-    auto fill = [&](int j, const Row& r) {
+    // Speed that bounds the explicit time step (see viscous_residual): the cells of a row are visited with their quantities
+    const double L = step_length_2d(dx, dy), inv_h2 = inv_h2_2d(dx, dy);
+#ifdef FV_SIMD_AVX2
+    const bool simd = detail::avx2_available() && nx >= 6;
+#endif
+    // `local` receives the largest wave-speed bound of the cells of the row (a maximum is order independent)
+    auto fill = [&](int j, const Row& r, double& local) {
         const State* cur = &U[static_cast<size_t>(j) * nx];
         const State* north = j + 1 < ny ? cur + nx : &F.top[1];
         const State* south = j > 0 ? cur - nx : &F.bottom[1];
-        for (int i = 0; i < nx; ++i) {
-            r.w[i] = eos_.cons_to_prim(cur[i]);
-            const State& w = r.w[i];
-            const double rho = w[0], u = w[1], v = w[2];
-            r.u[i] = u;
-            r.v[i] = v;
-            r.T[i] = w[3] / rho;
-            const State& pe = i + 1 < nx ? cur[i + 1] : F.right[j];
-            const State& pw = i > 0 ? cur[i - 1] : F.left[j];
-            const State& pn = north[i];
-            const State& ps = south[i];
-            const double drx = (pe[0] - pw[0]) / (2.0 * dx), dry = (pn[0] - ps[0]) / (2.0 * dy);
-            const double gx1 = (pe[1] - pw[1]) / (2.0 * dx), gy1 = (pn[1] - ps[1]) / (2.0 * dy);
-            const double gx2 = (pe[2] - pw[2]) / (2.0 * dx), gy2 = (pn[2] - ps[2]) / (2.0 * dy);
-            r.dudx[i] = (gx1 - u * drx) / rho;
-            r.dudy[i] = (gy1 - u * dry) / rho;
-            r.dvdx[i] = (gx2 - v * drx) / rho;
-            r.dvdy[i] = (gy2 - v * dry) / rho;
+        // twin of detail::viscous_row_cells_avx2 (change them together)
+        const auto scalar_cells = [&](int ib, int ie) {
+            for (int i = ib; i < ie; ++i) {
+                const State w = eos_.cons_to_prim(cur[i]);
+                const double rho = w[0], u = w[1], v = w[2];
+                r.u[i] = u;
+                r.v[i] = v;
+                r.T[i] = w[3] / rho;
+                const State& pe = i + 1 < nx ? cur[i + 1] : F.right[j];
+                const State& pw = i > 0 ? cur[i - 1] : F.left[j];
+                const State& pn = north[i];
+                const State& ps = south[i];
+                const double drx = (pe[0] - pw[0]) / (2.0 * dx), dry = (pn[0] - ps[0]) / (2.0 * dy);
+                const double gx1 = (pe[1] - pw[1]) / (2.0 * dx), gy1 = (pn[1] - ps[1]) / (2.0 * dy);
+                const double gx2 = (pe[2] - pw[2]) / (2.0 * dx), gy2 = (pn[2] - ps[2]) / (2.0 * dy);
+                r.dudx[i] = (gx1 - u * drx) / rho;
+                r.dudy[i] = (gy1 - u * dry) / rho;
+                r.dvdx[i] = (gx2 - v * drx) / rho;
+                r.dvdy[i] = (gy2 - v * dry) / rho;
+                const double nu_eff = viscous_nu_eff(mu_, k_cond, gamma, rho);
+                const double s = viscous_speed_bound(std::max(std::abs(w[1]), std::abs(w[2])), eos_.sound_speed(w[3], rho), L, inv_h2, nu_eff);
+                local = std::max(local, s);
+            }
+        };
+#ifdef FV_SIMD_AVX2
+        if (simd) {
+            // the columns 1 .. nx-2 have both neighbours in the row: four at a time; the ends and the leftovers are scalar
+            const int nv = ((nx - 2) / 4) * 4;
+            double* const out[7] = {r.u, r.v, r.T, r.dudx, r.dudy, r.dvdx, r.dvdy};
+            scalar_cells(0, 1);
+            local = std::max(local, detail::viscous_row_cells_avx2(eos_, mu_, k_cond, L, inv_h2, dx, dy, cur, north, south, 1, nv, out));
+            scalar_cells(1 + nv, nx);
+            return;
         }
+#endif
+        scalar_cells(0, nx);
     };
 
     const bool px = cg && cg->periodic_x, py = cg && cg->periodic_y;
@@ -373,7 +396,6 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
     };
 
     const double inv_area = 1.0 / mesh.cell_area();
-    const double L = step_length_2d(dx, dy), inv_h2 = inv_h2_2d(dx, dy);
     double s_max = 0.0;
 #pragma omp parallel if (n >= kOmpMinWork)
     {
@@ -387,50 +409,87 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
         double local = 0.0;   // thread-local maximum (OpenMP 2.0 has no max reduction); a max is order independent
         if (j0 < j1) {
             std::vector<double> store(static_cast<size_t>(4) * 7 * nx);
-            std::vector<State> wstore(static_cast<size_t>(4) * nx);
             auto row_at = [&](int k) {
                 double* b = store.data() + static_cast<size_t>(k) * 7 * nx;
-                return Row{wstore.data() + static_cast<size_t>(k) * nx, b,          b + nx,     b + 2 * nx,
-                           b + 3 * nx,                                  b + 4 * nx, b + 5 * nx, b + 6 * nx};
+                return Row{b, b + nx, b + 2 * nx, b + 3 * nx, b + 4 * nx, b + 5 * nx, b + 6 * nx};
             };
             Row cur = row_at(0), nxt = row_at(1);
             const Row first_below = row_at(2), top_wrap = row_at(3);
-            std::vector<State> below(nx), above(nx);
+            // The face fluxes of the row, components 1..3 (0 and 4 are zero): x faces 0..nx, the y faces below and above the row.
+            // The interior faces come from the vector kernels, the faces at the ends of the row and at the domain boundary
+            // (ghost values, periodic seams, ...) from the lambdas above.
+            std::vector<double> fstore(static_cast<size_t>(3) * (nx + 1) + static_cast<size_t>(6) * nx);
+            double* fx[3] = {fstore.data(), fstore.data() + (nx + 1), fstore.data() + 2 * (nx + 1)};
+            double* gbuf = fstore.data() + static_cast<size_t>(3) * (nx + 1);
+            double* gb[3] = {gbuf, gbuf + nx, gbuf + 2 * nx};
+            double* gt[3] = {gbuf + 3 * nx, gbuf + 4 * nx, gbuf + 5 * nx};
+            const auto put_x = [&](int i, const State& f) {
+                for (int q = 0; q < 3; ++q) fx[q][i] = f[q + 1];
+            };
+            const auto put_y = [&](double* const* g, int i, const State& f) {
+                for (int q = 0; q < 3; ++q) g[q][i] = f[q + 1];
+            };
+#ifdef FV_SIMD_AVX2
+            const int nvx = ((nx - 1) / 4) * 4;   // x faces 1 .. nx-1
+            const int nvy = (nx / 4) * 4;         // y faces 0 .. nx-1
+#endif
+            // the y faces under row j+1 .. (rows B below, T above); `interior`: the face is neither at the bottom nor at the top of the domain
+            const auto y_faces = [&](int jface, const Row& B, const Row& T, double* const* g) {
+                int i0 = 0;
+#ifdef FV_SIMD_AVX2
+                if (simd && jface > 0 && jface < ny) {
+                    const double* const bq[5] = {B.u, B.v, B.T, B.dudx, B.dvdx};
+                    const double* const tq[5] = {T.u, T.v, T.T, T.dudx, T.dvdx};
+                    detail::viscous_row_yfaces_avx2(mu_, k_cond, dx, dy, bq, tq, 0, nvy, g[0], g[1], g[2]);
+                    i0 = nvy;
+                }
+#endif
+                for (int i = i0; i < nx; ++i) put_y(g, i, yflux(jface, i, B, T));
+            };
+            const double zero_slot = ((0.0 + (0.0 - 0.0)) + (0.0 - 0.0)) * inv_area;   // slots 0 and 4 of the balance (all fluxes zero there)
             // the y-faces under the first row: the row below, or at the bottom of the domain the first row (the opposite
             // edge row on a periodic axis)
-            fill(j0, cur);
-            fill(j0 == 0 ? (py ? ny - 1 : 0) : j0 - 1, first_below);
-            for (int i = 0; i < nx; ++i) below[i] = yflux(j0, i, first_below, cur);
+            fill(j0, cur, local);
+            fill(j0 == 0 ? (py ? ny - 1 : 0) : j0 - 1, first_below, local);
+            y_faces(j0, first_below, cur, gb);
             for (int j = j0; j < j1; ++j) {
                 // the row above (or, at the top of the domain, the last row, the first one on a periodic axis)
                 const Row* top = &cur;
                 if (j + 1 < ny) {
-                    fill(j + 1, nxt);
+                    fill(j + 1, nxt, local);
                     top = &nxt;
                 } else if (py) {
-                    fill(0, top_wrap);
+                    fill(0, top_wrap, local);
                     top = &top_wrap;
                 }
-                State Fl = xflux(j, 0, cur);
-                for (int i = 0; i < nx; ++i) {
-                    const State Fr = xflux(j, i + 1, cur);
-                    const State& Gb = below[i];
-                    const State Gt = yflux(j + 1, i, cur, *top);
-                    above[i] = Gt;
-                    State& r = Rv[j * nx + i];
-                    if (accumulate)
-                        for (int q = 0; q < kNVar; ++q) r[q] += ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) * inv_area;
-                    else
-                        for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 + (Fr[q] - Fl[q])) + (Gt[q] - Gb[q])) * inv_area;
-                    Fl = Fr;
-                    // wave speed of the cell (as viscous_residual)
-                    const State& w = cur.w[i];
-                    const double rho = w[0];
-                    const double nu_eff = viscous_nu_eff(mu_, k_cond, gamma, rho);
-                    const double s = viscous_speed_bound(std::max(std::abs(w[1]), std::abs(w[2])), eos_.sound_speed(w[3], rho), L, inv_h2, nu_eff);
-                    local = std::max(local, s);
+                put_x(0, xflux(j, 0, cur));
+                put_x(nx, xflux(j, nx, cur));
+                int i0 = 1;
+#ifdef FV_SIMD_AVX2
+                if (simd) {
+                    detail::viscous_row_xfaces_avx2(mu_, k_cond, dx, dy, cur.u, cur.v, cur.T, cur.dudy, cur.dvdy, 1, nvx, fx[0], fx[1], fx[2]);
+                    i0 = 1 + nvx;
                 }
-                below.swap(above);
+#endif
+                for (int i = i0; i < nx; ++i) put_x(i, xflux(j, i, cur));
+                y_faces(j + 1, cur, *top, gt);
+                for (int i = 0; i < nx; ++i) {
+                    State& r = Rv[j * nx + i];
+                    double bal[3];
+                    for (int q = 0; q < 3; ++q) bal[q] = ((0.0 + (fx[q][i + 1] - fx[q][i])) + (gt[q][i] - gb[q][i])) * inv_area;
+                    if (accumulate) {
+                        r[0] += zero_slot;
+                        for (int q = 0; q < 3; ++q) r[q + 1] += bal[q];
+                        r[4] += zero_slot;
+                    } else {
+                        r[0] = zero_slot;
+                        for (int q = 0; q < 3; ++q) r[q + 1] = bal[q];
+                        r[4] = zero_slot;
+                    }
+                }
+                std::swap(gb[0], gt[0]);
+                std::swap(gb[1], gt[1]);
+                std::swap(gb[2], gt[2]);
                 if (j + 1 < ny) std::swap(cur, nxt);
             }
         }

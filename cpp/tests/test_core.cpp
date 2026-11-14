@@ -485,7 +485,10 @@ TEST(viscous_uniform_zero_and_couette) {
 // neighbour-rank layers in the ring and periodic seams on both axes, replacing and accumulating.
 TEST(viscous_rows_equal_the_gradient_version_bit_for_bit) {
     const EOS eos = EOS::ideal(1.4);
-    const Mesh m = generate_cartesian_mesh(1.0, 0.8, 70, 61);
+    // 70 columns: the vector kernel of the row cells covers the interior exactly; 77: three leftover columns; 6: the smallest row it runs on
+    long long compared = 0;
+    for (const int nxc : {70, 77, 6}) {
+    const Mesh m = generate_cartesian_mesh(1.0, 0.8, nxc, nxc == 6 ? 700 : (nxc == 77 ? 57 : 61));
     unsigned seed = 4242u;
     const auto rnd = [&]() {
         seed = seed * 1664525u + 1013904223u;
@@ -493,7 +496,6 @@ TEST(viscous_rows_equal_the_gradient_version_bit_for_bit) {
     };
     Field U(m.num_cells());
     for (auto& u : U) u = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, 0.4 + rnd(), 0.0});
-    long long compared = 0;
     // 0: periodic x and y, 1: walls, 2: walls with second-order boundary faces (boundary_order = 2, corners fixed),
     // 3: as 2 with neighbour-rank layers in the ghost ring (an x strip: columns, then a y strip: rows)
     for (const int variant : {0, 1, 2, 3, 4}) {
@@ -538,7 +540,12 @@ TEST(viscous_rows_equal_the_gradient_version_bit_for_bit) {
         cg.periodic_x = cg.periodic_y = (variant == 0);
         for (const bool accumulate : {false, true}) {
             Field Ra(m.num_cells()), Rb;
-            for (auto& r : Ra) r = {0.1, 0.2, 0.3, 0.4};
+            // the zero slots start as -0 in every other cell: the balance of the rows must give the sign the reference gives
+            size_t cc = 0;
+            for (auto& r : Ra) {
+                r = {0.1, 0.2, 0.3, 0.4};
+                if (cc++ % 2) r[0] = r[4] = -0.0;
+            }
             Rb = Ra;
             const double sa = ns.viscous_residual(U, gx, gy, m, P, Ra, &cg, accumulate);
             for (const int threads : {1, 3, 7}) {
@@ -547,14 +554,15 @@ TEST(viscous_rows_equal_the_gradient_version_bit_for_bit) {
 #endif
                 Field Rc = Rb;
                 const double sb = ns.viscous_residual_rows(U, F, m, Rc, &cg, accumulate);
-                CHECK(sa == sb);
+                CHECK(std::memcmp(&sa, &sb, sizeof sa) == 0);
                 bool same = Ra.size() == Rc.size();
                 for (size_t c = 0; same && c < Ra.size(); ++c)
-                    for (int q = 0; q < kNVar; ++q) same = same && Ra[c][q] == Rc[c][q];
+                    for (int q = 0; q < kNVar; ++q) same = same && std::memcmp(&Ra[c][q], &Rc[c][q], sizeof(double)) == 0;
                 CHECK(same);
                 compared += static_cast<long long>(Ra.size());
             }
         }
+    }
     }
 #ifdef _OPENMP
     omp_set_num_threads(omp_get_num_procs());

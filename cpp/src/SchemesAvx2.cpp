@@ -435,6 +435,93 @@ double viscous_speed_avx2(const EOS& eos, double mu, double k_cond, const State*
     return r;
 }
 
+double viscous_row_cells_avx2(const EOS& eos, double mu, double k_cond, double L, double inv_h2, double dx, double dy, const State* cur,
+                              const State* north, const State* south, int i0, int n, double* const* out) {
+    const VEos E(eos);
+    const V two = set1(2.0), tdx = set1(2.0 * dx), tdy = set1(2.0 * dy);
+    const V vmu = set1(mu), vk = set1(k_cond), gm1 = set1(eos.gamma - 1.0), c43 = set1(4.0 / 3.0), tiny = set1(1e-12);
+    const V two_l = mul(two, set1(L)), vinv_h2 = set1(inv_h2);
+    V local = set1(0.0);
+    for (int k = 0; k < n; k += 4) {
+        const int c = i0 + k;
+        const Vec5 W = E.cons_to_prim(load4(cur + c));
+        const Vec5 pe = load4(cur + c + 1), pw = load4(cur + c - 1), pn = load4(north + c), ps = load4(south + c);
+        V gx[3], gy[3];   // the central differences of rho, rho u, rho v
+        for (int q = 0; q < 3; ++q) {
+            gx[q] = dv(sub(pe.q[q], pw.q[q]), tdx);
+            gy[q] = dv(sub(pn.q[q], ps.q[q]), tdy);
+        }
+        const V rho = W.q[0], u = W.q[1], v = W.q[2];
+        const V r[7] = {u,
+                        v,
+                        dv(W.q[3], rho),
+                        dv(sub(gx[1], mul(u, gx[0])), rho),
+                        dv(sub(gy[1], mul(u, gy[0])), rho),
+                        dv(sub(gx[2], mul(v, gx[0])), rho),
+                        dv(sub(gy[2], mul(v, gy[0])), rho)};
+        for (int j = 0; j < 7; ++j) _mm256_storeu_pd(out[j] + c, r[j]);
+        // wave-speed bound of the cell: viscous_nu_eff and viscous_speed_bound (ViscousBound.hpp) in the same order
+        const V nu_eff = add(vmax(mul(c43, dv(vmu, rho)), dv(mul(vk, gm1), rho)), tiny);
+        const V s = add(add(vmax(vabs(u), vabs(v)), E.sound_speed(W.q[3], rho)), mul(mul(two_l, vinv_h2), nu_eff));
+        local = vmax(local, s);
+    }
+    alignas(32) double t[4];
+    _mm256_store_pd(t, local);
+    _mm256_zeroupper();
+    double r = 0.0;   // every speed is > 0 or NaN (ignored, as by std::max(local, s)): the maximum does not depend on the order
+    for (int i = 0; i < 4; ++i) r = (r < t[i]) ? t[i] : r;
+    return r;
+}
+
+// Face fluxes of the uniform 2-D viscous row sweep (scalar twins: the lambdas xflux / yflux of NavierStokes::viscous_residual_rows,
+// interior faces only: no ghost value, no cross-derivative override).  Components 1..3 of the flux, the others are zero.
+void viscous_row_xfaces_avx2(double mu, double k_cond, double dx, double dy, const double* u, const double* v, const double* T,
+                             const double* dudy, const double* dvdy, int i0, int n, double* f1, double* f2, double* f3) {
+    const V half = set1(0.5), c43 = set1(4.0 / 3.0), c23 = set1(2.0 / 3.0), vmu = set1(mu), mk = set1(-k_cond), vdx = set1(dx),
+            vdy = set1(dy);
+    for (int k = 0; k < n; k += 4) {
+        const int i = i0 + k;   // face i lies between the cells i-1 and i
+        const V uL = _mm256_loadu_pd(u + i - 1), uR = _mm256_loadu_pd(u + i);
+        const V vL = _mm256_loadu_pd(v + i - 1), vR = _mm256_loadu_pd(v + i);
+        const V TL = _mm256_loadu_pd(T + i - 1), TR = _mm256_loadu_pd(T + i);
+        const V u_f = mul(half, add(uL, uR)), v_f = mul(half, add(vL, vR));
+        const V du_dx = dv(sub(uR, uL), vdx), dv_dx = dv(sub(vR, vL), vdx), dT_dx = dv(sub(TR, TL), vdx);
+        const V du_dy = mul(half, add(_mm256_loadu_pd(dudy + i - 1), _mm256_loadu_pd(dudy + i)));
+        const V dv_dy = mul(half, add(_mm256_loadu_pd(dvdy + i - 1), _mm256_loadu_pd(dvdy + i)));
+        const V tau_xx = mul(vmu, sub(mul(c43, du_dx), mul(c23, dv_dy)));
+        const V tau_xy = mul(vmu, add(du_dy, dv_dx));
+        const V q_x = mul(mk, dT_dx);
+        _mm256_storeu_pd(f1 + i, mul(tau_xx, vdy));
+        _mm256_storeu_pd(f2 + i, mul(tau_xy, vdy));
+        _mm256_storeu_pd(f3 + i, mul(sub(add(mul(u_f, tau_xx), mul(v_f, tau_xy)), q_x), vdy));
+    }
+    _mm256_zeroupper();
+}
+
+// B and T: the cell quantities of the rows below and above the faces (u, v, T, du/dx, dv/dx); faces i0 .. i0+n-1 of the row.
+void viscous_row_yfaces_avx2(double mu, double k_cond, double dx, double dy, const double* const* B, const double* const* Tp, int i0,
+                             int n, double* g1, double* g2, double* g3) {
+    const V half = set1(0.5), c43 = set1(4.0 / 3.0), c23 = set1(2.0 / 3.0), vmu = set1(mu), mk = set1(-k_cond), vdx = set1(dx),
+            vdy = set1(dy);
+    for (int k = 0; k < n; k += 4) {
+        const int i = i0 + k;
+        const V uB = _mm256_loadu_pd(B[0] + i), uT = _mm256_loadu_pd(Tp[0] + i);
+        const V vB = _mm256_loadu_pd(B[1] + i), vT = _mm256_loadu_pd(Tp[1] + i);
+        const V TB = _mm256_loadu_pd(B[2] + i), TT = _mm256_loadu_pd(Tp[2] + i);
+        const V u_f = mul(half, add(uB, uT)), v_f = mul(half, add(vB, vT));
+        const V dv_dy = dv(sub(vT, vB), vdy), du_dy = dv(sub(uT, uB), vdy), dT_dy = dv(sub(TT, TB), vdy);
+        const V du_dx = mul(half, add(_mm256_loadu_pd(B[3] + i), _mm256_loadu_pd(Tp[3] + i)));
+        const V dv_dx = mul(half, add(_mm256_loadu_pd(B[4] + i), _mm256_loadu_pd(Tp[4] + i)));
+        const V tau_yy = mul(vmu, sub(mul(c43, dv_dy), mul(c23, du_dx)));
+        const V tau_yx = mul(vmu, add(du_dy, dv_dx));
+        const V q_y = mul(mk, dT_dy);
+        _mm256_storeu_pd(g1 + i, mul(tau_yx, vdx));
+        _mm256_storeu_pd(g2 + i, mul(tau_yy, vdx));
+        _mm256_storeu_pd(g3 + i, mul(sub(add(mul(u_f, tau_yx), mul(v_f, tau_yy)), q_y), vdx));
+    }
+    _mm256_zeroupper();
+}
+
 }   // namespace detail
 }   // namespace fv
 
