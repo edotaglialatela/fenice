@@ -515,6 +515,49 @@ void viscous_row_yfaces_avx2(double mu, double k_cond, double dx, double dy, con
     _mm256_zeroupper();
 }
 
+void viscous_faces3d_avx2(int d, double mu, double k_cond, double h, double area, const double* const* vel, const double* T,
+                          const double* const* gc, long delta, int n, State* out) {
+    const V half = set1(0.5), c43 = set1(4.0 / 3.0), c23 = set1(2.0 / 3.0), vmu = set1(mu), mk = set1(-k_cond), vh = set1(h),
+            varea = set1(area), zero = set1(0.0);
+    for (int k = 0; k < n; k += 4) {
+        V Gn[3], vf[3];
+        for (int a = 0; a < 3; ++a) {
+            const V vL = _mm256_loadu_pd(vel[a] + k), vR = _mm256_loadu_pd(vel[a] + k + delta);
+            Gn[a] = dv(sub(vR, vL), vh);
+            vf[a] = mul(half, add(vL, vR));
+        }
+        const V dT = dv(sub(_mm256_loadu_pd(T + k + delta), _mm256_loadu_pd(T + k)), vh);
+        V g[4];   // the cross terms, cross(): 0.5 * (left + right)
+        for (int q = 0; q < 4; ++q) g[q] = mul(half, add(_mm256_loadu_pd(gc[q] + k), _mm256_loadu_pd(gc[q] + k + delta)));
+        V tau[3];
+        if (d == 0) {
+            const V others = add(add(zero, g[1]), g[2]);
+            tau[0] = mul(vmu, sub(mul(c43, Gn[0]), mul(c23, others)));
+            tau[1] = mul(vmu, add(Gn[1], g[0]));
+            tau[2] = mul(vmu, add(Gn[2], g[3]));
+        } else if (d == 1) {
+            const V others = add(add(zero, g[0]), g[2]);
+            tau[0] = mul(vmu, add(Gn[0], g[1]));
+            tau[1] = mul(vmu, sub(mul(c43, Gn[1]), mul(c23, others)));
+            tau[2] = mul(vmu, add(Gn[2], g[3]));
+        } else {
+            const V others = add(add(zero, g[0]), g[1]);
+            tau[0] = mul(vmu, add(Gn[0], g[2]));
+            tau[1] = mul(vmu, add(Gn[1], g[3]));
+            tau[2] = mul(vmu, sub(mul(c43, Gn[2]), mul(c23, others)));
+        }
+        const V q_d = mul(mk, dT);
+        const V f[5] = {zero, mul(tau[0], varea), mul(tau[1], varea),
+                        mul(sub(add(add(mul(vf[0], tau[0]), mul(vf[1], tau[1])), mul(vf[2], tau[2])), q_d), varea), mul(tau[2], varea)};
+        alignas(32) double t[4];
+        for (int q = 0; q < 5; ++q) {
+            _mm256_store_pd(t, f[q]);
+            for (int i = 0; i < 4; ++i) out[k + i][q] = t[i];
+        }
+    }
+    _mm256_zeroupper();
+}
+
 }   // namespace detail
 }   // namespace fv
 

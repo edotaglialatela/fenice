@@ -551,6 +551,9 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
         return Wp[(static_cast<size_t>(kk) * PY + jj) * PX + ii];
     };
     const bool periodic[3] = {cg && cg->periodic_x, cg && cg->periodic_y, cg && cg->periodic_z};
+#ifdef FV_SIMD_AVX2
+    const bool simd3 = detail::avx2_available();
+#endif
 
     // Face fluxes, one array per axis: F[d][face (i, j, k) with index t along d]
     const int nfx = (nx + 1) * ny * nz, nfy = nx * (ny + 1) * nz, nfz = nx * ny * (nz + 1);
@@ -566,7 +569,7 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
         for (int kj = 0; kj < nj * nk; ++kj) {
             const int j = kj % nj, k = kj / nj;
-            for (int i = 0; i < ni; ++i) {
+            const auto face = [&](int i) {
                 const int idx[3] = {i, j, k};
                 const int t = idx[d];
                 const bool lo = (t == 0), hi = (t == n_d);
@@ -672,7 +675,39 @@ double NavierStokes::viscous_residual_3d(const Field& U, const Field& gX, const 
                                       : (d == 1 ? (k * (ny + 1) + j) * nx + i : (k * ny + j) * nx + i);
                 F[fi] = {0.0, tau[0] * area, tau[1] * area,
                          (vf[0] * tau[0] + vf[1] * tau[1] + vf[2] * tau[2] - q_d) * area, tau[2] * area};
+            };
+            // faces with a cell on both sides and no boundary rule: four at a time (detail::viscous_faces3d_avx2, the arithmetic of
+            // `face` for such a face); the others (ends of an x row, the first and last y / z row, leftovers) go through `face`
+            int v0 = 0, vn = 0;
+#ifdef FV_SIMD_AVX2
+            if (simd3) {
+                const int t_row = d == 1 ? j : (d == 2 ? k : -1);
+                if (d == 0) {
+                    v0 = 1;
+                    vn = ((nx - 1) / 4) * 4;
+                } else if (t_row > 0 && t_row < n_d) {
+                    vn = (nx / 4) * 4;
+                }
+                if (vn > 0) {
+                    const long delta = d == 0 ? 1 : (d == 1 ? nx : static_cast<long>(nx) * ny);
+                    const size_t cc0 = d == 0 ? (static_cast<size_t>(k) * ny + j) * nx + v0 - 1
+                                              : (d == 1 ? (static_cast<size_t>(k) * ny + j - 1) * nx + v0
+                                                        : (static_cast<size_t>(k - 1) * ny + j) * nx + v0);
+                    // cross-derivative arrays in CrossGhosts order (a, b, c, d) of this axis
+                    static const int kGa[3][4] = {{0, 1, 2, 0}, {0, 1, 2, 1}, {0, 1, 2, 2}};
+                    static const int kGb[3][4] = {{1, 1, 2, 2}, {0, 0, 2, 2}, {0, 1, 0, 1}};
+                    const double* vp[3] = {vel[0] + cc0, vel[1] + cc0, vel[2] + cc0};
+                    const double* gp[4];
+                    for (int q = 0; q < 4; ++q) gp[q] = G[kGa[d][q]][kGb[d][q]] + cc0;
+                    const size_t fi0 = d == 0 ? (static_cast<size_t>(k) * ny + j) * (nx + 1) + v0
+                                              : (d == 1 ? (static_cast<size_t>(k) * (ny + 1) + j) * nx + v0
+                                                        : (static_cast<size_t>(k) * ny + j) * nx + v0);
+                    detail::viscous_faces3d_avx2(d, mu_, k_cond, h[d], area, vp, sT + cc0, gp, delta, vn, &F[fi0]);
+                }
             }
+#endif
+            for (int i = 0; i < v0; ++i) face(i);
+            for (int i = v0 + vn; i < ni; ++i) face(i);
         }
     }
 

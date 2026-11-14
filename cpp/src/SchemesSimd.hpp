@@ -41,6 +41,11 @@ void viscous_row_xfaces_avx2(double mu, double k_cond, double dx, double dy, con
                              const double* dudy, const double* dvdy, int i0, int n, double* f1, double* f2, double* f3);
 void viscous_row_yfaces_avx2(double mu, double k_cond, double dx, double dy, const double* const* B, const double* const* T, int i0,
                              int n, double* g1, double* g2, double* g3);
+// Interior viscous face fluxes of the uniform 3-D sweep (NavierStokes::viscous_residual_3d) for n faces (a multiple of 4) normal to axis d,
+// consecutive along x, bit-identical to its scalar face code. Every pointer addresses the LEFT cell of the first face (velocity
+// components, temperature, the four cross-derivative arrays in CrossGhosts order); the right cell of a face is `delta` cells further.
+void viscous_faces3d_avx2(int d, double mu, double k_cond, double h, double area, const double* const* vel, const double* T,
+                          const double* const* gc, long delta, int n, State* out);
 #else
 inline bool avx2_available() { return false; }
 #endif
