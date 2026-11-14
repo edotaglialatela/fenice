@@ -21,7 +21,7 @@ validation scripts and full documentation.
 
 ## Features
 
-- **Numerics:** HLLC, Low-Mach HLLC (Thornber) and preconditioned HLLC (Weiss-Smith) Riemann solvers; first order, 2nd-order MUSCL
+- **Numerics:** HLLC and Low-Mach HLLC (Thornber) Riemann solvers; first order, 2nd-order MUSCL
   (Minmod, Van Leer, MC, Koren) or WENO3-Z / WENO5-Z reconstruction, with `boundary_order = 2` for second-order walls and outflows;
   Explicit Euler, SSP-RK2 and SSP-RK3.
 - **Physics:** ideal and stiffened-gas equations of state, Navier-Stokes viscous and heat fluxes, body forces, source terms, and an

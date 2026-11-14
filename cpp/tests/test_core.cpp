@@ -48,7 +48,7 @@ TEST(riemann_consistency) {
     const EOS eos = EOS::ideal(1.4);
     const State U = eos.prim_to_cons({1.2, 0.3, -0.4, 2.0});
     const State W = eos.cons_to_prim(U);
-    for (RiemannType t : {RiemannType::HLLC, RiemannType::LowMachHLLC, RiemannType::PreconditionedHLLC}) {
+    for (RiemannType t : {RiemannType::HLLC, RiemannType::LowMachHLLC}) {
         const RiemannSolver rs(eos, t);
         double s;
         const State Fx = rs.face_flux(U, U, 0, s);
@@ -298,7 +298,7 @@ TEST(bc_parse_labels) {
 TEST(uniform_flow_is_preserved) {
     // A uniform free stream with zero-gradient BCs must give a zero residual
     // for every Riemann solver, with/without MUSCL and viscous fluxes.
-    for (const char* rs : {"HLLC", "HLLC (Low-Mach Thornber)", "HLLC (Preconditioned)"})
+    for (const char* rs : {"HLLC", "HLLC (Low-Mach Thornber)"})
         for (const char* muscl : {"none", "muscl"})
             for (const char* visc : {"false", "true"}) {
                 Simulation sim;
@@ -381,8 +381,8 @@ TEST(fused_residual_passes_equal_the_two_pass_residual_bit_for_bit) {
         for (auto& u : U) u = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, 0.4 + rnd(), nz > 1 ? rnd() - 0.5 : 0.0});
         BoundaryManager bm(m, eos);
         bm.set_boundary_types(BCType::Wall, BCType::Transmissive, BCType::Transmissive, BCType::Periodic);
-        for (const RiemannType rt : {RiemannType::HLLC, RiemannType::LowMachHLLC, RiemannType::PreconditionedHLLC}) {
-            const RiemannSolver rs(eos, rt, 0.1, 0.2);
+        for (const RiemannType rt : {RiemannType::HLLC, RiemannType::LowMachHLLC}) {
+            const RiemannSolver rs(eos, rt, 0.2);
             for (const Limiter lim : {Limiter::Minmod, Limiter::VanLeer, Limiter::MC, Limiter::Koren}) {
                 const MusclReconstruction mu(eos, lim);
                 // periodic wrap-around halos on y (and on z in 3-D), as Simulation::assemble builds them
@@ -933,20 +933,18 @@ TEST(riemann_variants) {
     const EOS eos = EOS::ideal(1.4);
     // Supersonic states: Thornber scaling is inactive (z = 1), so LowMach == HLLC
     const State UL = eos.prim_to_cons({1.0, 2.5, 0.3, 1.0}), UR = eos.prim_to_cons({0.8, 2.2, 0.1, 0.7});
-    double s1, s2, s3, s4;
+    double s1, s2;
     const State F1 = RiemannSolver(eos, RiemannType::HLLC).face_flux(UL, UR, 0, s1);
     const State F2 = RiemannSolver(eos, RiemannType::LowMachHLLC).face_flux(UL, UR, 0, s2);
     for (int q = 0; q < kNVar; ++q) CHECK_NEAR(F1[q], F2[q], 1e-12 * (1 + std::abs(F1[q])));
-    // Preconditioning with Ma_cut = 1 recovers the Einfeldt bounds exactly
-    const State A = eos.prim_to_cons({1.0, 0.05, 0.0, 1.0}), B = eos.prim_to_cons({0.9, 0.02, 0.0, 0.95});
-    const State Fh = RiemannSolver(eos, RiemannType::HLLC).face_flux(A, B, 0, s3);
-    const State Fp = RiemannSolver(eos, RiemannType::PreconditionedHLLC, 1.0).face_flux(A, B, 0, s4);
-    for (int q = 0; q < kNVar; ++q) CHECK_NEAR(Fh[q], Fp[q], 1e-12 * (1 + std::abs(Fh[q])));
-    CHECK_NEAR(s3, s4, 1e-12);
-    // At low Mach the preconditioned wave speeds are smaller than the acoustic ones
-    double s5;
-    RiemannSolver(eos, RiemannType::PreconditionedHLLC, 0.1).face_flux(A, B, 0, s5);
-    CHECK(s5 < s3);
+    // The removed preconditioned solver is refused with the name of its replacement
+    bool refused = false;
+    try {
+        parse_riemann("HLLC (Preconditioned)");
+    } catch (const std::invalid_argument& e) {
+        refused = std::string(e.what()).find("Low-Mach Thornber") != std::string::npos;
+    }
+    CHECK(refused);
     // Fluid at rest: no mass flux; Sod data: finite, positive max speed
     const State rest = eos.prim_to_cons({1.0, 0, 0, 1.0});
     CHECK(std::abs(RiemannSolver(eos, RiemannType::HLLC).face_flux(rest, rest, 1, s1)[0]) < 1e-15);

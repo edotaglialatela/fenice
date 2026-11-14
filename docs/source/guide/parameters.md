@@ -83,7 +83,7 @@ override them. See the [BC formulas]({{root}}modules/Boundaries.html).
 
 | Key | Default | Meaning |
 |---|---|---|
-| `riemann_solver` | `HLLC` | `HLLC`, `HLLC (Low-Mach Thornber)` [`lowmach`], `HLLC (Preconditioned)` [`preconditioned`] |
+| `riemann_solver` | `HLLC` | `HLLC`, `HLLC (Low-Mach Thornber)` [`lowmach`] |
 | `muscl_limiter` | `Van Leer` | `Van Leer`, `MC`, `Koren`, `Minmod` (case-insensitive); read when `reconstruction = muscl` |
 | `reconstruction` | `none` | Face reconstruction: `none` (first order: the cell states, Godunov), `muscl` (limited, 2nd order, limiter `muscl_limiter`), `weno3` (WENO3-Z, 3rd order) or `weno5` (WENO5-Z, 5th order). The WENO schemes need `time_scheme` `SSP Runge-Kutta 3` (SSP Runge-Kutta 2 is rejected), `weno3` also runs with AMR and MPI, `weno5` is serial (no MPI) and not available with AMR. See [Schemes]({{root}}modules/Schemes.html) |
 | `use_muscl` | (none) | Retired key, still read for old case files: `true` means `reconstruction = muscl` (or the reconstruction given with it), `false` means `none`; `false` with `weno3` / `weno5` is an error. The solver prints a note. |

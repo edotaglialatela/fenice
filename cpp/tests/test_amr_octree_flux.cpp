@@ -28,7 +28,7 @@ TEST(cellflux3d_level0_matches_uniform_residual_bitwise) {
     };
     const Scheme schemes[] = {{"false", "Van Leer", "HLLC", "none"},     {"true", "Van Leer", "HLLC", "muscl"},
                               {"true", "Minmod", "HLLC", "muscl"},        {"true", "MC", "lowmach", "muscl"},
-                              {"true", "Koren", "preconditioned", "muscl"}, {"true", "Van Leer", "HLLC", "weno3"}};
+                              {"true", "Koren", "lowmach", "muscl"}, {"true", "Van Leer", "HLLC", "weno3"}};
     int n_cases = 0;
     for (const BCs& bc : sets)
         for (const Scheme& sc : schemes)

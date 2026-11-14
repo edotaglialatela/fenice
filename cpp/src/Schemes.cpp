@@ -78,7 +78,7 @@ RiemannType parse_riemann(const std::string& s_in) {
     if (s == "hllc (low-mach thornber)" || s == "lowmach" || s == "lowmachhllc" || s == "low-mach")
         return RiemannType::LowMachHLLC;
     if (s == "hllc (preconditioned)" || s == "preconditioned" || s == "preconditionedhllc")
-        return RiemannType::PreconditionedHLLC;
+        throw std::invalid_argument("The preconditioned Riemann solver was removed: use 'HLLC (Low-Mach Thornber)' (or 'HLLC')");
     throw std::invalid_argument("Unknown Riemann solver: '" + s_in + "'");
 }
 
@@ -100,7 +100,7 @@ Reconstruction parse_reconstruction(const std::string& s_in) {
 }
 
 // ---------------------------------------------------------------------------
-// HLLC (Toro et al., 1994) with Einfeldt or Weiss-Smith wave-speed bounds
+// HLLC (Toro et al., 1994) with Einfeldt wave-speed bounds
 // ---------------------------------------------------------------------------
 
 State RiemannSolver::hllc(const State& UL, const State& UR, int axis, double& smax) const {
@@ -133,28 +133,9 @@ State RiemannSolver::hllc(const State& UL, const State& UR, int axis, double& sm
     const double c_L = eos_.sound_speed_inv(p_L, inv_L);
     const double c_R = eos_.sound_speed_inv(p_R, inv_R);
 
-    double S_L, S_R;
-    if (type_ == RiemannType::PreconditionedHLLC) {
-        // Weiss-Smith (1995) preconditioned eigenvalues
-        auto ws = [&](double Vn, double c, double& lm, double& lp) {
-            const double Vr = std::min(std::max(Vn * Vn, (ma_cut_ * c) * (ma_cut_ * c)), c * c);
-            const double beta = Vr / (c * c + kDenomEps);
-            const double a = (1.0 - beta) * 0.5 * Vn;
-            const double disc = std::sqrt(a * a + Vr);
-            const double mu = (1.0 + beta) * 0.5 * Vn;
-            lm = mu - disc;
-            lp = mu + disc;
-        };
-        double lmL, lpL, lmR, lpR;
-        ws(Vn_L, c_L, lmL, lpL);
-        ws(Vn_R, c_R, lmR, lpR);
-        S_L = std::min(lmL, lmR);
-        S_R = std::max(lpL, lpR);
-    } else {
-        // Einfeldt bounds
-        S_L = std::min(Vn_L - c_L, Vn_R - c_R);
-        S_R = std::max(Vn_L + c_L, Vn_R + c_R);
-    }
+    // Einfeldt bounds
+    const double S_L = std::min(Vn_L - c_L, Vn_R - c_R);
+    const double S_R = std::max(Vn_L + c_L, Vn_R + c_R);
 
     // Contact wave speed (Toro 2009, eq. 10.37)
     const double num = rho_R * Vn_R * (S_R - Vn_R) - rho_L * Vn_L * (S_L - Vn_L) + p_L - p_R;
@@ -240,7 +221,7 @@ void RiemannSolver::face_flux_batch(const State* UL, const State* UR, const int*
 #ifdef FV_SIMD_AVX2
     if (detail::avx2_available()) {
         done = n & ~3;
-        if (done > 0) detail::riemann_batch_avx2(eos_, type_, ma_cut_, shock_blend_, UL, UR, axis, done, F, smax);
+        if (done > 0) detail::riemann_batch_avx2(eos_, type_, shock_blend_, UL, UR, axis, done, F, smax);
     }
 #endif
     for (int k = done; k < n; ++k) F[k] = face_flux(UL[k], UR[k], axis[k], smax[k]);
@@ -252,7 +233,7 @@ void RiemannSolver::muscl_face_flux_batch(Limiter lim, const State* W, const int
 #ifdef FV_SIMD_AVX2
     if (detail::avx2_available()) {
         done = n & ~3;
-        if (done > 0) detail::muscl_riemann_batch_avx2(eos_, type_, ma_cut_, shock_blend_, lim, W, st, axis, done, F, smax, planar);
+        if (done > 0) detail::muscl_riemann_batch_avx2(eos_, type_, shock_blend_, lim, W, st, axis, done, F, smax, planar);
     }
 #endif
     for (int k = done; k < n; ++k) {

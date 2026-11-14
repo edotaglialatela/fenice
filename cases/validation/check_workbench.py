@@ -91,9 +91,8 @@ for case, want in (("Sod Shock Tube", False), ("IBM Airfoil AMR", True)):
     ok(low.isChecked() == want and low.isEnabled(), f"{case}: Low-Mach switch follows the case ({page.combo_riemann.currentText()})")
 low.setChecked(False)
 ok(page.combo_riemann.currentText() == "HLLC", "the switch sets the Riemann solver")
-page.combo_riemann.setCurrentText("HLLC (Preconditioned)")
 low.setChecked(True)
-ok(not low.isEnabled() and page.combo_riemann.currentText() == "HLLC (Preconditioned)", "another Riemann solver is left alone")
+ok(page.combo_riemann.currentText() == "HLLC (Low-Mach Thornber)", "the switch sets the Low-Mach solver")
 ok(w.tabs.count() == 1 and w.tabs.widget(0) is w.editors[3], "the bottom half holds the monitors only")
 mon_panel = w.editors[3]
 ok(w.console_stack.currentWidget() is mon_panel.console and w.console_stack.x() > w.split.x() and w.console_stack.height() >= w.split.height(), "the console is a column on the right, as high as the window")

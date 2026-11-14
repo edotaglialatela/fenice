@@ -37,7 +37,7 @@ contains one of the arguments (a filter that matches nothing exits with code 2).
 * **EOS.** Round trips, floors, and the stiffened gas reducing to the ideal gas.
 * **Limiters.** TVD bounds, symmetry, and Minmod being the most diffusive.
 * **Riemann solvers.** Consistency, supersonic upwinding, mirror symmetry,
-  Low-Mach = HLLC at Mach > 1, preconditioning with Ma_cut = 1 = HLLC, stiffened gas.
+  Low-Mach = HLLC at Mach > 1, stiffened gas.
 * **Boundary conditions.** Every BC type's ghost state, padded arrays, periodicity.
 * **Free-stream preservation** for every Riemann-solver / MUSCL / viscous combination.
 * **Sod.** Positivity and mass conservation over 50 steps.

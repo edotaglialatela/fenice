@@ -9,7 +9,7 @@ order: 0
 solver for the **Euler and Navier-Stokes equations** in 2-D and 3-D, written in C++17 with OpenMP threading and MPI
 domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz > 1`.
 
-* **Numerics:** HLLC, Low-Mach and preconditioned Riemann solvers; first order, MUSCL (four TVD limiters) or WENO3-Z / WENO5-Z
+* **Numerics:** HLLC and Low-Mach HLLC Riemann solvers; first order, MUSCL (four TVD limiters) or WENO3-Z / WENO5-Z
   reconstruction, with second-order boundary faces; Explicit Euler, SSP-RK2 and SSP-RK3. See [Schemes]({{root}}modules/Schemes.html)
   and [TimeScheme]({{root}}modules/TimeScheme.html).
 * **Physics:** ideal and stiffened-gas EOS, Navier-Stokes, body forces, source terms, and immersed bodies (cylinder, sphere, airfoil)

@@ -274,10 +274,8 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     update_boundary_values(0.0, boundaries);
 
     const RiemannType rt = parse_riemann(p.riemann_solver);
-    riemann = RiemannSolver(fluid, rt, 0.1, p.shock_blend);
+    riemann = RiemannSolver(fluid, rt, p.shock_blend);
     if (verbose && rt == RiemannType::LowMachHLLC) std::printf("[SOLVER] Low-Mach correction active (Thornber 2008)\n");
-    if (verbose && rt == RiemannType::PreconditionedHLLC)
-        std::printf("[SOLVER] Preconditioned HLLC active (Weiss-Smith 1995, Ma_cut=0.1)\n");
 
     if (verbose && p.use_muscl_alias)
         std::printf("[PARAMS] use_muscl is retired: read as reconstruction = %s (set reconstruction alone: none, muscl, weno3 "

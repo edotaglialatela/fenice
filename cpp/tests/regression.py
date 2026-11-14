@@ -45,8 +45,6 @@ CASES = {
     "sod_muscl_vl_rk2":    ("Sod Shock Tube", dict(nx=100, ny=4, t_end=0.05, reconstruction="muscl", time_scheme="SSP Runge-Kutta 2")),
     "sod_muscl_mc_rk3_lm": ("Sod Shock Tube", dict(nx=80, ny=4, t_end=0.05, reconstruction="muscl", muscl_limiter="MC",
                                                    time_scheme="SSP Runge-Kutta 3", riemann_solver="HLLC (Low-Mach Thornber)")),
-    "sod_koren_precond":   ("Sod Shock Tube", dict(nx=80, ny=4, t_end=0.05, reconstruction="muscl", muscl_limiter="Koren",
-                                                   riemann_solver="HLLC (Preconditioned)")),
     "sod_stiffened_grav":  ("Sod Shock Tube", dict(nx=60, ny=6, t_end=0.02, eos_type="Stiffened Gas", gamma=4.4,
                                                    p_inf=0.5, use_bodyforce=True, gx=0.3, gy=-1.0)),
     "shu_osher":           ("Shu-Osher Test", dict(nx=200, t_end=0.2)),

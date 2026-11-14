@@ -143,9 +143,9 @@ TEST(riemann_batch_equals_scalar_bit_for_bit) {
                 put(eos.prim_to_cons(Wr), eos.prim_to_cons(W), ax);
             }
         }
-        for (const RiemannType type : {RiemannType::HLLC, RiemannType::LowMachHLLC, RiemannType::PreconditionedHLLC})
+        for (const RiemannType type : {RiemannType::HLLC, RiemannType::LowMachHLLC})
           for (const double blend : {0.0, 0.2, 1.0}) {   // shock-face dissipation off, and on (strong-jump faces fire it)
-            const RiemannSolver rs(eos, type, 0.1, blend);
+            const RiemannSolver rs(eos, type, blend);
             std::vector<State> Fb(n);
             std::vector<double> sb(n);
             rs.face_flux_batch(UL.data(), UR.data(), axis.data(), n, Fb.data(), sb.data());
@@ -187,9 +187,9 @@ TEST(muscl_batch_planar_equals_the_full_reconstruction_bit_for_bit) {
         axis[k] = k % 2;
     }
     for (const Limiter lim : {Limiter::Minmod, Limiter::VanLeer, Limiter::MC, Limiter::Koren})
-        for (const RiemannType type : {RiemannType::HLLC, RiemannType::LowMachHLLC, RiemannType::PreconditionedHLLC})
+        for (const RiemannType type : {RiemannType::HLLC, RiemannType::LowMachHLLC})
             for (const double blend : {0.0, 0.2}) {
-                const RiemannSolver rs(eos, type, 0.1, blend);
+                const RiemannSolver rs(eos, type, blend);
                 std::vector<State> Fa(n), Fb(n);
                 std::vector<double> sa(n), sb(n);
                 rs.muscl_face_flux_batch(lim, W.data(), st.data(), axis.data(), n, Fa.data(), sa.data(), false);

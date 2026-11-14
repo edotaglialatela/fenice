@@ -508,7 +508,7 @@ TEST(periodic_translation_invariance_3d) {
 }
 
 TEST(uniform_flow_is_preserved_3d) {
-    for (const char* rs : {"HLLC", "HLLC (Low-Mach Thornber)", "HLLC (Preconditioned)"})
+    for (const char* rs : {"HLLC", "HLLC (Low-Mach Thornber)"})
         for (const char* visc : {"false", "true"}) {
             Simulation sim;
             sim.setup(params_for("Taylor-Green Vortex 3D", {{"nx", "6"},

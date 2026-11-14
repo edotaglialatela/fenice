@@ -323,7 +323,7 @@ class SetupDialog(QDialog):
         g4 = QGroupBox("Numerical schemes")
         f4 = QFormLayout()
         self.combo_riemann = QComboBox()
-        self.combo_riemann.addItems(["HLLC", "HLLC (Low-Mach Thornber)", "HLLC (Preconditioned)"])
+        self.combo_riemann.addItems(["HLLC", "HLLC (Low-Mach Thornber)"])
         self.combo_time = QComboBox()
         self.combo_time.addItems(["Explicit Euler", "SSP Runge-Kutta 2", "SSP Runge-Kutta 3"])
         self.input_cfl = QLineEdit("0.5")

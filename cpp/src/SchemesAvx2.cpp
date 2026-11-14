@@ -110,7 +110,7 @@ struct AxisMasks {
 };
 
 // RiemannSolver::hllc for four faces
-void hllc4(const VEos& E, RiemannType type, double ma_cut, double sb, const AxisMasks& ax, const Vec5& UL, const Vec5& UR, Vec5& F, V& smax) {
+void hllc4(const VEos& E, RiemannType type, double sb, const AxisMasks& ax, const Vec5& UL, const Vec5& UR, Vec5& F, V& smax) {
     V inv_L, inv_R;
     const Vec5 WL = E.cons_to_prim(UL, &inv_L), WR = E.cons_to_prim(UR, &inv_R);
     const V rho_L = WL.q[0], p_L = WL.q[3], rho_R = WR.q[0], p_R = WR.q[3];
@@ -134,29 +134,8 @@ void hllc4(const VEos& E, RiemannType type, double ma_cut, double sb, const Axis
     FR.q[3] = mul(Vn_R, add(mul(rho_R, E_R), p_R));
 
     const V c_L = E.sound_speed_inv(p_L, inv_L), c_R = E.sound_speed_inv(p_R, inv_R);
-    V S_L, S_R;
-    if (type == RiemannType::PreconditionedHLLC) {
-        const V cut = set1(ma_cut);
-        const V one = set1(1.0), half = set1(0.5), deps = set1(kDenomEps);
-        const auto ws = [&](V Vn, V c, V& lm, V& lp) {
-            const V cc = mul(c, c);
-            const V Vr = vmin(vmax(mul(Vn, Vn), mul(mul(cut, c), mul(cut, c))), cc);
-            const V beta = dv(Vr, add(cc, deps));
-            const V a = mul(mul(sub(one, beta), half), Vn);
-            const V disc = vsqrt(add(mul(a, a), Vr));
-            const V mu = mul(mul(add(one, beta), half), Vn);
-            lm = sub(mu, disc);
-            lp = add(mu, disc);
-        };
-        V lmL, lpL, lmR, lpR;
-        ws(Vn_L, c_L, lmL, lpL);
-        ws(Vn_R, c_R, lmR, lpR);
-        S_L = vmin(lmL, lmR);
-        S_R = vmax(lpL, lpR);
-    } else {
-        S_L = vmin(sub(Vn_L, c_L), sub(Vn_R, c_R));
-        S_R = vmax(add(Vn_L, c_L), add(Vn_R, c_R));
-    }
+    const V S_L = vmin(sub(Vn_L, c_L), sub(Vn_R, c_R));
+    const V S_R = vmax(add(Vn_L, c_L), add(Vn_R, c_R));
 
     // num = rho_R*Vn_R*(S_R - Vn_R) - rho_L*Vn_L*(S_L - Vn_L) + p_L - p_R   (left to right)
     const V numer = sub(add(sub(mul(mul(rho_R, Vn_R), sub(S_R, Vn_R)), mul(mul(rho_L, Vn_L), sub(S_L, Vn_L))), p_L), p_R);
@@ -308,7 +287,7 @@ inline V gather_q(const State* W, const int* st, int k, int point, int q) {
 
 }   // namespace
 
-void riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, double sb, const State* UL, const State* UR, const int* axis, int n,
+void riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, const State* UL, const State* UR, const int* axis, int n,
                         State* F, double* smax) {
     const VEos E(eos);
     Vec5 Lb[kBlock], Rb[kBlock];
@@ -323,14 +302,14 @@ void riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, double 
             const int k = k0 + 4 * b;
             Vec5 Fk;
             V sm;
-            hllc4(E, type, ma_cut, sb, axis_masks(axis + k), Lb[b], Rb[b], Fk, sm);
+            hllc4(E, type, sb, axis_masks(axis + k), Lb[b], Rb[b], Fk, sm);
             store_results(F, smax, k, Fk, sm);
         }
     }
     _mm256_zeroupper();
 }
 
-void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, double sb, Limiter lim, const State* W, const int* st,
+void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, Limiter lim, const State* W, const int* st,
                               const int* axis, int n, State* F, double* smax, bool planar) {
     const VEos E(eos);
     const V half = set1(0.5);
@@ -358,7 +337,7 @@ void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double ma_cut, d
             const int k = k0 + 4 * b;
             Vec5 Fk;
             V sm;
-            hllc4(E, type, ma_cut, sb, axis_masks(axis + k), Lb[b], Rb[b], Fk, sm);
+            hllc4(E, type, sb, axis_masks(axis + k), Lb[b], Rb[b], Fk, sm);
             store_results(F, smax, k, Fk, sm);
         }
     }
