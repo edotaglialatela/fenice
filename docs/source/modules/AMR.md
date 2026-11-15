@@ -285,8 +285,9 @@ each other in the collective calls, which a run on several nodes does not pay. I
 <figure style="margin:1em 0;">
 <img src="{{root}}img/amr_mpi.png" style="width:100%">
 <figcaption>AMR airfoil on a 720×360 base mesh with 2 levels, 50 steps, 16 logical processors
-(<code>cases/validation/amr/amr_mpi.py</code>). Left: wall time on OpenMP threads and on MPI ranks.
-Right: time stepping and remesh. Every final state is bit for bit the serial one.</figcaption>
+(<code>cases/validation/amr/amr_mpi.py</code>). Left: speed-up over the serial adaptive run on OpenMP threads and on MPI ranks,
+for the time stepping alone and with the remesh (the shaded counts use both threads of a core). Right: time of the uniform solver on the
+same finest mesh over the time of the adaptive run, on the same number of threads. Every final state is bit for bit the serial one.</figcaption>
 </figure>
 
 The 3-D sphere (octree, 73 k leaves, 200 steps from the steady state): 16 OpenMP threads 4.6 s (the remesh 7 % of it, 9× faster than on one thread), 8 MPI ranks

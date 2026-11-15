@@ -62,6 +62,12 @@ CHECK_CASES = {   # name: (case, overrides)
                                  "bc_bottom=periodic", "bc_top=periodic", "bc_front=periodic", "bc_back=periodic"]),
     "mms3d": ("Manufactured Solution 3D", ["nx=8", "ny=8", "nz=8", "amr_max_level=2", "amr_refine_every=2", "max_steps=8",
                                           "amr_criterion=0.8"]),   # (0.8: two levels in use, level jumps; 0.1 refines every leaf)
+    # WENO5-Z (the two outer cells of a wide face in the halo), 2-D with walls and ghost layers, and an octree
+    "sod_weno5": ("Sod Shock Tube", ["nx=50", "ny=6", "Ly=0.12", "amr_max_level=2", "amr_refine_every=4", "reconstruction=weno5",
+                                     "time_scheme=SSP Runge-Kutta 3", "bc_left=wall", "bc_right=wall", "boundary_order=2"]),
+    "sod3d_weno5": ("Sod Shock Tube", ["nx=50", "ny=3", "nz=3", "Ly=0.06", "Lz=0.06", "amr_max_level=2", "amr_refine_every=4",
+                                       "reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3", "bc_bottom=periodic", "bc_top=periodic",
+                                       "bc_front=periodic", "bc_back=periodic"]),
     # the ghost-cell wall of a sphere on the shares of the ranks (the wall is active: the body band is six finest cells wide)
     "sphere3d_ghost": ("IBM Flow over Cylinder", SPHERE_GHOST + ["amr_max_level=2", "amr_refine_every=3", "max_steps=30"]),
 }
@@ -205,25 +211,45 @@ def main():
         if not same:
             raise SystemExit(f"{name}: the final state differs from the serial run")
 
-    fig, ax = plt.subplots(1, 2, figsize=(10.5, 4))
+    # Speed-up over the serial adaptive run (whole time loop, and the time stepping alone: the remesh is the part that scales
+    # least), and what the adaptive run gains over the uniform solver on the same threads (the runs of amr_advantage.py, if there)
+    fig, ax = plt.subplots(1, 2, figsize=(11, 4.4))
     n_all = np.array([1, 2, 4, 8, 16])
-    ax[0].loglog(n_all, serial["wall"] / n_all, "k:", label="ideal")
-    ax[0].loglog(THREADS, [omp[n][1]["wall"] for n in THREADS], "o-", label="OpenMP threads")
-    ax[0].loglog(RANKS, [mpi[n][1]["wall"] for n in RANKS], "s-", label="MPI ranks")
-    ax[0].set(xlabel="threads or ranks", ylabel="wall time of 50 steps [s]", title="Time")
+    step1 = serial["wall"] - serial["remesh"]
+    ax[0].plot(n_all, n_all, ":", color="grey", label="ideal")
+    for runs, counts, c, name in ((omp, THREADS, "#2a78d6", "OpenMP threads"), (mpi, [1] + RANKS, "#eb6834", "MPI ranks")):
+        info = [serial if n == 1 else runs[n][1] for n in counts]
+        ax[0].plot(counts, [step1 / (i["wall"] - i["remesh"]) for i in info], "o-", color=c, lw=2, label=f"{name}: time stepping")
+        ax[0].plot(counts, [serial["wall"] / i["wall"] for i in info], "s--", color=c, lw=1.3, alpha=0.75, label=f"{name}: with the remesh")
+    ax[0].set_xscale("log", base=2)
+    ax[0].set_yscale("log", base=2)
     ax[0].set_xticks(n_all, [str(n) for n in n_all])
-    ax[0].legend()
-    labels = ["serial"] + [f"omp {n}" for n in THREADS[1:]] + [f"mpi {n}" for n in RANKS]
-    infos = [serial] + [omp[n][1] for n in THREADS[1:]] + [mpi[n][1] for n in RANKS]
-    x = np.arange(len(labels))
-    stepping = np.array([i["wall"] - i["remesh"] for i in infos])
-    remesh = np.array([i["remesh"] for i in infos])
-    ax[1].bar(x, stepping, label="time stepping", color="C0")
-    ax[1].bar(x, remesh, bottom=stepping, label="remesh", color="C3")
-    ax[1].set_xticks(x, labels, rotation=60, ha="right", fontsize=8)
-    ax[1].set(ylabel="wall time [s]", title="Where the time goes")
-    ax[1].legend()
-    fig.suptitle(f"AMR airfoil, 720×360 base mesh, 2 levels, {STEPS} steps ({serial['leaves']} leaves at the end)", y=1.02)
+    ax[0].set_yticks(n_all, [str(n) for n in n_all])
+    ax[0].axvspan(8, 16.5, color="grey", alpha=0.08)
+    ax[0].text(11.3, 1.08, "SMT", fontsize=8, color="grey", ha="center")
+    ax[0].set(xlabel="threads or ranks (8 physical cores)", ylabel="speed-up over the serial adaptive run", title="Scaling of the adaptive run",
+              xlim=(0.9, 16.5), ylim=(0.9, 16.5))
+    ax[0].legend(fontsize=8)
+    ax[0].grid(True, which="major", ls="--", alpha=0.4)
+    adv = fenice.RESULTS / "validation" / "amr_advantage"
+    uni = {n: json.loads((adv / f"uni_t{n}" / "info.json").read_text())["wall"] for n in THREADS if (adv / f"uni_t{n}" / "info.json").exists()}
+    if len(uni) == len(THREADS):
+        gain = [uni[n] / (serial if n == 1 else omp[n][1])["wall"] for n in THREADS]
+        ax[1].plot(THREADS, gain, "o-", color="#2a78d6", lw=2)
+        for n, g in zip(THREADS, gain):
+            ax[1].annotate(f"{g:.0f}x", (n, g), textcoords="offset points", xytext=(0, 8), ha="center", fontsize=10, color="#2a78d6")
+        ax[1].axhline(1.0, color="grey", ls=":")
+        ax[1].text(1.05, 1.6, "uniform solver", fontsize=8, color="grey")
+        ax[1].set_xscale("log", base=2)
+        ax[1].set_xticks(THREADS, [str(n) for n in THREADS])
+        ax[1].set(xlabel="OpenMP threads (both solvers)", ylabel="uniform time / adaptive time", ylim=(0, 1.25 * max(gain)),
+                  title="Against the uniform solver, same finest mesh")
+        ax[1].grid(True, which="major", ls="--", alpha=0.4)
+    else:
+        ax[1].axis("off")
+        ax[1].text(0.5, 0.5, "run amr_advantage.py for the comparison\nwith the uniform solver", ha="center", transform=ax[1].transAxes)
+    fig.suptitle(f"AMR airfoil, 720×360 base mesh, 2 levels, {STEPS} steps ({serial['leaves']} leaves at the end)", y=1.0)
+    plt.tight_layout()
     study.save(fig, STUDY, "amr_mpi.png", args.docs)
 
 
