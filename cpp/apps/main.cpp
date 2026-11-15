@@ -75,7 +75,7 @@ bool launched_by_mpiexec() {
     return false;
 }
 
-std::string self_path(const char* argv0) {
+[[maybe_unused]] std::string self_path(const char* argv0) {
 #ifdef _WIN32
     char buf[MAX_PATH];
     const DWORD n = GetModuleFileNameA(nullptr, buf, MAX_PATH);
@@ -111,7 +111,7 @@ std::string quote(const std::string& s) { return "\"" + s + "\""; }
 
 // Re-launch this executable under mpiexec with n ranks.  Returns
 // the exit code, or -1 if no MPI launcher is available.
-int relaunch_under_mpiexec(int n, const std::string& exe, const std::vector<std::string>& args) {
+[[maybe_unused]] int relaunch_under_mpiexec(int n, const std::string& exe, const std::vector<std::string>& args) {
     std::string mpiexec;
     if (const char* bin = std::getenv("MSMPI_BIN"))
         mpiexec = std::string(bin) + "mpiexec.exe";

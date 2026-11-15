@@ -41,7 +41,7 @@ void compute_gradients(const Field& P, int nx, int ny, double dx, double dy, Fie
 // Navier-Stokes viscous residual
 // ---------------------------------------------------------------------------
 
-double NavierStokes::viscous_residual(const Field& U, const Field& gX, const Field& gY, const Mesh& mesh,
+double NavierStokes::viscous_residual(const Field& /*U*/, const Field& gX, const Field& gY, const Mesh& mesh,
                                       const Field& U_pad, Field& Rv, const CrossGhosts* cg, bool accumulate) const {
     constexpr double MU_DIAG = 4.0 / 3.0;
     constexpr double MU_OFF = 2.0 / 3.0;
@@ -481,7 +481,7 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
 // 3-D viscous residual.  For a face normal to axis d the velocity-gradient tensor
 // G[a][b] = du_a/dx_b uses compact differences across the face for b == d and
 // face averages of the cell-centre gradients otherwise (the "cross" terms).
-double NavierStokes::viscous_residual_3d(const Field& U, const Mesh& m, const Field& U_pad, Field& Rv, const CrossGhosts* cg,
+double NavierStokes::viscous_residual_3d(const Field& /*U*/, const Mesh& m, const Field& U_pad, Field& Rv, const CrossGhosts* cg,
                                          double length, bool accumulate) const {
     constexpr double MU_DIAG = 4.0 / 3.0;
     constexpr double MU_OFF = 2.0 / 3.0;

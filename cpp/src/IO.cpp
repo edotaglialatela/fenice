@@ -425,7 +425,13 @@ NpyArray NpyArray::from_doubles(const std::vector<double>& v, std::vector<int64_
     return a;
 }
 
-NpyArray NpyArray::from_double(double v) { return from_doubles({v}, {}); }
+NpyArray NpyArray::from_double(double v) {
+    NpyArray a;   // a scalar: no shape
+    a.descr = "<f8";
+    a.data.resize(sizeof(double));
+    std::memcpy(a.data.data(), &v, sizeof(double));
+    return a;
+}
 
 NpyArray NpyArray::from_int(int64_t v) {
     NpyArray a;

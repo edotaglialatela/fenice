@@ -117,7 +117,7 @@ struct Face4 {
 };
 
 // RiemannSolver::hllc_core for four faces
-void hllc4(const VEos& E, double sb, const AxisMasks& ax, const Face4& f, Vec5& F, V& smax) {
+void hllc4(const VEos& /*E*/, double sb, const AxisMasks& ax, const Face4& f, Vec5& F, V& smax) {
     const Vec5 &UL = f.UL, &UR = f.UR, &WL = f.WL, &WR = f.WR;
     const V inv_L = f.inv_L, inv_R = f.inv_R;
     const V rho_L = WL.q[0], p_L = WL.q[3], rho_R = WR.q[0], p_R = WR.q[3];

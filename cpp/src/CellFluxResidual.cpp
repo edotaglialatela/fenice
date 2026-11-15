@@ -90,8 +90,8 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
         // The Riemann problems of the faces go to the solver in chunks (four at a time with AVX2); the results are the same as
         // one call per face.
         constexpr int kChunk = 256;
-        State bUL[kChunk], bUR[kChunk], bF[kChunk];
-        int bax[kChunk], bface[kChunk];
+        State bUL[kChunk] = {}, bUR[kChunk] = {}, bF[kChunk];   // zeroed: the compiler cannot see that a flush reads only what was filled
+        int bax[kChunk] = {}, bface[kChunk];
         double bsm[kChunk];
         int nb = 0;
         const auto flush = [&]() {
@@ -449,7 +449,7 @@ void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& f
     }
     const int nlist = static_cast<int>(faces.size());
     const NavierStokes& ns = *phys_.ns;
-    const double mu = ns.mu(), gamma = eos_.gamma;
+    const double mu = ns.mu();
     const double k_cond = eos_.transport_law().thermal_conductivity(mu, ns.prandtl());
     const Field& U = *us_;
     const bool bo2 = bc_.params().boundary_order == 2;
@@ -550,7 +550,7 @@ void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& f
 double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
     if (dim_ == 3) return viscous_speed_3d(m, cb, ce);
     const NavierStokes& ns = *phys_.ns;
-    const double mu = ns.mu(), gamma = eos_.gamma;
+    const double mu = ns.mu();
     const double k_cond = eos_.transport_law().thermal_conductivity(mu, ns.prandtl());
     const Field& U = *us_;
     const LevelSizes hs(m);
@@ -919,7 +919,7 @@ void CellFluxEngine::gather_level(const CellMesh& m, int l, bool replace, Field&
     gather(m, lown_b_[static_cast<size_t>(l)], lown_e_[static_cast<size_t>(l)], replace, Rl);
 }
 
-void CellFluxEngine::clear_registers(const CellMesh& m, int l) {
+void CellFluxEngine::clear_registers(const CellMesh& /*m*/, int l) {
     for (int s = reg_level_begin_[static_cast<size_t>(l)]; s < reg_level_begin_[static_cast<size_t>(l) + 1]; ++s) {
         reg_[static_cast<size_t>(s)] = State{};
         regv_[static_cast<size_t>(s)] = State{};
