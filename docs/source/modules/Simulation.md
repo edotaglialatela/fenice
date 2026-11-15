@@ -22,6 +22,11 @@ solve_amr()          AMR time loop, serial / OpenMP / MPI
 unchanged along z; the 3-D Taylor-Green case requires `nz > 1`. If MPI
 is requested it first re-launches itself under `mpiexec`; every rank then calls `run_mpi`.
 
+The three engines share one time loop (`run_loop`). The loop owns the output times, the decision that a snapshot is due, the
+stop requests (Ctrl+C or a file named `STOP` in the output folder) and `max_steps`. Each engine gives it four operations: the
+step itself (state, solid reset, time), what follows every step (remesh, monitor row, post-processing outputs), the snapshot with
+its checkpoint, and the stop request agreed by all ranks.
+
 ## Spatial residual
 
 `assemble` builds the right-hand side of one (sub)domain, used for the serial domain and

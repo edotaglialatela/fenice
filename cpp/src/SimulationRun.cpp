@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <limits>
 #include <map>
+#include <optional>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -141,6 +142,42 @@ std::array<double, 3> Simulation::ibm_loads(const Mesh& m, const ImmersedBoundar
 }
 
 // ---------------------------------------------------------------------------
+// Time loop shared by the engines
+// ---------------------------------------------------------------------------
+
+Simulation::LoopResult Simulation::run_loop(const LoopEngine& e) {
+    LoopResult out;
+    int step = start_step;
+    int last_snapshot_step = step == 0 ? 0 : -1;
+    double next_write_time = next_time_output(t, p.write_interval_time);
+    const auto t0 = Clock::now();
+    while (t < p.t_end) {
+        std::optional<ProfileScope> iteration;
+        if (e.profile_iteration) iteration.emplace(Section::Step);
+        const StepResult r = e.advance(step + 1, next_write_time);
+        ++step;
+        const bool time_output = reached_time_output(t, next_write_time, p.write_interval_time);
+        if (time_output) next_write_time += p.write_interval_time;
+        e.after_step(step);
+
+        if (step % p.save_interval == 0 || time_output) {
+            e.save(step, r, seconds_since(t0));
+            last_snapshot_step = step;
+        }
+        poll_stop_file();
+        if (e.stop_requested ? e.stop_requested() : g_stop_requested.load()) {
+            out.interrupted = true;
+            break;
+        }
+        if (p.max_steps > 0 && step - start_step >= p.max_steps) break;
+    }
+    out.wall = seconds_since(t0);
+    out.step = step;
+    out.snapshot_due = out.interrupted || last_snapshot_step != step;
+    return out;
+}
+
+// ---------------------------------------------------------------------------
 // Serial time loop
 // ---------------------------------------------------------------------------
 
@@ -154,13 +191,8 @@ void Simulation::solve() {
 
     const double min_delta = dt_length;
     int step = start_step;
-    int last_snapshot_step = -1;
-    double next_write_time = next_time_output(t, p.write_interval_time);
     PostprocessWriter post(*test_case, exporter.output_dir(), file_prefix, step);
-    if (step == 0) {
-        exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
-        last_snapshot_step = step;
-    }
+    if (step == 0) exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
 
     const ResidualFn res = [this](const Field& Uin, Field& R) { return residual(Uin, R); };
     std::FILE* mon = open_monitor();
@@ -191,51 +223,43 @@ void Simulation::solve() {
             post.write_forces(step, t, ibm_loads(mesh, *ibm, U, R_loads), mesh, true);
         }
     }
-    profile_reset();   // the profile counts the time loop only
-    const auto t0 = Clock::now();
-    bool interrupted = false;
-    while (t < p.t_end) {
-        ProfileScope step_profile(Section::Step);
-        const StepResult r = scheme->step(U, res, min_delta, t, std::min(p.t_end, next_write_time), p.dt_max);
-        check_progress(t, r.dt, r.s_max, step + 1, p.time_scheme.c_str());
+    LoopEngine engine;
+    engine.advance = [&](int st, double t_stop) {
+        const StepResult r = scheme->step(U, res, min_delta, t, std::min(p.t_end, t_stop), p.dt_max);
+        check_progress(t, r.dt, r.s_max, st, p.time_scheme.c_str());
         if (p.use_ibm) ibm->apply_solid_reset(U, fluid);
         t += r.dt;
         scheme->stage_time = t;
-        ++step;
-        const bool time_output = reached_time_output(t, next_write_time, p.write_interval_time);
-        if (time_output) next_write_time += p.write_interval_time;
-        if (mon && step % p.monitor_interval == 0) row(step);
+        return r;
+    };
+    engine.after_step = [&](int st) {
+        if (mon && st % p.monitor_interval == 0) row(st);
         if (!post.empty()) {
-            post.write_uniform(mesh, fluid, U, step, t);
-            if (post.has_averages()) post.observe_averages(step, t, volume_primitive_means(fluid, mesh, U));
-            if (post.has_force_due(step)) {
+            post.write_uniform(mesh, fluid, U, st, t);
+            if (post.has_averages()) post.observe_averages(st, t, volume_primitive_means(fluid, mesh, U));
+            if (post.has_force_due(st)) {
                 residual(U, R_loads);
-                post.write_forces(step, t, ibm_loads(mesh, *ibm, U, R_loads), mesh);
+                post.write_forces(st, t, ibm_loads(mesh, *ibm, U, R_loads), mesh);
             }
         }
-
-        if (step % p.save_interval == 0 || time_output) {
-            {
-                ProfileScope ps(Section::Snapshot);
-                exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
-            }
-            {
-                ProfileScope ps(Section::Checkpoint);
-                save_checkpoint(step);
-            }
-            last_snapshot_step = step;
-            std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | wall = %s | Checkpoint saved\n",
-                        step, t, r.dt, r.s_max, format_elapsed(seconds_since(t0)).c_str());
-            std::fflush(stdout);
+    };
+    engine.save = [&](int st, const StepResult& r, double wall) {
+        {
+            ProfileScope ps(Section::Snapshot);
+            exporter.export_vtr(file_prefix, fluid, U, mesh, t, st);
         }
-        poll_stop_file();
-        if (g_stop_requested) {
-            interrupted = true;
-            break;
+        {
+            ProfileScope ps(Section::Checkpoint);
+            save_checkpoint(st);
         }
-        if (p.max_steps > 0 && step - start_step >= p.max_steps) break;
-    }
-    const double loop_wall = seconds_since(t0);
+        std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | wall = %s | Checkpoint saved\n",
+                    st, t, r.dt, r.s_max, format_elapsed(wall).c_str());
+        std::fflush(stdout);
+    };
+    profile_reset();   // the profile counts the time loop only
+    const LoopResult loop = run_loop(engine);
+    step = loop.step;
+    const double loop_wall = loop.wall;
 
     if (mon) {
         if (step % p.monitor_interval != 0) row(step);
@@ -249,12 +273,8 @@ void Simulation::solve() {
             post.write_forces(step, t, ibm_loads(mesh, *ibm, U, R_loads), mesh, true);
         }
     }
-    if (interrupted) {
-        std::printf("\n[INTERRUPTED] Stopping the simulation...\n");
-        exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
-    } else if (last_snapshot_step != step) {
-        exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
-    }
+    if (loop.interrupted) std::printf("\n[INTERRUPTED] Stopping the simulation...\n");
+    if (loop.snapshot_due) exporter.export_vtr(file_prefix, fluid, U, mesh, t, step);
     save_checkpoint(step);
     exporter.write_pvd(file_prefix);
     dump_final_state(step);
@@ -323,8 +343,6 @@ void Simulation::solve_amr() {
     double S = start_step > 0 ? cell_speed_ : (local_run ? wave_speed() : eng.residual(cm, cm.U, R));
     cell_speed_ = S;
     int step = start_step;
-    int last_snapshot_step = -1;
-    double next_write_time = next_time_output(t, p.write_interval_time);
 
     // Every rank writes the leaves it owns (the whole mesh on one rank)
     const auto export_state = [&](int st) {
@@ -428,41 +446,36 @@ void Simulation::solve_amr() {
                         p.use_ibm ? &loads : nullptr, residual_norms(rs));
     };
 
-    if (step == 0) {
-        export_state(step);
-        last_snapshot_step = step;
-    }
+    if (step == 0) export_state(step);
     post_state(step, step == 0, false, step == 0);
     if (monitoring && step == 0) row(step, true, postprocess_force_due(*test_case, step), false);
     else if (step == 0 && postprocess_force_due(*test_case, step)) row(step, false, true, false);
 
-    const auto t0 = Clock::now();
-    profile_reset();   // the profile counts the time loop only
     double remesh_wall = 0.0, t_gather = 0.0, t_speed = 0.0, t_partition = 0.0;
-    bool interrupted = false;
-    while (t < p.t_end) {
+    LoopEngine engine;
+    engine.profile_iteration = false;   // Section::Step is the advance alone: the remesh and the output have their own sections
+    engine.advance = [&](int st, double t_stop) {
         // the time-step length of the base mesh: min(dx, dy) in 2-D, 2 / sum 1/h in 3-D (Simulation::dt_length)
         const double h0 = octree ? step_length_3d(cm.dx(0), cm.dy(0), cm.dz(0)) : step_length_2d(cm.dx(0), cm.dy(0));
         double dt = std::min(scheme->cfl * h0 / std::max(S, 1e-10), p.t_end - t);
         if (p.dt_max > 0.0) dt = std::min(dt, p.dt_max);
-        dt = std::min(dt, next_write_time - t);
+        dt = std::min(dt, t_stop - t);
         {
             ProfileScope ps(Section::Step);
             S = adv.step(dt, t);
         }
-        check_progress(t, dt, S, step + 1, p.time_scheme.c_str());
+        check_progress(t, dt, S, st, p.time_scheme.c_str());
         cell_speed_ = S;
         if (p.use_ibm) {
             eng.solid_reset(cm, cm.U);
             if (cell_par) cell_par->exchange_solid();
         }
         t += dt;
-        ++step;
-        const bool time_output = reached_time_output(t, next_write_time, p.write_interval_time);
-        if (time_output) next_write_time += p.write_interval_time;
-
+        return StepResult{dt, S};
+    };
+    engine.after_step = [&](int st) {
         bool changed = false;
-        if (step % p.amr_refine_every == 0) {
+        if (st % p.amr_refine_every == 0) {
             const auto r0 = Clock::now();
             if (local_run) {
                 // indicator on the owned leaves and their region, flags gathered, state of the new leaves migrated: no whole mesh
@@ -487,32 +500,32 @@ void Simulation::solve_amr() {
             remesh_wall += seconds_since(r0);
             profile_add(Section::Remesh, seconds_since(r0));
         }
-        post_state(step, false, changed, true);
-        const bool monitor_due = monitoring && step % p.monitor_interval == 0;
-        const bool force_due = postprocess_force_due(*test_case, step);
-        if (monitor_due || force_due) row(step, monitor_due, force_due, false);
-
-        if (step % p.save_interval == 0 || time_output) {
-            ProfileScope ps(Section::Output);
-            export_state(step);
-            const LeafArrays lf = leaves();
-            const int nleaves = total_leaves();
-            if (root) save_checkpoint(step, &lf);
-            last_snapshot_step = step;
-            if (root)
-                std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | leaves = %d | wall = %s%s\n", step, t, dt, S, nleaves,
-                            format_elapsed(seconds_since(t0)).c_str(), " | Checkpoint saved");
-            std::fflush(stdout);
-        }
-        poll_stop_file();
+        post_state(st, false, changed, true);
+        const bool monitor_due = monitoring && st % p.monitor_interval == 0;
+        const bool force_due = postprocess_force_due(*test_case, st);
+        if (monitor_due || force_due) row(st, monitor_due, force_due, false);
+    };
+    // (the wave speed printed is the bound of the next step: S, which a remesh has updated, not the one the step returned)
+    engine.save = [&](int st, const StepResult& r, double wall) {
+        ProfileScope ps(Section::Output);
+        export_state(st);
+        const LeafArrays lf = leaves();
+        const int nleaves = total_leaves();
+        if (root) save_checkpoint(st, &lf);
+        if (root)
+            std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | leaves = %d | wall = %s%s\n", st, t, r.dt, S, nleaves,
+                        format_elapsed(wall).c_str(), " | Checkpoint saved");
+        std::fflush(stdout);
+    };
+    engine.stop_requested = [&] {
         const double stop = g_stop_requested.load() ? 1.0 : 0.0;
-        if ((cell_par ? cell_par->reduce_max(stop) : stop) > 0.0) {
-            interrupted = true;
-            break;
-        }
-        if (p.max_steps > 0 && step - start_step >= p.max_steps) break;
-    }
-    const double loop_wall = seconds_since(t0);
+        return (cell_par ? cell_par->reduce_max(stop) : stop) > 0.0;
+    };
+    profile_reset();   // the profile counts the time loop only
+    const LoopResult loop = run_loop(engine);
+    step = loop.step;
+    const double loop_wall = loop.wall;
+    const bool interrupted = loop.interrupted;
 
     if (monitoring || !test_case->forces.empty()) {
         const bool monitor_final = monitoring && step % p.monitor_interval != 0;
@@ -524,7 +537,7 @@ void Simulation::solve_amr() {
         if (mon) std::fclose(mon);
     }
     if (root && interrupted) std::printf("\n[INTERRUPTED] Stopping the simulation...\n");
-    if (interrupted || last_snapshot_step != step) export_state(step);
+    if (loop.snapshot_due) export_state(step);
     // resident memory of every rank (collective), before the whole mesh is gathered for the files
     const MemoryUsage mem_end = memory_usage();
     std::vector<double> mem = {mem_setup_.current, mem_init_.current, mem_end.current, mem_end.peak};
@@ -835,13 +848,10 @@ void Simulation::run_mpi(MPI_Comm comm) {
         local_ibm->apply_solid_reset(Uloc, fluid, &sh);
     };
     const double min_delta = dt_length;
-    double next_write_time = next_time_output(t, p.write_interval_time);
-    int last_snapshot_step = -1;
 
     if (start == 0) {
         Field g = decomp.gather(U_local);
         if (root) exporter.export_vtr(file_prefix, fluid, g, mesh, t, 0);
-        last_snapshot_step = 0;
     }
     post_state(start, start == 0, start == 0);
     if (root) {
@@ -874,43 +884,37 @@ void Simulation::run_mpi(MPI_Comm comm) {
         monitor_row(mon, st, v, p.use_ibm ? &loads : nullptr, residual_norms(rs));
     };
     if (monitoring && step == 0) row(step);
-    const auto t0 = Clock::now();
-    bool interrupted = false;
-    while (t < p.t_end) {
-        ProfileScope step_profile(Section::Step);
-        const StepResult sr = scheme->step(U_local, res, min_delta, t, std::min(p.t_end, next_write_time), p.dt_max);
-        check_progress(t, sr.dt, sr.s_max, step + 1, p.time_scheme.c_str());
+    LoopEngine engine;
+    engine.advance = [&](int st, double t_stop) {
+        const StepResult sr = scheme->step(U_local, res, min_delta, t, std::min(p.t_end, t_stop), p.dt_max);
+        check_progress(t, sr.dt, sr.s_max, st, p.time_scheme.c_str());
         if (p.use_ibm) solid_reset(U_local);
         t += sr.dt;
         scheme->stage_time = t;
         update_boundary_values(t, lb);
-        ++step;
-        const bool time_output = reached_time_output(t, next_write_time, p.write_interval_time);
-        if (time_output) next_write_time += p.write_interval_time;
-        if (monitoring && step % p.monitor_interval == 0) row(step);
-        post_state(step, false, true);
-
-        if (step % p.save_interval == 0 || time_output) {
-            Field g = decomp.gather(U_local);
-            if (root) {
-                exporter.export_vtr(file_prefix, fluid, g, mesh, t, step);
-                U = std::move(g);
-                save_checkpoint(step);
-                std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | wall = %s | Checkpoint saved\n",
-                            step, t, sr.dt, sr.s_max, format_elapsed(seconds_since(t0)).c_str());
-                std::fflush(stdout);
-            }
-            last_snapshot_step = step;
+        return sr;
+    };
+    engine.after_step = [&](int st) {
+        if (monitoring && st % p.monitor_interval == 0) row(st);
+        post_state(st, false, true);
+    };
+    engine.save = [&](int st, const StepResult& sr, double wall) {
+        Field g = decomp.gather(U_local);
+        if (root) {
+            exporter.export_vtr(file_prefix, fluid, g, mesh, t, st);
+            U = std::move(g);
+            save_checkpoint(st);
+            std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | wall = %s | Checkpoint saved\n",
+                        st, t, sr.dt, sr.s_max, format_elapsed(wall).c_str());
+            std::fflush(stdout);
         }
-        // Agree on Ctrl+C across ranks so nobody blocks in a collective
-        poll_stop_file();
-        if (decomp.allreduce_max(g_stop_requested ? 1.0 : 0.0) > 0.0) {
-            interrupted = true;
-            break;
-        }
-        if (p.max_steps > 0 && step - start >= p.max_steps) break;
-    }
-    const double loop_wall = seconds_since(t0);
+    };
+    // Agree on Ctrl+C across ranks so nobody blocks in a collective
+    engine.stop_requested = [&] { return decomp.allreduce_max(g_stop_requested ? 1.0 : 0.0) > 0.0; };
+    const LoopResult loop = run_loop(engine);
+    step = loop.step;
+    const double loop_wall = loop.wall;
+    const bool interrupted = loop.interrupted;
 
     if (monitoring && step % p.monitor_interval != 0) row(step);
     if (mon) std::fclose(mon);
@@ -918,7 +922,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     Field g = decomp.gather(U_local);
     if (root) {
         if (interrupted) std::printf("\n[INTERRUPTED] Stopping...\n");
-        if (interrupted || last_snapshot_step != step) exporter.export_vtr(file_prefix, fluid, g, mesh, t, step);
+        if (loop.snapshot_due) exporter.export_vtr(file_prefix, fluid, g, mesh, t, step);
         U = std::move(g);
         save_checkpoint(step);
         exporter.write_pvd(file_prefix);

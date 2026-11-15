@@ -137,6 +137,31 @@ public:
 
 private:
     void solve_amr();
+    // What an engine (uniform, uniform on MPI strips, adaptive) gives the time loop. run_loop owns what the engines share: the
+    // output times, when a snapshot is due, the stop requests, max_steps and the wall time of the loop.
+    struct LoopEngine {
+        // Step number `step` from time t, not beyond `t_stop` (the next output time): the state, the solid reset, t and the stage
+        // time. Returns the time step taken and the largest wave speed.
+        std::function<StepResult(int step, double t_stop)> advance;
+        // After step `step`: what the engine does every step, in its own order (remesh, monitor row, post-processing outputs).
+        std::function<void(int step)> after_step;
+        // A step where output is due: snapshot, checkpoint and the progress line; `wall` = seconds since the loop began.
+        std::function<void(int step, const StepResult& r, double wall)> save;
+        // Whether a stop was asked for (Ctrl+C or the STOP file). Collective on several ranks, so that all of them leave the loop
+        // at the same step; empty = the flag of this process.
+        std::function<bool()> stop_requested;
+        // Section::Step of the profile covers the whole iteration (false: the engine times its own step).
+        bool profile_iteration = true;
+    };
+    // How the time loop ended.
+    struct LoopResult {
+        int step = 0;                // last step taken
+        double wall = 0.0;           // seconds spent in the loop
+        bool interrupted = false;    // left on a stop request
+        bool snapshot_due = false;   // the last step has no snapshot yet (or the run was interrupted): write one
+    };
+    // The time loop from start_step (whose snapshot the engine wrote if it is step 0) to t_end, a stop request or max_steps.
+    LoopResult run_loop(const LoopEngine& e);
     // Initial state of the leaves of `m` at their centres: the initial condition of the case evaluated on the uniform mesh of
     // each leaf's level, or the hot-start field interpolated.
     void fill_cells(CellMesh& m) const;
