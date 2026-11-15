@@ -1387,3 +1387,18 @@ TEST(moving_wall_ghost_has_the_pressure_of_the_interior_at_second_order) {
             }
         }
 }
+
+TEST(mesh_too_large_for_32_bit_indices_is_refused) {
+    // 1000^3 cells have 3.003e9 faces: refused with a message instead of a wrapped index
+    const auto refused = [](const char* nx, const char* ny, const char* nz) {
+        try {
+            params_for("Sod Shock Tube", {{"nx", nx}, {"ny", ny}, {"nz", nz}});
+        } catch (const std::invalid_argument& e) { return std::string(e.what()).find("32-bit") != std::string::npos; }
+        return false;
+    };
+    CHECK(refused("1000", "1000", "1000"));
+    CHECK(refused("40000", "40000", "1"));                      // 2-D: 3.2e9 faces
+    CHECK(refused("2000000000", "2000000000", "2000000000"));   // the product itself exceeds 64 bits
+    CHECK(!refused("800", "800", "800"));                       // 1.5e9 faces fit
+    CHECK(!refused("30000", "30000", "1"));
+}

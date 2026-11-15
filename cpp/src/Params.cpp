@@ -339,6 +339,17 @@ SimParams SimParams::from(const Params& p) {
     s.vtk_format = lower(p.str("vtk_format", "binary"));
 
     if (s.nx <= 0 || s.ny <= 0 || s.nz <= 0) throw std::invalid_argument("nx, ny and nz must be positive");
+    {   // cell and face indices are 32-bit: refuse a mesh whose face count (the largest index range) does not fit
+        // (in double: the product of three ints can exceed 64 bits, and the comparison needs no exact count)
+        const double nx = s.nx, ny = s.ny, nz = s.nz;
+        const double faces = (nx + 1) * ny * nz + nx * (ny + 1) * nz + (s.nz > 1 ? nx * ny * (nz + 1) : 0.0);
+        if (faces > 2147483647.0) {
+            char count[32];
+            std::snprintf(count, sizeof count, "%.4g", faces);
+            throw std::invalid_argument(std::string("nx, ny, nz: the mesh has about ") + count +
+                                        " faces, more than the 2147483647 a 32-bit index holds (about 700 million cells in 3-D)");
+        }
+    }
     if (s.Lx <= 0 || s.Ly <= 0 || s.Lz <= 0) throw std::invalid_argument("Lx, Ly and Lz must be positive");
     {   // amr_indicator: variables joined by '+', each one of density, velocity, pressure
         const std::string& ind = s.amr_indicator;

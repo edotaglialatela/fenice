@@ -19,7 +19,7 @@ short alias shown in brackets.
 |---|---|---|
 | `test_case` | `Sod Shock Tube` | Initial field and case-specific BCs (see [Test cases]({{root}}modules/TestCases.html)) |
 | `Lx`, `Ly` | `1.0`, `1.0` | Domain size [m] |
-| `nx`, `ny` | `100`, `100` | Cells in x and y |
+| `nx`, `ny` | `100`, `100` | Cells in x and y. Indices are 32-bit: a mesh with more than 2^31 - 1 faces (about 700 million cells in 3-D, a billion in 2-D) is refused at setup |
 | `nz` | `1` | Cells in z; `1` is a 2-D run, `> 1` a 3-D run (2-D cases are extruded along z) |
 | `Lz` | `1.0` | Domain depth [m] (3-D only) |
 

@@ -55,7 +55,7 @@ jobs:
       - run: python -m pip install -e python
       - name: Build
         run: |
-          cmake --preset release 2>&1 | tee configure.log
+          cmake --preset release -DFV_WERROR=ON 2>&1 | tee configure.log   # a compiler warning fails the build
           grep -q "Found OpenMP" configure.log || { echo "::error::OpenMP not found"; exit 1; }
           grep -q "MPI enabled" configure.log || { echo "::error::MPI not found"; exit 1; }
           # Compiler and linker errors become annotations (visible without the full log)
@@ -63,7 +63,6 @@ jobs:
             grep -E "error|Error|undefined reference|multiple definition|ld:" build.log | head -30 |
               while IFS= read -r line; do echo "::error::$line"; done
             tail -60 build.log; exit 1; }
-          grep -cE "warning" build.log | xargs -I{} echo "{} compiler warning lines"
       - name: Unit tests
         run: ./build/release/fenice_tests
       - name: Regression (serial)
@@ -85,6 +84,23 @@ jobs:
           python -m pip install sympy matplotlib
           python cases/validation/verification/mms.py
 
+  # The unit tests under the address and undefined-behaviour checks: a read past a halo that happens to hold the right value,
+  # a use after free or a wrapped index passes every bit comparison above and stops this job.
+  sanitize:
+    name: Linux x64 sanitizers (address, undefined behaviour)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v5
+      - name: Dependencies
+        run: sudo apt-get update && sudo apt-get install -y build-essential cmake ninja-build
+      - name: Build
+        run: |
+          cmake --preset sanitize -DFV_WERROR=ON
+          cmake --build --preset sanitize -j 4 --target fenice_tests
+      - name: Unit tests
+        run: ./build/sanitize/fenice_tests
+
   windows:
     name: Windows x64 (MSVC, MS-MPI)
     runs-on: windows-latest
@@ -101,7 +117,7 @@ jobs:
       - name: Build and unit tests
         shell: pwsh
         run: |
-          .\cpp\build.ps1 -Test
+          .\cpp\build.ps1 -Werror -Test
           if (-not (Select-String -Path build\release\build.ninja -Pattern "FV_USE_MPI" -Quiet)) { throw "MPI not compiled in" }
       - name: Regression (serial)
         run: python cpp/tests/regression.py

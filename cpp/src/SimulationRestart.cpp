@@ -144,7 +144,9 @@ int Simulation::load_checkpoint() {
     if (share) {
         const auto ints = [&](const char* key) {
             const std::vector<double> d = file.read(key).as_doubles();
-            return std::vector<int>(d.begin(), d.end());
+            std::vector<int> v(d.size());
+            for (size_t q = 0; q < d.size(); ++q) v[q] = static_cast<int>(d[q]);
+            return v;
         };
         {
             const bool octree = cells->dim == 3;
@@ -177,7 +179,9 @@ int Simulation::load_checkpoint() {
     } else if (cells) {
         const auto ints = [&](const char* key) {
             const std::vector<double> d = a.at(key).as_doubles();
-            return std::vector<int>(d.begin(), d.end());
+            std::vector<int> v(d.size());
+            for (size_t q = 0; q < d.size(); ++q) v[q] = static_cast<int>(d[q]);
+            return v;
         };
         Field Uc = npy_to_field(a.at("U"));
         if (cells->dim == 3) {
@@ -258,7 +262,9 @@ Field Simulation::load_hot_start(const std::string& path) {
                                      (src_3d ? "3-D" : "2-D") + " run");
         const auto ints = [&](const char* key) {
             const std::vector<double> d = a.at(key).as_doubles();
-            return std::vector<int>(d.begin(), d.end());
+            std::vector<int> v(d.size());
+            for (size_t q = 0; q < d.size(); ++q) v[q] = static_cast<int>(d[q]);
+            return v;
         };
         int nxf = 0, nyf = 0, nzf = 1;
         if (src_3d) {

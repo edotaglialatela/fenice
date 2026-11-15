@@ -6,11 +6,13 @@
 #   .\cpp\build.ps1 -Config Debug        # unoptimised build in build\debug
 #   .\cpp\build.ps1 -MpiSdk "C:\Program Files (x86)\Microsoft SDKs\MPI"
 #   .\cpp\build.ps1 -NoMpi               # OpenMP only
+#   .\cpp\build.ps1 -Werror              # compiler warnings are errors (what CI builds)
 param(
     [ValidateSet("Release", "Debug")]
     [string]$Config = "Release",
     [string]$MpiSdk = "",
     [switch]$NoMpi,
+    [switch]$Werror,
     [switch]$Test
 )
 $ErrorActionPreference = "Continue"   # native tools write warnings to stderr; exit codes are checked
@@ -32,10 +34,11 @@ if ($MpiSdk) {
     $env:MSMPI_LIB64 = (Join-Path $MpiSdk "Lib\x64") + "\"
 }
 $mpi = if ($NoMpi) { "OFF" } else { "ON" }
+$wx = if ($Werror) { "ON" } else { "OFF" }
 
 Push-Location $root
 try {
-    cmake --preset $preset "-DFV_USE_MPI=$mpi"
+    cmake --preset $preset "-DFV_USE_MPI=$mpi" "-DFV_WERROR=$wx"
     if ($LASTEXITCODE -ne 0) { throw "CMake configure failed" }
     cmake --build --preset $preset
     if ($LASTEXITCODE -ne 0) { throw "Build failed" }

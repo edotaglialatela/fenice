@@ -25,13 +25,23 @@ Each step is judged by its exit code and logs to `results/validation/check_all/`
 (`--keep-going` runs the rest). OLD is made before the change with `cases/validation/amr/golden.py dump OLD --exe <old fenice>`;
 `--full` also dumps with `FENICE_NO_SIMD=1` and `FENICE_FULL_REBUILD=1`, which must give the same states.
 
+CI compiles with warnings as errors (`-DFV_WERROR=ON`, or `.\cpp\build.ps1 -Werror`) and runs the unit tests once more in a build
+with the address and undefined-behaviour checks of the compiler (GCC or Clang):
+
+```bash
+cmake --preset sanitize && cmake --build --preset sanitize --target fenice_tests
+./build/sanitize/fenice_tests                   # stops at the first invalid read or write, use after free or signed overflow
+```
+
+These checks see what a comparison of bits cannot: a read past a halo that happens to hold the right value.
+
 ## Unit tests (`fenice_tests`)
 
 The tests in `cpp/tests/` use a self-contained harness (`test_common.hpp`), so no test framework is needed, and the runner
 exits non-zero on failure. They are split by area: `test_core.cpp` (EOS, limiters, Riemann solvers, boundaries, time schemes, IBM,
 mapping, I/O), `test_periodic.cpp` (periodic and 3-D flows), `test_casefile.cpp`, and `test_amr_mesh.cpp`, `test_amr_physics.cpp`,
 `test_amr_remesh.cpp`, `test_amr_distributed.cpp` for the AMR (the helpers they share are in `test_amr_common.hpp`). With no
-argument `fenice_tests` runs all 192 tests; `fenice_tests --list` prints their names and `fenice_tests NAME ..` runs those whose name
+argument `fenice_tests` runs all 201 tests; `fenice_tests --list` prints their names and `fenice_tests NAME ..` runs those whose name
 contains one of the arguments (a filter that matches nothing exits with code 2). They cover:
 
 * **EOS.** Round trips, floors, and the stiffened gas reducing to the ideal gas.

@@ -23,11 +23,20 @@
       "inherits": "base",
       "binaryDir": "${sourceDir}/build/debug",
       "cacheVariables": { "CMAKE_BUILD_TYPE": "Debug" }
+    },
+    {
+      "name": "sanitize",
+      "displayName": "Sanitizers (build/sanitize)",
+      "description": "Optimised build with debug information and the address / undefined-behaviour checks, without MPI: build/sanitize/fenice_tests.",
+      "inherits": "base",
+      "binaryDir": "${sourceDir}/build/sanitize",
+      "cacheVariables": { "CMAKE_BUILD_TYPE": "RelWithDebInfo", "FV_USE_MPI": "OFF", "FV_SANITIZE": "ON" }
     }
   ],
   "buildPresets": [
     { "name": "release", "configurePreset": "release" },
-    { "name": "debug", "configurePreset": "debug" }
+    { "name": "debug", "configurePreset": "debug" },
+    { "name": "sanitize", "configurePreset": "sanitize" }
   ],
   "testPresets": [
     { "name": "release", "configurePreset": "release", "output": { "outputOnFailure": true } }

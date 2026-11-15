@@ -10,6 +10,8 @@ endif()
 option(FV_USE_OPENMP "Multi-threaded kernels (OpenMP)" ON)
 option(FV_USE_MPI    "MPI domain decomposition (needs an MPI SDK, e.g. MS-MPI)" ON)
 option(FV_BUILD_TESTS "Build the C++ unit tests" ON)
+option(FV_WERROR     "Treat compiler warnings as errors (CI turns it on)" OFF)
+option(FV_SANITIZE   "Address and undefined-behaviour checks (GCC / Clang; MSVC: address only)" OFF)
 
 add_library(fenice_core STATIC
   src/CaseFile.cpp
@@ -78,6 +80,23 @@ if(MSVC)
 else()
   # Optimisation comes from the build type (Release: -O3), so Debug builds stay debuggable
   target_compile_options(fenice_core PUBLIC -Wall -Wextra -fno-fast-math -ffp-contract=off)
+endif()
+if(FV_WERROR)
+  if(MSVC)
+    target_compile_options(fenice_core PUBLIC /WX)
+  else()
+    target_compile_options(fenice_core PUBLIC -Werror)
+  endif()
+endif()
+if(FV_SANITIZE)
+  # Reads past a halo, use after free, signed overflow, out-of-range shifts: what bit-equality with the references cannot see.
+  # A finding stops the run (no recovery), so a test run under the checks either passes or fails.
+  if(MSVC)
+    target_compile_options(fenice_core PUBLIC /fsanitize=address)
+  else()
+    target_compile_options(fenice_core PUBLIC -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer)
+    target_link_options(fenice_core PUBLIC -fsanitize=address,undefined)
+  endif()
 endif()
 
 if(FV_USE_OPENMP)

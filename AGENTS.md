@@ -106,5 +106,6 @@ Numerics for the analysis tools (spectra, modal decomposition, sensitivity, load
   (`--create-missing` adds references without touching existing ones).
 - For a change that must not move the bits, dump final states (`dump_state`) before and after and compare hashes (also with `FENICE_NO_SIMD=1` and `FENICE_FULL_REBUILD=1`).
 - CI (`.github/workflows/ci.yml`, every push; Linux x64 / ARM64, macOS, Windows): unit tests, regression serial + 4 MPI ranks, `amr_mpi.py --check`, `ibm_ghost.py --check`, MMS quick study.
+  Warnings are errors there (`-DFV_WERROR=ON`, `build.ps1 -Werror`); a Linux job runs the unit tests under the address and undefined-behaviour checks (`cmake --preset sanitize`).
 - Documentation: public C++ declarations carry a `//` comment directly above them (that is the API reference). Images live in `docs/img/`, prefixed by case.
   Validation figures come from `cases/validation/<group>/<study>.py --docs`. Never commit generated HTML.

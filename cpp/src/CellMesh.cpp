@@ -16,6 +16,9 @@ namespace fv {
 
 namespace {
 
+// Largest value of the 32-bit leaf, side and face indices.
+constexpr long long kMaxIndex = 2147483647LL;
+
 // Sort key of a leaf inside the whole list: level first, Morton key second.
 struct SortKey {
     int level;
@@ -277,6 +280,9 @@ int CellMesh::face_of(const CellMesh& in, int c, int l, int i, int j, int k, int
 }
 
 void CellMesh::rebuild(bool incremental) {
+    // leaf, side and face indices are 32-bit: the largest range built here is sides() entries per leaf
+    if (level.size() > static_cast<size_t>(kMaxIndex / sides()))
+        throw std::length_error("CellMesh: too many leaves for 32-bit indices (" + std::to_string(level.size()) + ")");
     const int N = num_leaves(), ns = sides();
     ++version;
     partial = false;
@@ -955,6 +961,13 @@ bool CellMesh::adapt(const std::vector<char>& refine_in, const std::vector<char>
     bool any = false;
     for (int c = 0; c < N && !any; ++c) any = R[c] || merge_anchor[c];
     if (!any) return false;
+    {   // the counters below are 32-bit: refuse the refinement before they can wrap (merges ignored: an upper bound)
+        long long grown = N;
+        for (int c = 0; c < N; ++c) grown += R[c] ? nch - 1 : 0;
+        if (grown > kMaxIndex / sides())
+            throw std::length_error("CellMesh::adapt: the refined mesh would have too many leaves for 32-bit indices (" +
+                                    std::to_string(grown) + ")");
+    }
 
     // New leaf list.  Per target level three streams are each already in Morton order: the leaves that stay, the children
     // of the refined leaves of the level above, the parents of the merged groups of the level below.  A stream entry
