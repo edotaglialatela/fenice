@@ -24,6 +24,7 @@ Reported without a band: scaling over threads and ranks, remesh share, memory pe
 """
 import argparse
 import json
+import os
 import shutil
 import sys
 import time
@@ -40,7 +41,9 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from octree_q0 import sphere_case   # noqa: E402  (the case file of Q0: sphere in a channel, Re as a parameter)
 
 T_END = 30.0
-THREADS = 16
+# threads of the accuracy runs, and thread / rank counts added to those of the timing stage (a larger machine: both from the environment)
+THREADS = int(os.environ.get("FENICE_OCTREE_THREADS", "16"))
+MORE = tuple(int(n) for n in os.environ.get("FENICE_OCTREE_COUNTS", "").split())
 AMR_EVERY = 4
 BAND_SAME, BAND_WALL, BAND_RATIO, BAND_LEVEL0 = 0.02, 0.5, 0.6, 0.005
 
@@ -161,12 +164,12 @@ def cmd_timing(args):
     cases = [c for c in configs() if c["re"] == 20 and c["method"] == "mask" and c["fin"] == 20]
     for c in cases:
         row = {"thread": {}, "rank": {}}
-        for t in (1, 4, 8, 16):
+        for t in (1, 4, 8, 16) + tuple(n for n in MORE if n > 16):
             best = min(timing_run(c, work, steps, threads=t)[0] for _ in range(repeats))
             row["thread"][t] = best
             print(f"{c['tag']:22s} {t:2d} threads: {best:8.1f} s per unit time", flush=True)
         if c["kind"] == "oct":
-            for n in (1, 2, 4, 8):
+            for n in (1, 2, 4, 8) + tuple(n for n in MORE if n > 8):
                 best, parts, mem = None, None, None
                 for _ in range(repeats):
                     w, got, _ = timing_run(c, work, steps, mpi=n)
@@ -183,7 +186,7 @@ def cmd_timing(args):
 def cmd_report(args):
     runs = {c["tag"]: run_one(c) for c in configs(True) if (OUT / c["tag"] / "info.json").exists()}
     summary, ok = {"runs": runs}, True
-    print("\nAccuracy runs (16 threads, t = 30):")
+    print("\nAccuracy runs (t = 30; threads: FENICE_OCTREE_THREADS, default 16):")
     print(f"{'run':22s} {'Cd':>8s} {'settle':>8s} {'leaves':>9s} {'steps':>7s} {'wall [s]':>9s} {'s / unit t':>10s}")
     for tag, r in runs.items():
         print(f"{tag:22s} {r['cd']:8.4f} {r['settling']:8.1e} {r.get('leaves', ''):>9} {r['steps']:7d} "
@@ -228,6 +231,9 @@ def cmd_report(args):
             th = row["thread"]
             ratio = (f"{th['1'] / uni['thread']['1']:.2f} / {th['16'] / uni['thread']['16']:.2f}" if uni else "")
             print(f"{tag:22s} " + " ".join(f"{th[k]:8.1f}" for k in ("1", "4", "8", "16")) + f"   {th['1'] / th['16']:.1f}x   {ratio}")
+            more = [k for k in th if k not in ("1", "4", "8", "16")]
+            if more:
+                print(f"{'':22s} " + ", ".join(f"{k} threads {th[k]:.1f} ({th['1'] / th[k]:.1f}x)" for k in more))
         print("\nMPI ranks (one thread each; the 1-rank row is the OpenMP run on 16 threads): wall per unit time, speed-up over the 1-thread run, remesh share")
         for tag, row in tm.items():
             if not row["rank"]:
