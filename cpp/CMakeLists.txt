@@ -55,7 +55,8 @@ if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
     set_source_files_properties(src/SchemesAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
   endif()
 endif()
-target_include_directories(fenice_core PRIVATE third_party/tomlplusplus)
+# (SYSTEM: the vendored header is not ours to clean, so its warnings are not reported and FV_WERROR does not stop on them)
+target_include_directories(fenice_core SYSTEM PRIVATE third_party/tomlplusplus)
 
 # TinyExpr (case-file expressions): C, built with the same strict floating point as the solver
 add_library(fenice_tinyexpr STATIC third_party/tinyexpr/tinyexpr.c)

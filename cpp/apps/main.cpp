@@ -287,7 +287,9 @@ int main(int argc, char** argv) {
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(MPI_COMM_WORLD, &rank);
     MPI_Comm_size(MPI_COMM_WORLD, &size);
-    if (rank > 0) std::freopen(FV_NULL_DEVICE, "w", stdout);   // only rank 0 writes to the console (errors still go to stderr)
+    // only rank 0 writes to the console (errors still go to stderr)
+    if (rank > 0 && !std::freopen(FV_NULL_DEVICE, "w", stdout))
+        std::fprintf(stderr, "[MPI] rank %d: the console output could not be silenced\n", rank);
 #endif
 #ifdef _OPENMP
     if (size > 1) {
