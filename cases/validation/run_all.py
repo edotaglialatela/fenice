@@ -54,7 +54,7 @@ GROUPS = {
         "mms_full": (["verification/mms.py", "--full"], "long", None),   # up to 128^2 / 96^3 (about 20 minutes), as in the docs
         "mms_weno": (["verification/mms_weno.py"], "quick", None),   # periodic manufactured solutions with WENO3-Z / WENO5-Z, up to 64^2 / 48^3
         "mms_time_weno": (["verification/mms_time_weno.py"], "quick", None),   # time order with WENO3-Z / WENO5-Z (a few minutes)
-        "mms_amr_weno": (["verification/mms_amr_weno.py"], "quick", None),   # interior level jumps, WENO3-Z / MUSCL, 16 to 64
+        "mms_amr_weno": (["verification/mms_amr_weno.py"], "quick", None),   # interior level jumps, WENO3-Z / WENO5-Z / MUSCL, 16 to 64
     },
     "benchmarks": {
         "shu_osher": (["benchmarks/shu_osher.py"], "quick", None),
@@ -74,6 +74,7 @@ GROUPS = {
     },
     "amr": {
         "sod_amr": (["amr/sod_amr.py"], "quick", None),
+        "weno5_amr": (["amr/weno5_amr.py"], "long", None),   # WENO5-Z against WENO3-Z on adaptive meshes: vortex, tubes, cavity, cylinder, cost
         "sod_amr_animation": (["amr/sod_amr_animation.py"], "quick", None),
         "airfoil_amr": (["amr/airfoil_amr.py"], "long", None),
         "amr_mpi": (["amr/amr_mpi.py"], "long", None),   # timings: needs an idle machine

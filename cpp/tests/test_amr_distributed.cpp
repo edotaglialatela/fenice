@@ -2,6 +2,8 @@
 // Part of the unit tests: see test_common.hpp for the harness; test_main.cpp holds main().
 #include "test_amr_common.hpp"
 
+#include <map>
+
 // ---------------------------------------------------------------------------
 // Distributed run (P6): ranks emulated by threads
 // ---------------------------------------------------------------------------
@@ -87,6 +89,7 @@ struct DistSpec {
     unsigned seed;
     bool remesh;
     int boundary_order = 1;   // 2: second-order boundary faces (ghost layers); inviscid only
+    Reconstruction rec = Reconstruction::Muscl;
 };
 
 // Everything one rank (or the serial reference) needs, built from the spec.
@@ -101,7 +104,7 @@ struct DistEnv {
     Mesh base;
     CellPhysics ph;
     explicit DistEnv(const DistSpec& sp)
-        : rs(eos, RiemannType::HLLC), mu(eos, Limiter::VanLeer), bm(generate_cartesian_mesh(1.5, 1.0, 6, 5), eos),
+        : rs(eos, RiemannType::HLLC), mu(eos, Limiter::VanLeer, sp.rec), bm(generate_cartesian_mesh(1.5, 1.0, 6, 5), eos),
           ns(eos, 0.03, 0.72), bf{0.3, -0.5, 0.0}, base(generate_cartesian_mesh(1.5, 1.0, 6, 5)) {
         bm.set_boundary_types(sp.bc[0], sp.bc[1], sp.bc[2], sp.bc[3]);
         BCParams bp;
@@ -245,6 +248,10 @@ TEST(cellparallel_equals_serial_bitwise_for_any_rank_count) {
         {"second-order boundary faces, walls and inlet", false, false, {BCType::Wall, BCType::Outlet, BCType::MovingWall, BCType::VelInlet}, false, false, false, false, false, 17u, true, 2},
         {"second-order boundary faces, mass flow, nrbc", false, false, {BCType::MassflowInlet, BCType::NonReflecting, BCType::Wall, BCType::Transmissive}, false, false, false, false, false, 18u, true, 2},
         {"second-order boundary faces, viscous cavity", false, false, {BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::MovingWall}, true, false, false, false, false, 19u, true, 2},
+        // WENO5-Z: six cells where they are fluid leaves of the level, the outer two in the halo
+        {"weno5 euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 31u, true, 1, Reconstruction::Weno5},
+        {"weno5 second-order boundary faces, walls and inlet", false, false, {BCType::Wall, BCType::Outlet, BCType::MovingWall, BCType::VelInlet}, false, false, false, false, false, 32u, true, 2, Reconstruction::Weno5},
+        {"weno5 immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 33u, true, 1, Reconstruction::Weno5},
     };
     for (const DistSpec& sp : specs) {
         const Field serial = run_distributed(sp, 0, 6);
@@ -276,6 +283,10 @@ TEST(cellparallel_localized_run_equals_serial_bitwise_and_keeps_only_its_halo) {
         {"second-order boundary faces, mass flow, nrbc", false, false, {BCType::MassflowInlet, BCType::NonReflecting, BCType::Wall, BCType::Transmissive}, false, false, false, false, false, 18u, true, 2},
         {"second-order boundary faces, viscous cavity", false, false, {BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::MovingWall}, true, false, false, false, false, 19u, true, 2},
         {"immersed body (ghost cells)", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 26u, true},
+        // WENO5-Z: six cells where they are fluid leaves of the level, the outer two in the halo
+        {"weno5 euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 31u, true, 1, Reconstruction::Weno5},
+        {"weno5 second-order boundary faces, walls and inlet", false, false, {BCType::Wall, BCType::Outlet, BCType::MovingWall, BCType::VelInlet}, false, false, false, false, false, 32u, true, 2, Reconstruction::Weno5},
+        {"weno5 immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 33u, true, 1, Reconstruction::Weno5},
     };
     int empty_levels = 0;
     for (const DistSpec& sp : specs) {
@@ -743,6 +754,10 @@ TEST(cellparallel_topology_free_remesh_equals_serial_bitwise) {
         {"immersed body (ghost cells)", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 26u, true},
         {"inlet + mass flow", false, false, {BCType::MassflowInlet, BCType::Transmissive, BCType::Wall, BCType::VelInlet}, true, false, false, false, false, 15u, true},
         {"unsteady source, mixed", true, false, {per, per, BCType::NoSlip, BCType::MovingWall}, true, false, true, true, false, 13u, true},
+        // WENO5-Z: six cells where they are fluid leaves of the level, the outer two in the halo
+        {"weno5 euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 31u, true, 1, Reconstruction::Weno5},
+        {"weno5 second-order boundary faces, walls and inlet", false, false, {BCType::Wall, BCType::Outlet, BCType::MovingWall, BCType::VelInlet}, false, false, false, false, false, 32u, true, 2, Reconstruction::Weno5},
+        {"weno5 immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 33u, true, 1, Reconstruction::Weno5},
     };
     for (const DistSpec& sp : specs) {
         const Field serial = run_distributed(sp, 0, 8);
@@ -965,6 +980,45 @@ TEST(halo_reach_bounds_the_halo_of_any_partition) {
     CHECK(worst[CellParallel::HaloReach::SolidReset] <= 5);
     std::printf("    reach: interior %d, coarse-fine %d, boundary %d, ghost images %d, solid reset %d\n", worst[0], worst[1],
                 worst[2], worst[3], worst[4]);
+}
+
+TEST(halo_reach_with_weno5_is_one_ring_more_than_muscl) {
+    // WENO5-Z reads one more same-level cell on each side of a wide face, and what lies there on the other candidate faces: on the
+    // same meshes and physics the reach (CellParallel::halo_reach, rings of the owner's level by level difference) is at most one
+    // ring more than with MUSCL, which is what the region of a rank's share adds for it (CellShare.cpp). Prints both tables.
+    const BCType per = BCType::Periodic;
+    DistSpec specs[] = {
+        {"euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 31u, true, 1},
+        {"second-order boundary faces", false, false, {BCType::Wall, BCType::Outlet, BCType::MovingWall, BCType::VelInlet}, false, false, false, false, false, 32u, true, 2},
+        {"viscous, nrbc", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 34u, true, 1},
+        {"immersed body, viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 33u, true, 1},
+    };
+    std::map<int, int> reach[2];   // MUSCL, WENO5-Z: level difference -> largest ring
+    for (DistSpec& sp : specs)
+        for (int w = 0; w < 2; ++w) {
+            sp.rec = w ? Reconstruction::Weno5 : Reconstruction::Muscl;
+            DistEnv env(sp);
+            CellMesh m = random_adapted_mesh(sp.px, sp.py, sp.seed, 6);
+            m.U.assign(static_cast<size_t>(m.num_leaves()), State{});
+            for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state(env.eos, m.xc(c), m.yc(c));
+            CellFluxEngine eng(env.eos, env.rs, &env.mu, env.bm);
+            eng.set_physics(env.ph);
+            eng.build(m);
+            const CellParallel::HaloReach hr = CellParallel::halo_reach(m, eng);
+            for (int k = 0; k < CellParallel::HaloReach::NumKinds; ++k)
+                for (int idx = 0; idx <= 2 * m.max_level; ++idx) {
+                    const int ring = hr.ring[k][static_cast<size_t>(idx)];
+                    if (ring >= 0) reach[w][idx - m.max_level] = std::max(reach[w][idx - m.max_level], ring);
+                }
+        }
+    std::printf("    reach by level difference, MUSCL / WENO5-Z:");
+    for (const auto& e : reach[1]) {
+        const int base = reach[0].count(e.first) ? reach[0][e.first] : -1;
+        std::printf("  %d: %d / %d", e.first, base, e.second);
+        CHECK(e.second <= base + 1);
+    }
+    std::printf("\n");
+    CHECK(reach[1].count(0) && reach[1].count(1) && reach[1].count(-1));
 }
 
 TEST(local_indicator_equals_the_whole_mesh_indicator_for_any_partition) {

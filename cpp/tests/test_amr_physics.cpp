@@ -432,6 +432,132 @@ TEST(cellflux_incremental_rebuild_equals_full_rebuild) {
     }
 }
 
+TEST(cellflux_far_cells_equal_a_full_build) {
+    // WENO5-Z on the adaptive mesh: a face is wide when the six cells along its normal are fluid leaves of its level (replicated at
+    // a physical side, wrapped on a periodic axis). The flags and the two outer cells are recomputed at every build: after random
+    // adapts they equal those of a new engine and an independent lookup in the mesh, and a MUSCL engine has no such table.
+    const EOS eos = EOS::ideal(1.4);
+    unsigned seed = 77u;
+    const auto rnd = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<double>((seed >> 8) & 0xFFFFu) / 65536.0;
+    };
+    RiemannSolver rs(eos, RiemannType::HLLC);
+    MusclReconstruction w5(eos, Limiter::VanLeer, Reconstruction::Weno5), mu(eos, Limiter::VanLeer);
+    // the definition, from the mesh alone
+    const auto expected_wide = [&](const CellMesh& m, const CellFluxEngine& e, int f, bool periodic, int far[2]) {
+        const CellFace& face = m.faces[static_cast<size_t>(f)];
+        far[0] = far[1] = -1;
+        if (face.kind != CellFaceKind::Interior) return false;
+        const int l = face.level, n = face.axis == 0 ? m.nx_at(l) : m.ny_at(l);
+        const int i0 = face.axis == 0 ? m.ci[face.left] : m.cj[face.left], t = face.axis == 0 ? m.cj[face.left] : m.ci[face.left];
+        int cells[6];
+        for (int k = 0; k < 6; ++k) {
+            int i = i0 - 2 + k;
+            if (face.axis == 0 && periodic) i = ((i % n) + n) % n;
+            i = std::min(std::max(i, 0), n - 1);
+            const int c = face.axis == 0 ? m.find(l, i, t) : m.find(l, t, i);
+            if (c < 0 || (!e.solid().empty() && e.solid()[static_cast<size_t>(c)])) return false;
+            cells[k] = c;
+        }
+        far[0] = cells[0];
+        far[1] = cells[5];
+        return true;
+    };
+    for (int cfg = 0; cfg < 4; ++cfg) {
+        const bool periodic = cfg & 1, body = cfg & 2;
+        const int nx = 24, ny = 16, maxl = 3;
+        const double Lx = 3.0, Ly = 2.0;
+        const Mesh base = generate_cartesian_mesh(Lx, Ly, nx, ny);
+        BoundaryManager bm(base, eos);
+        if (periodic)
+            bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Wall, BCType::Wall);
+        else
+            bm.set_boundary_types(BCType::Transmissive, BCType::Transmissive, BCType::Wall, BCType::Wall);
+        CellPhysics ph;
+        if (body) ph.ibm_factory = [](const Mesh& mm) { return ImmersedBoundary(mm, "Cylinder", 0.3, 1.2, 1.0, 1.0, 1.0); };
+        const auto make_engine = [&](const MusclReconstruction& r) {
+            auto e = std::make_unique<CellFluxEngine>(eos, rs, &r, bm);
+            e->set_physics(ph);
+            return e;
+        };
+        CellMesh m(Lx, Ly, nx, ny, maxl, periodic, false);
+        auto eng = make_engine(w5);
+        eng->build(m);
+        int builds = 0, bad_tables = 0, bad_def = 0, wide_faces = 0, narrow_interior = 0, bad_muscl = 0;
+        for (int it = 0; it < 12; ++it) {
+            if (it > 0) {
+                const double sx = 0.4 + 0.2 * it, sy = 1.0 + 0.5 * std::sin(0.7 * it);
+                std::vector<char> r(static_cast<size_t>(m.num_leaves()), 0), co(r.size(), 0);
+                for (int c = 0; c < m.num_leaves(); ++c) {
+                    const double d = std::hypot(m.xc(c) - sx, m.yc(c) - sy);
+                    r[c] = (d < 0.35 && rnd() < 0.8) || rnd() < 0.01;
+                    co[c] = !r[c] && rnd() < 0.7;
+                }
+                if (!m.adapt(r, co)) continue;
+                eng->build(m);   // incremental
+            }
+            ++builds;
+            auto ref = make_engine(w5);
+            ref->build(m);
+            bad_tables += eng->same_tables(*ref) ? 0 : 1;
+            auto plain = make_engine(mu);
+            plain->build(m);
+            for (int f = 0; f < static_cast<int>(m.faces.size()); ++f) {
+                int far[2];
+                const bool wide = expected_wide(m, *eng, f, periodic, far);
+                const std::array<int, 2> got = eng->far_cells_of(f);
+                if (wide != eng->wide_face(f) || got[0] != far[0] || got[1] != far[1]) ++bad_def;
+                wide_faces += wide ? 1 : 0;
+                narrow_interior += (!wide && m.faces[static_cast<size_t>(f)].kind == CellFaceKind::Interior) ? 1 : 0;
+                if (plain->wide_face(f) || plain->far_cells_of(f)[0] != -1) ++bad_muscl;
+            }
+        }
+        CHECK(builds >= 8);
+        CHECK(bad_tables == 0);
+        CHECK(bad_def == 0);
+        CHECK(bad_muscl == 0);
+        CHECK(wide_faces > 0);
+        CHECK(narrow_interior > 0);
+        if (bad_tables || bad_def)
+            std::printf("    periodic %d body %d: %d tables, %d faces differ in %d builds\n", periodic, body, bad_tables, bad_def, builds);
+    }
+    // A refinement two cells from a face turns its wide flag off although both its leaves are clean (not copied: recomputed).
+    {
+        const int nx = 8, ny = 8;
+        const Mesh base = generate_cartesian_mesh(1.0, 1.0, nx, ny);
+        BoundaryManager bm(base, eos);
+        bm.set_boundary_types(BCType::Wall, BCType::Wall, BCType::Wall, BCType::Wall);
+        CellMesh m(1.0, 1.0, nx, ny, 2, false, false);
+        CellFluxEngine eng(eos, rs, &w5, bm);
+        eng.build(m);
+        const auto face_between = [&](int ia, int j) {   // the x face between the level-0 cells (ia, j) and (ia + 1, j)
+            const int a = m.find(0, ia, j), b = m.find(0, ia + 1, j);
+            for (int f = 0; f < static_cast<int>(m.faces.size()); ++f)
+                if (m.faces[static_cast<size_t>(f)].left == a && m.faces[static_cast<size_t>(f)].right == b) return f;
+            return -1;
+        };
+        int all_wide = 0, interior = 0;
+        for (int f = 0; f < static_cast<int>(m.faces.size()); ++f)
+            if (m.faces[static_cast<size_t>(f)].kind == CellFaceKind::Interior) {
+                ++interior;
+                all_wide += eng.wide_face(f) ? 1 : 0;
+            }
+        CHECK(interior > 0 && all_wide == interior);   // a uniform level: every interior face, replication at the walls
+        CHECK(eng.far_cells_of(face_between(0, 3))[0] == m.find(0, 0, 3));   // replicated twice at the wall
+        std::vector<char> r(static_cast<size_t>(m.num_leaves()), 0), co(r.size(), 0);
+        r[static_cast<size_t>(m.find(0, 5, 3))] = 1;
+        CHECK(m.adapt(r, co));
+        eng.build(m);   // incremental
+        const int near = face_between(2, 3), further = face_between(1, 3);
+        CHECK(near >= 0 && further >= 0);
+        CHECK(!m.topo_dirty[static_cast<size_t>(m.find(0, 2, 3))] && !m.topo_dirty[static_cast<size_t>(m.find(0, 3, 3))]);
+        CHECK(!eng.wide_face(near));      // its sixth cell (5, 3) is refined
+        CHECK(eng.wide_face(further));    // cells 0 .. 4 of the row: still leaves of the level
+        CHECK(!eng.wide_face(face_between(3, 3)));
+    }
+}
+
 TEST(cellflux_interpolated_jump_values_are_exact_for_a_linear_field) {
     // A linear primitive field: the value interpolated to the virtual fine cell across a jump is the exact one there (all
     // limiters return the exact slope on linear data). Control: the injected coarse value is not.

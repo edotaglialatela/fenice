@@ -360,9 +360,16 @@ SimParams SimParams::from(const Params& p) {
         throw std::invalid_argument("reconstruction must be none, muscl, weno3 or weno5; got '" + s.reconstruction + "'");
     if (s.reconstruction == "weno3" || s.reconstruction == "weno5") {
         const std::string ts = lower(s.time_scheme);
-        if (s.use_amr && s.reconstruction == "weno5") throw std::invalid_argument("reconstruction = weno5 is not available with AMR yet (weno3 is)");
-        if (s.reconstruction == "weno5" && s.use_mpi)
-            throw std::invalid_argument("reconstruction = weno5 is serial for now (an MPI halo is two cells deep, WENO5 reads three); use weno3 with MPI");
+        if (s.reconstruction == "weno5" && s.use_mpi && !s.use_amr)
+            throw std::invalid_argument("reconstruction = weno5 is serial on the uniform mesh (its MPI halo is two cells deep, WENO5 "
+                                        "reads three): use weno3 with MPI, or AMR (weno5 runs on MPI ranks there)");
+        if (s.reconstruction == "weno5" && s.use_amr) {
+            // the adaptive stencil wraps around a periodic axis; the uniform solver replicates when the axis has fewer than three cells
+            const std::pair<const std::string*, int> axes[] = {{&s.bc_left, s.nx}, {&s.bc_bottom, s.ny}, {&s.bc_front, s.nz}};
+            for (int a = 0; a < (s.nz > 1 ? 3 : 2); ++a)
+                if (lower(*axes[a].first) == "periodic" && axes[a].second < 3)
+                    throw std::invalid_argument("reconstruction = weno5 with AMR needs at least three base cells along a periodic axis");
+        }
         if (ts == "ssp runge-kutta 2" || ts == "ssprk2" || ts == "rk2")
             throw std::invalid_argument("reconstruction = " + s.reconstruction + " is not used with SSP Runge-Kutta 2 (use SSP "
                                         "Runge-Kutta 3)");

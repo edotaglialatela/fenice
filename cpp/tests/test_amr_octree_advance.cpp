@@ -71,7 +71,7 @@ int coarse_fine_faces(const CellMesh& m, int axis) {
 TEST(celladvance3d_level0_steps_match_uniform_steps_bitwise) {
     // A level-0 octree advanced by CellAdvance (max_level 0, and 2: the recursion with nothing to recurse into) against the 3-D
     // uniform solver's own time scheme, bit for bit (state and returned speed), for the three schemes, first order, MUSCL,
-    // WENO3-Z and boundary_order 1 / 2.
+    // WENO3-Z, WENO5-Z and boundary_order 1 / 2.
     const BCs sets[] = {{"wall", "outlet", "no_slip", "moving_wall", "transmissive", "wall"},
                         {"periodic", "periodic", "wall", "wall", "transmissive", "no_slip"},
                         {"vel_inlet", "transmissive", "periodic", "periodic", "periodic", "periodic"}};
@@ -79,7 +79,8 @@ TEST(celladvance3d_level0_steps_match_uniform_steps_bitwise) {
         const char *recon, *bo;
         int sc_lo, sc_hi;   // time schemes kSchemeNames[sc_lo .. sc_hi]
     };
-    const Scheme schemes[] = {{"none", "1", 0, 2}, {"muscl", "1", 0, 2}, {"muscl", "2", 0, 2}, {"weno3", "1", 2, 2}, {"weno3", "2", 2, 2}};
+    const Scheme schemes[] = {{"none", "1", 0, 2}, {"muscl", "1", 0, 2}, {"muscl", "2", 0, 2}, {"weno3", "1", 2, 2}, {"weno3", "2", 2, 2},
+                              {"weno5", "1", 2, 2}, {"weno5", "2", 2, 2}};
     int n_cases = 0;
     for (const BCs& bc : sets)
         for (const Scheme& s : schemes)
@@ -94,9 +95,9 @@ TEST(celladvance3d_level0_steps_match_uniform_steps_bitwise) {
                                     s.bo, kSchemeNames[sc], max_level);
                     ++n_cases;
                 }
-    CHECK(n_cases == 66);
+    CHECK(n_cases == 78);
     // above kOmpMinWork the loops of the engine, the registers and the time scheme run in parallel: same bits
-    for (const char* recon : {"muscl", "weno3"}) {
+    for (const char* recon : {"muscl", "weno3", "weno5"}) {
         Simulation sim;
         setup_3d(sim, BCs{"wall", "outlet", "periodic", "periodic", "no_slip", "transmissive"},
                  {{"nx", "24"}, {"ny", "20"}, {"nz", "10"}, {"reconstruction", recon}, {"muscl_limiter", "MC"}, {"boundary_order", "2"},

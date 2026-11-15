@@ -61,7 +61,27 @@ mesh): a leaf is solid if its centre is inside the body, and the body band is ke
 the margin of the surface (`near_body_surface`). The mask forcing and the ghost-cell wall (`ibm_method = ghost`) work on leaves in 2-D and 3-D,
 also on the shares of an MPI run (bitwise equal to serial); `auto` chooses the ghost wall wherever `amr_refine_ibm` is on.
 
-Not available on the adaptive mesh in either dimension: WENO5 (WENO3-Z is). The open items are WENO5-Z, the remesh cost on MPI and the validation runs.
+`reconstruction = weno5` runs on the adaptive mesh in 2-D and 3-D, also on MPI ranks: a face whose six cells along its normal are fluid leaves
+of its level (replicated or mirrored at a physical side, wrapped on a periodic axis) takes the WENO5-Z stencil; every other face (a coarse-fine face,
+a face within two cells of a level jump or of the immersed body) keeps the four-cell stencil with the WENO3-Z formula, so the seams are those of a WENO3-Z run.
+A periodic axis needs at least three base cells. The level-0 mesh equals the uniform solver bit for bit. The open item is the remesh cost on MPI.
+
+Against WENO3-Z on the same adaptive mesh (`cases/validation/amr/weno5_amr.py`, SSP-RK3, the indicator of each case):
+
+| case | quantity | WENO3-Z | WENO5-Z | ratio |
+|---|---|---:|---:|---:|
+| isentropic vortex, one period, base 40 + 1 level | $L_2$ density error | 1.01e-2 | 8.12e-3 | 0.80 |
+| Sod, base 100 + 1 level | $L_1$ density error | 3.60e-3 | 3.15e-3 | 0.88 |
+| Shu-Osher, base 200 + 1 level | $L_1$ density error (reference: uniform WENO5-Z, 3200 cells) | 7.38e-2 | 2.99e-2 | 0.40 |
+| cavity Re 400, base 32 + 1 level | RMS of centreline $u$ / $v$ against the tabulated values | 4.23e-3 / 4.40e-3 | 3.65e-3 / 3.53e-3 | 0.86 / 0.80 |
+| cylinder Re 40, 20 finest cells per diameter, ghost wall | $C_d$ (uniform 400×200: 1.9047 / 1.8988) | 1.9424 | 1.8922 | 0.974 |
+| cylinder Re 40, mask | $C_d$ (uniform 400×200: 1.8487 / 1.8222) | 1.8832 | 1.8435 | 0.979 |
+| cost per step, 1 thread / 16 threads / 4 ranks | wall time | 60.5 / 12.1 / 21.8 ms | 96.3 / 16.9 / 31.0 ms | 1.59 / 1.40 / 1.42 |
+
+The bands fixed before the runs are met (vortex: not above WENO3-Z; the tubes: within 5 % of WENO3-Z and no new over- or undershoot above $10^{-3}$ of the
+jump); the cavity, the cylinder and the cost are reported. The gain is largest where smooth structure is carried through the fine leaves (Shu-Osher) and
+small where the seam or a shock sets the error. On the vortex the adaptive error stays about 30 times that of the uniform WENO5-Z run on the finest grid:
+the seam, not the reconstruction, limits a smooth solution (see the [manufactured solutions]({{root}}cases/manufactured-solution.html)).
 
 ## Faces and the residual
 

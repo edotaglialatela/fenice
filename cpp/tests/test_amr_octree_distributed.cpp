@@ -223,6 +223,13 @@ const Spec3 kSpecs[] = {
      {{"use_viscous", "true"}, {"mu", "0.02"}, {"use_ibm", "true"}, {"ibm_method", "mask"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"},
       {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"ibm_cz", "0.47"}},
      14u, true},
+    // WENO5-Z: six cells where they are fluid leaves of the level, the outer two in the halo
+    {"weno5 euler periodic", {"periodic", "periodic", "periodic", "periodic", "periodic", "periodic"},
+     {{"reconstruction", "weno5"}, {"time_scheme", "SSP Runge-Kutta 3"}}, 16u, true},
+    {"weno5 immersed sphere (mask), walls, boundary_order 2", {"vel_inlet", "outlet", "wall", "moving_wall", "wall", "transmissive"},
+     {{"reconstruction", "weno5"}, {"time_scheme", "SSP Runge-Kutta 3"}, {"boundary_order", "2"}, {"use_ibm", "true"}, {"ibm_method", "mask"},
+      {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"}, {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"ibm_cz", "0.47"}},
+     17u, true},
 };
 
 // The ghost-cell wall of a sphere: the tree refined around it so that the wall is active, slip (Euler) and no-slip (viscous)

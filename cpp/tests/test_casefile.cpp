@@ -41,6 +41,29 @@ TEST(every_parameter_has_a_case_section) {
     }
 }
 
+// WENO5-Z runs with AMR (also on MPI ranks) and SSP-RK3; rejected: SSP-RK2, a periodic axis shorter than three base cells with AMR,
+// MPI ranks on the uniform mesh.
+TEST(weno5_combinations) {
+    auto ok = [](std::initializer_list<std::pair<const char*, const char*>> sets) {
+        Params p = baseline_defaults();
+        p.set("reconstruction", "weno5");
+        for (const auto& kv : sets) p.set(kv.first, kv.second);
+        try {
+            SimParams::from(p);
+        } catch (const std::invalid_argument&) { return false; }
+        return true;
+    };
+    const char* rk3 = "SSP Runge-Kutta 3";
+    CHECK(ok({{"time_scheme", rk3}, {"use_mpi", "false"}}));
+    CHECK(ok({{"time_scheme", rk3}, {"use_amr", "true"}, {"use_mpi", "false"}}));
+    CHECK(ok({{"time_scheme", rk3}, {"use_amr", "true"}, {"use_mpi", "true"}}));
+    CHECK(ok({{"time_scheme", rk3}, {"use_amr", "true"}, {"nz", "4"}, {"use_mpi", "false"}}));
+    CHECK(!ok({{"time_scheme", "SSP Runge-Kutta 2"}, {"use_amr", "true"}, {"use_mpi", "false"}}));
+    CHECK(!ok({{"time_scheme", rk3}, {"use_mpi", "true"}}));
+    CHECK(!ok({{"time_scheme", rk3}, {"use_amr", "true"}, {"use_mpi", "false"}, {"ny", "2"}, {"bc_bottom", "periodic"}, {"bc_top", "periodic"}}));
+    CHECK(ok({{"time_scheme", rk3}, {"use_amr", "true"}, {"use_mpi", "false"}, {"ny", "3"}, {"bc_bottom", "periodic"}, {"bc_top", "periodic"}}));
+}
+
 // boundary_order is 2 by default, is 1 with a first-order scheme (nothing to extend) whatever was asked, and an explicit 1 is kept.
 TEST(boundary_order_default) {
     auto order_of = [](std::initializer_list<std::pair<const char*, const char*>> sets) {

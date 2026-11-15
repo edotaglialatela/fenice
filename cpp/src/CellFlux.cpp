@@ -97,10 +97,6 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
     if (per(Face::Left, Face::Right) != m.periodic_x || per(Face::Bottom, Face::Top) != m.periodic_y ||
         (m.dim == 3 && per(Face::Front, Face::Back) != m.periodic_z))
         throw std::invalid_argument("CellFluxEngine: the periodic axes of the mesh and the boundary types differ");
-    if (m.dim == 3) {   // what the octree engine does not do yet
-        if (muscl_ && muscl_->scheme() == Reconstruction::Weno5)
-            throw std::invalid_argument("CellFluxEngine: WENO5-Z is not available on an adaptive mesh");
-    }
     if (built_mesh_ != &m || dim_ != m.dim) built_mesh_ = nullptr;   // no incremental build across a change of dimension
     dim_ = m.dim;
     ns_ = m.sides();
@@ -286,6 +282,7 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
         }
         forced_.resize(static_cast<size_t>(nleaf_));
     }
+    far_cells(m);   // WENO5-Z: after the stencils, the neighbour codes and the solid mask, before the lists (need_ reads it)
     if (whole) {   // a partial mesh: the lists come with the partition
         for (auto* v : {&lface_, &lheld_, &need_, &vcells_}) v->clear();
     } else {
@@ -383,6 +380,7 @@ bool CellFluxEngine::same_tables(const CellFluxEngine& o, const CellMesh* edge_m
     const std::pair<const char*, bool> checks[] = {
         {"nleaf", nleaf_ == o.nleaf_}, {"vkey", vkey_ == o.vkey_}, {"ikey", ikey_ == o.ikey_}, {"vroot", vroot_ == o.vroot_},
         {"vnode", vnode_ == o.vnode_}, {"nbr_raw", nbr_raw_ == o.nbr_raw_}, {"nbr", nbr_ == o.nbr_}, {"stencil", stencil_ == o.stencil_},
+        {"far", far_ == o.far_}, {"wide", wide_ == o.wide_},
         {"special", same_special(o, edge_mesh)}, {"lface", lface_ == o.lface_}, {"lheld", lheld_ == o.lheld_}, {"need", need_ == o.need_},
         {"vcells", vcells_ == o.vcells_}, {"lown", lown_b_ == o.lown_b_ && lown_e_ == o.lown_e_}, {"solid", solid_ == o.solid_},
         {"src", same_field(src_, o.src_)}, {"interp", interp_.size() == o.interp_.size()}};
@@ -492,6 +490,55 @@ void CellFluxEngine::face_stencil(const CellMesh& m, int f) {
     }
 }
 
+// WENO5-Z: face f may take the six-cell stencil only if it is interior and its four stencil cells are fluid leaves of its level.
+bool CellFluxEngine::wide_candidate(const CellMesh& m, int f) const {
+    const CellFace& face = m.faces[static_cast<size_t>(f)];
+    if (face.kind != CellFaceKind::Interior) return false;
+    const std::array<int, 4>& s = stencil_[static_cast<size_t>(f)];
+    for (int k = 0; k < 4; ++k) {
+        const int c = s[static_cast<size_t>(k)];
+        if (c < 0 || c >= nleaf_ || m.level[static_cast<size_t>(c)] != face.level) return false;   // (kOutside, a virtual cell, an injected coarse leaf)
+        if (!solid_.empty() && solid_[static_cast<size_t>(c)]) return false;
+    }
+    return true;
+}
+
+// The cell behind stencil_[f][0] (end 0) or beyond stencil_[f][3] (end 1) of a wide_candidate face: the neighbour code of that
+// leaf along the normal, or the leaf itself at a physical side (replication twice, as the uniform solver's clamp does).
+int CellFluxEngine::far_code(int f, int axis, int end) const {
+    const std::array<int, 4>& s = stencil_[static_cast<size_t>(f)];
+    const int edge = end == 0 ? s[0] : s[3], inner = end == 0 ? s[1] : s[2];
+    if (edge == inner) return inner;   // the stencil already replicates the leaf at the side
+    const int code = nbr_[static_cast<size_t>(ns_) * edge + 2 * axis + end];
+    return code == -1 ? edge : code;
+}
+
+void CellFluxEngine::far_cells(const CellMesh& m) {
+    far_.clear();
+    wide_.clear();
+    if (!muscl_ || muscl_->scheme() != Reconstruction::Weno5) return;
+    const int NF = static_cast<int>(m.faces.size());
+    far_.resize(static_cast<size_t>(NF));
+    wide_.resize(static_cast<size_t>(NF));
+#pragma omp parallel for schedule(static) if (NF >= kOmpMinWork)
+    for (int f = 0; f < NF; ++f) {
+        far_[static_cast<size_t>(f)] = {-1, -1};
+        wide_[static_cast<size_t>(f)] = 0;
+        if (!wide_candidate(m, f)) continue;
+        const CellFace& face = m.faces[static_cast<size_t>(f)];
+        // a far cell a partial mesh does not know (kOutside) leaves the face wide: whoever computes the face must hold the cell,
+        // and reading the code throws (mark_code), as for a stencil entry
+        const auto fluid_leaf = [&](int c) {
+            return c == kOutside || (c >= 0 && c < nleaf_ && m.level[static_cast<size_t>(c)] == face.level &&
+                                     (solid_.empty() || !solid_[static_cast<size_t>(c)]));
+        };
+        const int a = far_code(f, face.axis, 0), b = far_code(f, face.axis, 1);
+        if (!fluid_leaf(a) || !fluid_leaf(b)) continue;
+        far_[static_cast<size_t>(f)] = {a, b};
+        wide_[static_cast<size_t>(f)] = 1;
+    }
+}
+
 namespace {
 // Sort v and drop the repeats. `seen` is a zeroed scratch array covering every value of v; it is zero again on return.
 // A pass over the marks replaces a comparison sort, which dominated the rebuild after a remesh.
@@ -553,6 +600,9 @@ void CellFluxEngine::rebuild_lists(const CellMesh& m, const Partition* part) {
             for (const int f : lface_[sl]) {
                 if (m.faces[f].kind == CellFaceKind::Boundary) continue;
                 v.insert(v.end(), stencil_[f].begin(), stencil_[f].end());
+                if (wide_face(f))
+                    for (const int code : far_[static_cast<size_t>(f)])
+                        if (code >= 0) v.push_back(code);
                 if (coarse_side_second_order && m.faces[f].kind == CellFaceKind::CoarseFine) {
                     const int C = m.level[m.faces[f].left] > m.level[m.faces[f].right] ? stencil_[f][3] : stencil_[f][0];
                     for (int s = 0; s < ns_; ++s)
@@ -617,6 +667,9 @@ void CellFluxEngine::rebuild_lists_whole(const CellMesh& m) {
                 if (face.kind == CellFaceKind::Boundary) continue;
                 const std::array<int, 4>& st = stencil_[static_cast<size_t>(f)];
                 for (int k = 0; k < 4; ++k) mark(st[k]);
+                if (wide_face(f))
+                    for (const int code : far_[static_cast<size_t>(f)])
+                        if (code >= 0) mark(code);
                 if (coarse_side_second_order && face.kind == CellFaceKind::CoarseFine) {
                     const int C = m.level[face.left] > m.level[face.right] ? st[3] : st[0];
                     for (int s = 0; s < ns_; ++s)
@@ -813,6 +866,7 @@ void CellFluxEngine::localize(const CellMesh& m, const std::vector<int>& leaf_ma
     std::vector<std::array<int, 4>>().swap(stencil_spare_);
     for (Field* a : {&W_, &F_, &Fv_, &Vc_, &Wint_, &forced_}) Field().swap(*a);
     if (has_body()) forced_.resize(static_cast<size_t>(new_n));
+    far_cells(m);   // from the tables of the kept leaves and faces, as a build of the share gives them
     size_work_arrays(m);
     built_mesh_ = &m;
     built_version_ = m.version;
@@ -868,10 +922,19 @@ void CellFluxEngine::mark_face(const CellMesh& m, int f, const Mark& mark) const
         for (int s = 0; s < ns_; ++s) mark_code(nbr_[static_cast<size_t>(ns_) * c + s], mark);   // gradients, tangential differences
     };
     if (face.kind == CellFaceKind::Boundary) {
-        cell(face.left >= 0 ? face.left : face.right);
+        const int c = face.left >= 0 ? face.left : face.right;
+        cell(c);
+        if (!wide_.empty()) {   // WENO5-Z: the second cell behind the boundary leaf (the third ghost layer mirrors it)
+            const int in = static_cast<int>(face.side) ^ 1, n1 = nbr_[static_cast<size_t>(ns_) * c + in];
+            if (n1 >= 0 && n1 < nleaf_) mark_code(nbr_[static_cast<size_t>(ns_) * n1 + in], mark);
+        }
         return;
     }
     for (int k = 0; k < 4; ++k) mark_code(stencil_[static_cast<size_t>(f)][k], mark);
+    // WENO5-Z: the two outer cells, wide or not (what lies there decides whether the face is wide, so whoever computes the face
+    // must hold it: a leaf, or the leaves of a virtual cell)
+    if (!wide_.empty() && wide_candidate(m, f))
+        for (int end = 0; end < 2; ++end) mark_code(far_code(f, face.axis, end), mark);
     cell(face.left);
     cell(face.right);
     if (face.kind == CellFaceKind::CoarseFine) {   // the coarse leaf's own neighbours (second-order coarse side)
@@ -883,7 +946,7 @@ void CellFluxEngine::mark_face(const CellMesh& m, int f, const Mark& mark) const
 void CellFluxEngine::memory_bytes(double& per_leaf, double& uniform) const {
     per_leaf = container_bytes(stencil_) + container_bytes(nbr_) + container_bytes(vroot_) + container_bytes(vnode_) +
                container_bytes(interp_) + container_bytes(Wint_) + container_bytes(nbr_raw_) + container_bytes(nbr_raw_spare_) +
-               container_bytes(nbr_spare_) + container_bytes(stencil_spare_) + container_bytes(vkey_) + container_bytes(ikey_) +
+               container_bytes(nbr_spare_) + container_bytes(stencil_spare_) + container_bytes(far_) + container_bytes(wide_) + container_bytes(vkey_) + container_bytes(ikey_) +
                container_bytes(special_) + container_bytes(lface_) + container_bytes(lheld_) + container_bytes(lown_b_) +
                container_bytes(lown_e_) + container_bytes(all_faces_) + container_bytes(owned_mask_) + container_bytes(forced_) +
                container_bytes(Vc_) + container_bytes(W_) + container_bytes(F_) + container_bytes(Fv_) + container_bytes(reg_) +

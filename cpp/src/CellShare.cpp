@@ -26,10 +26,12 @@ namespace {
 
 // Rings of the owned leaf's level within which a leaf of another level is read, by level difference d = owner level - level read
 // (2-D: a ring more than the airfoil needs; 3-D: halo_reach measured on octrees of three and four levels with every physics, a ring
-// more; guarded by cellparallel3d_halo_reach_lies_within_the_region_rings)
-int reach_rings(int dim, int d) {
-    if (dim == 3) return d < 0 ? 8 : (d == 0 ? 11 : (d == 1 ? 10 : (d == 2 ? 9 : 11)));
-    return d < 0 ? 4 : (d == 0 ? 6 : (d == 1 ? 8 : (d == 2 ? 9 : 11)));
+// more; guarded by cellparallel3d_halo_reach_lies_within_the_region_rings). `six_cell`: WENO5-Z, whose faces read one more cell on
+// each side (one ring more: halo_reach_with_weno5_is_one_ring_more_than_muscl).
+int reach_rings(int dim, int d, bool six_cell) {
+    const int more = six_cell ? 1 : 0;
+    if (dim == 3) return more + (d < 0 ? 8 : (d == 0 ? 11 : (d == 1 ? 10 : (d == 2 ? 9 : 11))));
+    return more + (d < 0 ? 4 : (d == 0 ? 6 : (d == 1 ? 8 : (d == 2 ? 9 : 11))));
 }
 
 // Is leaf c of `m` on the side s (Face) of the domain?
@@ -58,7 +60,8 @@ void CellParallel::region_mask(const CellMesh& topo, const std::vector<int>& own
     }
     // rings of the owned leaf's level within which a leaf of another level is read (`extra` more rings on a retry)
     const int dim = topo.dim;
-    const auto rings = [dim](int d) { return reach_rings(dim, d); };
+    const bool six = engine_.six_cell_stencil();
+    const auto rings = [dim, six](int d) { return reach_rings(dim, d, six); };
     const bool body = engine_.has_body();
     for (int o = 0; o <= M; ++o) {
         if (seeds[static_cast<size_t>(o)].empty()) continue;
@@ -126,7 +129,8 @@ void CellParallel::build_share_fetched(const std::vector<int>& lv, const std::ve
         ghost_hint = reduce_sum(found) == static_cast<double>(cells.size()) ? 1 : 0;
     }
     // rings of the owned leaf's level within which a leaf of another level is read (see region_mask), by level difference
-    const auto rings = [dim](int d) { return reach_rings(dim, d); };
+    const bool six = engine_.six_cell_stencil();
+    const auto rings = [dim, six](int d) { return reach_rings(dim, d, six); };
     bool reuse = true;   // the first try is built over the share as it was: the tables of the leaves it keeps are copied
     for (int extra = first_extra;; extra += 2) {
         std::vector<RegionItem> items;

@@ -606,10 +606,9 @@ class SetupDialog(QDialog):
         errors, warnings = [], []
         if recon in ("weno3", "weno5"):
             name = self.combo_recon.currentText().split(" (")[0]
-            if recon == "weno5" and self.check_amr.isChecked():
-                errors.append(f"{name} is not available with AMR yet: use WENO3-Z or MUSCL, or switch AMR off.")
-            if recon == "weno5" and self.check_mpi.isChecked():
-                errors.append("WENO5-Z is serial for now (the MPI halo is two cells deep): use WENO3-Z or switch MPI off.")
+            if recon == "weno5" and self.check_mpi.isChecked() and not self.check_amr.isChecked():
+                errors.append("WENO5-Z is serial on the uniform mesh (the MPI halo is two cells deep): use WENO3-Z, switch MPI off, "
+                              "or use AMR.")
             if time == "SSP Runge-Kutta 2":
                 errors.append(f"{name} cannot run with SSP Runge-Kutta 2 (rejected by the solver): use SSP Runge-Kutta 3.")
             elif time == "Explicit Euler":

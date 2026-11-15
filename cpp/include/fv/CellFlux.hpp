@@ -110,6 +110,13 @@ public:
     // With `edge_mesh` (this engine's partial mesh) the special_ flag of a leaf with an unknown side may differ.
     bool same_tables(const CellFluxEngine& other, const CellMesh* edge_mesh = nullptr) const;
     bool same_special(const CellFluxEngine& other, const CellMesh* edge_mesh) const;
+    // True with WENO5-Z: the faces whose six cells are fluid leaves of their level read one more cell on each side.
+    bool six_cell_stencil() const { return muscl_ && muscl_->scheme() == Reconstruction::Weno5; }
+    // WENO5-Z: true if face f takes the six-cell stencil (false for every face with another scheme), and its two outer cells.
+    bool wide_face(int f) const { return !wide_.empty() && wide_[static_cast<size_t>(f)] != 0; }
+    std::array<int, 2> far_cells_of(int f) const { return far_.empty() ? std::array<int, 2>{-1, -1} : far_[static_cast<size_t>(f)]; }
+    // Convective flux of face f (per unit length) as of the last residual / level pass.
+    const State& face_flux(int f) const { return F_[static_cast<size_t>(f)]; }
 
     // R = dU/dt for the state U (one entry per leaf); returns the largest wave speed (convective, or the viscous
     // bound of the explicit time step when larger).
@@ -262,6 +269,16 @@ private:
     std::vector<int> nbr_raw_;            // like nbr_ but injecting coarser neighbours (the slopes of the coarse leaves)
     std::vector<int> nbr_raw_spare_, nbr_spare_;    // the tables of the build before last: buffers of the next incremental build
     std::vector<std::array<int, 4>> stencil_spare_;
+    // WENO5-Z only (empty otherwise). wide_[f]: the six cells of face f along its normal are fluid leaves of its level (or
+    // replications at a physical side), so it takes the six-cell stencil (far_[f][0], stencil_[f][0..3], far_[f][1]); far_ is
+    // {-1, -1} for the other faces, which keep the four-cell stencil. On a partial mesh a far cell that is not known is kOutside
+    // on a face flagged wide (reading it throws, as for a stencil entry). Recomputed in full at every build (a far cell lies
+    // outside the squares the incremental rule covers).
+    std::vector<std::array<int, 2>> far_;
+    std::vector<char> wide_;
+    void far_cells(const CellMesh& m);
+    bool wide_candidate(const CellMesh& m, int f) const;   // interior, the four stencil cells fluid leaves of its level
+    int far_code(int f, int axis, int end) const;          // the cell behind stencil_[f][0] (end 0) / beyond stencil_[f][3] (end 1)
     // Keys of the virtual cells in their order: the block (level, i, j, k) of a mean-type one, the fine leaf (level, i, j, k) and
     // its side of an interpolated one (numbered after the mean-type ones); k = 0 in 2-D
     std::vector<std::array<int, 4>> vkey_;

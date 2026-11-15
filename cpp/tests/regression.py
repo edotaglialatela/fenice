@@ -93,6 +93,14 @@ CASES = {
                                                    bc_bottom="wall", bc_top="wall", amr_max_level=3, amr_refine_every=2,
                                                    amr_init_levels=1, reconstruction="weno3", boundary_order=2,
                                                    time_scheme="SSP Runge-Kutta 3")),
+    # WENO5-Z on the adaptive mesh (six cells where they are leaves of the level, WENO3-Z at the level jumps), open and walled
+    "amr_weno5_rk3":       ("Sod Shock Tube", dict(Lx=1.0, Ly=1.0, nx=32, ny=32, t_end=0.4, use_amr=True,
+                                                   amr_max_level=3, amr_refine_every=2, amr_init_levels=1,
+                                                   reconstruction="weno5", time_scheme="SSP Runge-Kutta 3")),
+    "amr_bo2_weno5":       ("Sod Shock Tube", dict(Lx=1.0, Ly=1.0, nx=32, ny=32, t_end=0.4, use_amr=True, bc_left="wall", bc_right="wall",
+                                                   bc_bottom="wall", bc_top="wall", amr_max_level=3, amr_refine_every=2,
+                                                   amr_init_levels=1, reconstruction="weno5", boundary_order=2,
+                                                   time_scheme="SSP Runge-Kutta 3")),
     # viscous walls and a moving lid on the adaptive mesh with second-order boundary faces: the lid corner refines
     "amr_cavity_b2":       ("Lid Driven Cavity", dict(nx=16, ny=16, t_end=0.3, use_amr=True, amr_max_level=2, amr_refine_every=3,
                                                    amr_init_levels=1, reconstruction="muscl", boundary_order=2,
@@ -210,7 +218,7 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk3_visc", "cavity_periodi
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
              "cylinder_ibm_ghost", "supersonic_ibm_ghost", "naca0012_ibm_ghost", "sphere3d_ibm_ghost",
-             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_square_rk3", "amr_weno3_rk3", "amr_bo2_walls", "amr_bo2_weno3", "amr_cavity_b2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "amr_hot_start_from_amr", "hot_start_from_amr", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
+             "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_square_rk3", "amr_weno3_rk3", "amr_bo2_walls", "amr_bo2_weno3", "amr_weno5_rk3", "amr_bo2_weno5", "amr_cavity_b2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "amr_hot_start_from_amr", "hot_start_from_amr", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
              "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2", "cavity3d_noslip_z_b2", "cavity_xdecomp_b2", "cavity3d_xdecomp_b2",
              "amr3d_sod_muscl", "amr3d_mms", "amr3d_tgv_box", "amr3d_sphere_mask", "amr3d_sphere_ghost"]

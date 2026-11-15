@@ -51,7 +51,9 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
     // boundary condition's own extension of the leaf, as BoundaryManager::fill_ghost_slab builds them). A periodic or non-reflecting
     // side keeps the first-order treatment.
     const bool bo2 = muscl_ && bc_.params().boundary_order == 2;
-    const bool weno3 = muscl_ && muscl_->scheme() == Reconstruction::Weno3;
+    // WENO5-Z: a wide face (wide_) takes the six-cell stencil, every other face the four-cell one with the WENO3-Z formula
+    const bool weno5 = muscl_ && muscl_->scheme() == Reconstruction::Weno5;
+    const bool weno3 = muscl_ && (muscl_->scheme() == Reconstruction::Weno3 || weno5);
     const auto side_ok = [&](Face side) { return bc_.type(side) != BCType::Periodic && bc_.type(side) != BCType::NonReflecting; };
     const auto ghost_w = [&](Face side, const State& Ui) {   // primitive ghost state of a cell next to `side`
         return eos.cons_to_prim(bc_.ghost_state(side, Ui, u_target[static_cast<int>(side)]));
@@ -69,6 +71,18 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                 wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, bb);
             }
         }
+    };
+    // the two face states from six consecutive primitive cells along the normal (WENO5-Z, the loop of the uniform reconstruction)
+    const auto recon6 = [&](const State& a, const State& b, const State& c, const State& d, const State& e, const State& g, State& wl,
+                            State& wr) {
+        for (int q = 0; q < kNVar; ++q) {
+            wl[q] = muscl_->weno5_value(a[q], b[q], c[q], d[q], e[q]);
+            wr[q] = muscl_->weno5_value(g[q], e[q], d[q], c[q], b[q]);
+        }
+    };
+    const auto fluid_leaf_of = [&](int code, int level) {   // a leaf of `level` that is not in the body
+        return code >= 0 && code < nleaf_ && m.level[static_cast<size_t>(code)] == level &&
+               (solid_.empty() || !solid_[static_cast<size_t>(code)]);
     };
 #pragma omp parallel if (nlist >= kOmpMinWork)
     {
@@ -120,10 +134,26 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                     const State Wc = eos.cons_to_prim(Ui), Wn = eos.cons_to_prim(Un);
                     const State g0 = ghost_w(face.side, Ui), g1 = ghost_w(face.side, Un);
                     State wl, wr;
-                    if (ghost_right)
+                    // WENO5-Z: three ghost layers when the two cells behind the boundary leaf are fluid leaves of its level
+                    // (cells n2, n1, c, g0, g1, g2 towards the boundary); else the four cells, as the faces that are not wide
+                    int n2 = -1;
+                    if (weno5 && fluid_leaf_of(c, face.level) && fluid_leaf_of(n1, face.level)) {
+                        n2 = nbr_[static_cast<size_t>(ns_) * n1 + (static_cast<int>(face.side) ^ 1)];
+                        if (n2 == kOutside) throw std::logic_error("CellFluxEngine: a boundary face reads a leaf that is not in this rank's partial mesh");
+                        if (!fluid_leaf_of(n2, face.level)) n2 = -1;
+                    }
+                    if (n2 >= 0) {
+                        const State Un2 = cell_state(n2);
+                        const State Wn2 = eos.cons_to_prim(Un2), g2 = ghost_w(face.side, Un2);
+                        if (ghost_right)
+                            recon6(Wn2, Wn, Wc, g0, g1, g2, wl, wr);
+                        else
+                            recon6(g2, g1, g0, Wc, Wn, Wn2, wl, wr);
+                    } else if (ghost_right) {
                         recon4(Wn, Wc, g0, g1, wl, wr);
-                    else
+                    } else {
                         recon4(g1, g0, Wc, Wn, wl, wr);
+                    }
                     UL = eos.prim_to_cons(wl);
                     UR = eos.prim_to_cons(wr);
                 } else {
@@ -161,7 +191,32 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                 }
                 const State &w0 = *p0, &w1 = W_[s[1]], &w2 = W_[s[2]], &w3 = *p3;
                 State wl, wr;
-                if (face.kind == CellFaceKind::CoarseFine) {
+                if (weno5 && wide_[static_cast<size_t>(f)]) {
+                    // six cells (far[0], s0, s1, s2, s3, far[1]); a replicated outer cell at a physical side is the next ghost
+                    // layer with boundary_order = 2: the mirror of the second leaf from the side when s0 (s3) is the first layer,
+                    // of the first leaf when the stencil ends on it
+                    const std::array<int, 2>& fr = far_[static_cast<size_t>(f)];
+                    State gf0, gf1;
+                    const State *pf0 = &W_[fr[0]], *pf1 = &W_[fr[1]];
+                    if (bo2) {
+                        const Face back = static_cast<Face>(2 * face.axis), fwd = static_cast<Face>(2 * face.axis + 1);
+                        if (p0 == &gtmp0) {
+                            gf0 = ghost_w(back, U[s[2]]);
+                            pf0 = &gf0;
+                        } else if (fr[0] == s[0] && nbr_[static_cast<size_t>(ns_) * s[0] + 2 * face.axis] == -1 && side_ok(back)) {
+                            gf0 = ghost_w(back, U[s[0]]);
+                            pf0 = &gf0;
+                        }
+                        if (p3 == &gtmp3) {
+                            gf1 = ghost_w(fwd, U[s[1]]);
+                            pf1 = &gf1;
+                        } else if (fr[1] == s[3] && nbr_[static_cast<size_t>(ns_) * s[3] + 2 * face.axis + 1] == -1 && side_ok(fwd)) {
+                            gf1 = ghost_w(fwd, U[s[3]]);
+                            pf1 = &gf1;
+                        }
+                    }
+                    recon6(*pf0, w0, w1, w2, w3, *pf1, wl, wr);
+                } else if (face.kind == CellFaceKind::CoarseFine) {
                     // the fine side is reconstructed against the (virtual) cell across the face, the coarse side is its cell state
                     const bool fine_left = m.level[face.left] > m.level[face.right];
                     State gcb, gcf;   // the coarse leaf's ghost layers where it touches a physical side

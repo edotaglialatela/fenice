@@ -173,6 +173,9 @@ public:
     // weno3_value(c3, c2, c1)): the very function the uniform reconstruction calls, so another engine (the adaptive face
     // list) gets the same bits. `weno_eps`: the relative regularisation of the scheme.
     double weno3_value(double c0, double c1, double c2) const;
+    // The WENO5-Z value at the face on the right of c2 from the cells (c0 .. c4); the right-hand state of the same face is
+    // weno5_value(c5, c4, c3, c2, c1) of the six cells c0 .. c5. The function the uniform reconstruction calls, as weno3_value.
+    double weno5_value(double c0, double c1, double c2, double c3, double c4) const;
     // Active limiter.
     Limiter limiter() const { return lim_; }
     // Active face reconstruction.

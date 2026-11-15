@@ -53,7 +53,7 @@ accuracy are measured, not estimated.
 | `stress_shocks.py` | strong-shock robustness: pressure ratio 1000, vacuum, Mach 10-100, Mach 10 cylinder, odd-even test ([page]({{root}}guide/studies.html)) |
 | `mms_weno.py` | the periodic manufactured solutions (Euler 2-D, Navier-Stokes 2-D / 3-D) with WENO3-Z and WENO5-Z: observed orders, bands fixed beforehand, WENO3-Z reported above the band ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_time_weno.py` | time order of the unsteady manufactured solution with WENO3-Z and WENO5-Z (SSP-RK3); the default-epsilon WENO5-Z row is reported, not banded ([page]({{root}}cases/manufactured-solution.html)) |
-| `mms_amr_weno.py` | periodic manufactured solutions on an adaptive mesh with a static refined square (interior level jumps and corners), WENO3-Z and MUSCL; `--full` adds the grid 128, where the $L_\infty$ order falls below its band ([page]({{root}}cases/manufactured-solution.html)) |
+| `mms_amr_weno.py` | periodic manufactured solutions on an adaptive mesh with a static refined square (interior level jumps and corners), WENO3-Z, WENO5-Z and MUSCL; `--full` adds the grid 128, where the $L_\infty$ order falls below its band ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_boundary.py` | order of the manufactured solutions with walls / outflow (Euler and Navier-Stokes) per reconstruction, with `--boundary-order 1` or 2; the tables are committed next to it ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_amr_boundary.py` | the same solutions on an adaptive mesh with a static refined region (`amr_force_box`) whose seams meet the walls, boundary orders 1 and 2 ([page]({{root}}cases/manufactured-solution.html)); the table is committed next to it |
 | `ibm_wedge.py` | Mach 2 flow along a 10 degree wedge against the exact oblique shock: mask against ghost wall (order 3.6) and the curvature variant on a flat wall ([page]({{root}}modules/Physics.html)) |
@@ -80,6 +80,7 @@ uncertainty of the reference too.
 | Script | Compares |
 |---|---|
 | `sod_amr.py` | AMR vs uniform meshes at the two finest levels (cells and L1 error) |
+| `weno5_amr.py` | WENO5-Z against WENO3-Z on the same adaptive meshes: isentropic vortex, Sod, Shu-Osher, cavity, Re 40 cylinder (ghost wall and mask), cost per step |
 | `sod_amr_animation.py` | animation of the AMR leaves following the waves of the Sod tube |
 | `airfoil_amr.py` | AMR airfoil against uniform 192×96 and 768×384 meshes (cells, time, rms error of Cd and Cl) |
 | `amr_advantage.py` | AMR airfoil against the uniform solver on the same finest mesh, 1 to 16 threads: time and memory |

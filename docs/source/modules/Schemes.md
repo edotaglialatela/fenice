@@ -138,13 +138,15 @@ result. `weno5` takes about 3 to 5 times as long as MUSCL on one thread for the 
 **Limits.**
 
 * The stencil is as deep as the MUSCL one for `weno3` (so it runs on MPI ranks, with results identical to the serial run bit
-  for bit and independent of the thread count); `weno5` reads three cells on each side and is serial.
+  for bit and independent of the thread count); `weno5` reads three cells on each side and is serial on the uniform mesh (with AMR it runs on MPI ranks).
 * Faces on a non-periodic physical boundary keep the first-order ghost states, as with MUSCL.
 * There is no positivity limiter. Estimate (2026-11-05, 1-D tubes of `stress_shocks.py` on 400 x 4 cells, HLLC, the suite's CFL): no shock is strong enough to need it. A shock of Mach 30000 into gas at rest (pressure ratio about 1e9) and a 1e10 pressure-ratio Sod tube keep rho and p positive and finite with MUSCL, `weno3` and `weno5` (the smallest pressure is 0.88 of the ambient one, an undershoot of `weno5`). What breaks a WENO scheme is an expansion into near-vacuum, not a shock: for two receding rarefactions with speed +-u, vacuum forms at u = 3.7 (for p = 0.4, rho = 1); `weno3` and MUSCL survive u = 20 (5.3 times that), `weno5` survives u = 8 (2.1 times) and diverges at u = 12 and 20 even at CFL 0.3. The strong-shock suite (Sod with a 1000:1 pressure ratio, the 123 problem, the near-vacuum tube,
   Mach 10, 20 and 100 tubes, the Mach 10 cylinder, the odd-even test) is passed by `weno3` at the suite's CFL (0.4 for the tubes and the odd-even test, the case's own value for the cylinder) and by `weno5` at CFL 0.3.
   `weno5` with SSP-RK3 diverges on the near-vacuum tube at CFL 0.4 (it is stable up to 0.3), so
   use a lower CFL for problems that open a vacuum. A run whose state diverges stops with an error naming the step.
-* `weno5` is not available with AMR, and neither WENO scheme with SSP-RK2 (rejected when the case is read).
+* Neither WENO scheme runs with SSP-RK2 (rejected when the case is read).
+* `weno5` on the adaptive mesh uses its six cells only where they are fluid leaves of the face's level; the faces at and next to a level jump or the
+  immersed body use the `weno3` formula on four cells ([AMR]({{root}}modules/AMR.html)).
 * `weno3` runs on the adaptive mesh with the same four-cell stencil per face as MUSCL, so the halo, the virtual cells and the
   flux registers are unchanged. On a coarse-fine face both sides are reconstructed with WENO-Z from the data the limited
   formula uses: the fine side from its two fine cells and the interpolated coarse value, the coarse side from its own cell,
