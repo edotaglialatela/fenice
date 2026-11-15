@@ -1121,6 +1121,7 @@ void ImmersedBoundary::build_ghosts(const Mesh& m, bool slip, bool curvature, co
     slip_ = slip;
     curvature_ = curvature;
     ghost_.clear();
+    forced_built_ = false;   // the list of force_in_place follows the ghost table
     surface_.clear();
     if (sparse_)
         ghost_mask_.clear();   // no array over the mesh: the ghost cells are ghost_cell_list()
