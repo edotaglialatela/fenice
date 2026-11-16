@@ -344,7 +344,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             ProfileScope profile(Section::Source);
             add_source(source_for(m, stage_time), R);
         };
-        term.adaptive = [this](const CellMesh&, const Field&, Field& R, int begin, int end, double, const Field* cached) {
+        term.adaptive = [](const CellMesh&, const Field&, Field& R, int begin, int end, double, const Field* cached) {
             ProfileScope profile(Section::Source);
             if (!cached) throw std::logic_error("expression source field is not available");
 #pragma omp parallel for schedule(static) if (end - begin >= kOmpMinWork)
