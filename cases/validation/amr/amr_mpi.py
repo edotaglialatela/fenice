@@ -46,8 +46,7 @@ def measure(args, tag, mpi=0, threads=None):
     return d, json.loads(info.read_text())
 
 
-SPHERE_GHOST = ["nx=24", "ny=12", "nz=6", "Lz=1.0", "ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "bc_front=wall", "bc_back=wall",
-                "ibm_method=ghost"]
+SPHERE_GHOST = ["nx=24", "ny=12", "nz=6", "Lz=1.0", "ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "bc_front=wall", "bc_back=wall"]
 CHECK_CASES = {   # name: (case, overrides)
     "sod": ("Sod Shock Tube", ["nx=50", "ny=4", "Ly=0.08", "amr_max_level=2", "amr_refine_every=4"]),
     "airfoil": ("IBM Airfoil AMR", ["t_end=0.6"]),

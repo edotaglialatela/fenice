@@ -51,21 +51,18 @@ CASES = {
     "cavity_rk3_visc":     ("Lid Driven Cavity", dict(nx=20, ny=20, t_end=0.2, reconstruction="muscl")),
     "cavity_periodic_x":   ("Lid Driven Cavity", dict(nx=16, ny=12, t_end=0.1, bc_left="Periodic", bc_right="Periodic")),
     "poiseuille_euler":    ("Poiseuille Flow", dict(nx=30, ny=10, t_end=1.0)),
-    "cylinder_ibm_visc":   ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False)),
     # source terms with the IBM (a streamwise and a cross-stream momentum source act on the fluid; the body stays at rest)
     "cylinder_ibm_source":  ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False,
                                                            source_mx="0.5*sin(2*pi*x/Lx)", source_my="0.3")),
     "amr_cylinder_source":  ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False, use_amr=True,
                                                            amr_max_level=1, amr_refine_every=5,
                                                            source_mx="0.5*sin(2*pi*x/Lx)", source_my="0.3")),
-    "supersonic_ibm":      ("IBM Supersonic Flow over Cylinder", dict(nx=60, ny=60, Lx=4.0, Ly=4.0, ibm_cx=1.0, ibm_cy=2.0, t_end=0.1, use_mpi=False)),   # the geometry of the reference (the case is 8 x 8 now)
-    # the sharp ghost wall (the default of 2-D bodies since the references above pin the mask): no-slip cylinder, slip Mach 2 cylinder,
-    # polygon airfoil, and the 3-D sphere with trilinear image points
-    "cylinder_ibm_ghost":  ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False, ibm_method="ghost")),
-    "supersonic_ibm_ghost": ("IBM Supersonic Flow over Cylinder", dict(nx=60, ny=60, Lx=4.0, Ly=4.0, ibm_cx=1.0, ibm_cy=2.0, t_end=0.1, use_mpi=False,
-                                                                     ibm_method="ghost")),
-    "naca0012_ibm_ghost":  ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.1, use_mpi=False, ibm_method="ghost")),
-    "sphere3d_ibm_ghost":  ("IBM Flow over Cylinder", dict(nx=48, ny=24, nz=12, Lz=1.0, t_end=0.03, use_mpi=False, ibm_method="ghost",
+    # the ghost-cell wall: no-slip cylinder, slip Mach 2 cylinder (60 x 60 on a 4 x 4 box: the case is 8 x 8 now), polygon airfoil, and
+    # the 3-D sphere with trilinear image points
+    "cylinder_ibm_ghost":  ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False)),
+    "supersonic_ibm_ghost": ("IBM Supersonic Flow over Cylinder", dict(nx=60, ny=60, Lx=4.0, Ly=4.0, ibm_cx=1.0, ibm_cy=2.0, t_end=0.1, use_mpi=False)),
+    "naca0012_ibm_ghost":  ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.1, use_mpi=False)),
+    "sphere3d_ibm_ghost":  ("IBM Flow over Cylinder", dict(nx=48, ny=24, nz=12, Lz=1.0, t_end=0.03, use_mpi=False,
                                                        ibm_shape="Sphere", ibm_cz=0.5, ibm_radius=0.3, bc_front="wall", bc_back="wall")),
     "hot_start_mapping":   ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.03, use_hot_start=True,
                                                    hot_start_file="{REF}/hot_source.npz", reconstruction="muscl")),
@@ -139,9 +136,6 @@ CASES = {
                                                   bc_back="no_slip", reconstruction="muscl")),
     "sod3d_walls_z":       ("Sod Shock Tube", dict(nx=40, ny=4, nz=4, Lz=0.1, t_end=0.05, bc_front="wall",
                                                bc_back="wall", reconstruction="muscl", time_scheme="SSP Runge-Kutta 2")),
-    "sphere3d_ibm_visc":   ("IBM Flow over Cylinder", dict(nx=32, ny=16, nz=8, Lz=1.0, t_end=0.03, use_mpi=False,
-                                                       ibm_shape="Sphere", ibm_cz=0.5, ibm_radius=0.25,
-                                                       bc_front="wall", bc_back="wall")),
     # Non-reflecting outlet (C++ references; NRBC validated by fenice_tests nonreflecting_outlet and the
     # plane-wave / cylindrical-wave / vortex-exit reflection measurements on the Boundaries page)
     "vortex_nrbc":         ("Isentropic Vortex", dict(nx=40, ny=48, t_end=1.0, reconstruction="muscl", bc_left="transmissive",
@@ -151,8 +145,6 @@ CASES = {
     "tgv3d_nrbc":          ("Taylor-Green Vortex 3D", dict(nx=16, ny=16, nz=8, t_end=0.3, bc_left="transmissive",
                                                        bc_right="nonreflecting", bc_front="nonreflecting",
                                                        bc_back="nonreflecting")),
-    # IBM airfoil (NACA 0012 at 10 deg, mu from reynolds; geometry checked by fenice_tests airfoil_geometry)
-    "naca0012_ibm":        ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.1, use_mpi=False)),
     # AMR airfoil: body kept at level 2, remeshing, IBM + viscous + NRBC (the level-0 equality with the uniform solver is
     # a unit test; loads checked against a uniform run of the body's resolution)
     "amr_naca0012":        ("IBM Airfoil", dict(nx=192, ny=96, t_end=0.4, use_amr=True,
@@ -196,7 +188,7 @@ CASES = {
                                                  bc_back="no_slip", reconstruction="muscl", boundary_order=2)),
     # 3-D adaptive meshes (octree leaves): the Sod tube along x with periodic transverse axes (three levels,
     # the shocks refined), the viscous manufactured solution with sources (two levels, level jumps), Taylor-Green with a forced box
-    # that is off-axis in every direction (refinement varies along z, w != 0), and a sphere with the mask forcing and its body band
+    # that is off-axis in every direction (refinement varies along z, w != 0), and a sphere with its body band
     "amr3d_sod_muscl":     ("Sod Shock Tube", dict(nx=40, ny=2, nz=2, Ly=0.05, Lz=0.05, t_end=0.05, use_amr=True, amr_max_level=2,
                                                   amr_refine_every=4, reconstruction="muscl", bc_bottom="periodic", bc_top="periodic",
                                                   bc_front="periodic", bc_back="periodic")),
@@ -204,24 +196,21 @@ CASES = {
                                                           amr_criterion=2.0, max_steps=8)),
     "amr3d_tgv_box":       ("Taylor-Green Vortex 3D", dict(nx=12, ny=12, nz=12, t_end=1.0, use_amr=True, amr_max_level=2, amr_refine_every=3,
                                                         amr_criterion=5.0, amr_force_box="1.0 2.6 1.6 3.4 2.2 3.9", max_steps=6)),
-    "amr3d_sphere_mask":   ("IBM Flow over Cylinder", dict(nx=24, ny=12, nz=6, Lz=1.0, use_mpi=False, ibm_shape="Sphere", ibm_cz=0.5,
-                                                           ibm_radius=0.3, bc_front="wall", bc_back="wall", use_amr=True,
-                                                           amr_max_level=1, amr_refine_every=3, max_steps=6)),
     "amr3d_sphere_ghost":  ("IBM Flow over Cylinder", dict(nx=24, ny=12, nz=6, Lz=1.0, use_mpi=False, ibm_shape="Sphere", ibm_cz=0.5,
-                                                           ibm_radius=0.3, bc_front="wall", bc_back="wall", use_amr=True, ibm_method="ghost",
+                                                           ibm_radius=0.3, bc_front="wall", bc_back="wall", use_amr=True,
                                                            amr_max_level=1, amr_refine_every=3, max_steps=6)),
 }
 # Cases also run under MPI (AMR: replicated mesh, leaves distributed per level in Morton order); they cover Y- and X-decomposition,
 # viscous / IBM / MUSCL / periodic halos and the mass-flow inlet reduction.
 MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk3_visc", "cavity_periodic_x", "poiseuille_euler",
-             "cylinder_ibm_visc", "cylinder_ibm_source", "amr_cylinder_source", "supersonic_ibm", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
-             "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z", "sphere3d_ibm_visc",
-             "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc", "naca0012_ibm",
+             "cylinder_ibm_source", "amr_cylinder_source", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
+             "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z",
+             "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc",
              "cylinder_ibm_ghost", "supersonic_ibm_ghost", "naca0012_ibm_ghost", "sphere3d_ibm_ghost",
              "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_square_rk3", "amr_weno3_rk3", "amr_bo2_walls", "amr_bo2_weno3", "amr_weno5_rk3", "amr_bo2_weno5", "amr_cavity_b2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "amr_hot_start_from_amr", "hot_start_from_amr", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
              "vortex_weno3_rk3", "tgv3d_weno3_rk3", "mms_walls_b2", "mms_outflow_xdecomp_b2", "sod3d_walls_z_b2", "cavity_weno3_b2", "cavity3d_noslip_z_b2", "cavity_xdecomp_b2", "cavity3d_xdecomp_b2",
-             "amr3d_sod_muscl", "amr3d_mms", "amr3d_tgv_box", "amr3d_sphere_mask", "amr3d_sphere_ghost"]
+             "amr3d_sod_muscl", "amr3d_mms", "amr3d_tgv_box", "amr3d_sphere_ghost"]
 
 
 def riemann_case_file(k, tmp):
@@ -247,9 +236,6 @@ def run_cpp(name, tmp, n_mpi=0):
     # boundary_order keeps it at 1 (the default is 2 now, and 1 with a first-order scheme)
     if "boundary_order" not in ov:
         cmd += ["--set", "boundary_order=1"]
-    # likewise the IBM references are the cell-centred mask (the default picks the sharp wall where it exists)
-    if "ibm_method" not in ov:
-        cmd += ["--set", "ibm_method=mask"]
     for k, v in ov.items():
         cmd += ["--set", f"{k}={str(v).replace('{REF}', REF)}"]
     if n_mpi:

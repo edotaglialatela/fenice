@@ -144,7 +144,6 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
         try {
             DistEnv env(sp);
             const bool ghost = std::strstr(sp.name, "ghost") != nullptr;
-            env.ph.ibm_ghost = ghost;
             CellMesh m = base;
             m.U.resize(m.num_leaves());
             for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state(env.eos, m.xc(c), m.yc(c));
@@ -336,7 +335,6 @@ TEST(cellparallel_distributed_init_equals_serial_init_bitwise) {
             try {
                 DistEnv env(sp);
                 const bool ghost = std::strstr(sp.name, "ghost") != nullptr;
-                env.ph.ibm_ghost = ghost;
                 CellMesh m(1.5, 1.0, 12, 8, 2, sp.px, sp.py);
                 const auto fill = [&](CellMesh& mm) {
                     mm.U.resize(static_cast<size_t>(mm.num_leaves()));
@@ -923,7 +921,6 @@ TEST(halo_reach_bounds_the_halo_of_any_partition) {
     for (const DistSpec& sp : specs) {
         const bool ghost = std::strstr(sp.name, "ghost") != nullptr;
         DistEnv env(sp);
-        env.ph.ibm_ghost = ghost;
         CellMesh m = random_adapted_mesh(sp.px, sp.py, sp.seed, 6);
         m.U.assign(static_cast<size_t>(m.num_leaves()), State{});
         for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state(env.eos, m.xc(c), m.yc(c));

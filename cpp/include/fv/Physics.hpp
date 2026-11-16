@@ -121,17 +121,8 @@ struct ConstantBodyForce {
     void add_to(const Field& U, Field& R) const;
 };
 
-// Neighbour cells across the MPI interfaces of a strip, for the fringe test of
-// the solid reset.  dir 'y': lo/hi rows, index k*nx + i; dir 'x': columns, index k*ny + j.
-struct SolidResetHalo {
-    char dir = 'y';                               // decomposition direction
-    const Field* lo = nullptr;                    // neighbour states, low side
-    const Field* hi = nullptr;                    // neighbour states, high side
-    const std::vector<char>* mask_lo = nullptr;   // solid mask of those neighbours
-    const std::vector<char>* mask_hi = nullptr;
-};
-
-// Direct-forcing immersed boundary with a circular obstacle.
+// Immersed body with a sharp ghost-cell wall: a cell is solid when its centre lies inside the body, and the solid cells the fluid
+// stencils read are ghost cells that carry the wall condition of the true surface (enable_ghost_cells).
 class ImmersedBoundary {
 public:
     ImmersedBoundary() = default;
@@ -143,18 +134,19 @@ public:
     // Body bounded by a closed polygon in the x-y plane (an airfoil section): a cell is solid
     // when its centre is inside. 3-D: the section extruded along z (a wing of infinite span).
     ImmersedBoundary(const Mesh& mesh, const Polygon2D& section, double rho_ref, double p_ref);
-    // From a precomputed mask (MPI strips cut from the global mask).
+    // From a precomputed mask (an MPI strip cut from the global mask): the solid cells only, for the loads; no wall.
     ImmersedBoundary(int nx, int ny, std::vector<char> mask, double rho_ref, double p_ref, int nz = 1)
         : nx_(nx), ny_(ny), nz_(nz), rho_ref_(rho_ref), p_ref_(p_ref), mask_(std::move(mask)) {}
 
-    // Zero the velocity in solid cells (safe inside RK stages).
+    // Inside every residual (safe in RK stages): the ghost cells from the fluid, the deeper solid cells stopped. After
+    // enable_ghost_cells only.
     void apply_forcing(Field& U, const EOS& eos) const;
-    // Ghost-cell wall only: apply_forcing on U itself, after saving the states of the cells it writes (ghost cells and deeper
-    // solid cells) in `saved`; restore_forced puts them back. The same bits as forcing a copy of U, without the copy.
+    // apply_forcing on U itself, after saving the states of the cells it writes (ghost cells and deeper solid cells) in `saved`;
+    // restore_forced puts them back. The same bits as forcing a copy of U, without the copy.
     void force_in_place(Field& U, const EOS& eos, std::vector<State>& saved) const;
     void restore_forced(Field& U, const std::vector<State>& saved) const;
-    // Once per complete step: fringe Neumann + deep-solid reset.
-    void apply_solid_reset(Field& U, const EOS& eos, const SolidResetHalo* halo = nullptr) const;
+    // Once per complete step: the ghost cells from the fluid, the deeper solid cells reset to the reference state (energy from the EOS).
+    void apply_solid_reset(Field& U, const EOS& eos) const;
 
     // Reference density / pressure the deep solid cells are reset to.
     double rho_ref() const { return rho_ref_; }
@@ -165,12 +157,13 @@ public:
     // Solid mask, one entry per cell (1 = solid).
     const std::vector<char>& mask() const { return mask_; }
 
-    // Sharp-interface (ghost-cell) wall, 2-D, for a body built from its geometry (cylinder or polygon). The solid cells that
+    // Sharp-interface (ghost-cell) wall, for a body built from its geometry (cylinder, sphere or polygon). The solid cells that
     // the fluid stencils read (a fluid cell within two cells) become ghost cells: each gets the state mirrored across the true
     // wall from an image point in the fluid (bilinear in the fluid cells around it): density and pressure with zero normal
     // gradient, the velocity reflected (no-slip) or only its normal component (slip), so the wall condition holds on the
-    // body's surface, not on a staircase. From then on apply_forcing fills the ghost cells (and stops the deeper solid cells)
+    // body's surface, not on a staircase. apply_forcing fills the ghost cells (and stops the deeper solid cells)
     // and apply_solid_reset does the same plus the deep-solid reset (energy from the EOS). Throws for a mask-only body.
+    // A ghost cell with no fluid around any image point takes the nearest fluid cell (ghost_fallback_count).
     // 3-D: a sphere (trilinear image points over eight cells), or the infinite cylinder / extruded section (the 2-D image point of the
     // ghost cell's own layer, so each layer equals the 2-D run bit for bit); no surface samples (surface_loads is zero), the monitor loads
     // come from the momentum flux into the solid cells; ibm_curvature is 2-D only.

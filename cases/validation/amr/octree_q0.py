@@ -17,7 +17,7 @@ first study of the patch AMR did, but with the engine's indicator instead of a L
     cells of a face where one cell is above 0.05; refine where xi >= amr_refine_threshold (0.15);
   * every level of the hierarchy is evaluated on the whole restricted grid (the engine sees a coarser leaf's value where a level is
     absent: a second-order difference in where the band ends, not in its size);
-  * the body band: the finest-level cells whose centre is inside the body, dilated by `margin` cells (2 for the mask, 6 = the ghost
+  * the body band: the finest-level cells whose centre is inside the body, dilated by `margin` cells (6 = the ghost
     wall's ghost_reach), keep the finest level;
   * 2:1 balance across all 3^dim - 1 neighbours (the ripple of CellMesh::adapt), from the finest level down.
 Reported: leaves per level, leaves / uniform cells, and the work ratio sum_l N_l 2^l / (N_uniform 2^M) (level l advances 2^l times
@@ -109,7 +109,7 @@ def cmd_run(args):
             print("sphere Re 20: reusing results/validation/ibm_sphere/ghost_20")
             continue
         t0 = time.time()
-        d = study.run_cached(STUDY, f"sphere_re{re}_20", sphere_case(re, 20), "ibm_method=ghost", threads=args.threads,
+        d = study.run_cached(STUDY, f"sphere_re{re}_20", sphere_case(re, 20), threads=args.threads,
                              force=args.force)
         print(f"sphere Re {re}: {d} ({time.time() - t0:.0f} s)")
 
@@ -501,8 +501,7 @@ def timed_run(cmd, env=None):
 def cmd_cost(args):
     exe = fenice.exe()
     cases = {
-        "sphere_re100_20": (str(sphere_case(100, 20)), ["ibm_method=ghost"], 120 * 60 * 60),
-        "sphere_re100_20_mask": (str(sphere_case(100, 20)), ["ibm_method=mask"], 120 * 60 * 60),
+        "sphere_re100_20": (str(sphere_case(100, 20)), [], 120 * 60 * 60),
         "taylor_green_64": ("Taylor-Green Vortex 3D", ["nx=64", "ny=64", "nz=64"], 64 ** 3),
         "taylor_green_96": ("Taylor-Green Vortex 3D", ["nx=96", "ny=96", "nz=96"], 96 ** 3),
     }

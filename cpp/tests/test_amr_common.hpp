@@ -376,7 +376,10 @@ struct ParityRig {
             ph.source_unsteady = sim.p.source_unsteady;
             ph.source_mesh = &sim.mesh;
         }
-        if (sim.p.use_ibm) ph.ibm_factory = sim.ibm_factory;
+        if (sim.p.use_ibm) {
+            ph.ibm_factory = sim.ibm_factory;
+            ph.ibm_slip = !sim.p.use_viscous;
+        }
         const bool px = sim.boundaries.type(Face::Left) == BCType::Periodic;
         const bool py = sim.boundaries.type(Face::Bottom) == BCType::Periodic;
         cm = std::make_unique<CellMesh>(u.Lx, u.Ly, u.nx, u.ny, max_level, px, py, u.x0, u.y0);
@@ -427,7 +430,10 @@ inline CellPhysics physics_of(Simulation& sim) {
         ph.source_unsteady = sim.p.source_unsteady;
         ph.source_mesh = &sim.mesh;
     }
-    if (sim.p.use_ibm) ph.ibm_factory = sim.ibm_factory;
+    if (sim.p.use_ibm) {
+        ph.ibm_factory = sim.ibm_factory;
+        ph.ibm_slip = !sim.p.use_viscous;
+    }
     return ph;
 }
 

@@ -177,7 +177,8 @@ const std::vector<ParamSpec>& parameter_table() {
     {"ibm_file", "ibm", ""},
     {"ibm_chord", "ibm", "1.0"},
     {"ibm_aoa", "ibm", "0.0"},
-    {"ibm_method", "ibm", "auto"},
+    // ibm_method: retired (the ghost-cell wall is the only wall); auto and ghost are still read, mask is an error (SimParams::from)
+    {"ibm_method", "ibm", nullptr},
     {"ibm_curvature", "ibm", "false"},
 
     {"use_hot_start", "hot_start", "false"},
@@ -194,7 +195,8 @@ const std::vector<ParamSpec>& parameter_table() {
     {"amr_diffusion", "amr", "2"},
     {"amr_refine_every", "amr", "10"},
     {"amr_init_levels", "amr", "0"},
-    {"amr_refine_ibm", "amr", "true"},
+    // amr_refine_ibm: retired (the body is always kept at the finest level); true is still read, false is an error
+    {"amr_refine_ibm", "amr", nullptr},
     {"amr_force_box", "amr", ""},
     };
     return t;
@@ -288,7 +290,12 @@ SimParams SimParams::from(const Params& p) {
     s.ibm_file = p.str("ibm_file", "");
     s.ibm_chord = p.num("ibm_chord", 1.0);
     s.ibm_aoa = p.num("ibm_aoa", 0.0);
-    s.ibm_method = lower(p.str("ibm_method", "auto"));
+    if (p.has("ibm_method")) {   // retired: the ghost-cell wall is the only wall
+        const std::string method = lower(p.str("ibm_method", "auto"));
+        if (method != "auto" && method != "ghost")
+            throw std::invalid_argument("ibm_method = " + method + ": the key is retired, the immersed body always has the ghost-cell "
+                                        "wall (remove the key)");
+    }
     s.ibm_curvature = p.flag("ibm_curvature");
     s.reynolds = p.num("reynolds", 0.0);
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
@@ -319,7 +326,9 @@ SimParams SimParams::from(const Params& p) {
     s.amr_diffusion = p.integer("amr_diffusion", 2);
     s.amr_refine_every = std::max(1, p.integer("amr_refine_every", 10));
     s.amr_init_levels = p.integer("amr_init_levels", 0);
-    s.amr_refine_ibm = p.flag("amr_refine_ibm");
+    if (p.has("amr_refine_ibm") && !p.flag("amr_refine_ibm"))   // retired: the wall needs the body at the finest level
+        throw std::invalid_argument("amr_refine_ibm = false: the key is retired, an immersed body is always kept at the finest level "
+                                    "(remove the key)");
     s.amr_force_box = p.str("amr_force_box", "");
     if (!s.amr_force_box.empty()) {
         double b[6];
@@ -422,15 +431,7 @@ SimParams SimParams::from(const Params& p) {
     if (s.use_ibm && shape == "airfoil" && s.ibm_file.empty())
         throw std::invalid_argument("ibm_shape = Airfoil needs ibm_file (a Selig or Lednicer coordinate file)");
     if (s.use_ibm && airfoil && !(s.ibm_chord > 0.0)) throw std::invalid_argument("ibm_chord must be positive");
-    if (s.ibm_method != "auto" && s.ibm_method != "mask" && s.ibm_method != "ghost")
-        throw std::invalid_argument("Unknown ibm_method: '" + s.ibm_method + "' (use auto, mask or ghost)");
-    if (s.ibm_method == "auto")   // the sharp wall (2-D and 3-D; AMR with the body band), the mask where the wall needs the band and it is off
-        s.ibm_method = (s.use_amr && !s.amr_refine_ibm) ? "mask" : "ghost";
-    if (s.use_ibm && s.ibm_method == "ghost") {
-        if (s.nz > 1 && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is 2-D only (for now)");
-        if (s.use_amr && !s.amr_refine_ibm)
-            throw std::invalid_argument("ibm_method = ghost with AMR needs amr_refine_ibm = true (the body at the finest level)");
-    }
+    if (s.use_ibm && s.nz > 1 && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is 2-D only (for now)");
     if (s.reynolds < 0.0) throw std::invalid_argument("reynolds must be >= 0 (0: use mu)");
     if (s.reynolds > 0.0) {
         // mu from the Reynolds number on the body: rho_in u_in L / mu, L = chord or diameter

@@ -5,7 +5,7 @@
 
 The numbers are wall times measured with FENICE_PROFILE=1 on a Ryzen 7 7800X3D (8 cores, 16 threads), listed in
 docs/source/guide/performance.md ("Where the AMR time goes"); nothing is run here. Cases: the 3-D octree sphere (Re 20,
-base mesh 5 cells per box edge, 2 levels, 73 k leaves, immersed mask, remesh every 4 steps) and the 2-D IBM airfoil
+base mesh 5 cells per box edge, 2 levels, 73 k leaves, immersed sphere, remesh every 4 steps) and the 2-D IBM airfoil
 (Re 1000, 192 x 96 base mesh, 2 levels, t = 20, 8 threads). Figure: amr_time_split.png.
 """
 from fenice import study

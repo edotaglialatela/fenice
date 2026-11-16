@@ -1023,7 +1023,7 @@ void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
 }
 
 std::vector<int> CellFluxEngine::ghost_referenced_cells(const CellMesh& m) {
-    if (!has_body() || !phys_.ibm_ghost) return {};
+    if (!has_body()) return {};
     if (!ghost_ib_) {
         const int M = m.max_level;
         const Mesh fine = generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(M), m.ny_at(M), m.x0, m.y0);
@@ -1040,7 +1040,7 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
     ghost_reads_leaf_.clear();
     ghost_incomplete_.clear();
     ghost_leaf_mask_.assign(static_cast<size_t>(nleaf_), 0);
-    if (!has_body() || !phys_.ibm_ghost) return;
+    if (!has_body()) return;
     if (m.dim == 3) {
         map_ghost_cells_3d(m, whole);
         return;
@@ -1049,10 +1049,10 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
     ghost_referenced_cells(m);
     // whether the wall is active is a fact of the whole mesh (given, or looked up in `whole`); a rank keeps the cells whose leaf it has
     const bool known = ghost_whole_ready_ >= 0;
-    if (known && ghost_whole_ready_ == 0) return;   // not (yet) all finest-level leaves: the mask forcing stays
+    if (known && ghost_whole_ready_ == 0) return;   // not (yet) all finest-level leaves: the wall is not ready
     const CellMesh& all = whole ? *whole : m;
     for (const int fc : ghost_ib_->referenced_cells()) {
-        if (!known && all.find(M, fc % NX, fc / NX) < 0) return;   // not (yet) a finest-level leaf: the mask forcing stays
+        if (!known && all.find(M, fc % NX, fc / NX) < 0) return;   // not (yet) a finest-level leaf: the wall is not ready
         const int leaf = m.find(M, fc % NX, fc / NX);
         if (leaf >= 0) fine_leaf_[fc] = leaf;
     }
@@ -1090,7 +1090,7 @@ bool near_body_surface(const ImmersedBoundary& body, const CellMesh& m, int leve
 }
 
 bool CellFluxEngine::ghost_band_violated(const CellMesh& m) const {
-    if (!has_body() || !phys_.ibm_ghost) return false;
+    if (!has_body()) return false;
     if (!ibm_geo_) throw std::logic_error("CellFluxEngine::ghost_band_violated: no engine build has made the body's geometry yet");
     const int M = m.max_level;
     const double reach = 6.0 * std::max({m.dx(M), m.dy(M), m.dz(M)});
@@ -1113,12 +1113,12 @@ void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m, const CellMesh* whole
     // A rank's share (the readiness a collective fact of the whole mesh, given as `ghost_whole_ready_`, or looked up in `whole`) keeps
     // the table entries of the leaves it has; a ghost leaf whose image leaves it lacks is marked incomplete (as in 2-D).
     const bool known = ghost_whole_ready_ >= 0, part = known || whole;
-    if (known && ghost_whole_ready_ == 0) return;   // not (yet) refined: the mask stays
+    if (known && ghost_whole_ready_ == 0) return;   // not (yet) refined: the wall is not ready
     if (!known) {
         const CellMesh& all = whole ? *whole : m;
         const double reach = 6.0 * std::max({hf[0], hf[1], hf[2]});
         for (int c = 0; c < all.level_begin[M]; ++c)
-            if (near_body_surface(geo, all, all.level[c], all.ci[c], all.cj[c], all.ck[c], reach)) return;   // not (yet) refined: the mask stays
+            if (near_body_surface(geo, all, all.level[c], all.ci[c], all.cj[c], all.ck[c], reach)) return;   // not (yet) refined: the wall is not ready
     }
     // 2) the table from the solid finest leaves, in cell order of the finest level
     if (static_cast<long long>(NX) * NY * NZ > 2147483647LL) return;

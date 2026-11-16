@@ -665,11 +665,18 @@ TEST(time_schemes_linear_decay) {
 TEST(ibm_mask_and_reset) {
     const EOS eos = EOS::ideal(1.4);
     const Mesh m = generate_cartesian_mesh(1.0, 1.0, 100, 100);
-    const ImmersedBoundary ib(m, "Cylinder", 0.2, 0.5, 0.5, 1.0, 1.0);
+    ImmersedBoundary ib(m, "Cylinder", 0.2, 0.5, 0.5, 1.0, 1.0);
     CHECK(std::abs(ib.solid_count() - 3.14159265 * 0.04 * 1e4) < 60);
     Field U = uniform_field(eos, m.num_cells(), 1.1, 0.5, 0.2, 1.3);
+    bool refused = false;   // the forcing is the wall's: not before enable_ghost_cells
+    try {
+        ib.apply_forcing(U, eos);
+    } catch (const std::logic_error&) { refused = true; }
+    CHECK(refused);
+    ib.enable_ghost_cells(m, false);
     ib.apply_forcing(U, eos);
-    CHECK(U[50 * 100 + 50][1] == 0.0);
+    CHECK(U[50 * 100 + 50][1] == 0.0);                                                 // deep solid: stopped
+    CHECK(U[50 * 100 + 50][0] == 1.1);                                                 // ... density and pressure kept in a stage
     CHECK_NEAR(U[5][1], 1.1 * 0.5, 1e-12);
     ib.apply_solid_reset(U, eos);
     CHECK(U[50 * 100 + 50][0] == 1.0);                                                 // deep solid -> rho_ref
@@ -1139,16 +1146,18 @@ TEST(ibm_mask_shapes) {
     CHECK(ImmersedBoundary(m, "Cylinder", 5.0, 0.5, 0.5, 1, 1).solid_count() == 400);
     CHECK(ImmersedBoundary(m, "Sphere", 0.3, 0.4, 0.6, 1, 1).mask() ==
           ImmersedBoundary(m, "Cylinder", 0.3, 0.4, 0.6, 1, 1).mask());
-    // Fringe cells take rho / p from their fluid neighbour
+    // Ghost cells take rho / p from the fluid at their image point, the deeper solid cells the reference state
     const EOS eos = EOS::ideal(1.4);
-    const ImmersedBoundary ib(m, "Cylinder", 0.2, 0.5, 0.5, 9.0, 9.0);
+    ImmersedBoundary ib(m, "Cylinder", 0.2, 0.5, 0.5, 9.0, 9.0);
+    ib.enable_ghost_cells(m, false);
     Field U = uniform_field(eos, m.num_cells(), 1.7, 0.0, 0.0, 1.1);
     ib.apply_solid_reset(U, eos);
-    int fringe = 0, deep = 0;
+    int ghost = 0, deep = 0, other = 0;
     for (int c = 0; c < m.num_cells(); ++c)
-        if (ib.mask()[c]) (std::abs(U[c][0] - 1.7) < 1e-14 ? fringe : deep) += 1;
-    CHECK(fringe > 0);
+        if (ib.mask()[c]) (std::abs(U[c][0] - 1.7) < 1e-12 ? ghost : (U[c][0] == 9.0 ? deep : other)) += 1;
+    CHECK(ghost == ib.ghost_count());
     CHECK(deep > 0);
+    CHECK(other == 0);
 }
 
 TEST(time_scheme_stages) {

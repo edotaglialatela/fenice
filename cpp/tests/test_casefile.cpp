@@ -89,6 +89,26 @@ TEST(boundary_order_default) {
 // reconstruction is the one key of the face reconstruction (none, muscl, weno3, weno5); the retired use_muscl is read as an alias
 // with its old meaning, so every old input means what it meant: false (with reconstruction absent or its old default muscl) is first
 // order, true with reconstruction absent is muscl, true with a reconstruction keeps it, false with a WENO scheme is an error as before.
+TEST(retired_ibm_keys_are_read_and_refuse_the_removed_choices) {
+    // ibm_method and amr_refine_ibm are retired: an immersed body always has the ghost-cell wall, kept at the finest level of an
+    // adaptive mesh. Old case files that say so still load; the removed choices (the mask, no body band) are an error.
+    const auto throws = [](std::initializer_list<std::pair<const char*, const char*>> sets) {
+        Params p = baseline_defaults();
+        p.merge(get_test_case("IBM Flow over Cylinder").defaults);
+        for (const auto& kv : sets) p.set(kv.first, kv.second);
+        try {
+            SimParams::from(p);
+        } catch (const std::invalid_argument&) { return true; }
+        return false;
+    };
+    CHECK(!throws({}));
+    CHECK(!throws({{"ibm_method", "auto"}}));
+    CHECK(!throws({{"ibm_method", "Ghost"}}));
+    CHECK(throws({{"ibm_method", "mask"}}));
+    CHECK(!throws({{"use_amr", "true"}, {"amr_refine_ibm", "true"}}));
+    CHECK(throws({{"use_amr", "true"}, {"amr_refine_ibm", "false"}}));
+}
+
 TEST(use_muscl_is_read_as_reconstruction) {
     auto rec = [](std::initializer_list<std::pair<const char*, const char*>> sets, bool* alias = nullptr) {
         Params p = baseline_defaults();

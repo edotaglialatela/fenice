@@ -948,61 +948,12 @@ void CellFluxEngine::accumulate_registers(const CellMesh& m, int l, double w) {
 void CellFluxEngine::solid_reset(const CellMesh& m, Field& U) const {
     if (!has_body()) return;
     const int N = m.num_leaves();
-    if (ghost_ready_) {   // ghost leaves from the fluid, the deeper solid leaves at rest at the reference state (owned leaves)
-        fill_ghost_leaves(U, U, owned_mask_.empty() ? nullptr : &owned_mask_);
-        const State deep = eos_.prim_to_cons({ibm_rho_ref_, 0.0, 0.0, ibm_p_ref_, 0.0});
-        for (int c = 0; c < N; ++c)
-            if (solid_[c] && !ghost_leaf_mask_[static_cast<size_t>(c)] && (owned_mask_.empty() || owned_mask_[c])) U[c] = deep;
-        return;
-    }
-    auto pressure = [&](const State& c) {
-        return (eos_.gamma - 1.0) * (c[3] - 0.5 * (c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0]);
-    };
-    std::vector<double> rho(static_cast<size_t>(N)), p(static_cast<size_t>(N));
-    for (int c = 0; c < N; ++c) {
-        rho[c] = U[c][0];
-        p[c] = pressure(U[c]);
-    }
-    std::vector<double> new_rho = rho, new_p = p;
-    std::vector<char> fringe(static_cast<size_t>(N), 0);
-    // Neumann condition: a solid leaf next to fluid copies rho / p from it; passes right, left, top, bottom (later
-    // passes win), each reading the original rho / p; no pull across a domain edge, periodic or not. A finer
-    // neighbour contributes the mean of its fluid leaves. 3-D: then back, front (as the uniform solver), up to four finer leaves.
-    const Face passes[6] = {Face::Right, Face::Left, Face::Top, Face::Bottom, Face::Back, Face::Front};
-    for (int pi = 0; pi < (m.dim == 3 ? 6 : 4); ++pi) {
-        const Face side = passes[pi];
-        for (int c = 0; c < N; ++c) {
-            if (!solid_[c] || (!owned_mask_.empty() && !owned_mask_[c])) continue;
-            const int l = m.level[c];
-            const bool edge = (side == Face::Right && m.ci[c] + 1 == m.nx_at(l)) ||
-                              (side == Face::Left && m.ci[c] == 0) ||
-                              (side == Face::Top && m.cj[c] + 1 == m.ny_at(l)) || (side == Face::Bottom && m.cj[c] == 0) ||
-                              (side == Face::Back && m.ck[c] + 1 == m.nz_at(l)) || (side == Face::Front && m.ck[c] == 0);
-            if (edge) continue;
-            const CellNeighbour nb = m.neighbour(c, side);
-            double sr = 0.0, sp = 0.0;
-            int cnt = 0;
-            const int fine[4] = {nb.a, nb.b, m.dim == 3 ? nb.c : -1, m.dim == 3 ? nb.d : -1};
-            for (const int n : fine) {
-                if (n < 0 || solid_[n]) continue;
-                sr += rho[n];
-                sp += p[n];
-                ++cnt;
-            }
-            if (cnt == 0) continue;
-            new_rho[c] = cnt == 1 ? sr : sr / cnt;
-            new_p[c] = cnt == 1 ? sp : sp / cnt;
-            fringe[c] = 1;
-        }
-    }
-    for (int c = 0; c < N; ++c) {
-        if (!solid_[c] || (!owned_mask_.empty() && !owned_mask_[c])) continue;
-        if (!fringe[c]) {
-            new_rho[c] = ibm_rho_ref_;
-            new_p[c] = ibm_p_ref_;
-        }   // deep solid
-        U[c] = {new_rho[c], 0.0, 0.0, new_p[c] / (eos_.gamma - 1.0), 0.0};
-    }
+    // ghost leaves from the fluid, the deeper solid leaves at rest at the reference state (owned leaves); before the wall is ready
+    // there are no ghost leaves and every solid leaf is reset
+    if (ghost_ready_) fill_ghost_leaves(U, U, owned_mask_.empty() ? nullptr : &owned_mask_);
+    const State deep = eos_.prim_to_cons({ibm_rho_ref_, 0.0, 0.0, ibm_p_ref_, 0.0});
+    for (int c = 0; c < N; ++c)
+        if (solid_[c] && !(ghost_ready_ && ghost_leaf_mask_[static_cast<size_t>(c)]) && (owned_mask_.empty() || owned_mask_[c])) U[c] = deep;
 }
 
 }   // namespace fv

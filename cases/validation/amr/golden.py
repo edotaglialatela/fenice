@@ -32,8 +32,8 @@ CASES = {   # name: (case, overrides)
     "cavity": ("Lid Driven Cavity", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "max_steps=200"]),
     "sod_every2": ("Sod Shock Tube", ["Lx=2.0", "nx=128", "ny=16", "Ly=0.25", "use_amr=true", "amr_max_level=3",
                                       "amr_refine_every=2", "t_end=0.2"]),
-    "ghost_airfoil": ("IBM Airfoil AMR", ["ibm_method=ghost", "max_steps=12"]),
-    "ghost_cylinder": ("IBM Flow over Cylinder", ["ibm_method=ghost", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
+    "ghost_airfoil": ("IBM Airfoil AMR", ["max_steps=12"]),
+    "ghost_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4",
                                                   "nx=100", "ny=50", "max_steps=16"]),
     "airfoil_720": ("IBM Airfoil AMR", ["nx=720", "ny=360", "max_steps=50"]),
 }

@@ -79,7 +79,7 @@ def main():
     points = [overrides(p["u_in"], p["cpd"], p["limiter"]) for p in raw]
     points += [overrides(1.0, cpd_hi, 1.0)]   # the cross-check run
     folder = case_folder()
-    base = ("ibm_method=ghost", f"t_end={T_END}", "monitor_interval=25", "save_interval=1000000000", "use_mpi=false")
+    base = (f"t_end={T_END}", "monitor_interval=25", "save_interval=1000000000", "use_mpi=false")
     root = study.study_dir(STUDY) / ("runs_full" if args.full else "runs")
     recs = uq.run_sweep(folder, points, drag, base=base, root=root, threads=1)
     new = sum(not r["cached"] for r in recs)

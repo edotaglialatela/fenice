@@ -40,11 +40,12 @@ struct CellPhysics {
     const Params* source = nullptr;            // source_* expressions (null: none)
     bool source_unsteady = false;              // the expressions use t: evaluated at CellFluxEngine::stage_time
     const Mesh* source_mesh = nullptr;         // base mesh the expression variables (Lx, nx, ...) come from
-    // Immersed body: the mask of a uniform mesh; masks per level are cut from it (empty: no body)
+    // Immersed body: the body on a uniform mesh; the solid leaves of each level are cut from it (empty: no body)
     std::function<ImmersedBoundary(const Mesh&)> ibm_factory;
-    // Ghost-cell (sharp) wall on the finest level (ImmersedBoundary::enable_ghost_cells), slip or no-slip; needs the cells around
-    // the body at the finest level (a body band at least ImmersedBoundary::ghost_reach wide), else the mask forcing is used
-    bool ibm_ghost = false, ibm_slip = false, ibm_curvature = false;
+    // Its ghost-cell wall lives on the finest level (ImmersedBoundary::enable_ghost_cells), slip or no-slip; it needs the cells around
+    // the body at the finest level (a body band at least ImmersedBoundary::ghost_reach wide). Until then (ghost_ready false) the
+    // solid leaves are only kept at rest at the reference state, with no wall condition: a run requires the wall.
+    bool ibm_slip = false, ibm_curvature = false;
 };
 
 // Viscous cell kernels of the engine.  The range functions run four cells at a time with AVX2 where the CPU has it
@@ -97,7 +98,7 @@ public:
     void build(const CellMesh& mesh, const CellMesh* whole = nullptr);
     // The ghost-cell wall of a partial mesh when the whole mesh is not at hand (CellParallel with fetched shares): the cells the wall
     // reads, and whether all of them are finest-level leaves of the whole mesh (set before build: 1 yes, 0 no, -1 look in `whole`).
-    bool ghost_enabled() const { return has_body() && phys_.ibm_ghost; }
+    bool ghost_enabled() const { return has_body(); }
     std::vector<int> ghost_referenced_cells(const CellMesh& mesh);
     void set_ghost_whole_ready(int v) { ghost_whole_ready_ = v; }
     // 3-D: some leaf of `mesh` coarser than the finest level lies near the surface (the readiness rule of the wall): a rank tests its
@@ -141,11 +142,11 @@ public:
     void accumulate_registers(const CellMesh& mesh, int l, double w);
 
     // --- immersed body (no-ops without one) ---
-    // Take the body forcing of the whole state U (velocity of the solid cells zeroed); the level pieces read the
-    // forced copy, so call it before the first level pass and again for a level whose state was just updated.
+    // Take the body forcing of the whole state U (solid leaves stopped, ghost leaves filled from the fluid); the level pieces read
+    // the forced copy, so call it before the first level pass and again for a level whose state was just updated.
     void force_state(const CellMesh& mesh, const Field& U);
     void force_level(const CellMesh& mesh, const Field& U, int l);
-    // Once per complete step: fringe Neumann condition and deep-solid reset of the solid leaves, in place.
+    // Once per complete step: the ghost leaves from the fluid and the deeper solid leaves reset to the reference state, in place.
     void solid_reset(const CellMesh& mesh, Field& U) const;
     // True with an immersed body.
     bool has_body() const { return static_cast<bool>(phys_.ibm_factory); }

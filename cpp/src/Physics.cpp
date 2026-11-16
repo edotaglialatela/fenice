@@ -856,21 +856,8 @@ int ImmersedBoundary::solid_count() const {
 }
 
 void ImmersedBoundary::apply_forcing(Field& U, const EOS& eos) const {
-    if (ghost_on_) {
-        fill_ghosts_part([](int c) { return c; }, [&U](int c) -> const State& { return U[c]; }, U, eos, false);
-        return;
-    }
-    const int n = static_cast<int>(U.size());
-#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-    for (int c = 0; c < n; ++c) {
-        State W = eos.cons_to_prim(U[c]);
-        if (mask_[c]) {
-            W[1] = 0.0;
-            W[2] = 0.0;
-            W[4] = 0.0;
-        }
-        U[c] = eos.prim_to_cons(W);
-    }
+    if (!ghost_on_) throw std::logic_error("ImmersedBoundary::apply_forcing: enable_ghost_cells first");
+    fill_ghosts_part([](int c) { return c; }, [&U](int c) -> const State& { return U[c]; }, U, eos, false);
 }
 
 void ImmersedBoundary::force_in_place(Field& U, const EOS& eos, std::vector<State>& saved) const {
@@ -890,79 +877,10 @@ void ImmersedBoundary::restore_forced(Field& U, const std::vector<State>& saved)
     for (size_t k = 0; k < forced_cells_.size(); ++k) U[static_cast<size_t>(forced_cells_[k])] = saved[k];
 }
 
-void ImmersedBoundary::apply_solid_reset(Field& U, const EOS& eos, const SolidResetHalo* h) const {
-    if (ghost_on_) {   // ghost states from the fluid, the deeper solid cells at rest at the reference state
-        fill_ghosts_part([](int c) { return c; }, [&U](int c) -> const State& { return U[c]; }, U, eos, true);
-        return;
-    }
-    const int nx = nx_, ny = ny_, nz = nz_, n = nx * ny * nz;
-    auto pressure = [&](const State& c) {
-        return (eos.gamma - 1.0) * (c[3] - 0.5 * (c[1] * c[1] + c[2] * c[2] + c[4] * c[4]) / c[0]);
-    };
-    std::vector<double> rho(n), p(n);
-    for (int c = 0; c < n; ++c) {
-        rho[c] = U[c][0];
-        p[c] = pressure(U[c]);
-    }
-    std::vector<double> new_rho = rho, new_p = p;
-    std::vector<char> fringe(n, 0);
-    auto id = [&](int k, int j, int i) { return (k * ny + j) * nx + i; };
-    auto solid = [&](int k, int j, int i) { return mask_[id(k, j, i)] != 0; };
-
-    // Neumann condition: copy rho/p from the adjacent fluid cell into the fringe
-    // layer.  Passes run right, left, top, bottom (then back, front in 3-D; later
-    // passes win), each reading the original rho/p.
-    auto pull = [&](int c, double rho_n, double p_n) {
-        new_rho[c] = rho_n;
-        new_p[c] = p_n;
-        fringe[c] = 1;
-    };
-    auto pull_in = [&](int k, int j, int i, int kn, int jn, int in) {
-        if (solid(k, j, i) && !solid(kn, jn, in)) pull(id(k, j, i), rho[id(kn, jn, in)], p[id(kn, jn, in)]);
-    };
-    // Neighbour across an MPI interface (s-th cell of the halo slab)
-    auto pull_halo = [&](int k, int j, int i, const Field* strip, const std::vector<char>* m, int s) {
-        if (strip && m && solid(k, j, i) && !(*m)[s]) pull(id(k, j, i), (*strip)[s][0], pressure((*strip)[s]));
-    };
-    const bool hx = h && h->dir == 'x', hy = h && h->dir == 'y';
-
-    for (int k = 0; k < nz; ++k)
-        for (int j = 0; j < ny; ++j) {
-            for (int i = 0; i + 1 < nx; ++i) pull_in(k, j, i, k, j, i + 1);
-            if (hx) pull_halo(k, j, nx - 1, h->hi, h->mask_hi, k * ny + j);
-        }
-    for (int k = 0; k < nz; ++k)
-        for (int j = 0; j < ny; ++j) {
-            for (int i = 1; i < nx; ++i) pull_in(k, j, i, k, j, i - 1);
-            if (hx) pull_halo(k, j, 0, h->lo, h->mask_lo, k * ny + j);
-        }
-    for (int k = 0; k < nz; ++k) {
-        for (int j = 0; j + 1 < ny; ++j)
-            for (int i = 0; i < nx; ++i) pull_in(k, j, i, k, j + 1, i);
-        if (hy)
-            for (int i = 0; i < nx; ++i) pull_halo(k, ny - 1, i, h->hi, h->mask_hi, k * nx + i);
-    }
-    for (int k = 0; k < nz; ++k) {
-        for (int j = 1; j < ny; ++j)
-            for (int i = 0; i < nx; ++i) pull_in(k, j, i, k, j - 1, i);
-        if (hy)
-            for (int i = 0; i < nx; ++i) pull_halo(k, 0, i, h->lo, h->mask_lo, k * nx + i);
-    }
-    for (int k = 0; k + 1 < nz; ++k)
-        for (int j = 0; j < ny; ++j)
-            for (int i = 0; i < nx; ++i) pull_in(k, j, i, k + 1, j, i);
-    for (int k = 1; k < nz; ++k)
-        for (int j = 0; j < ny; ++j)
-            for (int i = 0; i < nx; ++i) pull_in(k, j, i, k - 1, j, i);
-
-    for (int c = 0; c < n; ++c) {
-        if (!mask_[c]) continue;
-        if (!fringe[c]) {
-            new_rho[c] = rho_ref_;
-            new_p[c] = p_ref_;
-        }   // deep solid
-        U[c] = {new_rho[c], 0.0, 0.0, new_p[c] / (eos.gamma - 1.0), 0.0};
-    }
+void ImmersedBoundary::apply_solid_reset(Field& U, const EOS& eos) const {
+    // ghost states from the fluid, the deeper solid cells at rest at the reference state
+    if (!ghost_on_) throw std::logic_error("ImmersedBoundary::apply_solid_reset: enable_ghost_cells first");
+    fill_ghosts_part([](int c) { return c; }, [&U](int c) -> const State& { return U[c]; }, U, eos, true);
 }
 
 // ---------------------------------------------------------------------------

@@ -4,8 +4,8 @@
 
 Short runs of case files that declare the outputs (written into the study folder: the shipped cases get the tables appended):
 
-* the CSV files of every probe, line, force and average are identical byte for byte on 1 to 7 ranks (uniform mesh with the mask and
-  the ghost-cell IBM, 3-D, AMR with and without a body, 3-D AMR without a body), and the final state does too;
+* the CSV files of every probe, line, force and average are identical byte for byte on 1 to 7 ranks (uniform mesh with an
+  immersed body, 3-D, AMR with and without a body, 3-D AMR without a body), and the final state does too;
 * declaring the outputs does not change the state: the final states with and without them are bit for bit equal (the time loop only
   reads the state; the force output evaluates the residual an extra time);
 * a run stopped halfway and resumed writes the CSV rows of the uninterrupted run (plus the row of the stop step, no row twice), on the
@@ -203,16 +203,13 @@ def check(ranks):
     ok = True
     ibm = ["max_steps=20", "nx=100", "ny=50"]
     cyl = tables(1.2, 1.0, 0.8, 1.0, 1.6, 1.0, force=True)
-    mask = case_folder("cylinder_mask", "ibm_flow_over_cylinder", cyl)
+    body = case_folder("cylinder_body", "ibm_flow_over_cylinder", cyl)
     plain = case_folder("cylinder_plain", "ibm_flow_over_cylinder")
-    ghost = ["ibm_method=ghost"]
-    ok &= check_mpi("cylinder_mask", mask, ibm, ranks, base)
-    ok &= check_mpi("cylinder_ghost", mask, ibm + ghost, ranks, base)
-    ok &= check_neutral("cylinder_mask", plain, mask, ibm, base)
-    ok &= check_neutral("cylinder_ghost", plain, mask, ibm + ghost, base)
+    ok &= check_mpi("cylinder_body", body, ibm, ranks, base)
+    ok &= check_neutral("cylinder_body", plain, body, ibm, base)
     amr = ["use_amr=true", "amr_max_level=2", "amr_refine_every=4"]
-    ok &= check_mpi("cylinder_amr", mask, ibm + amr, ranks, base)
-    ok &= check_neutral("cylinder_amr", plain, mask, ibm + amr, base)
+    ok &= check_mpi("cylinder_amr", body, ibm + amr, ranks, base)
+    ok &= check_neutral("cylinder_amr", plain, body, ibm + amr, base)
     sod_t = tables(0.3, 0.04, 0.0, 0.04, 1.0, 0.04)
     sod = case_folder("sod", "sod_shock_tube", sod_t)
     sod_plain = case_folder("sod_plain", "sod_shock_tube")
@@ -223,7 +220,7 @@ def check(ranks):
     ok &= check_resume("sod", sod, sset, 24, base)
     ok &= check_resume("sod_amr", sod, sset + amr, 24, base)
     ok &= check_hard_kill("sod", sod, sset, base)
-    ok &= check_resume("cylinder_force", mask, ibm, 20, base)
+    ok &= check_resume("cylinder_force", body, ibm, 20, base)
     tg = case_folder("tg3d", "taylor_green_vortex_3d", PROBES_3D)
     tg_plain = case_folder("tg3d_plain", "taylor_green_vortex_3d")
     tset = ["nx=16", "ny=16", "nz=4", "max_steps=6"]

@@ -329,7 +329,7 @@ State smooth_3d(const EOS& eos, double x, double y, double z) {
 
 namespace {
 Simulation ibm_source_run(const char* mx, const char* my) {
-    SimParams sp = params_for("IBM Flow over Cylinder", {{"ibm_method", "mask"}, {"nx", "40"}, {"ny", "20"}, {"time_scheme", "Explicit Euler"},
+    SimParams sp = params_for("IBM Flow over Cylinder", {{"nx", "160"}, {"ny", "80"}, {"time_scheme", "Explicit Euler"},
                                                           {"source_mx", mx}, {"source_my", my}});
     return run_case(sp, 1);
 }
@@ -348,12 +348,12 @@ TEST(source_terms_with_the_ibm_act_on_the_fluid_and_leave_the_body_at_rest) {
         for (int q = 0; q < kNVar; ++q) same = same && s0.U[c][q] == sz.U[c][q];
     CHECK(same);
     const Mesh& m = s0.mesh;
-    const size_t far = static_cast<size_t>(4 + (m.ny / 2) * m.nx);    // x = 0.45 (the cylinder is at x = 1), mid height: uniform flow
+    const size_t far = static_cast<size_t>(16 + (m.ny / 2) * m.nx);    // x = 0.41 (the cylinder is at x = 1), mid height: uniform flow
     const double d1 = s1.U[far][2] - s0.U[far][2], d2 = s2.U[far][2] - s0.U[far][2];
     CHECK(d1 > 0.0);
     CHECK_NEAR(d2, 2.0 * d1, 1e-9 * d1);
-    // the centre of the cylinder (x = 1, y = 1 on 0.1-wide cells) is a deep solid cell
-    const size_t core = static_cast<size_t>(10 + 10 * m.nx);
+    // the centre of the cylinder (x = 1, y = 1, radius of four cells) is a deep solid cell
+    const size_t core = static_cast<size_t>(40 + 40 * m.nx);
     CHECK(s2.ibm->mask()[core]);
     CHECK(std::abs(s2.U[core][1]) < 1e-9 && std::abs(s2.U[core][2]) < 1e-9);
 }
@@ -369,10 +369,9 @@ TEST(extrusion_matches_2d) {
         {"Sod Shock Tube", {{"nx", "40"}, {"ny", "4"}, {"reconstruction", "muscl"}, {"time_scheme", "ssprk2"}}, 15},
         {"Lid Driven Cavity", {{"nx", "12"}, {"ny", "12"}, {"reconstruction", "muscl"}}, 20},
         {"Poiseuille Flow", {{"nx", "16"}, {"ny", "8"}}, 30},
-        {"IBM Flow over Cylinder", {{"ibm_method", "mask"}, {"nx", "40"}, {"ny", "20"}, {"use_mpi", "false"}}, 10},
-        {"IBM Flow over Cylinder", {{"ibm_method", "ghost"}, {"nx", "40"}, {"ny", "20"}, {"use_mpi", "false"}}, 10},   // sharp wall, no-slip
-        {"IBM Supersonic Flow over Cylinder", {{"ibm_method", "ghost"}, {"nx", "40"}, {"ny", "40"}, {"use_mpi", "false"}}, 10},   // slip
-        {"IBM Airfoil", {{"ibm_method", "ghost"}, {"nx", "96"}, {"ny", "48"}, {"use_mpi", "false"}}, 10},   // polygon
+        {"IBM Flow over Cylinder", {{"nx", "40"}, {"ny", "20"}, {"use_mpi", "false"}}, 10},   // sharp wall, no-slip
+        {"IBM Supersonic Flow over Cylinder", {{"nx", "40"}, {"ny", "40"}, {"use_mpi", "false"}}, 10},   // slip
+        {"IBM Airfoil", {{"nx", "96"}, {"ny", "48"}, {"use_mpi", "false"}}, 10},   // polygon
         {"Isentropic Vortex", {{"nx", "20"}, {"ny", "20"}}, 10},
     };
     for (const Case& c : cases) {

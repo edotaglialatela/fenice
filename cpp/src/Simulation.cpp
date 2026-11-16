@@ -257,15 +257,13 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         }
         if (ibm->solid_count() == 0)
             std::printf("[WARNING] The IBM body covers no cell: check its size and position\n");
-        if (p.ibm_method == "ghost") {
-            ibm->enable_ghost_cells(mesh, !p.use_viscous, p.ibm_curvature);
-            if (verbose)
-                std::printf("[IBM] Ghost-cell wall (%s): %d ghost cells, loads on the true surface\n",
-                            p.use_viscous ? "no-slip" : "slip", ibm->ghost_count());
-            if (ibm->ghost_fallback_count() > 0)
-                std::printf("[WARNING] %d ghost cells have no fluid around their image point (a part of the body thinner than the "
-                            "stencil): they take the nearest fluid cell, first order there\n", ibm->ghost_fallback_count());
-        }
+        ibm->enable_ghost_cells(mesh, !p.use_viscous, p.ibm_curvature);
+        if (verbose)
+            std::printf("[IBM] Ghost-cell wall (%s): %d ghost cells, loads on the true surface\n", p.use_viscous ? "no-slip" : "slip",
+                        ibm->ghost_count());
+        if (ibm->ghost_fallback_count() > 0)
+            std::printf("[WARNING] %d ghost cells have no fluid around their image point (a part of the body thinner than the "
+                        "stencil): they take the nearest fluid cell, first order there\n", ibm->ghost_fallback_count());
         if (verbose && p.reynolds > 0.0) std::printf("[PHYSICS] Re = %g -> mu = %g\n", p.reynolds, p.mu);
     }
 
@@ -387,7 +385,6 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         }
         if (p.use_ibm) {
             cell_physics.ibm_factory = ibm_factory;
-            cell_physics.ibm_ghost = p.ibm_method == "ghost";
             cell_physics.ibm_curvature = p.ibm_curvature;
             cell_physics.ibm_slip = !p.use_viscous;
         }
@@ -413,21 +410,22 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             else
                 throw std::invalid_argument("amr_force_box needs x0, x1, y0, y1 (and z0, z1 in 3-D)");
         }
-        if (p.use_ibm && p.amr_refine_ibm && mesh.is3d()) {
-            // 3-D: a shell of finest leaves around the surface (near_body_surface); the ghost-cell wall is ready with 6 cells
-            const int margin = p.ibm_method == "ghost" ? 6 : 2;
+        if (p.use_ibm && mesh.is3d()) {
+            // 3-D: a shell of finest leaves around the surface (near_body_surface), wide enough for the ghost cells and their images
+            const int margin = 6;
             cell_adaptor->set_body(ibm_factory, margin);
             if (verbose) std::printf("[AMR] Body band: %d finest-level cells on both sides of the surface\n", margin);
-        } else if (p.use_ibm && p.amr_refine_ibm) {
-            int margin = 2;   // the fringe the solid reset treats
-            if (p.ibm_method == "ghost") {   // every ghost cell and the cells it reads (and the load probes) at the finest level
-                const int M = p.amr_max_level;
-                const Mesh fine = generate_cartesian_mesh(p.Lx, p.Ly, p.nx << M, p.ny << M, mesh.x0, mesh.y0);
-                ImmersedBoundary ib = ibm_factory(fine);
-                ib.enable_ghost_cells(fine, !p.use_viscous, p.ibm_curvature);
-                margin = std::max(margin, ib.ghost_reach());
-                if (verbose) std::printf("[AMR] Ghost-cell wall: finest-level band of %d cells around the body\n", margin);
-            }
+        } else if (p.use_ibm) {
+            // every ghost cell and the cells it reads (and the load probes) at the finest level
+            const int M = p.amr_max_level;
+            const Mesh fine = generate_cartesian_mesh(p.Lx, p.Ly, p.nx << M, p.ny << M, mesh.x0, mesh.y0);
+            ImmersedBoundary ib = ibm_factory(fine);
+            ib.enable_ghost_cells(fine, !p.use_viscous, p.ibm_curvature);
+            const int margin = std::max(2, ib.ghost_reach());
+            if (verbose) std::printf("[AMR] Ghost-cell wall: finest-level band of %d cells around the body\n", margin);
+            if (ib.ghost_fallback_count() > 0)
+                std::printf("[WARNING] %d ghost cells have no fluid around their image point (a part of the body thinner than the "
+                            "stencil): they take the nearest fluid cell, first order there\n", ib.ghost_fallback_count());
             cell_adaptor->set_body(ibm_factory, margin);
         }
         if (verbose)
@@ -484,6 +482,14 @@ void Simulation::setup(const SimParams& params, bool verbose) {
 }
 
 // FENICE_MEM_TRACE=1: the resident and peak memory of the process at a step of the setup (stderr)
+// The wall of an immersed body on the adaptive mesh: its ghost cells and the cells they read are leaves of the finest level.
+static void require_ghost_wall(const CellFluxEngine& engine) {
+    if (!engine.ghost_ready())
+        throw std::runtime_error("The ghost-cell wall of the immersed body could not be set up on the adaptive mesh: the cells around "
+                                 "the body are not all at the finest level, or that level has more than 2^31 cells");
+    std::printf("[IBM] Ghost-cell wall active on the finest-level band\n");
+}
+
 static void mem_trace(const char* where) {
     if (!switch_on("FENICE_MEM_TRACE")) return;
     const MemoryUsage m = memory_usage();
@@ -535,10 +541,7 @@ void Simulation::initialize_field() {
             mem_trace("base topology");
             cell_par->init_adapt(topo, *cell_adaptor, [this](CellMesh& m) { fill_cells(m); });
         }
-        if (p.use_ibm && p.ibm_method == "ghost")
-            std::printf(cell_engine->ghost_ready() ? "[IBM] Ghost-cell wall active on the finest-level band\n"
-                                                   : "[WARNING] Ghost-cell wall inactive: the cells around the body are not all at the "
-                                                     "finest level; the mask forcing is used\n");
+        if (p.use_ibm) require_ghost_wall(*cell_engine);
         if (p.use_ibm) {
             cell_engine->solid_reset(*cells, cells->U);
             cell_par->exchange_solid();
@@ -560,10 +563,7 @@ void Simulation::initialize_field() {
         }
         mem_trace("init levels");
         cell_adaptor->init_adapt([this](CellMesh& m) { fill_cells(m); });
-        if (p.use_ibm && p.ibm_method == "ghost")
-            std::printf(cell_engine->ghost_ready() ? "[IBM] Ghost-cell wall active on the finest-level band\n"
-                                                   : "[WARNING] Ghost-cell wall inactive: the cells around the body are not all at the "
-                                                     "finest level; the mask forcing is used\n");
+        if (p.use_ibm) require_ghost_wall(*cell_engine);
         if (p.use_ibm) cell_engine->solid_reset(*cells, cells->U);
         mem_trace("init_adapt done");
     }
@@ -704,15 +704,9 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     InPlaceForcing guard;
     if (ib) {
         ProfileScope profile(Section::IBMForcing);
-        if (ib->ghost_cells()) {
-            // only the cells of the body change: force U_in itself and put them back at the end (no copy of the field)
-            ib->force_in_place(const_cast<Field&>(U_in), fluid, Usaved_);
-            guard.set(ib, const_cast<Field*>(&U_in), &Usaved_);
-        } else {
-            Uf_ = U_in;
-            ib->apply_forcing(Uf_, fluid);
-            Uc = &Uf_;
-        }
+        // only the cells of the body change: force U_in itself and put them back at the end (no copy of the field)
+        ib->force_in_place(const_cast<Field&>(U_in), fluid, Usaved_);
+        guard.set(ib, const_cast<Field*>(&U_in), &Usaved_);
     }
     const int nx = m.nx, ny = m.ny, nxf = m.num_xfaces();
     constexpr int D = kHaloDepth;
@@ -870,15 +864,9 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     InPlaceForcing guard;
     if (ib) {
         ProfileScope profile(Section::IBMForcing);
-        if (ib->ghost_cells()) {
-            // only the cells of the body change: force U_in itself and put them back at the end (no copy of the field)
-            ib->force_in_place(const_cast<Field&>(U_in), fluid, Usaved_);
-            guard.set(ib, const_cast<Field*>(&U_in), &Usaved_);
-        } else {
-            Uf_ = U_in;
-            ib->apply_forcing(Uf_, fluid);
-            Uc = &Uf_;
-        }
+        // only the cells of the body change: force U_in itself and put them back at the end (no copy of the field)
+        ib->force_in_place(const_cast<Field&>(U_in), fluid, Usaved_);
+        guard.set(ib, const_cast<Field*>(&U_in), &Usaved_);
     }
     const Field& Uv = *Uc;
     const int nx = m.nx, ny = m.ny, nz = m.nz;

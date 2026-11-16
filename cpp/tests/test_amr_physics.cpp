@@ -87,22 +87,42 @@ TEST(cellphys_forces_and_sources_match_uniform_bitwise) {
     CHECK(!bits_equal(a, b));
 }
 
-TEST(cellphys_immersed_body_matches_uniform_bitwise) {
+TEST(cellphys_immersed_body_matches_uniform) {
+    // A level-0 mesh with a body against the uniform solver: the wall is active, the solid reset (ghost cells from the fluid, deep
+    // solid cells at the reference state) gives the uniform bits, and the residual agrees to round-off (the engine forces every leaf
+    // through the primitive state, the uniform solver leaves the fluid cells as they are); slip and no-slip.
     for (const char* viscous : {"false", "true"}) {
-        ParityRig rig({{"nx", "36"}, {"ny", "24"}, {"use_ibm", "true"}, {"ibm_method", "mask"}, {"ibm_shape", "Cylinder"}, {"ibm_radius", "0.25"},
+        ParityRig rig({{"nx", "36"}, {"ny", "24"}, {"use_ibm", "true"}, {"ibm_shape", "Cylinder"}, {"ibm_radius", "0.25"},
                        {"ibm_cx", "0.8"}, {"ibm_cy", "0.55"}, {"use_viscous", viscous}, {"mu", "0.02"},
                        {"reconstruction", "muscl"}, {"bc_left", "vel_inlet"}, {"bc_right", "outlet"}});
         CHECK(rig.sim.ibm->solid_count() > 20);
         CHECK(rig.eng->has_body());
-        CHECK(rig.residual_equal());
-        // the solid reset: fringe Neumann + deep solid
+        CHECK(rig.eng->ghost_ready());
+        const Mesh& u = rig.sim.mesh;
+        const auto residual_gap = [&]() {
+            Field Ru, Rc;
+            rig.sim.residual(rig.Uu, Ru);
+            rig.eng->residual(*rig.cm, rig.cm->U, Rc);
+            double worst = 0.0;
+            for (int q = 0; q < 4; ++q) {
+                double scale = 0.0;
+                for (const State& r : Ru) scale = std::max(scale, std::abs(r[q]));
+                for (int c = 0; c < rig.cm->num_leaves(); ++c)
+                    if (scale > 0.0) worst = std::max(worst, std::abs(Rc[c][q] - Ru[rig.cm->cj[c] * u.nx + rig.cm->ci[c]][q]) / scale);
+            }
+            return worst;
+        };
+        const double before = residual_gap();
+        CHECK(before <= 1e-12);
+        // the solid reset: ghost cells + deep solid
         rig.sim.ibm->apply_solid_reset(rig.Uu, rig.sim.fluid);
         rig.eng->solid_reset(*rig.cm, rig.cm->U);
-        const Mesh& u = rig.sim.mesh;
         Field perm(rig.cm->U.size());
         for (int c = 0; c < rig.cm->num_leaves(); ++c) perm[c] = rig.Uu[rig.cm->cj[c] * u.nx + rig.cm->ci[c]];
         CHECK(bits_equal(perm, rig.cm->U));
-        CHECK(rig.residual_equal());
+        const double after = residual_gap();
+        CHECK(after <= 1e-12);
+        if (before > 1e-12 || after > 1e-12) std::printf("    viscous %s: residual gap %.3e, after the reset %.3e\n", viscous, before, after);
     }
 }
 

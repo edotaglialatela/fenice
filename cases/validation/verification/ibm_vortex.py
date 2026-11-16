@@ -120,7 +120,7 @@ def main():
         errs = []
         for k in sizes:
             case = vortex_case(int(L * k))
-            d = study.run_cached(STUDY, f"{tag}_{k}", case, "ibm_method=ghost", *sets, mpi=args.mpi, force=args.force)
+            d = study.run_cached(STUDY, f"{tag}_{k}", case, *sets, mpi=args.mpi, force=args.force)
             errs.append(pressure_error(d, k))
         out[tag] = errs
         print(f"{tag:5s} mean relative pressure error at {sizes} cells per radius: " + "  ".join(f"{e:+.3e}" for e in errs))
@@ -133,7 +133,7 @@ def main():
     nx, ny, h = 400, 600, 0.02   # the Mach 2 cylinder, 25 cells per diameter
     so = {}
     for tag, sets in (("plain", []), ("curv", ["ibm_curvature=true"])):
-        d = study.run_cached(STUDY, f"mach2_{tag}", "IBM Supersonic Flow over Cylinder", "ibm_method=ghost", *sets, f"nx={nx}", f"ny={ny}",
+        d = study.run_cached(STUDY, f"mach2_{tag}", "IBM Supersonic Flow over Cylinder", *sets, f"nx={nx}", f"ny={ny}",
                              "t_end=4", "save_interval=1000000000", mpi=args.mpi, force=args.force)
         so[tag] = standoff(d, nx, ny, h)
     out["standoff"] = so

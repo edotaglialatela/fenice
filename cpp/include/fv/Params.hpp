@@ -84,8 +84,7 @@ struct SimParams {
     double ibm_radius, ibm_cx, ibm_cy, ibm_cz;   // (cx, cy): centre, or an airfoil's quarter chord
     std::string ibm_file;        // Airfoil: Selig / Lednicer coordinate file (relative: to the case folder)
     double ibm_chord, ibm_aoa;   // airfoil chord and angle of attack [deg, nose up]
-    bool ibm_curvature = false;  // ghost wall, slip only: curvature pressure correction (dp/dn = rho kappa u_t^2)
-    std::string ibm_method;      // auto (default: ghost where it exists, else mask), mask (cell-centred forcing) or ghost (sharp wall, 2-D)
+    bool ibm_curvature = false;  // slip wall only: curvature pressure correction of the ghost cells (dp/dn = rho kappa u_t^2)
     double reynolds;             // > 0: sets mu = rho_in u_in L / reynolds (L: chord or diameter)
     std::string muscl_limiter;   // limiter of reconstruction = muscl
     double weno_epsilon = 1e-6;   // WENO smoothness-indicator regularisation, relative to the stencil data (eps = weno_epsilon * mean(c^2))
@@ -107,7 +106,6 @@ struct SimParams {
     double amr_derefine_threshold = 0.10;   // four siblings are joined when the indicator of their parent is below this
     int amr_diffusion = 2;                  // smoothing iterations of the indicator
     int amr_refine_every, amr_init_levels;
-    bool amr_refine_ibm = true;                      // keep the immersed body at the finest level
     std::string amr_force_box;                       // "x0 x1 y0 y1": leaves overlapping this box stay at the finest level (empty: none)
     std::string amr_indicator = "density+velocity";   // variables of the indicator: density, velocity, pressure, joined by '+'
 

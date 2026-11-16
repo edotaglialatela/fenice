@@ -133,7 +133,6 @@ Field run3(const Spec3& sp, int ranks, int steps, bool local, std::vector<int>* 
             CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
             CellPhysics ph = physics_of(sim);
             if (sp.band > 0) {
-                ph.ibm_ghost = true;
                 ph.ibm_slip = !sim.p.use_viscous;
             }
             eng.set_physics(ph);
@@ -219,29 +218,33 @@ const Spec3 kSpecs[] = {
      12u, true},
     {"walls, nrbc, mass flow, viscous, boundary_order 2", {"massflow_inlet", "nonreflecting", "no_slip", "moving_wall", "wall", "outlet"},
      {{"use_viscous", "true"}, {"mu", "0.03"}, {"boundary_order", "2"}, {"rho_in", "1.1"}}, 13u, true},
-    {"immersed sphere (mask), viscous", {"vel_inlet", "outlet", "wall", "wall", "periodic", "periodic"},
-     {{"use_viscous", "true"}, {"mu", "0.02"}, {"use_ibm", "true"}, {"ibm_method", "mask"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"},
+    {"immersed sphere on a random tree (wall not ready: solid leaves at rest), viscous", {"vel_inlet", "outlet", "wall", "wall", "periodic", "periodic"},
+     {{"use_viscous", "true"}, {"mu", "0.02"}, {"use_ibm", "true"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"},
       {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"ibm_cz", "0.47"}},
      14u, true},
     // WENO5-Z: six cells where they are fluid leaves of the level, the outer two in the halo
     {"weno5 euler periodic", {"periodic", "periodic", "periodic", "periodic", "periodic", "periodic"},
      {{"reconstruction", "weno5"}, {"time_scheme", "SSP Runge-Kutta 3"}}, 16u, true},
-    {"weno5 immersed sphere (mask), walls, boundary_order 2", {"vel_inlet", "outlet", "wall", "moving_wall", "wall", "transmissive"},
-     {{"reconstruction", "weno5"}, {"time_scheme", "SSP Runge-Kutta 3"}, {"boundary_order", "2"}, {"use_ibm", "true"}, {"ibm_method", "mask"},
-      {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"}, {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"ibm_cz", "0.47"}},
+    {"weno5 immersed sphere on a random tree (wall not ready), walls, boundary_order 2", {"vel_inlet", "outlet", "wall", "moving_wall", "wall", "transmissive"},
+     {{"reconstruction", "weno5"}, {"time_scheme", "SSP Runge-Kutta 3"}, {"boundary_order", "2"}, {"use_ibm", "true"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"}, {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"ibm_cz", "0.47"}},
      17u, true},
 };
 
 // The ghost-cell wall of a sphere: the tree refined around it so that the wall is active, slip (Euler) and no-slip (viscous)
 const Spec3 kGhostSpecs[] = {
     {"immersed sphere (ghost wall), slip", {"vel_inlet", "outlet", "wall", "wall", "periodic", "periodic"},
-     {{"use_ibm", "true"}, {"ibm_method", "ghost"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"}, {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"},
+     {{"use_ibm", "true"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"}, {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"},
       {"ibm_cz", "0.47"}},
      15u, true, 6},
     {"immersed sphere (ghost wall), no-slip", {"vel_inlet", "outlet", "wall", "wall", "periodic", "periodic"},
-     {{"use_viscous", "true"}, {"mu", "0.02"}, {"use_ibm", "true"}, {"ibm_method", "ghost"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"},
+     {{"use_viscous", "true"}, {"mu", "0.02"}, {"use_ibm", "true"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"},
       {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"ibm_cz", "0.47"}},
      16u, true, 6},
+    // WENO5-Z next to the wall: the faces with a solid leaf among their six cells take four
+    {"immersed sphere (ghost wall), weno5, slip", {"vel_inlet", "outlet", "wall", "wall", "periodic", "periodic"},
+     {{"reconstruction", "weno5"}, {"time_scheme", "SSP Runge-Kutta 3"}, {"use_ibm", "true"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"},
+      {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"ibm_cz", "0.47"}},
+     18u, true, 6},
 };
 
 }   // namespace
@@ -289,7 +292,6 @@ TEST(cellparallel3d_ghost_images_lie_within_the_region_rings) {
             for (int c = 0; c < m.num_leaves(); ++c) m.U[c] = test_state3(sim.fluid, m.xc(c), m.yc(c), m.zc(c));
             CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
             CellPhysics ph = physics_of(sim);
-            ph.ibm_ghost = true;
             ph.ibm_slip = !sim.p.use_viscous;
             eng.set_physics(ph);
             eng.build(m);

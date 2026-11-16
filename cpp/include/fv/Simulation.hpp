@@ -197,7 +197,7 @@ private:
                      const std::array<double, 3>& res) const;
 
     // Scratch buffers reused across residual evaluations
-    Field Uf_, UL_, UR_, F_, Upad_;
+    Field UL_, UR_, F_, Upad_;
     std::vector<State> Usaved_;   // states of the body cells while the ghost-wall forcing is applied in place
     struct InPlaceForcing;
     PaddedFrame frame_;   // 2-D viscous sweep: ghost ring of the padded state (Upad_ is the 3-D padded state)

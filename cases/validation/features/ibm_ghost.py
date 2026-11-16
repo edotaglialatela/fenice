@@ -1,9 +1,9 @@
 """Ghost-cell (sharp-interface) IBM wall: MPI against serial, bit for bit.
 
-    python cases/validation/features/ibm_ghost.py --check     # serial against 2 to 7 MPI ranks, twelve cases
+    python cases/validation/features/ibm_ghost.py --check     # serial against 2 to 7 MPI ranks, thirteen cases
     python cases/validation/features/ibm_ghost.py --loads     # cylinder Re = 40: monitor loads against a control volume (hours)
 
-Runs short ibm_method = ghost cases serially and on 2 to 7 MPI ranks and compares the final states bit for bit, and the loads
+Runs short immersed-body cases serially and on 2 to 7 MPI ranks and compares the final states bit for bit, and the loads
 the monitor writes (Cd, Cl) to roundoff (the strips' load sums are added in another order): a viscous cylinder (no-slip), a
 short channel whose strips are a few rows thick (the image points of a strip's ghost cells lie in other strips), the Mach 2
 cylinder (slip wall), the NACA 0012 airfoil (a polygon body), and on AMR meshes the airfoil and an adapting cylinder (the
@@ -31,6 +31,9 @@ CHECK_CASES = {   # name: (case, overrides)
                                                "max_steps=30"]),
     "supersonic": ("IBM Supersonic Flow over Cylinder", ["nx=100", "ny=100", "max_steps=30"]),
     "airfoil": ("IBM Airfoil", ["nx=192", "ny=96", "max_steps=20"]),
+    # WENO3-Z next to the wall (the strips exchange two layers; WENO5-Z is serial on a uniform mesh)
+    "cylinder_weno3": ("IBM Flow over Cylinder", ["nx=200", "ny=100", "max_steps=30", "reconstruction=weno3",
+                                                  "time_scheme=SSP Runge-Kutta 3"]),
     # 3-D: a sphere (trilinear image points over eight cells, fetched across strips), no-slip and slip, and the cylinder along z
     "sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=64", "ny=32", "nz=16", "Lz=1.0",
                                             "bc_front=wall", "bc_back=wall", "max_steps=15"]),
@@ -58,7 +61,7 @@ def check(ranks):
     """Serial against 2..N ranks: identical final states, loads equal to roundoff."""
     ok = True
     for name, (case, sets) in CHECK_CASES.items():
-        sets = ["ibm_method=ghost", *sets, "save_interval=1000000000", "monitor_interval=10"]
+        sets = [*sets, "save_interval=1000000000", "monitor_interval=10"]
         out = study.study_dir(STUDY) / "check" / name
         out.mkdir(parents=True, exist_ok=True)
         fenice.run(case, *sets, out_root=out / "serial", dump=out / "serial.npz")
@@ -129,7 +132,7 @@ def box_force(U, nx, ny, Lx, Ly, mu, box, dmdt=None):
 def airfoil_unsteady(args):
     """The airfoil (Re = 1000, chord 1, quarter chord at (3, 3)) at step 1250: monitor loads against the unsteady box balance."""
     nx, ny, step = 360, 180, 1250
-    sets = ["ibm_method=ghost", f"nx={nx}", f"ny={ny}", "save_interval=1000000000"]
+    sets = [f"nx={nx}", f"ny={ny}", "save_interval=1000000000"]
     runs = {k: study.run_cached(STUDY, f"airfoil_{k}", "IBM Airfoil", *sets, f"max_steps={k}", f"monitor_interval={step}",
                                 mpi=args.mpi, force=args.force) for k in (step - 1, step, step + 1)}
     # the solid cells (zero velocity after the mask method's initial forcing): their states are imposed, not part of the balance
@@ -148,7 +151,7 @@ def airfoil_unsteady(args):
 def loads_study(args):
     case = re40_case()
     for cpd, (sets, src) in LOAD_RUNS.items():
-        sets = ["ibm_method=ghost", *sets, "monitor_interval=200", "save_interval=1000000000"]
+        sets = [*sets, "monitor_interval=200", "save_interval=1000000000"]
         if src:
             restart = next((study.study_dir(STUDY) / f"re40_{src}").glob("*/*_restart.npz"))
             sets += ["use_hot_start=true", f"hot_start_file={restart}"]

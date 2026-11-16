@@ -253,12 +253,11 @@ TEST(cellremesh3d_keeps_the_body_band_on_the_finest_level) {
     for (const char* shape : {"Sphere", "NACA0012"})
         for (const int margin : {2, 6}) {
             Rig3 r({"vel_inlet", "outlet", "wall", "wall", "periodic", "periodic"},
-                   {{"use_ibm", "true"}, {"ibm_method", margin == 6 ? "ghost" : "mask"}, {"ibm_shape", shape}, {"ibm_radius", "0.27"},
+                   {{"use_ibm", "true"}, {"ibm_shape", shape}, {"ibm_radius", "0.27"},
                     {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"ibm_cz", "0.47"}, {"ibm_chord", "0.9"}, {"ibm_aoa", "12"},
                     {"reconstruction", "muscl"}},
                    10, 6, 5, 2);
             CellPhysics ph = physics_of(r.sim);
-            ph.ibm_ghost = margin == 6;
             ph.ibm_slip = true;
             r.eng->set_physics(ph);
             CellMesh& m = *r.m;

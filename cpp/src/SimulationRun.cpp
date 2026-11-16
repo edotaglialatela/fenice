@@ -467,6 +467,9 @@ void Simulation::solve_amr() {
         check_progress(t, dt, S, st, p.time_scheme.c_str());
         cell_speed_ = S;
         if (p.use_ibm) {
+            if (!eng.ghost_ready())
+                throw std::runtime_error("The ghost-cell wall of the immersed body is no longer set up: the cells around the body are "
+                                         "not all at the finest level after a remesh");
             eng.solid_reset(cm, cm.U);
             if (cell_par) cell_par->exchange_solid();
         }
@@ -679,8 +682,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
         local_muscl = std::make_unique<MusclReconstruction>(fluid, parse_limiter(p.muscl_limiter), parse_reconstruction(p.reconstruction),
                                                             p.weno_epsilon);
 
-    std::unique_ptr<ImmersedBoundary> local_ibm;
-    std::vector<char> ghost_mask_lo, ghost_mask_hi;
+    std::unique_ptr<ImmersedBoundary> local_ibm;   // the strip's solid cells (the loads and the residual norms)
     if (p.use_ibm) {
         const std::vector<char>& gm = ibm->mask();   // global mask: identical to the serial run
         auto gmask = [&](int k, int j, int i) {
@@ -690,19 +692,6 @@ void Simulation::run_mpi(MPI_Comm comm) {
         for (int k = 0; k < lm.nz; ++k)
             for (int j = 0; j < lm.ny; ++j)
                 for (int i = 0; i < lm.nx; ++i) lmask.push_back(gmask(k, decomp.j_start + j, decomp.i_start + i));
-        // Ghost masks across each interface, slab index k*nx + i (y) or k*ny + j (x)
-        for (int k = 0; k < lm.nz; ++k) {
-            if (dir == 'y')
-                for (int i = 0; i < p.nx; ++i) {
-                    ghost_mask_lo.push_back(gmask(k, decomp.j_start - 1, i));
-                    ghost_mask_hi.push_back(gmask(k, decomp.j_start + decomp.ny_local, i));
-                }
-            else
-                for (int j = 0; j < p.ny; ++j) {
-                    ghost_mask_lo.push_back(gmask(k, j, decomp.i_start - 1));
-                    ghost_mask_hi.push_back(gmask(k, j, decomp.i_start + decomp.nx_local));
-                }
-        }
         local_ibm = std::make_unique<ImmersedBoundary>(lm.nx, lm.ny, std::move(lmask), p.rho_in, p.p_out, lm.nz);
         int mine = local_ibm->solid_count(), total = 0;
         MPI_Reduce(&mine, &total, 1, MPI_INT, MPI_SUM, 0, comm);
@@ -777,7 +766,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     Field U_local = decomp.scatter(U_global);
     // Ghost-cell wall: the ghost table of the whole mesh (same on every rank); each rank fills its own ghost cells and fetches
     // the few cells of other strips their image points read (they may lie several strips away), so MPI gives the serial bits
-    const bool ghost = p.use_ibm && ibm && ibm->ghost_cells();
+    const bool ghost = p.use_ibm;
     const auto local_of = [&decomp](int c) { return decomp.local_index(c); };
     MPIDecomposition::CellFetch ghost_fetch;
     std::vector<State> ghost_remote;
@@ -797,12 +786,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
         decomp.fetch(ghost_fetch, Uin, ghost_remote);
         ibm->fill_ghosts_part(local_of, cells_of(Uin, ghost_remote, ghost_pos), Uout, fluid, reset);
     };
-    if (p.use_ibm && start == 0) {
-        if (ghost)
-            fill_ghosts(Field(U_local), U_local, false);
-        else
-            local_ibm->apply_forcing(U_local, fluid);
-    }
+    if (ghost && start == 0) fill_ghosts(Field(U_local), U_local, false);
     if (root)
         std::printf("[MPI] Initial field scattered to all ranks  (total cells: %d, per-rank avg: %d)\n\n",
                     mesh.num_cells(), mesh.num_cells() / decomp.n_ranks);
@@ -830,12 +814,9 @@ void Simulation::run_mpi(MPI_Comm comm) {
     Field halo_lo, halo_hi, forced;
     const ResidualFn res = [&](const Field& Uin, Field& R) {
         const Field* Uc = &Uin;
-        if (local_ibm) {
+        if (ghost) {
             forced = Uin;
-            if (ghost)
-                fill_ghosts(Uin, forced, false);
-            else
-                local_ibm->apply_forcing(forced, fluid);
+            fill_ghosts(Uin, forced, false);
             Uc = &forced;
         }
         bool has_lo, has_hi;
@@ -845,19 +826,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
         const double s = assemble(lm, lb, nullptr, local_muscl.get(), *Uc, R, &h);
         return decomp.allreduce_max(s);
     };
-    // Solid reset with the neighbours across each interface (fringe detection)
-    const auto solid_reset = [&](Field& Uloc) {
-        if (ghost) {
-            fill_ghosts(Field(Uloc), Uloc, true);
-            return;
-        }
-        bool has_lo, has_hi;
-        decomp.exchange_halos(Uloc, periodic, halo_lo, halo_hi, has_lo, has_hi);
-        const Field slo = has_lo ? adjacent_slab(halo_lo, dir, true, lm) : Field{};
-        const Field shi = has_hi ? adjacent_slab(halo_hi, dir, false, lm) : Field{};
-        SolidResetHalo sh{dir, has_lo ? &slo : nullptr, has_hi ? &shi : nullptr, &ghost_mask_lo, &ghost_mask_hi};
-        local_ibm->apply_solid_reset(Uloc, fluid, &sh);
-    };
+    // Once per step: the ghost cells from the fluid, the deeper solid cells back to the reference state
+    const auto solid_reset = [&](Field& Uloc) { fill_ghosts(Field(Uloc), Uloc, true); };
     const double min_delta = dt_length;
 
     if (start == 0) {
@@ -883,7 +853,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
         update_boundary_values(t, lb);
         const auto v = volume_averages(U_local, n_all);
         std::array<double, 3> loads{};
-        res(U_local, R_loads);   // residual of the current state: the IBM loads (mask or ghost cells) and the norms, summed over the strips
+        res(U_local, R_loads);   // residual of the current state: the IBM loads and the norms, summed over the strips
         if (p.use_ibm) {
             const std::array<double, 3> mine = ibm_loads(lm, *local_ibm, U_local, R_loads);
             MPI_Allreduce(mine.data(), loads.data(), 3, MPI_DOUBLE, MPI_SUM, comm);

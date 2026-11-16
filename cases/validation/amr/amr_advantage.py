@@ -80,7 +80,7 @@ def main():
     sph_leaves = np.mean([sph[f"re20_oct_{m}_b5M2"]["leaves"] for m in ("mask", "ghost")])
     sph_time = np.mean([sph[f"re20_oct_{m}_b5M2"]["wall"] / sph[f"re20_uni_{m}_n20"]["wall"] for m in ("mask", "ghost")])
     leaf_share = [leaves / cells, sph_leaves / 432e3]
-    time_share = [amr[16]["wall"] / uni[16]["wall"], sph_time]   # sphere: octree_q8.py, time loop octree / uniform, mask and ghost wall
+    time_share = [amr[16]["wall"] / uni[16]["wall"], sph_time]   # sphere: octree_q8.py, time loop octree / uniform
     x = np.arange(2)
     ax[1].bar(x - 0.18, leaf_share, 0.34, color="#eb6834", label="leaves / uniform cells")
     ax[1].bar(x + 0.18, time_share, 0.34, color="#2a78d6", label="time / uniform time")

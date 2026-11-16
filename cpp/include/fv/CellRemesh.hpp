@@ -78,7 +78,7 @@ public:
     CellAdaptor(CellMesh& mesh, CellFluxEngine& engine, const EOS& eos, const CellIndicator& ind)
         : mesh_(mesh), engine_(engine), eos_(eos), ind_(ind) {}
 
-    // Keep the immersed body, and `margin` finest-level cells around it (the fringe of the solid reset), on the finest
+    // Keep the immersed body, and `margin` finest-level cells around it (the ghost cells of the wall and the cells they read), on the finest
     // level: `factory` gives the body mask on any uniform mesh. Call before remesh / init_adapt.
     // 3-D: no mask of the finest level; a leaf is in the band when a finest cell inside it has its centre within `margin` finest widths
     // (the largest of dx, dy, dz) of the body's surface (near_body_surface): a shell of `margin` cells on both sides of the surface (the
