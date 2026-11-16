@@ -34,7 +34,7 @@ parallelises less well, so the comparison that means anything is at **the same f
 | same finest mesh, 16 OpenMP threads | uniform cells | adaptive leaves | adaptive time loop / uniform |
 |---|---:|---:|---:|
 | 2-D airfoil, Re 1000, 2 levels | 4.1 M | 268 k (6.5 %) | 0.04 (**23× faster**) |
-| 3-D sphere, Re 20, 2 levels | 432 k | 73 k (17 %) | 0.09-0.13 (**8-11× faster**) |
+| 3-D sphere, Re 20, 2 levels | 432 k | 76 k (18 %) | 0.13-0.16 (**6-8× faster**) |
 
 The same solution costs a fraction of the uniform time, on one thread and on 16, and the fraction shrinks as the levels deepen. The sections below
 describe the engine; the last one measures it.
