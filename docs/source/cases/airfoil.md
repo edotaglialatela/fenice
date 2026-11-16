@@ -100,6 +100,6 @@ the Reynolds number. NACA 4-digit sections need no file: `ibm_shape = "NACA 2412
 
 Fenice is laminar: there is no turbulence model. Reynolds numbers up to a few thousand are
 physical; at airliner Reynolds numbers (10⁵ and above) a 2-D laminar run is an unresolved,
-unmodelled flow, not a prediction. The staircase IBM also places the wall only to within half
-a cell, so the thin trailing edge needs a fine grid: the default resolves the chord with 60
+unmodelled flow, not a prediction. The thin trailing edge is only a few
+cells thick, so it needs a fine grid: the default resolves the chord with 60
 cells.

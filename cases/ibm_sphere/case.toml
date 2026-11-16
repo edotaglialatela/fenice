@@ -55,7 +55,6 @@ use_mpi = false
 use_amr = true
 amr_max_level = 2
 amr_refine_every = 4
-amr_refine_ibm = true
 
 [ibm]
 use_ibm = true

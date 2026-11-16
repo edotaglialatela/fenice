@@ -14,7 +14,7 @@ the indicator of the case, so the meshes follow the same features. Bands, fixed 
   shu_osher  shock / entropy wave, base 200 + one level, against the uniform WENO5-Z run on 3200 cells: same L1 band.
   cavity     lid-driven cavity, base 32 + one level, boundary_order = 2: RMS error of the centreline velocities against the
              tabulated reference, both schemes (reported).
-  cylinder   Re = 40, base 100 x 50 + two levels (20 finest cells per diameter), ghost wall and mask: drag coefficient against the
+  cylinder   Re = 40, base 100 x 50 + two levels (20 finest cells per diameter): drag coefficient against the
              uniform 400 x 200 runs of the same schemes (reported).
   cost       wall time per step, WENO5-Z over WENO3-Z, on one thread, 16 threads and 4 ranks (reported).
 
@@ -85,7 +85,6 @@ use_mpi = false
 use_amr = true
 amr_max_level = 2
 amr_refine_every = 5
-amr_refine_ibm = true
 
 [ibm]
 use_ibm = true
@@ -197,17 +196,16 @@ def cavity(args, out):
 
 def cylinder(args, out):
     case = study.write_case(STUDY, "cylinder_re40_adaptive", CYLINDER)
-    for wall in ("ghost", "mask"):
-        cd = {}
-        for label, rec in SCHEMES.items():
-            d = study.run_cached(STUDY, tag("cylinder", wall, label), str(case), f"ibm_method={wall}", "monitor_interval=50", rec, mpi=args.mpi, force=args.force)
-            mon = fenice.read_monitor(study.case_output(d))
-            cd[label] = (mon["Cd"][-1], len(fenice.read_dump(d / "final.npz")["U"]))
-        u = UNIFORM_CD[wall]
-        out.append(f"| cylinder, {wall} | Cd (uniform 400 x 200: {u['WENO3-Z']:.4f}, {u['WENO5-Z']:.4f}) | {cd['WENO3-Z'][0]:.4f} "
-                   f"({cd['WENO3-Z'][0] / u['WENO3-Z'] - 1:+.2%}, {cd['WENO3-Z'][1]} leaves) | {cd['WENO5-Z'][0]:.4f} "
-                   f"({cd['WENO5-Z'][0] / u['WENO5-Z'] - 1:+.2%}, {cd['WENO5-Z'][1]} leaves) | {cd['WENO5-Z'][0] / cd['WENO3-Z'][0]:.4f} | "
-                   f"reported; uniform ratio {u['WENO5-Z'] / u['WENO3-Z']:.4f} |")
+    cd = {}
+    for label, rec in SCHEMES.items():   # (the run folders keep the tag "ghost")
+        d = study.run_cached(STUDY, tag("cylinder", "ghost", label), str(case), "monitor_interval=50", rec, mpi=args.mpi, force=args.force)
+        mon = fenice.read_monitor(study.case_output(d))
+        cd[label] = (mon["Cd"][-1], len(fenice.read_dump(d / "final.npz")["U"]))
+    u = UNIFORM_CD
+    out.append(f"| cylinder | Cd (uniform 400 x 200: {u['WENO3-Z']:.4f}, {u['WENO5-Z']:.4f}) | {cd['WENO3-Z'][0]:.4f} "
+               f"({cd['WENO3-Z'][0] / u['WENO3-Z'] - 1:+.2%}, {cd['WENO3-Z'][1]} leaves) | {cd['WENO5-Z'][0]:.4f} "
+               f"({cd['WENO5-Z'][0] / u['WENO5-Z'] - 1:+.2%}, {cd['WENO5-Z'][1]} leaves) | {cd['WENO5-Z'][0] / cd['WENO3-Z'][0]:.4f} | "
+               f"reported; uniform ratio {u['WENO5-Z'] / u['WENO3-Z']:.4f} |")
     return True
 
 

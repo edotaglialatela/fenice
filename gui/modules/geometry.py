@@ -670,8 +670,8 @@ def _make(project=None):
                              f"{'diameter' if self.body.kind == 'circle' else 'chord'}, {solid} solid cells (cell centre inside the body).")
             if flag(p, "use_amr"):
                 L = int(p.get("amr_max_level", "0"))
-                tail = (f"; with amr_refine_ibm the leaves that touch the body and the cells the solid reset uses stay at level {L}."
-                        if flag(p, "amr_refine_ibm", "true") and self.body is not None else ".")
+                tail = (f"; the leaves that touch the body and the band the ghost-cell wall reads stay at level {L}."
+                        if self.body is not None else ".")
                 lines.append(f"AMR: {L} levels above the base mesh, finest cell {dx / (1 << L):.5g}{tail}")
             self.info.setText("   ".join(lines))
 

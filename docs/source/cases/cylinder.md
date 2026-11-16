@@ -121,7 +121,7 @@ four time units apart, three periods, so only their lift records are used. Bands
 <img src="{{root}}img/cylinder_mesh_transition.gif" style="width:100%">
 <figcaption>Loads across a hot start: the 400×200 run of the loads study ($t \le 80$, developed street), then 800×400 mapped
 from its checkpoint for three more time units. Shedding carries on without a new start-up transient. After a short
-drag spike while the field adapts to the finer mask, C<sub>l</sub> has an amplitude of 0.21 (0.17 on the coarse mesh
+drag spike while the field adapts to the finer mesh, C<sub>l</sub> has an amplitude of 0.21 (0.17 on the coarse mesh
 over the last two time units, where it is still decaying slowly) and C<sub>d</sub> averages 1.43 (1.40 on the coarse mesh)
 (<code>cases/validation/features/cylinder_mesh_transition.py</code>).</figcaption>
 </figure>
@@ -170,8 +170,8 @@ $80\times60$ diameters, with a blockage $D/L_y$ of 1.7 %. Covering that box with
 $3200\times2400 = 7.7$ million cells, so the case uses the [cell-based AMR]({{root}}modules/AMR.html):
 
 * a $200\times150$ base mesh and three refinement levels (20 cells per diameter at the body; `amr_max_level = 4` gives 40),
-* the body kept at the finest level (`amr_refine_ibm`) with the **ghost-cell wall** (`ibm_method = ghost`), which needs about
-  20 cells per diameter at $\mathrm{Re} = 40$ where the mask needs four times that per direction,
+* the body kept at the finest level with the **ghost-cell wall**, which needs about
+  20 cells per diameter at $\mathrm{Re} = 40$,
 * the wake followed by the speed indicator (`amr_indicator = "velocity"`: the density hardly varies at this Mach number),
 * a velocity inlet, a **transmissive** right side and slip walls above and below.
   The `nonreflecting` outlet was tried first and was unstable at this pressure ($p = 100$, sound speed 11.8):
@@ -193,7 +193,7 @@ size, $h_\ell = 0.08/2^\ell$:
 | 4 | 0.005 | 40 | the body of the 4-level run (8 412 leaves, around the body and the first part of the wake) |
 
 * The cells touching the body, and a band of 6 finest-level cells around it (what the ghost-cell wall reads), are on the
-  finest level from $t = 0$ and are never joined (`amr_refine_ibm`).
+  finest level from $t = 0$ and are never joined.
 * Elsewhere a leaf is refined when the relative variation of the **speed** across its faces reaches
   `amr_refine_threshold` (0.15); the indicator is smoothed `amr_diffusion = 2` times, which widens the band, and four siblings are joined
   when the indicator of their parent is below `amr_derefine_threshold` (0.1). The mesh is adapted every
@@ -272,7 +272,7 @@ leaf centres, a uniform target maps it onto its mesh. Resuming an AMR run on its
 At supersonic speed a **bow shock** forms ahead of the cylinder. The stand-off
 distance $\Delta$ between the shock and the stagnation point is the main validation
 quantity: at Mach 2, $\Delta/r \approx 0.4$ (Ambrosio & Wortman 1962). The case validates
-the IBM fringe-cell Neumann condition in the supersonic regime.
+the immersed wall in the supersonic regime.
 
 The inlet Mach number is exactly 2:
 

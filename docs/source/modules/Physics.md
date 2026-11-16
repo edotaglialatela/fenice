@@ -84,7 +84,7 @@ The energy component is the power delivered by the force, $\mathbf u\cdot\rho\ma
 
 ## Immersed boundary method
 
-A direct-forcing IBM. A cell is **solid** when its centre lies inside the body:
+A sharp wall inside the Cartesian mesh, imposed through **ghost cells**. A cell is **solid** when its centre lies inside the body:
 
 * **Circle / sphere.** In 2-D `Cylinder` and `Sphere` are the same circle. In 3-D, `Sphere`
   is a ball centred at (`ibm_cx`, `ibm_cy`, `ibm_cz`), and `Cylinder` is a circular
@@ -96,35 +96,12 @@ A direct-forcing IBM. A cell is **solid** when its centre lies inside the body:
   quarter chord and placed with the quarter chord at (`ibm_cx`, `ibm_cy`); the point test is
   the even-odd rule. In 3-D it is extruded along z.
 
-The mask is a staircase: the wall is known to within half a cell. A sharp trailing edge is
-only a few cells thick, so airfoil lift converges slowly with the grid; resolve the chord
+A sharp trailing edge is only a few cells thick, so airfoil lift converges slowly with the grid; resolve the chord
 with at least ~60 cells.
 
-* **Forcing** (`apply_forcing`) runs inside every residual evaluation, so it applies
-  at every Runge-Kutta stage. It zeroes the velocity of solid cells and leaves
-  density and pressure untouched, which keeps the multi-stage step thermodynamically
-  consistent.
-* **Solid reset** (`apply_solid_reset`) runs once per complete time step:
-  * **Fringe cells** are solid cells with at least one fluid neighbour. They take
-    $\rho$ and $p$ from that neighbour (a Neumann, zero-gradient condition). This
-    suppresses the pressure well that would otherwise form at the surface, and avoids
-    artificial mass sources at the boundary.
-  * **Deep solid cells** have no fluid neighbour. They are frozen to
-    $(\rho_{\rm ref}, p_{\rm ref}) = $ (`rho_in`, `p_out`) to stop long-term drift.
-  * The velocity is zero throughout the obstacle.
-  * The energy of reset cells uses the ideal-gas relation $\rho E = p/(\gamma-1)$ for any
-    EOS (with a stiffened gas the $p_\infty$ term is not included).
+### Ghost-cell wall
 
-The reset must never run inside RK stages. Doing so introduces hard density and
-pressure discontinuities, which the Riemann solver amplifies into spurious shocks.
-Under MPI the fringe test sees the neighbours across rank interfaces
-(`SolidResetHalo`), and the mask is cut from the global mask, so the obstacle is
-identical for any number of ranks. The 3-D fringe test also looks at the z-neighbours.
-
-### Ghost-cell wall (`ibm_method = ghost`)
-
-An alternative to the forcing and the reset above, and the default for 2-D bodies (`ibm_method = auto`; in 3-D `auto` still picks the mask, and the
-ghost wall is asked for with `ibm_method = ghost`). It exists for the cylinder and the airfoil (2-D, uniform or AMR, or extruded along z in 3-D) and for the
+The wall exists for the cylinder and the airfoil (2-D, uniform or AMR, or extruded along z in 3-D) and for the
 3-D sphere, serial, OpenMP or MPI. The
 solid cells that the fluid stencils read (a fluid cell within two cells) become **ghost cells**. For each one the closest point
 of the true surface and the outward normal are found, and the ghost cell is mirrored across the wall to an **image point** at
@@ -141,14 +118,18 @@ m image})\,\mathbf u_{
 m image}$; slip (inviscid): only the normal component is reflected.
 
 In 3-D the velocity has three components: slip removes only the normal part (a spanwise velocity along an extruded body survives), no-slip scales all three.
-The deeper solid cells stay at rest and are reset to the reference state each step (energy from the EOS). The wall position is
-exact, so the staircase waves disappear and the solution converges much faster with the grid: on a cylinder at Re = 40 the drag
-is within 0.15 % of its converged value at 20 cells per diameter, where the mask needs about four times the resolution per
-direction. The monitor's loads are the momentum flux into the solid
-cells, as with the mask (below); `ImmersedBoundary::surface_loads` integrates the true surface from probes at $d$ and $2d$ along the
+The deeper solid cells stay at rest and are reset to the reference state (`rho_in`, `p_out`) each step (energy from the EOS).
+The ghost cells are filled inside every residual evaluation (`apply_forcing`), so at every Runge-Kutta stage, and once more after
+the complete step together with the reset of the deeper cells (`apply_solid_reset`). A ghost cell for which no image point with
+fluid cells around it exists (a slot one or two cells wide) copies the nearest fluid cell and gets a zero velocity; the solver
+prints how many there are. The wall position is
+exact, so no staircase waves are shed and the solution converges fast with the grid: on a cylinder at Re = 40 the drag
+is within 0.15 % of its converged value at 20 cells per diameter. The monitor's loads are the momentum flux into the solid
+cells (below); `ImmersedBoundary::surface_loads` integrates the true surface from probes at $d$ and $2d$ along the
 normal (for surface distributions; that integral is 1-3 % low).
 Under MPI each rank fills its own ghost cells and fetches the few cells of other strips their image points read, so the result is
-identical for any number of ranks (also in 3-D); with AMR the finest-level band around the body is widened to the ghost stencils (2-D; in 3-D the band is six finest cells wide, and the wall is active once no leaf coarser than the finest level lies within that reach of the surface, a fact the ranks settle together).
+identical for any number of ranks (also in 3-D); with AMR the body is kept at the finest level in a band as wide as the ghost stencils (2-D; in 3-D the band is six finest cells wide, and the wall is active once no leaf coarser than the finest level lies within that reach of the surface, a fact the ranks settle together; a run stops if that cannot be reached).
+`reconstruction = weno5` on a uniform mesh uses the four-cell WENO3-Z stencil on every face that has a solid cell among its six, as the adaptive mesh does.
 In 3-D there are no surface samples (`surface_loads` is zero): the monitor loads are the momentum flux into the solid cells, which is dimension independent.
 
 **Curvature correction (`ibm_curvature`, 2-D slip walls).** The zero normal gradient of the pressure is a first-order error on a curved wall, where
@@ -159,12 +140,11 @@ balance holds where the flow follows the wall, so the correction is weighted by 
 bow shock of an impulsively started Mach 2 cylinder stays pinned to the wall. It is opt-in, rejected in 3-D, and leaves flat walls unchanged.
 
 **Evidence.** Mach 2 flow along a 10 degree wedge (`verification/ibm_wedge.py`, exact oblique shock, faces inclined to the grid): the pressure error of the
-ghost wall is 2.3e-2, 7.7e-4 and 6.3e-5 at 50, 100 and 200 cells per unit length (order 3.6), that of the mask 6.3e-2, 4.2e-2 and 3.2e-2 with a density
-deficit that grows with the mesh. The supersonic vortex around a cylinder (`verification/ibm_vortex.py`, exact solution): the ghost wall's pressure error
-falls only as $h^1$ (2.3e-2 at 160 cells per radius), with the correction it is 8.7e-4 and falls as $h^{1.5}$. Neither the mask nor the ghost wall is
-conservative: in a closed inviscid box the fluid mass drifts by about 0.2 % by $t=4$ (mask loses, ghost gains). In 3-D the evidence is the exactness of the
+ghost wall is 2.3e-2, 7.7e-4 and 6.3e-5 at 50, 100 and 200 cells per unit length (order 3.6). The supersonic vortex around a cylinder (`verification/ibm_vortex.py`, exact solution): the ghost wall's pressure error
+falls only as $h^1$ (2.3e-2 at 160 cells per radius), with the correction it is 8.7e-4 and falls as $h^{1.5}$. The wall is not
+conservative: in a closed inviscid box the fluid mass grows by about 0.2 % by $t=4$. In 3-D the evidence is the exactness of the
 trilinear image state on a linear field (unit test), the equality of extruded bodies with the 2-D run, bitwise MPI equality, and the self-convergence of
-the sphere's drag (`features/ibm_sphere.py`: Cd 3.29 and 3.39 with the mask, 3.46 and 3.51 with the ghost wall at 10 and 20 cells per diameter, so the change between the meshes is 0.09 against 0.05; weak evidence, with no exact reference); a broader 3-D validation is left until 3-D AMR exists.
+the sphere's drag (`features/ibm_sphere.py`: Cd 3.46 and 3.51 at 10 and 20 cells per diameter, a change of 1.5 %; weak evidence, with no exact reference).
 
 ### Loads on the body
 

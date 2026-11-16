@@ -49,7 +49,6 @@ use_mpi = false
 use_amr = true
 amr_max_level = 2
 amr_refine_every = 5
-amr_refine_ibm = true
 amr_indicator = "density+velocity"
 
 [ibm]

@@ -56,7 +56,7 @@ accuracy are measured, not estimated.
 | `mms_amr_weno.py` | periodic manufactured solutions on an adaptive mesh with a static refined square (interior level jumps and corners), WENO3-Z, WENO5-Z and MUSCL; `--full` adds the grid 128, where the $L_\infty$ order falls below its band ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_boundary.py` | order of the manufactured solutions with walls / outflow (Euler and Navier-Stokes) per reconstruction, with `--boundary-order 1` or 2; the tables are committed next to it ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_amr_boundary.py` | the same solutions on an adaptive mesh with a static refined region (`amr_force_box`) whose seams meet the walls, boundary orders 1 and 2 ([page]({{root}}cases/manufactured-solution.html)); the table is committed next to it |
-| `ibm_wedge.py` | Mach 2 flow along a 10 degree wedge against the exact oblique shock: mask against ghost wall (order 3.6) and the curvature variant on a flat wall ([page]({{root}}modules/Physics.html)) |
+| `ibm_wedge.py` | Mach 2 flow along a 10 degree wedge against the exact oblique shock (order 3.6), and the curvature variant on a flat wall ([page]({{root}}modules/Physics.html)) |
 | `ibm_vortex.py` | supersonic vortex around a cylinder against its exact solution: the first-order curved-wall error of the ghost wall and the curvature correction, plus the cold-start Mach 2 cylinder bow shock ([page]({{root}}modules/Physics.html)) |
 
 **`benchmarks/`: is the answer right?** The reference is a literature table, a much finer
@@ -73,14 +73,14 @@ uncertainty of the reference too.
 | `vv20.py` | validation uncertainty (V&V 20): $E = S - D$ and $U_{val}$ of the cavity extrema against Ghia and the 3-D Taylor-Green peak against the DNS |
 | `gci.py` | observed order, Grid Convergence Index and Richardson extrapolation of the cavity, airfoil and 3-D Taylor-Green results |
 | `ibm_loads.py cylinder` / `airfoil` | IBM loads from the monitor, Strouhal number |
-| `ibm_sphere.py` | 3-D sphere in a channel (Re = 20, Mach 0.3) at 10 and 20 cells per diameter: the drag of the ghost wall changes less between the meshes than that of the mask (self-convergence, no exact 3-D reference) |
+| `ibm_sphere.py` | 3-D sphere in a channel (Re = 20, Mach 0.3) at 10 and 20 cells per diameter: the change of the drag between the meshes (self-convergence, no exact 3-D reference) |
 
 **`amr/`: does the adaptive mesh keep the answer and save the cost?**
 
 | Script | Compares |
 |---|---|
 | `sod_amr.py` | AMR vs uniform meshes at the two finest levels (cells and L1 error) |
-| `weno5_amr.py` | WENO5-Z against WENO3-Z on the same adaptive meshes: isentropic vortex, Sod, Shu-Osher, cavity, Re 40 cylinder (ghost wall and mask), cost per step |
+| `weno5_amr.py` | WENO5-Z against WENO3-Z on the same adaptive meshes: isentropic vortex, Sod, Shu-Osher, cavity, Re 40 cylinder, cost per step |
 | `sod_amr_animation.py` | animation of the AMR leaves following the waves of the Sod tube |
 | `airfoil_amr.py` | AMR airfoil against uniform 192×96 and 768×384 meshes (cells, time, rms error of Cd and Cl) |
 | `amr_advantage.py` | AMR airfoil against the uniform solver on the same finest mesh, 1 to 16 threads: time and memory |
@@ -173,14 +173,10 @@ systematic refinement).</figcaption>
 | cavity, 1st order | $u_{\min}$ on $x = 0.5$ | -0.1982, -0.254, -0.2885 | 0.69 | 3 | 58.3 % | -0.3446 | 1.00 | Ghia (1982) -0.3273; fine - ref = +3.87e-02, inside the GCI band |
 | cavity, 1st order | $v_{\max}$ on $y = 0.5$ | 0.1934, 0.2426, 0.2716 | 0.76 | 1.25 | 19.2 % | 0.3133 | 1.00 | Ghia (1982) 0.302; fine - ref = -3.04e-02, inside the GCI band |
 | cavity, 1st order | $v_{\min}$ on $y = 0.5$ | -0.3193, -0.3829, -0.4177 | 0.87 | 1.25 | 12.6 % | -0.4597 | 1.00 | Ghia (1982) -0.4499; fine - ref = +3.22e-02, inside the GCI band |
-| IBM airfoil, Re = 1000 | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1791, 0.1713, 0.1776 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
-| IBM airfoil, Re = 1000 (coarser triplet) | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1492, 0.1791, 0.1713 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
-| IBM airfoil, ghost-cell wall | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1636, 0.177, 0.1831 | 1.13 | 3 | 8.46 % | 0.1883 | 1.00 | observed order 1.13 far from the formal 2: Fs = 3 |
-| IBM airfoil, ghost-cell wall (coarser triplet) | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1485, 0.1636, 0.177 | 0.17 | 3 | 185 % | 0.2864 | 1.00 | observed order 0.17 far from the formal 2: Fs = 3 |
-| IBM airfoil, Re = 1000 | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.2923, 0.3622, 0.4954 | -0.93 | 3 | - | - | - | apparent order -0.93 <= 0: the solutions do not converge on these grids, no GCI |
-| IBM airfoil, Re = 1000 (coarser triplet) | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1091, 0.2923, 0.3622 | 1.39 | 3 | 35.8 % | 0.4054 | 1.00 | observed order 1.39 far from the formal 2: Fs = 3 |
-| IBM airfoil, ghost-cell wall | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.5252, 0.3764, 0.513 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
-| IBM airfoil, ghost-cell wall (coarser triplet) | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1684, 0.5252, 0.3764 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
+| IBM airfoil, Re = 1000 | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1636, 0.177, 0.1831 | 1.13 | 3 | 8.46 % | 0.1883 | 1.00 | observed order 1.13 far from the formal 2: Fs = 3 |
+| IBM airfoil, Re = 1000 (coarser triplet) | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1485, 0.1636, 0.177 | 0.17 | 3 | 185 % | 0.2864 | 1.00 | observed order 0.17 far from the formal 2: Fs = 3 |
+| IBM airfoil, Re = 1000 | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.5252, 0.3764, 0.513 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
+| IBM airfoil, Re = 1000 (coarser triplet) | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1684, 0.5252, 0.3764 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
 | 3-D Taylor-Green, Re = 1600 | $E_k(20)/E_k(0)$ | 0.2312, 0.2064, 0.1883 | -0.41 | 3 | - | - | - | apparent order -0.41 <= 0: the solutions do not converge on these grids, no GCI |
 | 3-D Taylor-Green, Re = 1600 | peak $\varepsilon$ | 0.01102, 0.01132, 0.01248 | -3.70 | 3 | - | - | - | DNS 512$^3$ 0.0127; fine - ref = -2.17e-04, no GCI band |
 
@@ -194,13 +190,10 @@ What the table says:
   asymptotic range.
 * **Cavity, first order.** The apparent orders are 0.7 to 0.9 and the bands 12 to 58 %: the first-order scheme
   needs far finer grids, which is why the second-order scheme is the default.
-* **IBM airfoil.** Four grids, 192×96 to 1536×768, with the mask wall and with the ghost-cell wall; each quantity has two
-  triplets. With the mask wall the mean drag (0.1492, 0.1791, 0.1713, 0.1776) is not monotone, so there is no GCI, and the mean
-  lift (0.109, 0.292, 0.362, 0.495) rises with every refinement but by amounts that do not shrink: apparent order -0.93 on the
-  three finest grids, so the 36 % band of the three coarsest no longer stands and no band is claimed. With the ghost-cell wall the
-  mean drag (0.1485, 0.1636, 0.1770, 0.1831) is monotone: observed order 1.13 on the three finest grids, $F_s = 3$, GCI 8.5 %
+* **IBM airfoil.** Four grids, 192×96 to 1536×768; each quantity has two
+  triplets. The mean drag (0.1485, 0.1636, 0.1770, 0.1831) is monotone: observed order 1.13 on the three finest grids, $F_s = 3$, GCI 8.5 %
   around the extrapolated 0.188; on the three coarsest the order is 0.17, so the range is not asymptotic and the number is
-  indicative. The ghost-cell mean lift (0.168, 0.525, 0.376, 0.513) is not monotone. These are means over $2 \leq t \leq 6$ of an
+  indicative. The mean lift (0.168, 0.525, 0.376, 0.513) is not monotone. These are means over $2 \leq t \leq 6$ of an
   impulsive start, not of a statistically steady flow; whether that window is what limits the lift was not tested. The AMR run
   lies between the two finest uniform meshes.
 * **3-D Taylor-Green.** The energy at $t = 20$ and the peak dissipation do not converge on 32³, 64³ and 96³

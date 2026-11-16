@@ -48,12 +48,10 @@ use_mpi = false
 use_amr = true
 amr_max_level = 3
 amr_refine_every = 5
-amr_refine_ibm = true
 amr_indicator = "velocity"
 
 [ibm]
 use_ibm = true
-ibm_method = "ghost"
 ibm_shape = "Cylinder"
 ibm_radius = 0.1
 ibm_cx = 3.0

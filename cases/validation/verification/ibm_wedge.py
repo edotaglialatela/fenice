@@ -1,4 +1,4 @@
-"""Immersed wall against an exact solution: Mach 2 flow along a 10-degree half-angle wedge (oblique shock), mask against ghost.
+"""Immersed wall against an exact solution: Mach 2 flow along a 10-degree half-angle wedge (oblique shock).
 
     python cases/validation/verification/ibm_wedge.py            # results/validation/ibm_wedge/  (50, 100, 200 cells per unit length)
     python cases/validation/verification/ibm_wedge.py --full     # adds 400
@@ -11,11 +11,9 @@ fan from the shoulder has not reached them). Slip wall (`use_viscous = false`), 
 
 The ibm_curvature=true variant is run too: on a flat wall it must not do worse (its error at most twice the plain ghost one).
 
-Bands (set after an exploratory run at 100 / 200 / 400 cells, so they are a regression guard for the ghost wall, not a prediction):
-  1. ghost: the RMS pressure error at the finest mesh is at most 5e-4 (relative to the exact p2) and the observed order between
-     the two finest meshes is at least 2;
-  2. the ghost error at the finest mesh is at most a tenth of the mask error.
-The mask is reported, not banded: its staircase leaves a wall layer whose density deficit does not shrink with the mesh.
+Band (set after an exploratory run at 100 / 200 / 400 cells, so it is a regression guard for the wall, not a prediction): the RMS
+pressure error at the finest mesh is at most 5e-4 (relative to the exact p2) and the observed order between the two finest meshes
+is at least 2.
 """
 import math
 from pathlib import Path
@@ -28,7 +26,7 @@ from fenice import study
 STUDY = "ibm_wedge"
 GAMMA, MACH, THETA = 1.4, 2.0, math.radians(10.0)
 P1 = 1.0 / GAMMA   # sound speed 1, so u = 2 is Mach 2
-BAND_ERR, BAND_ORDER, BAND_RATIO = 5e-4, 2.0, 0.1
+BAND_ERR, BAND_ORDER = 5e-4, 2.0
 
 CASE = """[case]
 name = "Wedge Mach 2"
@@ -123,10 +121,10 @@ def main():
     case = wedge_case()
     sizes = (50, 100, 200, 400) if args.full else (50, 100, 200)
     out = {"beta_deg": math.degrees(beta), "p_ratio": pr, "rho_ratio": rr, "sizes": list(sizes)}
-    for method in ("mask", "ghost", "ghost+curv"):
+    for method in ("ghost", "ghost+curv"):   # (the tags of the runs: the wall, and the wall with ibm_curvature)
         rows = []
         for n in sizes:
-            sets = ["ibm_method=" + method.split("+")[0], *(["ibm_curvature=true"] if "+" in method else [])]
+            sets = ["ibm_curvature=true"] if "+" in method else []
             d = study.run_cached(STUDY, f"{method}_{n}", case, *sets, f"nx={4 * n}", f"ny={2 * n}",
                                  mpi=args.mpi, force=args.force)
             rows.append(errors(d, n, pr, rr))
@@ -135,18 +133,16 @@ def main():
             print(f"{method:5s} {n:4d}/unit  p error rms {r['p_rms']:.3e}  mean {r['p_mean']:+.3e}   rho error mean {r['rho_mean']:+.3e}")
     g = [r["p_rms"] for r in out["ghost"]]
     order = math.log2(g[-2] / g[-1])
-    ratio = g[-1] / out["mask"][-1]["p_rms"]
-    out["ghost_order"], out["ghost_to_mask"] = order, ratio
-    out["pass_error"], out["pass_order"], out["pass_ratio"] = bool(g[-1] <= BAND_ERR), bool(order >= BAND_ORDER), bool(ratio <= BAND_RATIO)
-    out["passed"] = out["pass_error"] and out["pass_order"] and out["pass_ratio"]
+    out["ghost_order"] = order
+    out["pass_error"], out["pass_order"] = bool(g[-1] <= BAND_ERR), bool(order >= BAND_ORDER)
+    out["passed"] = out["pass_error"] and out["pass_order"]
     # the curvature correction has nothing to correct on a flat wall (the polygon's curvature estimate is zero away from the corners)
     out["curv_to_ghost"] = out["ghost+curv"][-1]["p_rms"] / out["ghost"][-1]["p_rms"]
     out["pass_curv"] = bool(out["curv_to_ghost"] <= 2.0)
     out["passed"] = out["passed"] and out["pass_curv"]
     print(f"ghost+curv / ghost at the finest mesh: {out['curv_to_ghost']:.2f} (band 2, {'pass' if out['pass_curv'] else 'FAIL'})")
-    print(f"ghost: finest rms {g[-1]:.2e} (band {BAND_ERR:.0e}, {'pass' if out['pass_error'] else 'FAIL'}); "
-          f"order {order:.2f} (band {BAND_ORDER}, {'pass' if out['pass_order'] else 'FAIL'}); "
-          f"ghost/mask {ratio:.2e} (band {BAND_RATIO}, {'pass' if out['pass_ratio'] else 'FAIL'})")
+    print(f"wall: finest rms {g[-1]:.2e} (band {BAND_ERR:.0e}, {'pass' if out['pass_error'] else 'FAIL'}); "
+          f"order {order:.2f} (band {BAND_ORDER}, {'pass' if out['pass_order'] else 'FAIL'})")
     fenice.write_summary(STUDY, out)
     print("ALL BANDS PASSED" if out["passed"] else "SOME BANDS FAILED")
     return 0 if out["passed"] else 1

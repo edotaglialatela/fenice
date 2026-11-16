@@ -58,8 +58,8 @@ run is bit-identical for any number of OpenMP threads and of MPI ranks.
 
 The immersed body is classified **per leaf** (there is no uniform mask over the finest level, which would be as large as the uniform
 mesh): a leaf is solid if its centre is inside the body, and the body band is kept at the finest level wherever a finest cell lies within
-the margin of the surface (`near_body_surface`). The mask forcing and the ghost-cell wall (`ibm_method = ghost`) work on leaves in 2-D and 3-D,
-also on the shares of an MPI run (bitwise equal to serial); `auto` chooses the ghost wall wherever `amr_refine_ibm` is on.
+the margin of the surface (`near_body_surface`). The ghost-cell wall works on leaves in 2-D and 3-D,
+also on the shares of an MPI run (bitwise equal to serial).
 
 `reconstruction = weno5` runs on the adaptive mesh in 2-D and 3-D, also on MPI ranks: a face whose six cells along its normal are fluid leaves
 of its level (replicated or mirrored at a physical side, wrapped on a periodic axis) takes the WENO5-Z stencil; every other face (a coarse-fine face,
@@ -74,8 +74,7 @@ Against WENO3-Z on the same adaptive mesh (`cases/validation/amr/weno5_amr.py`, 
 | Sod, base 100 + 1 level | $L_1$ density error | 3.60e-3 | 3.15e-3 | 0.88 |
 | Shu-Osher, base 200 + 1 level | $L_1$ density error (reference: uniform WENO5-Z, 3200 cells) | 7.38e-2 | 2.99e-2 | 0.40 |
 | cavity Re 400, base 32 + 1 level | RMS of centreline $u$ / $v$ against the tabulated values | 4.23e-3 / 4.40e-3 | 3.65e-3 / 3.53e-3 | 0.86 / 0.80 |
-| cylinder Re 40, 20 finest cells per diameter, ghost wall | $C_d$ (uniform 400×200: 1.9047 / 1.8988) | 1.9424 | 1.8922 | 0.974 |
-| cylinder Re 40, mask | $C_d$ (uniform 400×200: 1.8487 / 1.8222) | 1.8832 | 1.8435 | 0.979 |
+| cylinder Re 40, 20 finest cells per diameter | $C_d$ (uniform 400×200: 1.9047 / 1.8988) | 1.9424 | 1.8922 | 0.974 |
 | cost per step, 1 thread / 16 threads / 4 ranks | wall time | 60.5 / 12.1 / 21.8 ms | 96.3 / 16.9 / 31.0 ms | 1.59 / 1.40 / 1.42 |
 
 The bands fixed before the runs are met (vortex: not above WENO3-Z; the tubes: within 5 % of WENO3-Z and no new over- or undershoot above $10^{-3}$ of the
@@ -162,11 +161,10 @@ wake, where the density barely varies, and add `pressure` for shocks in a flow w
   centre, so a refined leaf sees the exact discontinuity. `amr_init_levels` first refines uniformly; the
   initial adaptation then repeats indicator and remesh until nothing changes. A hot start is
   interpolated at the leaf centres.
-* **Immersed bodies.** With `use_ibm` and `amr_refine_ibm` (default) every leaf whose footprint touches the
-  body, or the cells around it that the solid reset treats (the fringe), is kept at the finest level from
-  $t = 0$ and never joined. With `ibm_method = ghost` the band is widened to the ghost cells' interpolation stencils (about 6
-  finest cells), so the sharp wall works on the finest level. The test is on the finest-level mask, so a thin trailing edge cannot slip
-  between cell centres.
+* **Immersed bodies.** With `use_ibm` every leaf whose footprint touches the
+  body, or lies in the band of the ghost cells' interpolation stencils around it (about 6
+  finest cells), is kept at the finest level from $t = 0$ and never joined, so the sharp wall works on the finest level.
+  The test is on the finest-level cells, so a thin trailing edge cannot slip between cell centres.
 * **Remeshing** happens every `amr_refine_every` coarse steps. A remesh that changes no leaf costs only the
   indicator. After one that does, the face list, neighbour codes, stencils and virtual cells are updated, not rebuilt: a leaf
   is recomputed if it is new or a square of its size across one of its sides holds a new leaf, everything else is copied with

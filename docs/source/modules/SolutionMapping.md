@@ -22,7 +22,7 @@ cannot seed a 2-D run (explicit error).
 Checkpoints carry their grid metadata (`nx`, `ny`, `Lx`, `Ly`, plus `nz`, `Lz`). For legacy files without
 it, the source size comes from `hot_start_src_nx` / `hot_start_src_ny`. If the source
 file is the run's own checkpoint, it is first copied to `<case>_hotstart_source.npz`,
-so the first save cannot overwrite it. The IBM mask is re-applied on the target mesh
+so the first save cannot overwrite it. The immersed body is set up again on the target mesh
 after interpolation.
 
 `GridInterp2D` implements the semantics of scipy's `RegularGridInterpolator`

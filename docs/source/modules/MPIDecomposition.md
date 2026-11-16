@@ -33,9 +33,9 @@ The halos are used everywhere a stencil crosses the interface:
 * **MUSCL.** Interface faces are reconstructed to 2nd order from the 2-cell halo.
 * **Viscous terms.** The halo row/column fills the padded state, and the neighbour's
   tangential gradients (`CrossGhosts`) complete the cross-derivative averages.
-* **IBM.** Halos carry the *forced* state, the fringe test of the solid reset sees
-  solid or fluid neighbours across the interface, and every strip uses its slice of the
-  global mask.
+* **IBM.** Halos carry the state with the ghost cells filled, a rank fetches the few cells of
+  other strips that its image points read, and every strip uses its slice of the
+  global table of solid and ghost cells.
 * **Mass-flow inlets.** The inlet-average density is all-reduced over the ranks sharing
   the inlet.
 * **Time step.** $S_{\max}$ is all-reduced, so every rank

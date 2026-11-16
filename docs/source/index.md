@@ -13,7 +13,7 @@ domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz 
   reconstruction, with second-order boundary faces; Explicit Euler, SSP-RK2 and SSP-RK3. See [Schemes]({{root}}modules/Schemes.html)
   and [TimeScheme]({{root}}modules/TimeScheme.html).
 * **Physics:** ideal and stiffened-gas EOS, Navier-Stokes, body forces, source terms, and immersed bodies (cylinder, sphere, airfoil)
-  with a sharp ghost-cell wall or a mask, with load monitoring. See [Physics]({{root}}modules/Physics.html).
+  with a sharp ghost-cell wall, with load monitoring. See [Physics]({{root}}modules/Physics.html).
 * **Meshes:** uniform 2-D / 3-D grids and cell-based adaptive refinement (quadtree, octree) with subcycling. See
   [AMR]({{root}}modules/AMR.html).
 * **Parallelism:** OpenMP and MPI; the result does not depend on the number of threads or ranks, also for adaptive meshes. See
