@@ -301,12 +301,12 @@ void viscous_cell_quantities(const EOS& eos, const State& Ui, const State& n0, c
 void viscous_cell_quantities_run(const EOS& eos, const State* U, const int* nbr, const int* level, const double* dx_of_level,
                                  const double* dy_of_level, int c0, int n, const ViscousCellArrays& out) {
     int done = 0;
-#ifdef FV_SIMD_AVX2
-    if (detail::avx2_available()) {
+#ifdef FV_SIMD
+    if (detail::simd_available()) {
         done = n & ~3;
         if (done > 0) {
             double* const o[7] = {out.u, out.v, out.T, out.dudx, out.dudy, out.dvdx, out.dvdy};
-            detail::viscous_cells_avx2(eos, U, nbr, level, dx_of_level, dy_of_level, c0, done, o);
+            detail::viscous_cells_simd(eos, U, nbr, level, dx_of_level, dy_of_level, c0, done, o);
         }
     }
 #endif
@@ -330,10 +330,10 @@ double viscous_speed_range(const EOS& eos, double mu, double k_cond, const State
                            const double* dy_of_level, int cb, int ce) {
     double s_max = 0.0;
     int done = 0;
-#ifdef FV_SIMD_AVX2
-    if (detail::avx2_available()) {
+#ifdef FV_SIMD
+    if (detail::simd_available()) {
         done = (ce - cb) & ~3;
-        if (done > 0) s_max = detail::viscous_speed_avx2(eos, mu, k_cond, U, level, dx_of_level, dy_of_level, cb, done);
+        if (done > 0) s_max = detail::viscous_speed_simd(eos, mu, k_cond, U, level, dx_of_level, dy_of_level, cb, done);
     }
 #endif
     for (int c = cb + done; c < ce; ++c)
@@ -354,13 +354,13 @@ struct LevelSizes {
     }
 };
 
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD
 constexpr int kViscBlock = 256;   // list entries per block of the viscous loops (the unit of the OpenMP schedule)
 #endif
 
 }   // namespace
 
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD
 void CellFluxEngine::cell_quantities(const CellMesh& m, const std::vector<int>& cells) {
     if (dim_ == 3) {
         cell_quantities_3d(m, cells);
@@ -548,7 +548,7 @@ void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& f
     }
 }
 
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD
 double CellFluxEngine::viscous_speed(const CellMesh& m, int cb, int ce) const {
     if (dim_ == 3) return viscous_speed_3d(m, cb, ce);
     const NavierStokes& ns = *phys_.ns;

@@ -19,7 +19,7 @@ add_library(fenice_core STATIC
   src/Geometry.cpp
   src/Boundaries.cpp
   src/Schemes.cpp
-  src/SchemesAvx2.cpp
+  src/SchemesSimd.cpp
   src/Physics.cpp
   src/TimeScheme.cpp
   src/SolutionMapping.cpp
@@ -44,15 +44,15 @@ add_library(fenice_core STATIC
 )
 target_include_directories(fenice_core PUBLIC include)
 target_include_directories(fenice_core PRIVATE src)
-# AVX2 kernels (x86-64 only; the file is empty elsewhere): the file is compiled for AVX2, the CPU check that guards it lives in
+# Vector kernels (AVX2 on x86-64, NEON on ARM64, which needs no flag; the file is empty elsewhere): on x86-64 the file is compiled for AVX2, the CPU check that guards it lives in
 # Schemes.cpp. GCC / Clang: -mavx2 (FMA not enabled, so no multiply-add can be fused). MSVC: /arch:AVX2, without which MSVC mixes SSE
 # and AVX code around the intrinsics (the viscous cell kernels were then slower than the scalar loops); /fp:precise keeps FMA
 # contraction off (check with dumpbin /disasm for vfm).
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "x86_64|AMD64")
   if(MSVC)
-    set_source_files_properties(src/SchemesAvx2.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
+    set_source_files_properties(src/SchemesSimd.cpp PROPERTIES COMPILE_OPTIONS "/arch:AVX2")
   else()
-    set_source_files_properties(src/SchemesAvx2.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
+    set_source_files_properties(src/SchemesSimd.cpp PROPERTIES COMPILE_OPTIONS "-mavx2")
   endif()
 endif()
 # (SYSTEM: the vendored header is not ours to clean, so its warnings are not reported and FV_WERROR does not stop on them)

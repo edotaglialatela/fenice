@@ -1,49 +1,28 @@
-// AVX2 batch of the Riemann solvers: four faces per call of the kernel.
+// Vector kernels: the batch of the Riemann solvers (four faces per call) and the viscous kernels, written on the operations of
+// SimdOps.hpp (AVX2 on x86-64, NEON on ARM64).
 //
 // Bit-identity with the scalar solver (RiemannSolver::face_flux in Schemes.cpp) is the contract.  Every lane runs
 // the same IEEE operations in the same order as the scalar code: only add / sub / mul / div / sqrt and bit logic are used
 // (no fused multiply-add, no vector min / max, whose results differ from std::min / std::max on equal values and NaN: those are
 // written as a compare and a blend), and every branch of the scalar code is computed for all lanes and selected by a mask.
 // This file must be compiled without FMA contraction (the project builds with /fp:precise, resp. -ffp-contract=off, and the
-// GCC / Clang build of this file enables AVX2 only, not FMA).
+// GCC / Clang build of this file on x86-64 enables AVX2 only, not FMA).
 #include "SchemesSimd.hpp"
 
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD
 
-#include <immintrin.h>
+#include "SimdOps.hpp"
 
 
 namespace fv {
 namespace detail {
 
-namespace {
+using namespace simd;   // V and its operations
 
-using V = __m256d;
+namespace {
 
 constexpr double kDenomEps = 1e-14;   // as in Schemes.cpp
 constexpr double kMachEps = 1e-12;
-
-inline V set1(double x) { return _mm256_set1_pd(x); }
-inline V add(V a, V b) { return _mm256_add_pd(a, b); }
-inline V sub(V a, V b) { return _mm256_sub_pd(a, b); }
-inline V mul(V a, V b) { return _mm256_mul_pd(a, b); }
-inline V dv(V a, V b) { return _mm256_div_pd(a, b); }
-inline V vsqrt(V a) { return _mm256_sqrt_pd(a); }
-inline V lt(V a, V b) { return _mm256_cmp_pd(a, b, _CMP_LT_OQ); }
-inline V ge(V a, V b) { return _mm256_cmp_pd(a, b, _CMP_GE_OQ); }
-inline V le(V a, V b) { return _mm256_cmp_pd(a, b, _CMP_LE_OQ); }
-inline V band(V a, V b) { return _mm256_and_pd(a, b); }
-inline V bor(V a, V b) { return _mm256_or_pd(a, b); }
-// mask ? b : a, lane by lane
-inline V blend(V a, V b, V mask) { return _mm256_blendv_pd(a, b, mask); }
-// std::max(a, b) = (a < b) ? b : a   and   std::min(a, b) = (b < a) ? b : a
-inline V vmax(V a, V b) { return blend(a, b, lt(a, b)); }
-inline V vmin(V a, V b) { return blend(a, b, lt(b, a)); }
-inline V vabs(V a) { return _mm256_andnot_pd(set1(-0.0), a); }
-inline V vcopysign(V x, V y) {
-    const V sign = set1(-0.0);
-    return bor(_mm256_andnot_pd(sign, x), band(sign, y));
-}
 
 struct Vec5 {
     V q[5];
@@ -125,8 +104,7 @@ void hllc4(const VEos& /*E*/, double sb, const AxisMasks& ax, const Face4& f, Ve
     const V E_L = mul(UL.q[3], inv_L), E_R = mul(UR.q[3], inv_R);
     const V Vn_L = ax.select(velL[0], velL[1], velL[2]), Vn_R = ax.select(velR[0], velR[1], velR[2]);
     // lanes whose normal axis is a (axis 0 is neither 1 nor 2)
-    const V all_ones = _mm256_cmp_pd(set1(0.0), set1(0.0), _CMP_EQ_OQ);
-    const V is_axis[3] = {_mm256_andnot_pd(bor(ax.m1, ax.m2), all_ones), ax.m1, ax.m2};
+    const V is_axis[3] = {andnot(bor(ax.m1, ax.m2), mask_all(true)), ax.m1, ax.m2};
     static const int kSlot[3] = {1, 2, 4};
 
     Vec5 FL, FR;
@@ -196,14 +174,14 @@ void hllc4(const VEos& /*E*/, double sb, const AxisMasks& ax, const Face4& f, Ve
 
 Vec5 load4(const State* base) {
     Vec5 U;
-    for (int q = 0; q < 5; ++q) U.q[q] = _mm256_set_pd(base[3][q], base[2][q], base[1][q], base[0][q]);
+    for (int q = 0; q < 5; ++q) U.q[q] = set4(base[0][q], base[1][q], base[2][q], base[3][q]);
     return U;
 }
 
 void store4(State* base, const Vec5& F) {
-    alignas(32) double t[4];
+    double t[4];
     for (int q = 0; q < 5; ++q) {
-        _mm256_store_pd(t, F.q[q]);
+        store(t, F.q[q]);
         for (int i = 0; i < 4; ++i) base[i][q] = t[i];
     }
 }
@@ -214,11 +192,9 @@ namespace {
 
 // Masks of the lanes whose axis is 1 and 2
 AxisMasks axis_masks(const int* axis) {
-    const __m128i a4 = _mm_loadu_si128(reinterpret_cast<const __m128i*>(axis));
-    const __m256i a64 = _mm256_cvtepi32_epi64(a4);
     AxisMasks ax;
-    ax.m1 = _mm256_castsi256_pd(_mm256_cmpeq_epi64(a64, _mm256_set1_epi64x(1)));
-    ax.m2 = _mm256_castsi256_pd(_mm256_cmpeq_epi64(a64, _mm256_set1_epi64x(2)));
+    ax.m1 = mask_int_eq(axis, 1);
+    ax.m2 = mask_int_eq(axis, 2);
     return ax;
 }
 
@@ -257,8 +233,8 @@ constexpr int kBlock = 8;
 
 void store_results(State* F, double* smax, int k, const Vec5& Fk, V sm) {
     store4(F + k, Fk);
-    alignas(32) double t[4];
-    _mm256_store_pd(t, sm);
+    double t[4];
+    store(t, sm);
     for (int i = 0; i < 4; ++i) smax[k + i] = t[i];
 }
 
@@ -292,13 +268,13 @@ inline V vlimiter(Limiter l, V a, V b) {
 
 // Component q of the four stencil states of four faces: lanes = faces
 inline V gather_q(const State* W, const int* st, int k, int point, int q) {
-    return _mm256_set_pd(W[st[4 * (k + 3) + point]][q], W[st[4 * (k + 2) + point]][q], W[st[4 * (k + 1) + point]][q],
-                         W[st[4 * k + point]][q]);
+    return set4(W[st[4 * k + point]][q], W[st[4 * (k + 1) + point]][q], W[st[4 * (k + 2) + point]][q],
+                W[st[4 * (k + 3) + point]][q]);
 }
 
 }   // namespace
 
-void riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, const State* UL, const State* UR, const int* axis, int n,
+void riemann_batch_simd(const EOS& eos, RiemannType type, double sb, const State* UL, const State* UR, const int* axis, int n,
                         State* F, double* smax) {
     const VEos E(eos);
     Face4 fb[kBlock];
@@ -318,7 +294,7 @@ void riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, const State
             store_results(F, smax, k, Fk, sm);
         }
     }
-    _mm256_zeroupper();
+    end_batch();
 }
 
 namespace {
@@ -358,26 +334,26 @@ void muscl_riemann_body(const EOS& eos, RiemannType type, double sb, Limiter lim
             store_results(F, smax, k, Fk, sm);
         }
     }
-    _mm256_zeroupper();
+    end_batch();
 }
 
 }   // namespace
 
-void muscl_riemann_batch_avx2(const EOS& eos, RiemannType type, double sb, Limiter lim, const State* W, const int* st,
+void muscl_riemann_batch_simd(const EOS& eos, RiemannType type, double sb, Limiter lim, const State* W, const int* st,
                               const int* axis, int n, State* F, double* smax, bool planar) {
     muscl_riemann_body(
         eos, type, sb, lim, n, F, smax, planar, [&](int k, int point, int q) { return gather_q(W, st, k, point, q); },
         [&](int k) { return axis_masks(axis + k); });
 }
 
-void muscl_riemann_line_avx2(const EOS& eos, RiemannType type, double sb, Limiter lim, const double* W, size_t plane, size_t base,
+void muscl_riemann_line_simd(const EOS& eos, RiemannType type, double sb, Limiter lim, const double* W, size_t plane, size_t base,
                              size_t stride, int axis, int n, State* F, double* smax, bool planar) {
     AxisMasks ax;
-    ax.m1 = _mm256_castsi256_pd(_mm256_set1_epi64x(axis == 1 ? -1 : 0));
-    ax.m2 = _mm256_castsi256_pd(_mm256_set1_epi64x(axis == 2 ? -1 : 0));
+    ax.m1 = mask_all(axis == 1);
+    ax.m2 = mask_all(axis == 2);
     muscl_riemann_body(
         eos, type, sb, lim, n, F, smax, planar,
-        [&](int k, int point, int q) { return _mm256_loadu_pd(W + q * plane + base + k + point * stride); },
+        [&](int k, int point, int q) { return load(W + q * plane + base + k + point * stride); },
         [&](int) { return ax; });
 }
 
@@ -391,12 +367,12 @@ namespace {
 
 // Size of the levels of the leaves c .. c+3 from a table per level
 inline V level_size(const double* h, const int* level, int c) {
-    return _mm256_set_pd(h[level[c + 3]], h[level[c + 2]], h[level[c + 1]], h[level[c]]);
+    return set4(h[level[c]], h[level[c + 1]], h[level[c + 2]], h[level[c + 3]]);
 }
 
 }   // namespace
 
-void viscous_cells_avx2(const EOS& eos, const State* U, const int* nbr, const int* level, const double* dxl, const double* dyl,
+void viscous_cells_simd(const EOS& eos, const State* U, const int* nbr, const int* level, const double* dxl, const double* dyl,
                         int c0, int n, double* const* out) {
     const VEos E(eos);
     const V two = set1(2.0);
@@ -407,7 +383,7 @@ void viscous_cells_avx2(const EOS& eos, const State* U, const int* nbr, const in
         V nq[4][3];                                           // components 0..2 of the left, right, bottom and top neighbours
         for (int s = 0; s < 4; ++s) {
             const State &a = U[code[s]], &b = U[code[4 + s]], &d = U[code[8 + s]], &e = U[code[12 + s]];
-            for (int q = 0; q < 3; ++q) nq[s][q] = _mm256_set_pd(e[q], d[q], b[q], a[q]);
+            for (int q = 0; q < 3; ++q) nq[s][q] = set4(a[q], b[q], d[q], e[q]);
         }
         const V tdx = mul(two, level_size(dxl, level, c)), tdy = mul(two, level_size(dyl, level, c));
         V gx[3], gy[3];
@@ -423,12 +399,12 @@ void viscous_cells_avx2(const EOS& eos, const State* U, const int* nbr, const in
                         dv(sub(gy[1], mul(u, gy[0])), rho),
                         dv(sub(gx[2], mul(v, gx[0])), rho),
                         dv(sub(gy[2], mul(v, gy[0])), rho)};
-        for (int j = 0; j < 7; ++j) _mm256_storeu_pd(out[j] + c, r[j]);
+        for (int j = 0; j < 7; ++j) store(out[j] + c, r[j]);
     }
-    _mm256_zeroupper();
+    end_batch();
 }
 
-double viscous_speed_avx2(const EOS& eos, double mu, double k_cond, const State* U, const int* level, const double* dxl,
+double viscous_speed_simd(const EOS& eos, double mu, double k_cond, const State* U, const int* level, const double* dxl,
                           const double* dyl, int c0, int n) {
     const VEos E(eos);
     const V one = set1(1.0), two = set1(2.0), vmu = set1(mu), vk = set1(k_cond), gm1 = set1(eos.gamma - 1.0), c43 = set1(4.0 / 3.0),
@@ -444,15 +420,15 @@ double viscous_speed_avx2(const EOS& eos, double mu, double k_cond, const State*
         const V s = add(add(vmax(vabs(W.q[1]), vabs(W.q[2])), E.sound_speed(W.q[3], rho)), mul(mul(mul(two, L), inv_h2), nu_eff));
         local = vmax(local, s);
     }
-    alignas(32) double t[4];
-    _mm256_store_pd(t, local);
-    _mm256_zeroupper();
+    double t[4];
+    store(t, local);
+    end_batch();
     double r = 0.0;   // every speed is > 0 or NaN (ignored, as by std::max(local, s)): the maximum does not depend on the order
     for (int i = 0; i < 4; ++i) r = (r < t[i]) ? t[i] : r;
     return r;
 }
 
-double viscous_row_cells_avx2(const EOS& eos, double mu, double k_cond, double L, double inv_h2, double dx, double dy, const State* cur,
+double viscous_row_cells_simd(const EOS& eos, double mu, double k_cond, double L, double inv_h2, double dx, double dy, const State* cur,
                               const State* north, const State* south, int i0, int n, double* const* out) {
     const VEos E(eos);
     const V two = set1(2.0), tdx = set1(2.0 * dx), tdy = set1(2.0 * dy);
@@ -476,15 +452,15 @@ double viscous_row_cells_avx2(const EOS& eos, double mu, double k_cond, double L
                         dv(sub(gy[1], mul(u, gy[0])), rho),
                         dv(sub(gx[2], mul(v, gx[0])), rho),
                         dv(sub(gy[2], mul(v, gy[0])), rho)};
-        for (int j = 0; j < 7; ++j) _mm256_storeu_pd(out[j] + c, r[j]);
+        for (int j = 0; j < 7; ++j) store(out[j] + c, r[j]);
         // wave-speed bound of the cell: viscous_nu_eff and viscous_speed_bound (ViscousBound.hpp) in the same order
         const V nu_eff = add(vmax(mul(c43, dv(vmu, rho)), dv(mul(vk, gm1), rho)), tiny);
         const V s = add(add(vmax(vabs(u), vabs(v)), E.sound_speed(W.q[3], rho)), mul(mul(two_l, vinv_h2), nu_eff));
         local = vmax(local, s);
     }
-    alignas(32) double t[4];
-    _mm256_store_pd(t, local);
-    _mm256_zeroupper();
+    double t[4];
+    store(t, local);
+    end_batch();
     double r = 0.0;   // every speed is > 0 or NaN (ignored, as by std::max(local, s)): the maximum does not depend on the order
     for (int i = 0; i < 4; ++i) r = (r < t[i]) ? t[i] : r;
     return r;
@@ -492,67 +468,67 @@ double viscous_row_cells_avx2(const EOS& eos, double mu, double k_cond, double L
 
 // Face fluxes of the uniform 2-D viscous row sweep (scalar twins: the lambdas xflux / yflux of NavierStokes::viscous_residual_rows,
 // interior faces only: no ghost value, no cross-derivative override).  Components 1..3 of the flux, the others are zero.
-void viscous_row_xfaces_avx2(double mu, double k_cond, double dx, double dy, const double* u, const double* v, const double* T,
+void viscous_row_xfaces_simd(double mu, double k_cond, double dx, double dy, const double* u, const double* v, const double* T,
                              const double* dudy, const double* dvdy, int i0, int n, double* f1, double* f2, double* f3) {
     const V half = set1(0.5), c43 = set1(4.0 / 3.0), c23 = set1(2.0 / 3.0), vmu = set1(mu), mk = set1(-k_cond), vdx = set1(dx),
             vdy = set1(dy);
     for (int k = 0; k < n; k += 4) {
         const int i = i0 + k;   // face i lies between the cells i-1 and i
-        const V uL = _mm256_loadu_pd(u + i - 1), uR = _mm256_loadu_pd(u + i);
-        const V vL = _mm256_loadu_pd(v + i - 1), vR = _mm256_loadu_pd(v + i);
-        const V TL = _mm256_loadu_pd(T + i - 1), TR = _mm256_loadu_pd(T + i);
+        const V uL = load(u + i - 1), uR = load(u + i);
+        const V vL = load(v + i - 1), vR = load(v + i);
+        const V TL = load(T + i - 1), TR = load(T + i);
         const V u_f = mul(half, add(uL, uR)), v_f = mul(half, add(vL, vR));
         const V du_dx = dv(sub(uR, uL), vdx), dv_dx = dv(sub(vR, vL), vdx), dT_dx = dv(sub(TR, TL), vdx);
-        const V du_dy = mul(half, add(_mm256_loadu_pd(dudy + i - 1), _mm256_loadu_pd(dudy + i)));
-        const V dv_dy = mul(half, add(_mm256_loadu_pd(dvdy + i - 1), _mm256_loadu_pd(dvdy + i)));
+        const V du_dy = mul(half, add(load(dudy + i - 1), load(dudy + i)));
+        const V dv_dy = mul(half, add(load(dvdy + i - 1), load(dvdy + i)));
         const V tau_xx = mul(vmu, sub(mul(c43, du_dx), mul(c23, dv_dy)));
         const V tau_xy = mul(vmu, add(du_dy, dv_dx));
         const V q_x = mul(mk, dT_dx);
-        _mm256_storeu_pd(f1 + i, mul(tau_xx, vdy));
-        _mm256_storeu_pd(f2 + i, mul(tau_xy, vdy));
-        _mm256_storeu_pd(f3 + i, mul(sub(add(mul(u_f, tau_xx), mul(v_f, tau_xy)), q_x), vdy));
+        store(f1 + i, mul(tau_xx, vdy));
+        store(f2 + i, mul(tau_xy, vdy));
+        store(f3 + i, mul(sub(add(mul(u_f, tau_xx), mul(v_f, tau_xy)), q_x), vdy));
     }
-    _mm256_zeroupper();
+    end_batch();
 }
 
 // B and T: the cell quantities of the rows below and above the faces (u, v, T, du/dx, dv/dx); faces i0 .. i0+n-1 of the row.
-void viscous_row_yfaces_avx2(double mu, double k_cond, double dx, double dy, const double* const* B, const double* const* Tp, int i0,
+void viscous_row_yfaces_simd(double mu, double k_cond, double dx, double dy, const double* const* B, const double* const* Tp, int i0,
                              int n, double* g1, double* g2, double* g3) {
     const V half = set1(0.5), c43 = set1(4.0 / 3.0), c23 = set1(2.0 / 3.0), vmu = set1(mu), mk = set1(-k_cond), vdx = set1(dx),
             vdy = set1(dy);
     for (int k = 0; k < n; k += 4) {
         const int i = i0 + k;
-        const V uB = _mm256_loadu_pd(B[0] + i), uT = _mm256_loadu_pd(Tp[0] + i);
-        const V vB = _mm256_loadu_pd(B[1] + i), vT = _mm256_loadu_pd(Tp[1] + i);
-        const V TB = _mm256_loadu_pd(B[2] + i), TT = _mm256_loadu_pd(Tp[2] + i);
+        const V uB = load(B[0] + i), uT = load(Tp[0] + i);
+        const V vB = load(B[1] + i), vT = load(Tp[1] + i);
+        const V TB = load(B[2] + i), TT = load(Tp[2] + i);
         const V u_f = mul(half, add(uB, uT)), v_f = mul(half, add(vB, vT));
         const V dv_dy = dv(sub(vT, vB), vdy), du_dy = dv(sub(uT, uB), vdy), dT_dy = dv(sub(TT, TB), vdy);
-        const V du_dx = mul(half, add(_mm256_loadu_pd(B[3] + i), _mm256_loadu_pd(Tp[3] + i)));
-        const V dv_dx = mul(half, add(_mm256_loadu_pd(B[4] + i), _mm256_loadu_pd(Tp[4] + i)));
+        const V du_dx = mul(half, add(load(B[3] + i), load(Tp[3] + i)));
+        const V dv_dx = mul(half, add(load(B[4] + i), load(Tp[4] + i)));
         const V tau_yy = mul(vmu, sub(mul(c43, dv_dy), mul(c23, du_dx)));
         const V tau_yx = mul(vmu, add(du_dy, dv_dx));
         const V q_y = mul(mk, dT_dy);
-        _mm256_storeu_pd(g1 + i, mul(tau_yx, vdx));
-        _mm256_storeu_pd(g2 + i, mul(tau_yy, vdx));
-        _mm256_storeu_pd(g3 + i, mul(sub(add(mul(u_f, tau_yx), mul(v_f, tau_yy)), q_y), vdx));
+        store(g1 + i, mul(tau_yx, vdx));
+        store(g2 + i, mul(tau_yy, vdx));
+        store(g3 + i, mul(sub(add(mul(u_f, tau_yx), mul(v_f, tau_yy)), q_y), vdx));
     }
-    _mm256_zeroupper();
+    end_batch();
 }
 
-void viscous_faces3d_avx2(int d, double mu, double k_cond, double h, double area, const double* const* vel, const double* T,
+void viscous_faces3d_simd(int d, double mu, double k_cond, double h, double area, const double* const* vel, const double* T,
                           const double* const* gc, long delta, int n, State* out) {
     const V half = set1(0.5), c43 = set1(4.0 / 3.0), c23 = set1(2.0 / 3.0), vmu = set1(mu), mk = set1(-k_cond), vh = set1(h),
             varea = set1(area), zero = set1(0.0);
     for (int k = 0; k < n; k += 4) {
         V Gn[3], vf[3];
         for (int a = 0; a < 3; ++a) {
-            const V vL = _mm256_loadu_pd(vel[a] + k), vR = _mm256_loadu_pd(vel[a] + k + delta);
+            const V vL = load(vel[a] + k), vR = load(vel[a] + k + delta);
             Gn[a] = dv(sub(vR, vL), vh);
             vf[a] = mul(half, add(vL, vR));
         }
-        const V dT = dv(sub(_mm256_loadu_pd(T + k + delta), _mm256_loadu_pd(T + k)), vh);
+        const V dT = dv(sub(load(T + k + delta), load(T + k)), vh);
         V g[4];   // the cross terms, cross(): 0.5 * (left + right)
-        for (int q = 0; q < 4; ++q) g[q] = mul(half, add(_mm256_loadu_pd(gc[q] + k), _mm256_loadu_pd(gc[q] + k + delta)));
+        for (int q = 0; q < 4; ++q) g[q] = mul(half, add(load(gc[q] + k), load(gc[q] + k + delta)));
         V tau[3];
         if (d == 0) {
             const V others = add(add(zero, g[1]), g[2]);
@@ -573,16 +549,16 @@ void viscous_faces3d_avx2(int d, double mu, double k_cond, double h, double area
         const V q_d = mul(mk, dT);
         const V f[5] = {zero, mul(tau[0], varea), mul(tau[1], varea),
                         mul(sub(add(add(mul(vf[0], tau[0]), mul(vf[1], tau[1])), mul(vf[2], tau[2])), q_d), varea), mul(tau[2], varea)};
-        alignas(32) double t[4];
+        double t[4];
         for (int q = 0; q < 5; ++q) {
-            _mm256_store_pd(t, f[q]);
+            store(t, f[q]);
             for (int i = 0; i < 4; ++i) out[k + i][q] = t[i];
         }
     }
-    _mm256_zeroupper();
+    end_batch();
 }
 
-void viscous_cells3d_avx2(double dx, double dy, double dz, const State* W, const State* xm, const State* xp, const State* ym,
+void viscous_cells3d_simd(double dx, double dy, double dz, const State* W, const State* xm, const State* xp, const State* ym,
                           const State* yp, const State* zm, const State* zp, int n, double* const* out, double* const* g) {
     const V td[3] = {set1(2.0 * dx), set1(2.0 * dy), set1(2.0 * dz)};
     const State* lo[3] = {xm, ym, zm};
@@ -592,24 +568,24 @@ void viscous_cells3d_avx2(double dx, double dy, double dz, const State* W, const
         const Vec5 w = load4(W + k);
         const V rho = w.q[0];
         const V vel[3] = {w.q[1], w.q[2], w.q[4]};
-        _mm256_storeu_pd(out[0] + k, vel[0]);
-        _mm256_storeu_pd(out[1] + k, vel[1]);
-        _mm256_storeu_pd(out[2] + k, vel[2]);
-        _mm256_storeu_pd(out[3] + k, dv(w.q[3], rho));
+        store(out[0] + k, vel[0]);
+        store(out[1] + k, vel[1]);
+        store(out[2] + k, vel[2]);
+        store(out[3] + k, dv(w.q[3], rho));
         for (int b = 0; b < 3; ++b) {
             const auto slot = [&](int q) {
                 const State* l = lo[b] + k;
                 const State* h = hi[b] + k;
-                return dv(sub(_mm256_set_pd(h[3][q], h[2][q], h[1][q], h[0][q]), _mm256_set_pd(l[3][q], l[2][q], l[1][q], l[0][q])), td[b]);
+                return dv(sub(set4(h[0][q], h[1][q], h[2][q], h[3][q]), set4(l[0][q], l[1][q], l[2][q], l[3][q])), td[b]);
             };
             const V g0 = slot(0);
-            for (int a = 0; a < 3; ++a) _mm256_storeu_pd(g[3 * a + b] + k, dv(sub(slot(kSlot3[a]), mul(vel[a], g0)), rho));
+            for (int a = 0; a < 3; ++a) store(g[3 * a + b] + k, dv(sub(slot(kSlot3[a]), mul(vel[a], g0)), rho));
         }
     }
-    _mm256_zeroupper();
+    end_batch();
 }
 
 }   // namespace detail
 }   // namespace fv
 
-#endif   // FV_SIMD_AVX2
+#endif   // FV_SIMD

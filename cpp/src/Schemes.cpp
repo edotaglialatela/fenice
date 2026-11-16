@@ -12,7 +12,7 @@
 #include <omp.h>
 #endif
 
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD_BACKEND_AVX2
 #if defined(_MSC_VER)
 #include <intrin.h>
 #else
@@ -22,14 +22,16 @@
 
 namespace fv {
 
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD
 namespace detail {
 
-// Here, not in SchemesAvx2.cpp: that file is compiled for AVX2, and the check must run on CPUs without it.
-bool avx2_available() {
+// Here, not in SchemesSimd.cpp: on x86-64 that file is compiled for AVX2, and the check must run on CPUs without it.
+bool simd_available() {
     static const bool ok = []() {
         if (switch_on("FENICE_NO_SIMD")) return false;
-#if defined(_MSC_VER)
+#if !defined(FV_SIMD_BACKEND_AVX2)
+        return true;   // NEON is part of every ARM64 processor
+#elif defined(_MSC_VER)
         int r[4];
         __cpuid(r, 0);
         if (r[0] < 7) return false;
@@ -228,10 +230,10 @@ State RiemannSolver::lowmach_flux(const State& W0L, const State& W0R, double inv
 
 void RiemannSolver::face_flux_batch(const State* UL, const State* UR, const int* axis, int n, State* F, double* smax) const {
     int done = 0;
-#ifdef FV_SIMD_AVX2
-    if (detail::avx2_available()) {
+#ifdef FV_SIMD
+    if (detail::simd_available()) {
         done = n & ~3;
-        if (done > 0) detail::riemann_batch_avx2(eos_, type_, shock_blend_, UL, UR, axis, done, F, smax);
+        if (done > 0) detail::riemann_batch_simd(eos_, type_, shock_blend_, UL, UR, axis, done, F, smax);
     }
 #endif
     for (int k = done; k < n; ++k) F[k] = face_flux(UL[k], UR[k], axis[k], smax[k]);
@@ -240,10 +242,10 @@ void RiemannSolver::face_flux_batch(const State* UL, const State* UR, const int*
 void RiemannSolver::muscl_face_flux_batch(Limiter lim, const State* W, const int* st, const int* axis, int n, State* F,
                                           double* smax, bool planar) const {
     int done = 0;
-#ifdef FV_SIMD_AVX2
-    if (detail::avx2_available()) {
+#ifdef FV_SIMD
+    if (detail::simd_available()) {
         done = n & ~3;
-        if (done > 0) detail::muscl_riemann_batch_avx2(eos_, type_, shock_blend_, lim, W, st, axis, done, F, smax, planar);
+        if (done > 0) detail::muscl_riemann_batch_simd(eos_, type_, shock_blend_, lim, W, st, axis, done, F, smax, planar);
     }
 #endif
     for (int k = done; k < n; ++k) {
@@ -266,10 +268,10 @@ void RiemannSolver::muscl_face_flux_batch(Limiter lim, const State* W, const int
 void RiemannSolver::muscl_line_flux_batch(Limiter lim, const double* W, size_t plane, size_t base, size_t stride, int axis, int n,
                                           State* F, double* smax, bool planar) const {
     int done = 0;
-#ifdef FV_SIMD_AVX2
-    if (detail::avx2_available()) {
+#ifdef FV_SIMD
+    if (detail::simd_available()) {
         done = n & ~3;
-        if (done > 0) detail::muscl_riemann_line_avx2(eos_, type_, shock_blend_, lim, W, plane, base, stride, axis, done, F, smax, planar);
+        if (done > 0) detail::muscl_riemann_line_simd(eos_, type_, shock_blend_, lim, W, plane, base, stride, axis, done, F, smax, planar);
     }
 #endif
     for (int k = done; k < n; ++k) {

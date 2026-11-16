@@ -9,7 +9,7 @@ namespace fv {
 const std::vector<EnvSwitch>& env_switches() {
     static const std::vector<EnvSwitch> table = {
         {"FENICE_NO_SIMD", "flag", "solver",
-         "Run the scalar Riemann and viscous kernels instead of the AVX2 ones. The results are identical bit for bit; use it to time "
+         "Run the scalar Riemann and viscous kernels instead of the vector ones (AVX2, NEON). The results are identical bit for bit; use it to time "
          "the vector kernels or to check the equivalence."},
         {"FENICE_NO_FUSED", "flag", "solver",
          "Uniform mesh with MUSCL: reconstruct the face states into arrays and run the Riemann solver on them in a second pass, "

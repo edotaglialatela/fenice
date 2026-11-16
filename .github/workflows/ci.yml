@@ -66,6 +66,11 @@ jobs:
             tail -60 build.log; exit 1; }
       - name: Unit tests
         run: ./build/release/fenice_tests
+      - name: Riemann kernels, scalar and vector (same hashes; the times are for information)
+        run: |
+          ./build/release/bench_riemann 1000000 | tee scalar.txt
+          BENCH_BATCH=1 ./build/release/bench_riemann 1000000 | tee vector.txt
+          diff <(grep -o "hash [0-9a-f]*" scalar.txt) <(grep -o "hash [0-9a-f]*" vector.txt)
       - name: Regression (serial)
         run: python cpp/tests/regression.py
       - name: Regression (4 MPI ranks)

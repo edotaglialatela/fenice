@@ -32,7 +32,7 @@
 #include "fv/Simulation.hpp"
 #include "fv/SolutionMapping.hpp"
 #include "fv/Switches.hpp"
-#include "../src/SchemesSimd.hpp"   // detail::avx2_available: which path the bit-for-bit tests exercised
+#include "../src/SchemesSimd.hpp"   // detail::simd_available: which path the bit-for-bit tests exercised
 
 using namespace fv;
 namespace fs = std::filesystem;

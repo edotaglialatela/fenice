@@ -272,15 +272,15 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
     };
     // Speed that bounds the explicit time step (see viscous_residual): the cells of a row are visited with their quantities
     const double L = step_length_2d(dx, dy), inv_h2 = inv_h2_2d(dx, dy);
-#ifdef FV_SIMD_AVX2
-    const bool simd = detail::avx2_available() && nx >= 6;
+#ifdef FV_SIMD
+    const bool simd = detail::simd_available() && nx >= 6;
 #endif
     // `local` receives the largest wave-speed bound of the cells of the row (a maximum is order independent)
     auto fill = [&](int j, const Row& r, double& local) {
         const State* cur = &U[static_cast<size_t>(j) * nx];
         const State* north = j + 1 < ny ? cur + nx : &F.top[1];
         const State* south = j > 0 ? cur - nx : &F.bottom[1];
-        // twin of detail::viscous_row_cells_avx2 (change them together)
+        // twin of detail::viscous_row_cells_simd (change them together)
         const auto scalar_cells = [&](int ib, int ie) {
             for (int i = ib; i < ie; ++i) {
                 const State w = eos_.cons_to_prim(cur[i]);
@@ -304,13 +304,13 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
                 local = std::max(local, s);
             }
         };
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD
         if (simd) {
             // the columns 1 .. nx-2 have both neighbours in the row: four at a time; the ends and the leftovers are scalar
             const int nv = ((nx - 2) / 4) * 4;
             double* const out[7] = {r.u, r.v, r.T, r.dudx, r.dudy, r.dvdx, r.dvdy};
             scalar_cells(0, 1);
-            local = std::max(local, detail::viscous_row_cells_avx2(eos_, mu_, k_cond, L, inv_h2, dx, dy, cur, north, south, 1, nv, out));
+            local = std::max(local, detail::viscous_row_cells_simd(eos_, mu_, k_cond, L, inv_h2, dx, dy, cur, north, south, 1, nv, out));
             scalar_cells(1 + nv, nx);
             return;
         }
@@ -408,18 +408,18 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
             const auto put_y = [&](double* const* g, int i, const State& f) {
                 for (int q = 0; q < 3; ++q) g[q][i] = f[q + 1];
             };
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD
             const int nvx = ((nx - 1) / 4) * 4;   // x faces 1 .. nx-1
             const int nvy = (nx / 4) * 4;         // y faces 0 .. nx-1
 #endif
             // the y faces under row j+1 .. (rows B below, T above); `interior`: the face is neither at the bottom nor at the top of the domain
             const auto y_faces = [&](int jface, const Row& B, const Row& T, double* const* g) {
                 int i0 = 0;
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD
                 if (simd && jface > 0 && jface < ny) {
                     const double* const bq[5] = {B.u, B.v, B.T, B.dudx, B.dvdx};
                     const double* const tq[5] = {T.u, T.v, T.T, T.dudx, T.dvdx};
-                    detail::viscous_row_yfaces_avx2(mu_, k_cond, dx, dy, bq, tq, 0, nvy, g[0], g[1], g[2]);
+                    detail::viscous_row_yfaces_simd(mu_, k_cond, dx, dy, bq, tq, 0, nvy, g[0], g[1], g[2]);
                     i0 = nvy;
                 }
 #endif
@@ -444,9 +444,9 @@ double NavierStokes::viscous_residual_rows(const Field& U, const PaddedFrame& F,
                 put_x(0, xflux(j, 0, cur));
                 put_x(nx, xflux(j, nx, cur));
                 int i0 = 1;
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD
                 if (simd) {
-                    detail::viscous_row_xfaces_avx2(mu_, k_cond, dx, dy, cur.u, cur.v, cur.T, cur.dudy, cur.dvdy, 1, nvx, fx[0], fx[1], fx[2]);
+                    detail::viscous_row_xfaces_simd(mu_, k_cond, dx, dy, cur.u, cur.v, cur.T, cur.dudy, cur.dvdy, 1, nvx, fx[0], fx[1], fx[2]);
                     i0 = 1 + nvx;
                 }
 #endif
@@ -514,14 +514,14 @@ double NavierStokes::viscous_residual_3d(const Field& /*U*/, const Mesh& m, cons
     const auto cons_at = [&](int ii, int jj, int kk) -> const State& {
         return U_pad[(static_cast<size_t>(kk) * PY + jj) * PX + ii];
     };
-#ifdef FV_SIMD_AVX2
-    const bool simd_cells = detail::avx2_available();
+#ifdef FV_SIMD
+    const bool simd_cells = detail::simd_available();
 #endif
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int kj = 0; kj < ny * nz; ++kj) {
         const int j = kj % ny, k = kj / ny;
         int i0 = 0;
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD
         if (simd_cells && nx >= 4) {
             const size_t cc0 = (static_cast<size_t>(k) * ny + j) * nx;
             double* gp[9];
@@ -529,7 +529,7 @@ double NavierStokes::viscous_residual_3d(const Field& /*U*/, const Mesh& m, cons
                 for (int b = 0; b < 3; ++b) gp[3 * a + b] = G[a][b] + cc0;
             double* const op[4] = {vel[0] + cc0, vel[1] + cc0, vel[2] + cc0, sT + cc0};
             const int nv = (nx / 4) * 4;
-            detail::viscous_cells3d_avx2(m.dx, m.dy, m.dz, &W(0, j, k), &cons_at(0, j + 1, k + 1), &cons_at(2, j + 1, k + 1),
+            detail::viscous_cells3d_simd(m.dx, m.dy, m.dz, &W(0, j, k), &cons_at(0, j + 1, k + 1), &cons_at(2, j + 1, k + 1),
                                          &cons_at(1, j, k + 1), &cons_at(1, j + 2, k + 1), &cons_at(1, j + 1, k),
                                          &cons_at(1, j + 1, k + 2), nv, op, gp);
             i0 = nv;
@@ -557,8 +557,8 @@ double NavierStokes::viscous_residual_3d(const Field& /*U*/, const Mesh& m, cons
         return Wp[(static_cast<size_t>(kk) * PY + jj) * PX + ii];
     };
     const bool periodic[3] = {cg && cg->periodic_x, cg && cg->periodic_y, cg && cg->periodic_z};
-#ifdef FV_SIMD_AVX2
-    const bool simd3 = detail::avx2_available();
+#ifdef FV_SIMD
+    const bool simd3 = detail::simd_available();
 #endif
 
     // Face fluxes, one array per axis: F[d][face (i, j, k) with index t along d]
@@ -682,10 +682,10 @@ double NavierStokes::viscous_residual_3d(const Field& /*U*/, const Mesh& m, cons
                 F[fi] = {0.0, tau[0] * area, tau[1] * area,
                          (vf[0] * tau[0] + vf[1] * tau[1] + vf[2] * tau[2] - q_d) * area, tau[2] * area};
             };
-            // faces with a cell on both sides and no boundary rule: four at a time (detail::viscous_faces3d_avx2, the arithmetic of
+            // faces with a cell on both sides and no boundary rule: four at a time (detail::viscous_faces3d_simd, the arithmetic of
             // `face` for such a face); the others (ends of an x row, the first and last y / z row, leftovers) go through `face`
             int v0 = 0, vn = 0;
-#ifdef FV_SIMD_AVX2
+#ifdef FV_SIMD
             if (simd3) {
                 const int t_row = d == 1 ? j : (d == 2 ? k : -1);
                 if (d == 0) {
@@ -708,7 +708,7 @@ double NavierStokes::viscous_residual_3d(const Field& /*U*/, const Mesh& m, cons
                     const size_t fi0 = d == 0 ? (static_cast<size_t>(k) * ny + j) * (nx + 1) + v0
                                               : (d == 1 ? (static_cast<size_t>(k) * (ny + 1) + j) * nx + v0
                                                         : (static_cast<size_t>(k) * ny + j) * nx + v0);
-                    detail::viscous_faces3d_avx2(d, mu_, k_cond, h[d], area, vp, sT + cc0, gp, delta, vn, &F[fi0]);
+                    detail::viscous_faces3d_simd(d, mu_, k_cond, h[d], area, vp, sT + cc0, gp, delta, vn, &F[fi0]);
                 }
             }
 #endif

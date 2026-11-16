@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Wall time of the time loop of four uniform cases on 1 thread, 16 threads and 4 MPI ranks, and the saving of the AVX2 kernels
+"""Wall time of the time loop of four uniform cases on 1 thread, 16 threads and 4 MPI ranks, and the saving of the vector kernels
 on the AMR airfoil (docs/source/guide/performance.md: Benchmark). Minimum of N runs, nothing written but the summary.
 
     python cpp/tests/bench_cases.py              # N = 5

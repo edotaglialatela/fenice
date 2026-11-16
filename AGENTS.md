@@ -74,11 +74,11 @@ MPI needs the MS-MPI SDK; without it the build is OpenMP-only. `build.ps1 -MpiSd
 - **3-D tests** (extrusion equals 2-D per layer; rotated-plane, axis permutation, translation invariance) must keep passing when touching 3-D stencils.
 - **Time step**: `Simulation::dt_length` is `min(dx,dy)` in 2-D and `2/(1/dx+1/dy+1/dz)` in 3-D. The convective and viscous eigenvalues share one budget
   (the viscous speed counts twice); a max over cells is partition independent, a sum of per-partition maxima is not. The copies of the viscous expression must stay identical.
-- **Shock-face dissipation** (`shock_blend`, default 0.2) lives in `RiemannSolver::hllc`; the AVX2 twin `hllc4` must stay bit-identical; `shock_blend = 0` is the older solver.
+- **Shock-face dissipation** (`shock_blend`, default 0.2) lives in `RiemannSolver::hllc`; the vector twin `hllc4` must stay bit-identical; `shock_blend = 0` is the older solver.
 - **OpenMP**: loops below `kOmpMinWork` (4096) are serial (`if()` clause), keep it. MSVC is OpenMP 2.0: signed loop indices, no `max` reductions (thread-local max + critical).
-- **AVX2 kernels** (`SchemesAvx2.cpp`, runtime-detected, `FENICE_NO_SIMD=1` disables) must be bit-identical to the scalar twin: only add / sub / mul / div / sqrt and masks,
+- **Vector kernels** (`SchemesSimd.cpp`, written on the operations of `SimdOps.hpp`: AVX2 on x86-64, runtime-detected, and NEON on ARM64; `FENICE_NO_SIMD=1` disables) must be bit-identical to the scalar twin: only add / sub / mul / div / sqrt and masks,
   the scalar operation order, no FMA (check `dumpbin /disasm` or `objdump -d` for `vfm`), `std::min/max` as compare + blend, leftovers through the scalar function.
-  Change a scalar kernel and its vector twin together. Keep CPU-independent code out of that file. Keep a new vector kernel only if it is faster with MSVC too.
+  Change a scalar kernel and its vector twin together. A kernel uses only the operations of `SimdOps.hpp` (no intrinsics); a new operation goes into every backend. Keep CPU-independent code out of that file. Keep a new vector kernel only if it is faster with MSVC too.
 - **IBM**: `apply_forcing` inside every residual (all RK stages); `apply_solid_reset` once per complete step only. Ghost-cell IBM (`ibm_method = ghost`, default `auto`)
   must keep `cases/validation/features/ibm_ghost.py --check` passing (serial vs 2-7 ranks, uniform and AMR).
 - **Source terms**: `[source]` expressions of x, y, z, t and the run parameters; time-dependent ones are evaluated at `TimeScheme::stage_time`.

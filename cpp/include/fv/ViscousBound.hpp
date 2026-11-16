@@ -1,7 +1,7 @@
 #pragma once
 // The viscous wave-speed bound of one cell and the lengths it is made with, written once for every scalar copy (uniform 2-D and 3-D, fused rows, AMR 2-D and 3-D).
-// The operation order is part of the bit-reproducibility rule: do not reorder.  Do NOT include this header from SchemesAvx2.cpp
-// (that file is compiled for AVX2; its twin `viscous_speed_avx2` is written by hand and guarded by
+// The operation order is part of the bit-reproducibility rule: do not reorder.  Do NOT include this header from SchemesSimd.cpp
+// (on x86-64 that file is compiled for AVX2; its twin `viscous_speed_simd` is written by hand and guarded by
 // `viscous_cell_kernels_equal_scalar_bit_for_bit`).
 #include <algorithm>
 
