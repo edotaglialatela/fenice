@@ -142,6 +142,14 @@ public:
                  bool root_only = false) const;
     // Gather another per-leaf field in the same global order (e.g. residual contributions for deterministic post-processing).
     void collect_field(const Field& values, Field& out, bool root_only = false) const;
+    // The owned leaves of every rank reach rank 0 one rank after the other (collective), so that rank 0 never holds more than its
+    // own leaves and those of one other rank: what a checkpoint of a mesh too large for one rank is written from. Both functions
+    // are called on rank 0 only. `plan(counts)` comes first, with counts[r][l] = the leaves of level l that rank r owns; then
+    // `visit(r, records)` for r = 0, 1, ..., with the records (level, i, j, [k,] the state: 3 + kNVar doubles, one more in 3-D)
+    // of rank r's leaves, level after level, each level in key order. The whole mesh in (level, key) order is, level by level,
+    // the blocks of the ranks 0, 1, ...
+    void stream_owned(const std::function<void(const std::vector<std::vector<long long>>& counts)>& plan,
+                      const std::function<void(int r, const std::vector<double>& records)>& visit) const;
 
     // Test switch: after partition() the state of the leaves this rank does not hold is set to NaN, so that a missing halo
     // cell cannot go unnoticed.

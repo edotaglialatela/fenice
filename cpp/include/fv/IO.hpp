@@ -3,6 +3,7 @@
 #pragma once
 
 #include <cstdint>
+#include <fstream>
 #include <functional>
 #include <map>
 
@@ -86,6 +87,43 @@ void rename_replace(const std::string& from, const std::string& to);
 
 // Uncompressed (ZIP_STORED) archive, readable by numpy.load.
 void write_npz(const std::string& path, const NpzArchive& arrays);
+// An .npz archive (uncompressed, as write_npz makes it) written entry by entry. An entry of float64 can be reserved with its shape
+// and filled later in pieces, in any order, so that an array that no single process holds goes to the file as its parts arrive.
+// The bytes are those write_npz gives for the same entries in the same order. Entries or archives of 4 GB and more are written in
+// the zip64 form.
+class NpzWriter {
+public:
+    // `zip64_from`: sizes and offsets from this value on take the zip64 form (the limit of the format; lower only in tests).
+    explicit NpzWriter(const std::string& path, uint64_t zip64_from = 0xFFFFFFFFull);
+    // A whole entry.
+    void add(const std::string& key, const NpyArray& a);
+    // A float64 entry of the given shape whose values come later through put(); returns its handle.
+    int reserve(const std::string& key, const std::vector<int64_t>& shape);
+    // The `n` values of the reserved entry from element `at` on (C order). The pieces of an entry must cover it exactly once.
+    void put(int entry, uint64_t at, const double* v, size_t n);
+    // Checks that every reserved entry is complete, then writes the checksums and the directory. Must be called.
+    void close();
+
+private:
+    struct Piece {
+        uint64_t at = 0, n = 0;   // first element and number of elements
+        uint32_t crc = 0;
+    };
+    struct Entry {
+        std::string name;
+        uint64_t offset = 0, size = 0;     // position of the local header; length of the .npy bytes
+        uint64_t data = 0, elements = 0;   // reserved entries: position of the first value, number of values
+        uint32_t crc = 0;
+        bool reserved = false;
+        std::vector<Piece> pieces;
+    };
+    void write_at(uint64_t at, const char* bytes, size_t n);
+    std::string path_;
+    std::ofstream out_;
+    uint64_t limit_ = 0, written_ = 0;
+    std::vector<Entry> entries_;
+    bool closed_ = false;
+};
 // Reads archives written by numpy.savez (stored entries, zip64 aware).
 NpzArchive read_npz(const std::string& path);
 

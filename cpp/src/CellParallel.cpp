@@ -476,6 +476,54 @@ void CellParallel::collect_field(const Field& values, Field& out, bool root_only
     }
 }
 
+void CellParallel::stream_owned(const std::function<void(const std::vector<std::vector<long long>>& counts)>& plan,
+                                const std::function<void(int r, const std::vector<double>& records)>& visit) const {
+    const int R = comm_.size, M = mesh_.max_level, me = comm_.rank;
+    const size_t rec = static_cast<size_t>(3 + (mesh_.dim == 3 ? 1 : 0) + kNVar), NL = static_cast<size_t>(M) + 1;
+    // the leaves each rank owns at each level
+    std::vector<double> mine(NL), all(NL * static_cast<size_t>(R));
+    for (int l = 0; l <= M; ++l) mine[static_cast<size_t>(l)] = engine_.owned_end(l) - engine_.owned_begin(l);
+    if (R > 1) {
+        std::vector<int> counts(static_cast<size_t>(R), static_cast<int>(NL)), displs(static_cast<size_t>(R));
+        for (int r = 0; r < R; ++r) displs[static_cast<size_t>(r)] = r * static_cast<int>(NL);
+        comm_.allgatherv(mine.data(), static_cast<int>(NL), all.data(), counts.data(), displs.data());
+    } else {
+        all = mine;
+    }
+    std::vector<std::vector<long long>> counts(static_cast<size_t>(R), std::vector<long long>(NL));
+    std::vector<size_t> leaves_of(static_cast<size_t>(R), 0);
+    for (int r = 0; r < R; ++r)
+        for (size_t l = 0; l < NL; ++l) {
+            counts[static_cast<size_t>(r)][l] = static_cast<long long>(all[static_cast<size_t>(r) * NL + l]);
+            leaves_of[static_cast<size_t>(r)] += static_cast<size_t>(counts[static_cast<size_t>(r)][l]);
+        }
+    if (me == 0) plan(counts);
+
+    std::vector<double> records;
+    records.reserve(leaves_of[static_cast<size_t>(me)] * rec);
+    for (int l = 0; l <= M; ++l)
+        for (int c = engine_.owned_begin(l); c < engine_.owned_end(l); ++c) {
+            records.push_back(l);
+            records.push_back(mesh_.ci[static_cast<size_t>(c)]);
+            records.push_back(mesh_.cj[static_cast<size_t>(c)]);
+            if (mesh_.dim == 3) records.push_back(mesh_.ck[static_cast<size_t>(c)]);
+            const State& u = mesh_.U[static_cast<size_t>(c)];
+            records.insert(records.end(), u.begin(), u.end());
+        }
+    if (me == 0) {
+        visit(0, records);
+        std::vector<double>().swap(records);
+    }
+    // one round per rank: rank r sends, rank 0 receives; the others only take part
+    for (int r = 1; r < R; ++r) {
+        std::vector<std::vector<double>> out(static_cast<size_t>(R)), in(static_cast<size_t>(R));
+        if (me == r) out[0].swap(records);
+        if (me == 0) in[static_cast<size_t>(r)].resize(leaves_of[static_cast<size_t>(r)] * rec);
+        comm_.exchange(out, in);
+        if (me == 0) visit(r, in[static_cast<size_t>(r)]);
+    }
+}
+
 void CellParallel::globalize() {
     if (!localized_) return;
     const int d3 = mesh_.dim == 3 ? 1 : 0;

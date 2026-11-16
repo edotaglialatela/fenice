@@ -1388,6 +1388,67 @@ TEST(moving_wall_ghost_has_the_pressure_of_the_interior_at_second_order) {
         }
 }
 
+TEST(npz_writer_pieces_give_the_file_of_write_npz_and_zip64_reads_back) {
+    const auto bytes = [](const std::string& path) {
+        std::ifstream in(path, std::ios::binary);
+        return std::string((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    };
+    const size_t n = 1000;
+    std::vector<double> u(4 * n), lev(n);
+    for (size_t k = 0; k < u.size(); ++k) u[k] = std::sin(0.37 * static_cast<double>(k)) * 1e3;
+    for (size_t k = 0; k < n; ++k) lev[k] = static_cast<double>(k % 3);
+    NpzArchive a;
+    a["U"] = NpyArray::from_doubles(u, {static_cast<int64_t>(n), 4});
+    a["leaf_level"] = NpyArray::from_doubles(lev, {static_cast<int64_t>(n)});
+    a["step"] = NpyArray::from_int(7);
+    a["t"] = NpyArray::from_double(0.25);
+    a["files"] = NpyArray::from_strings({"a_00001.vtu", "b"});
+    const std::string one = (tmp_dir() / "writer_one.npz").string(), parts = (tmp_dir() / "writer_parts.npz").string();
+    write_npz(one, a);
+    // the same entries in key order, the two arrays reserved and filled in pieces of uneven size, out of order
+    const auto in_parts = [&](const std::string& path, uint64_t zip64_from) {
+        NpzWriter w(path, zip64_from);
+        int hu = -1, hl = -1;
+        for (const auto& kv : a) {
+            if (kv.first == "U") hu = w.reserve("U", {static_cast<int64_t>(n), 4});
+            else if (kv.first == "leaf_level") hl = w.reserve("leaf_level", {static_cast<int64_t>(n)});
+            else w.add(kv.first, kv.second);
+        }
+        const size_t cut[5] = {0, 4 * 13, 4 * 500, 4 * 501, 4 * n};
+        for (const int q : {2, 0, 3, 1}) w.put(hu, cut[q], u.data() + cut[q], cut[q + 1] - cut[q]);
+        w.put(hl, 700, lev.data() + 700, n - 700);
+        w.put(hl, 0, lev.data(), 700);
+        w.put(hl, 0, lev.data(), 0);   // an empty piece (a rank without leaves of a level) is nothing
+        w.close();
+    };
+    in_parts(parts, 0xFFFFFFFFull);
+    CHECK(bytes(one) == bytes(parts) && !bytes(one).empty());
+    // zip64 form (forced from 100 bytes on): the two readers give the arrays back
+    const std::string big = (tmp_dir() / "writer_zip64.npz").string();
+    in_parts(big, 100);
+    CHECK(bytes(big) != bytes(one));
+    const NpzArchive b = read_npz(big);
+    CHECK(b.size() == a.size());
+    for (const auto& kv : a) CHECK(b.count(kv.first) == 1 && b.at(kv.first).data == kv.second.data && b.at(kv.first).shape == kv.second.shape);
+    const NpzFile f(big);
+    CHECK(f.read("U").data == a.at("U").data && f.length("leaf_level") == static_cast<int64_t>(n));
+    int ncol = 0;
+    const std::vector<double> rows = f.read_rows("U", {999, 0, 501}, ncol);
+    CHECK(ncol == 4 && rows.size() == 12 && rows[0] == u[4 * 999] && rows[4] == u[0] && rows[11] == u[4 * 501 + 3]);
+    // an entry with a missing piece, or with one given twice, is refused
+    for (const bool twice : {false, true}) {
+        bool refused = false;
+        try {
+            NpzWriter w((tmp_dir() / "writer_bad.npz").string());
+            const int h = w.reserve("x", {10});
+            w.put(h, 0, lev.data(), 6);
+            if (twice) w.put(h, 4, lev.data(), 6);
+            w.close();
+        } catch (const std::logic_error&) { refused = true; }
+        CHECK(refused);
+    }
+}
+
 TEST(mesh_too_large_for_32_bit_indices_is_refused) {
     // 1000^3 cells have 3.003e9 faces: refused with a message instead of a wrapped index
     const auto refused = [](const char* nx, const char* ny, const char* nz) {

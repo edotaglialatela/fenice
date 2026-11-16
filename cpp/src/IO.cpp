@@ -479,15 +479,16 @@ Field npy_to_field(const NpyArray& a) {
 
 namespace {
 
-std::string npy_bytes(const NpyArray& a) {
+// The bytes of an .npy file before its data: magic, version and the header dictionary, padded to a multiple of 64.
+std::string npy_header(const std::string& descr, const std::vector<int64_t>& dims) {
     std::string shape = "(";
-    for (size_t k = 0; k < a.shape.size(); ++k) {
-        shape += std::to_string(a.shape[k]);
-        if (a.shape.size() == 1 || k + 1 < a.shape.size()) shape += ",";
-        if (k + 1 < a.shape.size()) shape += " ";
+    for (size_t k = 0; k < dims.size(); ++k) {
+        shape += std::to_string(dims[k]);
+        if (dims.size() == 1 || k + 1 < dims.size()) shape += ",";
+        if (k + 1 < dims.size()) shape += " ";
     }
     shape += ")";
-    std::string header = "{'descr': '" + a.descr + "', 'fortran_order': False, 'shape': " + shape + ", }";
+    std::string header = "{'descr': '" + descr + "', 'fortran_order': False, 'shape': " + shape + ", }";
     const size_t base = 10;   // magic(6) + version(2) + header_len(2)
     size_t total = base + header.size() + 1;
     header.append((64 - total % 64) % 64, ' ');
@@ -500,7 +501,6 @@ std::string npy_bytes(const NpyArray& a) {
     out += static_cast<char>(hl & 0xFF);
     out += static_cast<char>(hl >> 8);
     out += header;
-    out.append(reinterpret_cast<const char*>(a.data.data()), a.data.size());
     return out;
 }
 
@@ -543,7 +543,8 @@ NpyArray parse_npy(const uint8_t* p, size_t n) {
 // ---------------------------------------------------------------------------
 
 // CRC-32 (zip), eight bytes per step (slicing-by-8; the value is the same as the byte-wise table).
-uint32_t crc32(const uint8_t* d, size_t n) {
+// `prev`: the CRC of the bytes before these (0: none), so a sequence can be given in parts.
+uint32_t crc32(const uint8_t* d, size_t n, uint32_t prev = 0) {
     static const std::array<std::array<uint32_t, 256>, 8> table = [] {   // thread-safe one-time init
         std::array<std::array<uint32_t, 256>, 8> t{};
         for (uint32_t i = 0; i < 256; ++i) {
@@ -555,7 +556,7 @@ uint32_t crc32(const uint8_t* d, size_t n) {
             for (int s = 1; s < 8; ++s) t[s][i] = (t[s - 1][i] >> 8) ^ t[0][t[s - 1][i] & 0xFF];
         return t;
     }();
-    uint32_t c = 0xFFFFFFFFu;
+    uint32_t c = prev ^ 0xFFFFFFFFu;
     size_t i = 0;
     for (; i + 8 <= n; i += 8) {   // little-endian assembly of the two words, independent of the host byte order
         const uint32_t lo = (c ^ (static_cast<uint32_t>(d[i]) | static_cast<uint32_t>(d[i + 1]) << 8 |
@@ -587,70 +588,213 @@ uint64_t get(const std::vector<uint8_t>& b, size_t at, int bytes) {
 
 }   // namespace
 
-void write_npz(const std::string& path, const NpzArchive& arrays) {
-    // Entry after entry goes straight to the file (the archive is never held whole in memory): only the central
-    // directory is collected.
-    std::ofstream out(path, std::ios::binary | std::ios::trunc);
-    if (!out) throw std::runtime_error("Cannot write " + path);
+namespace {
+
+void put64(std::string& s, uint64_t v) {
+    put32(s, static_cast<uint32_t>(v & 0xFFFFFFFFu));
+    put32(s, static_cast<uint32_t>(v >> 32));
+}
+
+// CRC-32 of two byte sequences one after the other, from the CRC of each and the length of the second: the first CRC is carried
+// through len2 zero bytes (a linear map over GF(2), applied by squaring the one-bit operator) and the second is added.
+uint32_t gf2_times(const uint32_t* mat, uint32_t vec) {
+    uint32_t sum = 0;
+    for (; vec; vec >>= 1, ++mat)
+        if (vec & 1) sum ^= *mat;
+    return sum;
+}
+void gf2_square(uint32_t* square, const uint32_t* mat) {
+    for (int n = 0; n < 32; ++n) square[n] = gf2_times(mat, mat[n]);
+}
+uint32_t crc32_combine(uint32_t crc1, uint32_t crc2, uint64_t len2) {
+    if (len2 == 0) return crc1;
+    uint32_t even[32], odd[32];
+    odd[0] = 0xEDB88320u;   // the operator of one zero bit
+    uint32_t row = 1;
+    for (int n = 1; n < 32; ++n) {
+        odd[n] = row;
+        row <<= 1;
+    }
+    gf2_square(even, odd);   // two bits
+    gf2_square(odd, even);   // four bits
+    do {   // the first squaring gives one zero byte
+        gf2_square(even, odd);
+        if (len2 & 1) crc1 = gf2_times(even, crc1);
+        len2 >>= 1;
+        if (len2 == 0) break;
+        gf2_square(odd, even);
+        if (len2 & 1) crc1 = gf2_times(odd, crc1);
+        len2 >>= 1;
+    } while (len2 != 0);
+    return crc1 ^ crc2;
+}
+
+// Local file header of a stored entry (zip64 sizes in an extra field when the entry is too large for 32 bits).
+std::string local_header(const std::string& name, uint32_t crc, uint64_t size, bool big) {
+    std::string zip;
+    zip += "PK\x03\x04";
+    put16(zip, big ? 45 : 20);
+    put16(zip, 0);
+    put16(zip, 0);   // version, flags, stored
+    put16(zip, 0);
+    put16(zip, 0x21);   // time, date (1980-01-01)
+    put32(zip, crc);
+    put32(zip, big ? 0xFFFFFFFFu : static_cast<uint32_t>(size));
+    put32(zip, big ? 0xFFFFFFFFu : static_cast<uint32_t>(size));
+    put16(zip, static_cast<uint32_t>(name.size()));
+    put16(zip, big ? 20 : 0);
+    zip += name;
+    if (big) {
+        put16(zip, 0x0001);
+        put16(zip, 16);
+        put64(zip, size);
+        put64(zip, size);
+    }
+    return zip;
+}
+
+}   // namespace
+
+NpzWriter::NpzWriter(const std::string& path, uint64_t zip64_from)
+    : path_(path), out_(path, std::ios::binary | std::ios::trunc), limit_(zip64_from) {
+    if (!out_) throw std::runtime_error("Cannot write " + path);
+}
+
+void NpzWriter::write_at(uint64_t at, const char* bytes, size_t n) {
+    out_.seekp(static_cast<std::streamoff>(at));
+    out_.write(bytes, static_cast<std::streamsize>(n));
+    if (!out_) throw std::runtime_error("Write failed: " + path_);
+}
+
+void NpzWriter::add(const std::string& key, const NpyArray& a) {
+    const std::string head = npy_header(a.descr, a.shape);
+    Entry e;
+    e.name = key + ".npy";
+    e.offset = written_;
+    e.size = head.size() + a.data.size();
+    e.crc = crc32(a.data.data(), a.data.size(), crc32(reinterpret_cast<const uint8_t*>(head.data()), head.size()));
+    const std::string lh = local_header(e.name, e.crc, e.size, e.size >= limit_);
+    write_at(written_, lh.data(), lh.size());
+    write_at(written_ + lh.size(), head.data(), head.size());
+    write_at(written_ + lh.size() + head.size(), reinterpret_cast<const char*>(a.data.data()), a.data.size());
+    written_ += lh.size() + e.size;
+    entries_.push_back(std::move(e));
+}
+
+int NpzWriter::reserve(const std::string& key, const std::vector<int64_t>& shape) {
+    const std::string head = npy_header("<f8", shape);
+    Entry e;
+    e.name = key + ".npy";
+    e.offset = written_;
+    e.reserved = true;
+    e.elements = 1;
+    for (const int64_t d : shape) e.elements *= static_cast<uint64_t>(d);
+    e.size = head.size() + e.elements * sizeof(double);
+    e.crc = crc32(reinterpret_cast<const uint8_t*>(head.data()), head.size());   // of the header: the pieces are added by close()
+    const std::string lh = local_header(e.name, 0, e.size, e.size >= limit_);
+    write_at(written_, lh.data(), lh.size());
+    write_at(written_ + lh.size(), head.data(), head.size());
+    e.data = written_ + lh.size() + head.size();
+    written_ += lh.size() + e.size;
+    entries_.push_back(std::move(e));
+    return static_cast<int>(entries_.size()) - 1;
+}
+
+void NpzWriter::put(int entry, uint64_t at, const double* v, size_t n) {
+    Entry& e = entries_.at(static_cast<size_t>(entry));
+    if (!e.reserved || at + n > e.elements) throw std::logic_error("NpzWriter::put: outside the reserved entry " + e.name);
+    if (n == 0) return;
+    const uint8_t* bytes = reinterpret_cast<const uint8_t*>(v);
+    write_at(e.data + at * sizeof(double), reinterpret_cast<const char*>(bytes), n * sizeof(double));
+    e.pieces.push_back({at, n, crc32(bytes, n * sizeof(double))});
+}
+
+void NpzWriter::close() {
+    if (closed_) return;
+    closed_ = true;
     std::string central;
-    uint64_t written = 0;
-    uint32_t count = 0;
-    for (const auto& kv : arrays) {
-        const std::string name = kv.first + ".npy";
-        const std::string body = npy_bytes(kv.second);
-        if (body.size() >= 0xFFFFFFFFull || written >= 0xFFFFFFFFull)
-            throw std::runtime_error("Checkpoint exceeds 4 GB (zip64 writing not supported)");
-        const uint32_t crc = crc32(reinterpret_cast<const uint8_t*>(body.data()), body.size());
-        const uint32_t offset = static_cast<uint32_t>(written);
-
-        std::string zip;
-        zip += "PK\x03\x04";
-        put16(zip, 20);
-        put16(zip, 0);
-        put16(zip, 0);   // version, flags, stored
-        put16(zip, 0);
-        put16(zip, 0x21);   // time, date (1980-01-01)
-        put32(zip, crc);
-        put32(zip, static_cast<uint32_t>(body.size()));
-        put32(zip, static_cast<uint32_t>(body.size()));
-        put16(zip, static_cast<uint32_t>(name.size()));
-        put16(zip, 0);
-        zip += name;
-        out.write(zip.data(), static_cast<std::streamsize>(zip.size()));
-        out.write(body.data(), static_cast<std::streamsize>(body.size()));
-        written += zip.size() + body.size();
-
+    for (Entry& e : entries_) {
+        const bool big = e.size >= limit_;
+        if (e.reserved) {
+            // the pieces in the order of the file: they must tile the entry exactly once
+            std::sort(e.pieces.begin(), e.pieces.end(), [](const Piece& a, const Piece& b) { return a.at < b.at; });
+            uint64_t next = 0;
+            for (const Piece& q : e.pieces) {
+                if (q.at != next) throw std::logic_error("NpzWriter: the pieces of " + e.name + " leave a gap or overlap");
+                e.crc = crc32_combine(e.crc, q.crc, q.n * sizeof(double));
+                next += q.n;
+            }
+            if (next != e.elements) throw std::logic_error("NpzWriter: the entry " + e.name + " is incomplete");
+            const std::string lh = local_header(e.name, e.crc, e.size, big);
+            write_at(e.offset, lh.data(), lh.size());
+        }
+        const bool far = e.offset >= limit_;
         central += "PK\x01\x02";
-        put16(central, 20);
-        put16(central, 20);
+        put16(central, big || far ? 45 : 20);
+        put16(central, big || far ? 45 : 20);
         put16(central, 0);
         put16(central, 0);
         put16(central, 0);
         put16(central, 0x21);
-        put32(central, crc);
-        put32(central, static_cast<uint32_t>(body.size()));
-        put32(central, static_cast<uint32_t>(body.size()));
-        put16(central, static_cast<uint32_t>(name.size()));
-        put16(central, 0);
+        put32(central, e.crc);
+        put32(central, big ? 0xFFFFFFFFu : static_cast<uint32_t>(e.size));
+        put32(central, big ? 0xFFFFFFFFu : static_cast<uint32_t>(e.size));
+        put16(central, static_cast<uint32_t>(e.name.size()));
+        put16(central, (big ? 16 : 0) + (far ? 8 : 0) + (big || far ? 4 : 0));
         put16(central, 0);
         put16(central, 0);
         put16(central, 0);
         put32(central, 0);
-        put32(central, offset);
-        central += name;
-        ++count;
+        put32(central, far ? 0xFFFFFFFFu : static_cast<uint32_t>(e.offset));
+        central += e.name;
+        if (big || far) {   // zip64 extra field: the values whose 32-bit field is all ones, in this order
+            put16(central, 0x0001);
+            put16(central, (big ? 16 : 0) + (far ? 8 : 0));
+            if (big) {
+                put64(central, e.size);
+                put64(central, e.size);
+            }
+            if (far) put64(central, e.offset);
+        }
     }
-    const uint32_t cd_offset = static_cast<uint32_t>(written);
+    const uint64_t count = entries_.size(), cd_offset = written_, cd_size = central.size();
     std::string zip = central;
+    const bool zip64 = count >= 0xFFFF || cd_offset >= limit_ || cd_size >= limit_;
+    if (zip64) {
+        zip += "PK\x06\x06";   // zip64 end of central directory
+        put64(zip, 44);
+        put16(zip, 45);
+        put16(zip, 45);
+        put32(zip, 0);
+        put32(zip, 0);
+        put64(zip, count);
+        put64(zip, count);
+        put64(zip, cd_size);
+        put64(zip, cd_offset);
+        zip += "PK\x06\x07";   // its locator
+        put32(zip, 0);
+        put64(zip, cd_offset + cd_size);
+        put32(zip, 1);
+    }
     zip += "PK\x05\x06";
     put16(zip, 0);
     put16(zip, 0);
-    put16(zip, count);
-    put16(zip, count);
-    put32(zip, static_cast<uint32_t>(central.size()));
-    put32(zip, cd_offset);
+    put16(zip, zip64 ? 0xFFFF : static_cast<uint32_t>(count));
+    put16(zip, zip64 ? 0xFFFF : static_cast<uint32_t>(count));
+    put32(zip, zip64 ? 0xFFFFFFFFu : static_cast<uint32_t>(cd_size));
+    put32(zip, zip64 ? 0xFFFFFFFFu : static_cast<uint32_t>(cd_offset));
     put16(zip, 0);
-    out.write(zip.data(), static_cast<std::streamsize>(zip.size()));
+    write_at(written_, zip.data(), zip.size());
+    out_.close();
+    if (!out_) throw std::runtime_error("Write failed: " + path_);
+}
+
+void write_npz(const std::string& path, const NpzArchive& arrays) {
+    // Entry after entry goes straight to the file (the archive is never held whole in memory): only the central
+    // directory is collected.
+    NpzWriter w(path);
+    for (const auto& kv : arrays) w.add(kv.first, kv.second);
+    w.close();
 }
 
 NpzArchive read_npz(const std::string& path) {

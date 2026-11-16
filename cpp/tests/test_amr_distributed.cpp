@@ -377,6 +377,35 @@ TEST(cellparallel_distributed_init_equals_serial_init_bitwise) {
                         par.collect(l2, i2, j2, u2, true);
                         if (rank == 0) CHECK(l1 == l2 && i1 == i2 && j1 == j2 && bits_equal(u1, u2));
                         else CHECK(l2.empty() && u2.empty());
+                        // the stream to rank 0, one rank after the other, tiles the same list: level by level, the blocks of the ranks
+                        std::vector<std::vector<long long>> cnt, first;
+                        size_t seen = 0;
+                        bool same = true;
+                        par.stream_owned(
+                            [&](const std::vector<std::vector<long long>>& counts) {
+                                cnt = first = counts;
+                                long long n = 0;
+                                for (size_t l = 0; l < counts[0].size(); ++l)
+                                    for (size_t r = 0; r < counts.size(); ++r) {
+                                        first[r][l] = n;
+                                        n += counts[r][l];
+                                    }
+                                same = same && n == static_cast<long long>(l1.size());
+                            },
+                            [&](int r, const std::vector<double>& records) {
+                                const size_t rec = 3 + kNVar;
+                                size_t at = 0;
+                                for (size_t l = 0; l < cnt[static_cast<size_t>(r)].size(); ++l)
+                                    for (long long q = 0; q < cnt[static_cast<size_t>(r)][l]; ++q, ++at, ++seen) {
+                                        const size_t k = static_cast<size_t>(first[static_cast<size_t>(r)][l] + q);
+                                        const double* p = &records[at * rec];
+                                        same = same && k < l1.size() && p[0] == l1[k] && p[1] == i1[k] && p[2] == j1[k] &&
+                                               std::memcmp(p + 3, u1[k].data(), kNVar * sizeof(double)) == 0;
+                                    }
+                                same = same && at * rec == records.size();
+                            });
+                        if (rank == 0) CHECK(same && seen == l1.size());
+                        else CHECK(seen == 0 && cnt.empty());
                     }
                     par.globalize();
                 }

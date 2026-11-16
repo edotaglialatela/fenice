@@ -509,9 +509,10 @@ void Simulation::solve_amr() {
     engine.save = [&](int st, const StepResult& r, double wall) {
         ProfileScope ps(Section::Output);
         export_state(st);
-        const LeafArrays lf = leaves();
+        // (several ranks: rank 0 writes the leaves of each rank as they arrive, the whole mesh is never gathered)
+        if (cell_par) save_checkpoint_streamed(st);
+        else save_checkpoint(st);
         const int nleaves = total_leaves();
-        if (root) save_checkpoint(st, &lf);
         if (root)
             std::printf("Step %05d | t = %.5f s | dt = %.3e s | S_max = %.2f m/s | leaves = %d | wall = %s%s\n", st, t, r.dt, S, nleaves,
                         format_elapsed(wall).c_str(), " | Checkpoint saved");
@@ -558,16 +559,26 @@ void Simulation::solve_amr() {
         cell_comm.allgatherv(profile.data(), n, all.data(), counts.data(), displs.data());
         profile.swap(all);
     }
-    const LeafArrays lf = leaves();
+    // leaves of the whole mesh at each level (collective)
+    std::vector<long long> per_level(static_cast<size_t>(cm.max_level) + 1, 0);
+    long long leaves_end = 0;
+    for (int l = 0; l <= cm.max_level; ++l) {
+        const double n = eng.owned_end(l) - eng.owned_begin(l);
+        per_level[static_cast<size_t>(l)] = static_cast<long long>(cell_par ? cell_par->reduce_sum(n) : n);
+        leaves_end += per_level[static_cast<size_t>(l)];
+    }
+    if (cell_par) save_checkpoint_streamed(step);
+    else save_checkpoint(step);
+    // on several ranks the whole mesh is gathered (on rank 0) only for the final dump, a test output
+    const bool whole = !cell_par || !p.dump_state.empty();
+    LeafArrays lf;
+    if (whole) lf = leaves();
     if (!root) return;
-    save_checkpoint(step, &lf);
     exporter.write_pvd(file_prefix);
-    dump_final_state(step, &lf);
+    if (whole) dump_final_state(step, &lf);
     if (!local_run) print_halo_reach("final mesh");
-    std::vector<int> per_level(static_cast<size_t>(cm.max_level) + 1, 0);
-    for (const int l : *lf.level) ++per_level[static_cast<size_t>(l)];
-    std::printf("[AMR] %d leaves at the end (", static_cast<int>(lf.level->size()));
-    for (int l = 0; l <= cm.max_level; ++l) std::printf("%slevel %d: %d", l ? ", " : "", l, per_level[static_cast<size_t>(l)]);
+    std::printf("[AMR] %lld leaves at the end (", leaves_end);
+    for (int l = 0; l <= cm.max_level; ++l) std::printf("%slevel %d: %lld", l ? ", " : "", l, per_level[static_cast<size_t>(l)]);
     std::printf("); remesh %.2f s of the %.2f s time loop\n", remesh_wall, loop_wall);
     std::printf("[AMR] over the run: %lld leaves refined, %lld groups joined\n", static_cast<long long>(cell_adaptor->n_refined),
                 static_cast<long long>(cell_adaptor->n_joined));

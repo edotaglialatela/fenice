@@ -70,6 +70,9 @@ public:
     };
     // Atomic checkpoint: U, t, step, nx, ny, Lx, Ly and the .pvd index. `leaves`: the AMR leaves, if `cells` is not the whole mesh.
     void save_checkpoint(int step, const LeafArrays* leaves = nullptr);
+    // The same file for an adaptive run on several ranks, written by rank 0 as the leaves of each rank arrive
+    // (CellParallel::stream_owned): no rank holds the whole mesh. Collective.
+    void save_checkpoint_streamed(int step);
     // Load the checkpoint (if any); returns the step to resume from (0 if missing).
     int load_checkpoint();
     // Bilinear mapping of a checkpoint (any resolution) onto this run's mesh.
@@ -137,6 +140,8 @@ public:
 
 private:
     void solve_amr();
+    // The entries of a checkpoint other than the state and the leaves: time, step, mesh size, snapshot index, format version.
+    NpzArchive checkpoint_header(int step) const;
     // What an engine (uniform, uniform on MPI strips, adaptive) gives the time loop. run_loop owns what the engines share: the
     // output times, when a snapshot is due, the stop requests, max_steps and the wall time of the loop.
     struct LoopEngine {

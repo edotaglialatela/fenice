@@ -41,7 +41,7 @@ The tests in `cpp/tests/` use a self-contained harness (`test_common.hpp`), so n
 exits non-zero on failure. They are split by area: `test_core.cpp` (EOS, limiters, Riemann solvers, boundaries, time schemes, IBM,
 mapping, I/O), `test_periodic.cpp` (periodic and 3-D flows), `test_casefile.cpp`, and `test_amr_mesh.cpp`, `test_amr_physics.cpp`,
 `test_amr_remesh.cpp`, `test_amr_distributed.cpp` for the AMR (the helpers they share are in `test_amr_common.hpp`). With no
-argument `fenice_tests` runs all 201 tests; `fenice_tests --list` prints their names and `fenice_tests NAME ..` runs those whose name
+argument `fenice_tests` runs all 202 tests; `fenice_tests --list` prints their names and `fenice_tests NAME ..` runs those whose name
 contains one of the arguments (a filter that matches nothing exits with code 2). They cover:
 
 * **EOS.** Round trips, floors, and the stiffened gas reducing to the ideal gas.

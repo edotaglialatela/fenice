@@ -4,6 +4,7 @@
 #include "fv/ViscousBound.hpp"
 
 #include <algorithm>
+#include <cstring>
 #include <chrono>
 #include <cctype>
 #include <cmath>
@@ -57,9 +58,7 @@ void require_known_format(const std::string& path, bool present, double version)
 }
 }  // namespace
 
-void Simulation::save_checkpoint(int step, const LeafArrays* leaves) {
-    const std::string path = checkpoint_path();
-    const std::string tmp = path.substr(0, path.size() - 4) + "_tmp.npz";
+NpzArchive Simulation::checkpoint_header(int step) const {
     std::vector<double> times;
     std::vector<std::string> files;
     for (const auto& e : exporter.collection) {
@@ -67,9 +66,27 @@ void Simulation::save_checkpoint(int step, const LeafArrays* leaves) {
         files.push_back(e.filename);
     }
     NpzArchive a;
+    if (cells) a["S"] = NpyArray::from_double(cell_speed_);   // the wave-speed bound the next time step is taken from
+    a["format_version"] = NpyArray::from_int(kCheckpointFormat);
+    a["t"] = NpyArray::from_double(t);
+    a["step"] = NpyArray::from_int(step);
+    a["nx"] = NpyArray::from_int(mesh.nx);
+    a["ny"] = NpyArray::from_int(mesh.ny);
+    a["Lx"] = NpyArray::from_double(mesh.Lx);
+    a["Ly"] = NpyArray::from_double(mesh.Ly);
+    a["nz"] = NpyArray::from_int(mesh.nz);
+    a["Lz"] = NpyArray::from_double(mesh.Lz);
+    a["collection_time"] = NpyArray::from_doubles(times, {static_cast<int64_t>(times.size())});
+    a["collection_file"] = NpyArray::from_strings(files);
+    return a;
+}
+
+void Simulation::save_checkpoint(int step, const LeafArrays* leaves) {
+    const std::string path = checkpoint_path();
+    const std::string tmp = path.substr(0, path.size() - 4) + "_tmp.npz";
+    NpzArchive a = checkpoint_header(step);
     if (cells) {
-        // an adaptive run: the leaves (level and integer coordinates) and their state, and the wave-speed bound the next
-        // time step is taken from
+        // an adaptive run: the leaves (level and integer coordinates) and their state
         // (an octree also stores k and the fifth state component rho w; the 2-D file is unchanged)
         const bool octree = cells->dim == 3;
         const LeafArrays lf = leaves ? *leaves : LeafArrays{&cells->level, &cells->ci, &cells->cj, &cells->U, octree ? &cells->ck : nullptr};
@@ -86,22 +103,73 @@ void Simulation::save_checkpoint(int step, const LeafArrays* leaves) {
         a["leaf_i"] = NpyArray::from_doubles(li, {static_cast<int64_t>(n)});
         a["leaf_j"] = NpyArray::from_doubles(lj, {static_cast<int64_t>(n)});
         if (octree) a["leaf_k"] = NpyArray::from_doubles(lk, {static_cast<int64_t>(n)});
-        a["S"] = NpyArray::from_double(cell_speed_);
     } else {
         a["U"] = field_to_npy(U, mesh.is3d() ? kNVar : 4);
     }
-    a["format_version"] = NpyArray::from_int(kCheckpointFormat);
-    a["t"] = NpyArray::from_double(t);
-    a["step"] = NpyArray::from_int(step);
-    a["nx"] = NpyArray::from_int(mesh.nx);
-    a["ny"] = NpyArray::from_int(mesh.ny);
-    a["Lx"] = NpyArray::from_double(mesh.Lx);
-    a["Ly"] = NpyArray::from_double(mesh.Ly);
-    a["nz"] = NpyArray::from_int(mesh.nz);
-    a["Lz"] = NpyArray::from_double(mesh.Lz);
-    a["collection_time"] = NpyArray::from_doubles(times, {static_cast<int64_t>(times.size())});
-    a["collection_file"] = NpyArray::from_strings(files);
     write_npz(tmp, a);
+    rename_replace(tmp, path);
+}
+
+void Simulation::save_checkpoint_streamed(int step) {
+    const bool octree = cells->dim == 3;
+    const int ncomp = octree ? kNVar : 4, d3 = octree ? 1 : 0;
+    const size_t rec = static_cast<size_t>(3 + d3 + kNVar);
+    const std::string path = checkpoint_path();
+    const std::string tmp = path.substr(0, path.size() - 4) + "_tmp.npz";
+    std::unique_ptr<NpzWriter> w;
+    int h_state = -1, h_column[4] = {-1, -1, -1, -1};   // the entries U and leaf_level, leaf_i, leaf_j, leaf_k
+    std::vector<std::vector<long long>> count, first;   // [rank][level]: leaves owned, and where the first one is in the whole list
+    cell_par->stream_owned(
+        [&](const std::vector<std::vector<long long>>& counts) {
+            count = counts;
+            first = counts;
+            long long n = 0;   // the whole list is, level by level, the blocks of the ranks 0, 1, ...
+            for (size_t l = 0; l < counts[0].size(); ++l)
+                for (size_t r = 0; r < counts.size(); ++r) {
+                    first[r][l] = n;
+                    n += counts[r][l];
+                }
+            // the entries in key order, as write_npz stores an archive: the file is the one save_checkpoint writes
+            const NpzArchive small = checkpoint_header(step);
+            std::map<std::string, int*> large = {{"U", &h_state}, {"leaf_level", &h_column[0]}, {"leaf_i", &h_column[1]}, {"leaf_j", &h_column[2]}};
+            if (octree) large["leaf_k"] = &h_column[3];
+            w = std::make_unique<NpzWriter>(tmp);
+            auto li = large.begin();
+            auto si = small.begin();
+            while (li != large.end() || si != small.end()) {
+                if (si == small.end() || (li != large.end() && li->first < si->first)) {
+                    *li->second = li->second == &h_state ? w->reserve(li->first, {static_cast<int64_t>(n), ncomp})
+                                                         : w->reserve(li->first, {static_cast<int64_t>(n)});
+                    ++li;
+                } else {
+                    w->add(si->first, si->second);
+                    ++si;
+                }
+            }
+        },
+        [&](int r, const std::vector<double>& records) {
+            std::vector<double> buf;
+            size_t at = 0;   // leaves of this rank before the level
+            for (size_t l = 0; l < count[static_cast<size_t>(r)].size(); ++l) {
+                const size_t m = static_cast<size_t>(count[static_cast<size_t>(r)][l]);
+                if (m == 0) continue;
+                const uint64_t pos = static_cast<uint64_t>(first[static_cast<size_t>(r)][l]);
+                const double* p = records.data() + at * rec;
+                buf.resize(m * static_cast<size_t>(ncomp));
+                for (size_t q = 0; q < m; ++q)
+                    std::memcpy(&buf[q * static_cast<size_t>(ncomp)], p + q * rec + 3 + d3, static_cast<size_t>(ncomp) * sizeof(double));
+                w->put(h_state, pos * static_cast<uint64_t>(ncomp), buf.data(), buf.size());
+                buf.resize(m);
+                for (int col = 0; col < 3 + d3; ++col) {
+                    for (size_t q = 0; q < m; ++q) buf[q] = p[q * rec + static_cast<size_t>(col)];
+                    w->put(h_column[col], pos, buf.data(), m);
+                }
+                at += m;
+            }
+        });
+    if (cell_comm.rank != 0) return;
+    w->close();
+    w.reset();
     rename_replace(tmp, path);
 }
 

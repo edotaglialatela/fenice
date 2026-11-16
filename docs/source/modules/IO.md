@@ -41,7 +41,9 @@ read without third-party libraries, so `numpy.load` reads them directly:
 | `leaf_level`, `leaf_i`, `leaf_j`, `leaf_k` | AMR only: the leaves (level and integer coordinates on the level's grid; `leaf_k` in 3-D); `U` has one row per leaf, in the order of these arrays, and `nx`, `ny`, `nz` are the base mesh |
 | `collection_time`, `collection_file` | `.pvd` index, restored on resume |
 
-The reader handles zip64 headers as written by `numpy.savez`. Archives that store the
+The writer (`NpzWriter`) stores entry after entry; an array can be reserved with its shape and filled later in pieces, which is
+how an adaptive run on several ranks writes a state that no rank holds whole. Entries and archives of 4 GB and more are written
+in the zip64 form. The reader handles zip64 headers, also as written by `numpy.savez`. Archives that store the
 `.pvd` index as a pickled `collection` object instead of the two arrays are also accepted
 for resume and hot start; the pickled index is skipped. Compressed archives (`savez_compressed`) are rejected
 with an explicit error.
