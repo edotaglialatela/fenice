@@ -399,6 +399,24 @@ void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U
             }
         }
     }
+    // immersed body: the solid cells on the same padded layout (a cell outside the domain is solid if the cell it replicates or the
+    // cell a periodic wrap puts there is)
+    thread_local std::vector<char> S_pad;
+    const std::vector<char>* solid = h.narrow;
+    if (solid) {
+        if (solid->size() != static_cast<size_t>(nx) * ny * nz) throw std::logic_error("WENO5-Z: the solid mask is not that of the mesh");
+        S_pad.resize(Wp.size());
+        const auto wrapi = [](int i, int n) { return ((i % n) + n) % n; };
+        for (int kk = 0; kk < PZ; ++kk)
+            for (int jj = 0; jj < PY; ++jj)
+                for (int ii = 0; ii < PX; ++ii) {
+                    const int i = ii - pad, j = jj - pad, k = kk - padz;
+                    S_pad[P(ii, jj, kk)] = ((*solid)[m.cell(clampi(i, nx), clampi(j, ny), clampi(k, nz))] != 0 ||
+                                            (*solid)[m.cell(wrapi(i, nx), wrapi(j, ny), wrapi(k, nz))] != 0)
+                                               ? 1 : 0;
+                }
+    }
+    const std::vector<char>& Sp = S_pad;
     const EOS& eos = eos_;
     const double we = weno_eps_;
     const auto roundtrip = [&](State& u) { u = eos.prim_to_cons(eos.cons_to_prim(u)); };
@@ -421,9 +439,17 @@ void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U
                 const size_t base = axis == 0 ? P(t, j + pad, k + padz)
                                               : (axis == 1 ? P(i + pad, t, k + padz) : P(i + pad, j + pad, t));
                 State wl, wr;
+                bool four = false;   // a solid cell among the six: the four-cell stencil (as the adaptive engine does)
+                if (solid)
+                    for (int s = 0; s < 6; ++s) four = four || Sp[base + s * stride] != 0;
                 for (int q = 0; q < kNVar; ++q) {
                     const double c0 = Wp[base][q], c1 = Wp[base + stride][q], c2 = Wp[base + 2 * stride][q];
                     const double c3 = Wp[base + 3 * stride][q], c4 = Wp[base + 4 * stride][q], c5 = Wp[base + 5 * stride][q];
+                    if (four) {
+                        wl[q] = weno3z(c1, c2, c3, we);
+                        wr[q] = weno3z(c4, c3, c2, we);
+                        continue;
+                    }
                     wl[q] = weno5z(c0, c1, c2, c3, c4, we);
                     wr[q] = weno5z(c5, c4, c3, c2, c1, we);
                 }

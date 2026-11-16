@@ -187,6 +187,9 @@ public:
     bool ghost_cells() const { return ghost_on_; }
     // Number of ghost cells.
     int ghost_count() const { return static_cast<int>(ghost_.size()); }
+    // Ghost cells with no fluid cell around any image point (a slot, or a part of the body thinner than the stencil): they take the
+    // density and pressure of the nearest fluid cell and stay at rest (no-slip) or keep its tangential velocity (slip).
+    int ghost_fallback_count() const { return fallback_; }
     // Ghost-cell wall: force (x, y) and moment about (cx, cy), per unit span, on the body, integrated over its true surface from
     // two probes at d and 2 d (d >= 1.5 cells) along the normal: wall pressure extrapolated linearly (2 p1 - p2) and, with
     // mu > 0, the wall shear mu du_t/dn = mu (4 u_t1 - u_t2) / (2 d) of the quadratic through zero at the wall (no-slip).
@@ -257,6 +260,7 @@ private:
         Probe probe, probe2;
     };
     bool ghost_on_ = false, slip_ = false, curvature_ = false;
+    int fallback_ = 0;      // ghost cells without an image point (ghost_fallback_count)
     bool sparse_ = false;   // the ghost wall of enable_ghost_cells_sparse: solidity from solid_at, no arrays over the mesh
     bool is_solid(const Mesh& m, int i, int j, int k) const;   // mask_ (dense) or solid_at of the centre (sparse)
     void build_ghosts(const Mesh& m, bool slip, bool curvature, const std::vector<int>* candidates);

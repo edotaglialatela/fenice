@@ -1121,6 +1121,7 @@ void ImmersedBoundary::build_ghosts(const Mesh& m, bool slip, bool curvature, co
     slip_ = slip;
     curvature_ = curvature;
     ghost_.clear();
+    fallback_ = 0;
     forced_built_ = false;   // the list of force_in_place follows the ghost table
     surface_.clear();
     if (sparse_)
@@ -1167,13 +1168,36 @@ void ImmersedBoundary::build_ghosts(const Mesh& m, bool slip, bool curvature, co
                 double di;
                 const bool found = ball ? probe_out3(wx, wy, wz, g.nx, g.ny, g.nz, dg, di, g.image)
                                         : probe_out(wx, wy, g.nx, g.ny, dg, di, g.image, k);
-                if (!found)
-                    throw std::runtime_error("ibm_method = ghost: no fluid cells around the image point of cell (" + std::to_string(i) +
-                                             ", " + std::to_string(j) + (d3 ? ", " + std::to_string(k) : std::string()) +
-                                             "); refine the mesh near the body");
-                g.ratio = dg / di;
-                g.span = dg + di;
-                if (curvature_ && slip_) g.kappa = wall_curvature(wx, wy, g.nx, g.ny, 1.5 * h);
+                if (!found) {
+                    // no fluid around any image point (a slot or a part of the body thinner than the stencil): the nearest fluid
+                    // cell of the two-cell neighbourhood gives density and pressure, and the ratio zero leaves the ghost cell at rest
+                    // (no-slip) or with that cell's tangential velocity (slip); first order there, counted in ghost_fallback_count
+                    double best = 1e300;
+                    int cn = -1;
+                    for (int dk = -dkmax; dk <= dkmax; ++dk)
+                        for (int dj = -2; dj <= 2; ++dj)
+                            for (int dii = -2; dii <= 2; ++dii) {
+                                const int ii = i + dii, jj = j + dj, kk = k + dk;
+                                if (ii < 0 || ii >= nx || jj < 0 || jj >= ny || kk < 0 || kk >= nz || is_solid(m, ii, jj, kk)) continue;
+                                const double ex = dii * m.dx, ey = dj * m.dy, ezz = d3 ? dk * m.dz : 0.0;
+                                const double d2 = ex * ex + ey * ey + ezz * ezz;
+                                if (d2 < best) {
+                                    best = d2;
+                                    cn = m.cell(ii, jj, kk);
+                                }
+                            }
+                    for (int q = 0; q < 8; ++q) {
+                        g.image.cell[q] = cn;
+                        g.image.w[q] = q == 0 ? 1.0 : 0.0;
+                    }
+                    g.ratio = 0.0;
+                    g.span = 0.0;
+                    ++fallback_;
+                } else {
+                    g.ratio = dg / di;
+                    g.span = dg + di;
+                    if (curvature_ && slip_) g.kappa = wall_curvature(wx, wy, g.nx, g.ny, 1.5 * h);
+                }
                 ghost_.push_back(g);
                 if (!sparse_) ghost_mask_[c] = 1;
     };

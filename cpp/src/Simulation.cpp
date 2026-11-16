@@ -262,6 +262,9 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             if (verbose)
                 std::printf("[IBM] Ghost-cell wall (%s): %d ghost cells, loads on the true surface\n",
                             p.use_viscous ? "no-slip" : "slip", ibm->ghost_count());
+            if (ibm->ghost_fallback_count() > 0)
+                std::printf("[WARNING] %d ghost cells have no fluid around their image point (a part of the body thinner than the "
+                            "stencil): they take the nearest fluid cell, first order there\n", ibm->ghost_fallback_count());
         }
         if (verbose && p.reynolds > 0.0) std::printf("[PHYSICS] Re = %g -> mu = %g\n", p.reynolds, p.mu);
     }
@@ -744,6 +747,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     // WENO5-Z reads three cells: its periodic halos and ghost layers are three deep (serial only)
     const int Dh = (mu && mu->scheme() == Reconstruction::Weno5) ? 3 : D;
     mh.depth = Dh;
+    if (ib && Dh == 3) mh.narrow = &ib->mask();   // faces near the body: the four-cell stencil
     // Periodic axes inside the (sub)domain: wrap-around halos so MUSCL also reconstructs
     // the periodic boundary faces (otherwise they would be a 1st-order seam).
     const bool per_x = bm.type(Face::Left) == BCType::Periodic && bm.type(Face::Right) == BCType::Periodic;
@@ -910,6 +914,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     }
     const int Dh = (mu && mu->scheme() == Reconstruction::Weno5) ? 3 : D;   // WENO5-Z reads three cells
     mh.depth = Dh;
+    if (ib && Dh == 3) mh.narrow = &ib->mask();   // faces near the body: the four-cell stencil
     // Periodic axes: wrap-around MUSCL halos (the boundary faces are then 2nd order too)
     const bool per[3] = {bm.type(Face::Left) == BCType::Periodic && bm.type(Face::Right) == BCType::Periodic,
                          bm.type(Face::Bottom) == BCType::Periodic && bm.type(Face::Top) == BCType::Periodic,

@@ -345,6 +345,49 @@ TEST(sod_50_steps_physical) {
     CHECK(std::abs(mass - mass0) / mass0 < 0.01);
 }
 
+TEST(weno5_faces_near_a_body_take_the_four_cell_stencil) {
+    // Uniform WENO5-Z with a solid mask: a face with a solid cell among its six cells has the WENO3-Z states of its four cells, bit
+    // for bit; every other interior face keeps the WENO5-Z states of the run without a mask.
+    const EOS eos = EOS::ideal(1.4);
+    const Mesh m = generate_cartesian_mesh(1.0, 1.0, 24, 20);
+    Field U(m.num_cells());
+    for (int j = 0; j < m.ny; ++j)
+        for (int i = 0; i < m.nx; ++i)
+            U[m.cell(i, j)] = eos.prim_to_cons({1.0 + 0.3 * std::sin(0.7 * i) * std::cos(0.4 * j), 0.2 * std::cos(0.5 * i), 0.1 * std::sin(0.3 * j),
+                                                1.0 + 0.2 * std::cos(0.6 * i + 0.2 * j)});
+    std::vector<char> solid(static_cast<size_t>(m.num_cells()), 0);
+    for (int j = 8; j <= 11; ++j)
+        for (int i = 10; i <= 13; ++i) solid[static_cast<size_t>(m.cell(i, j))] = 1;
+    BoundaryManager bm(m, eos);
+    bm.set_boundary_types(BCType::Transmissive, BCType::Transmissive, BCType::Transmissive, BCType::Transmissive);
+    Field L5, R5, L3, R3, Ln, Rn;
+    bm.apply_boundary_conditions(U, L5, R5);
+    L3 = Ln = L5;
+    R3 = Rn = R5;
+    const MusclReconstruction w5(eos, Limiter::VanLeer, Reconstruction::Weno5), w3(eos, Limiter::VanLeer, Reconstruction::Weno3);
+    w5.reconstruct(L5, R5, U, m.nx, m.ny);
+    w3.reconstruct(L3, R3, U, m.nx, m.ny);
+    Halos h;
+    h.depth = 3;
+    h.narrow = &solid;
+    w5.reconstruct(Ln, Rn, U, m.nx, m.ny, h);
+    const auto same = [](const State& a, const State& b) { return std::memcmp(a.data(), b.data(), sizeof(State)) == 0; };
+    int four = 0, six = 0, bad = 0;
+    for (int axis = 0; axis < 2; ++axis)
+        for (int j = (axis == 1 ? 3 : 0); j < (axis == 1 ? m.ny - 2 : m.ny); ++j)
+            for (int i = (axis == 0 ? 3 : 0); i < (axis == 0 ? m.nx - 2 : m.nx); ++i) {   // faces whose six cells are inside the mesh
+                const int f = axis == 0 ? m.xface(i, j) : m.yface(i, j);
+                bool near = false;
+                for (int s = -3; s <= 2; ++s) near = near || solid[static_cast<size_t>(axis == 0 ? m.cell(i + s, j) : m.cell(i, j + s))] != 0;
+                const bool ok = near ? same(Ln[f], L3[f]) && same(Rn[f], R3[f]) : same(Ln[f], L5[f]) && same(Rn[f], R5[f]);
+                (near ? four : six) += 1;
+                if (!ok) ++bad;
+            }
+    CHECK(four > 50 && six > 500);
+    CHECK(bad == 0);
+    if (bad) std::printf("    %d of %d faces differ (%d near the body)\n", bad, four + six, four);
+}
+
 TEST(muscl_linear_field_exact) {
     // On a linear field every TVD limiter returns the exact face value.
     const EOS eos = EOS::ideal(1.4);
@@ -712,6 +755,45 @@ TEST(ibm_ghost_cells_reproduce_a_linear_wall_profile) {
         mk.enable_ghost_cells(mc, false);
     } catch (const std::invalid_argument&) { threw = true; }
     CHECK(threw);
+}
+
+TEST(ibm_ghost_cells_without_an_image_point_take_the_nearest_fluid_cell) {
+    // A block with a slot one cell wide: the image points of the ghost cells on the two walls of the slot lie in the opposite wall, at
+    // any distance up to four cells. Those cells take the density and pressure of the nearest fluid cell (the slot cell of their row)
+    // and stay at rest (no-slip) or keep its velocity along the wall (slip); the build does not stop, and counts them.
+    const EOS eos = EOS::ideal(1.4);
+    const Mesh m = generate_cartesian_mesh(1.0, 1.0, 40, 40);
+    Polygon2D poly;
+    for (const auto& q : std::vector<std::array<double, 2>>{{0.2, 0.2}, {0.8, 0.2}, {0.8, 0.8}, {0.525, 0.8}, {0.525, 0.4}, {0.5, 0.4},
+                                                           {0.5, 0.8}, {0.2, 0.8}})
+        poly.pts.push_back({q[0], q[1]});
+    const int islot = 20;   // the column of the slot (centre 0.5125)
+    for (const bool slip : {false, true}) {
+        ImmersedBoundary ib(m, poly, 1.0, 1.0);
+        CHECK(!ib.mask()[m.cell(islot, 24)] && ib.mask()[m.cell(islot - 1, 24)] && ib.mask()[m.cell(islot + 1, 24)]);
+        ib.enable_ghost_cells(m, slip);
+        CHECK(ib.ghost_fallback_count() > 0);
+        Field U(static_cast<size_t>(m.num_cells()));
+        for (int j = 0; j < m.ny; ++j)
+            for (int i = 0; i < m.nx; ++i) U[m.cell(i, j)] = eos.prim_to_cons({1.0 + m.yc(j), 0.3, 0.5, 2.0 + m.yc(j), 0.0});
+        ib.apply_forcing(U, eos);
+        double worst = 0.0;
+        int seen = 0;
+        for (int j = 21; j <= 27; ++j)   // rows well inside the slot (0.525 < y < 0.7)
+            for (const int i : {islot - 2, islot - 1, islot + 1, islot + 2}) {
+                const State W = eos.cons_to_prim(U[m.cell(i, j)]);
+                ++seen;
+                worst = std::max({worst, std::abs(W[0] - (1.0 + m.yc(j))), std::abs(W[3] - (2.0 + m.yc(j))), std::abs(W[1]),
+                                  std::abs(W[2] - (slip ? 0.5 : 0.0))});
+            }
+        CHECK(seen == 28);
+        CHECK(worst < 1e-12);
+        if (worst >= 1e-12) std::printf("    slip %d: fallback ghost error %.3e\n", slip, worst);
+    }
+    // a convex body needs none
+    ImmersedBoundary cyl(m, "Cylinder", 0.2, 0.5, 0.5, 1.0, 1.0);
+    cyl.enable_ghost_cells(m, false);
+    CHECK(cyl.ghost_fallback_count() == 0);
 }
 
 TEST(ibm_ghost_cells_of_a_sphere_reproduce_a_linear_field) {

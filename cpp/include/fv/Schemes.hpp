@@ -134,6 +134,9 @@ struct Halos {
     const Field* r = nullptr;    // right
     const Field* f = nullptr;    // front (z-min)
     const Field* bk = nullptr;   // back (z-max)
+    // WENO5-Z only: cells (row-major, 1 = solid cell of an immersed body). A face with such a cell among its six takes the
+    // four-cell WENO3-Z stencil: the wall's ghost cells are two deep, the third cell would be a cell at rest inside the body.
+    const std::vector<char>* narrow = nullptr;
 };
 class MusclReconstruction {
 public:
