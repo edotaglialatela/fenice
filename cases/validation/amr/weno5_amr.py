@@ -40,8 +40,8 @@ STUDY = "weno5_amr"
 RK3 = "time_scheme=SSP Runge-Kutta 3"
 SCHEMES = {"WENO3-Z": "reconstruction=weno3", "WENO5-Z": "reconstruction=weno5"}
 QUIET = "save_interval=1000000000"
-# drag of the uniform 400 x 200 runs (t = 25, SSP-RK3): wall treatment -> scheme -> Cd
-UNIFORM_CD = {"ghost": {"WENO3-Z": 1.90473, "WENO5-Z": 1.89881}, "mask": {"WENO3-Z": 1.84870, "WENO5-Z": 1.82219}}
+# drag of the uniform 400 x 200 runs (t = 25, SSP-RK3): scheme -> Cd
+UNIFORM_CD = {"WENO3-Z": 1.90473, "WENO5-Z": 1.90406}
 CYLINDER = """[case]
 name = "Cylinder Re40 Adaptive"
 description = "IBM cylinder at Re = 40, adaptive mesh"

@@ -74,7 +74,7 @@ Against WENO3-Z on the same adaptive mesh (`cases/validation/amr/weno5_amr.py`, 
 | Sod, base 100 + 1 level | $L_1$ density error | 3.60e-3 | 3.15e-3 | 0.88 |
 | Shu-Osher, base 200 + 1 level | $L_1$ density error (reference: uniform WENO5-Z, 3200 cells) | 7.38e-2 | 2.99e-2 | 0.40 |
 | cavity Re 400, base 32 + 1 level | RMS of centreline $u$ / $v$ against the tabulated values | 4.23e-3 / 4.40e-3 | 3.65e-3 / 3.53e-3 | 0.86 / 0.80 |
-| cylinder Re 40, 20 finest cells per diameter | $C_d$ (uniform 400×200: 1.9047 / 1.8988) | 1.9424 | 1.8922 | 0.974 |
+| cylinder Re 40, 20 finest cells per diameter | $C_d$ (uniform 400×200: 1.9047 / 1.9041) | 1.9424 | 1.8922 | 0.974 |
 | cost per step, 1 thread / 16 threads / 4 ranks | wall time | 60.5 / 12.1 / 21.8 ms | 96.3 / 16.9 / 31.0 ms | 1.59 / 1.40 / 1.42 |
 
 The bands fixed before the runs are met (vortex: not above WENO3-Z; the tubes: within 5 % of WENO3-Z and no new over- or undershoot above $10^{-3}$ of the
