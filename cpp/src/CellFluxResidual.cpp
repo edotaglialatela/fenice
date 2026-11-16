@@ -354,7 +354,9 @@ struct LevelSizes {
     }
 };
 
+#ifdef FV_SIMD_AVX2
 constexpr int kViscBlock = 256;   // list entries per block of the viscous loops (the unit of the OpenMP schedule)
+#endif
 
 }   // namespace
 
