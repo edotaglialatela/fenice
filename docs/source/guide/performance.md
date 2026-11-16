@@ -21,7 +21,8 @@ IEEE operations in the same order as the scalar code (no fused multiply-add, no 
 selected by a mask), so the results are **bit-identical** with and without it, on any CPU. The scalar code is used on other CPUs
 and for the leftover faces of a batch; `FENICE_NO_SIMD=1` switches the vector kernels off (to time them, or to check the bits).
 The Riemann solver costs 47 / 71 ns per face (HLLC / Low-Mach) as scalar code and 16 / 21 ns vectorised
-(`bench_riemann`).
+(`bench_riemann`). On ARM64, where a value is two NEON registers, the gain is smaller: 55 / 84 against 41 / 54 ns on a hosted Linux
+runner and 63 / 101 against 30 / 32 ns on an Apple-silicon one (shared machines: indicative figures).
 The viscous cell quantities (velocities, temperature and the gradients from the four neighbours) and the viscous time-step bound of
 AMR meshes also run four leaves at a time, for runs of consecutive leaves whose neighbours are leaves (the others take the scalar
 path). On the 720×360 airfoil (50 steps, one thread) all the vector kernels together save 3.6 s: 4.9 s against 8.5 s with `FENICE_NO_SIMD=1`
