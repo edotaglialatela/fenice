@@ -684,7 +684,7 @@ static bool fused_enabled() {
     static const bool off = switch_on("FENICE_NO_FUSED");
     return !off;
 }
-static bool fused_recon(const MusclReconstruction&) { return fused_enabled(); }
+static bool fused_recon(const MusclReconstruction&, bool fourth) { return fused_enabled() && !fourth; }
 
 // Puts the cells of an in-place forcing back when the residual is done (also when it throws).
 struct Simulation::InPlaceForcing {
@@ -779,7 +779,8 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         ghost(Face::Top, mh.t, ghT_);
     }
     double S;
-    if (mu && fused_recon(*mu)) {
+    const bool fourth = mu && p.fourth_flux();   // flux_quadrature = fourth: the two-pass path with the transverse correction
+    if (mu && fused_recon(*mu, fourth)) {
         // reconstruction, Riemann solver and flux balance in one pass over rows of faces: the face fluxes are not stored
         ProfileScope ps(Section::Flux);
         S = mu->muscl_residual_2d(riemann, UL_, UR_, *Uc, m, mh, R);
@@ -787,6 +788,15 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         ProfileScope ps(Section::Flux);   // first order: the same pass, the states of the faces are the cells
         S = riemann.first_order_residual_2d(UL_, UR_, *Uc, m, R);
     } else {
+        if (fourth) {
+            {
+                ProfileScope ps(Section::Reconstruct);
+                mu->reconstruct_conserved(UL_, UR_, *Uc, m, mh);
+            }
+            ProfileScope ps(Section::Flux);
+            const bool per[3] = {per_x, per_y, false};
+            S = fourth_order_fluxes(riemann, fluid, UL_, UR_, m, mh, per, F_);
+        } else {
         if (mu) {
             ProfileScope ps(Section::Reconstruct);
             mu->reconstruct(UL_, UR_, *Uc, nx, ny, mh);
@@ -794,6 +804,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         {
             ProfileScope ps(Section::Flux);
             S = riemann.compute_flux(UL_, UR_, m, F_);
+        }
         }
         ProfileScope ps(Section::Divergence);
         R.resize(Uc->size());
@@ -964,10 +975,18 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     }
 
     double S;
-    const bool fused_balance = mu && fused_recon(*mu);
+    const bool fourth = mu && p.fourth_flux();
+    const bool fused_balance = mu && fused_recon(*mu, fourth);
     if (fused_balance) {
         ProfileScope ps(Section::Flux);   // reconstruction, Riemann solver and flux balance in one pass over planes
         S = mu->muscl_residual_3d(riemann, UL_, UR_, Uv, m, mh, R);
+    } else if (fourth) {
+        {
+            ProfileScope ps(Section::Reconstruct);
+            mu->reconstruct_conserved(UL_, UR_, Uv, m, mh);
+        }
+        ProfileScope ps(Section::Flux);
+        S = fourth_order_fluxes(riemann, fluid, UL_, UR_, m, mh, per, F_);
     } else {
         if (mu) {
             ProfileScope ps(Section::Reconstruct);

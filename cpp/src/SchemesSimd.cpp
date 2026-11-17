@@ -449,6 +449,39 @@ void weno5_line_simd(const EOS& eos, double eps_rel, const double* const* planes
     end_batch();
 }
 
+void weno3_line_cons_simd(double eps_rel, const double* const* planes, size_t base, size_t stride, int n, State* UL, State* UR) {
+    const V we = set1(eps_rel);
+    for (int k = 0; k < n; k += 4) {
+        Vec5 wl, wr;
+        for (int q = 0; q < 5; ++q) {
+            const double* c = planes[q] + base + k;
+            const V c0 = load(c), c1 = load(c + stride), c2 = load(c + 2 * stride), c3 = load(c + 3 * stride);
+            wl.q[q] = weno3z_v(c0, c1, c2, we);
+            wr.q[q] = weno3z_v(c3, c2, c1, we);
+        }
+        store4(UL + k, wl);
+        store4(UR + k, wr);
+    }
+    end_batch();
+}
+
+void weno5_line_cons_simd(double eps_rel, const double* const* planes, size_t base, size_t stride, int n, State* UL, State* UR) {
+    const V we = set1(eps_rel);
+    for (int k = 0; k < n; k += 4) {
+        Vec5 wl, wr;
+        for (int q = 0; q < 5; ++q) {
+            const double* c = planes[q] + base + k;
+            const V c0 = load(c), c1 = load(c + stride), c2 = load(c + 2 * stride), c3 = load(c + 3 * stride), c4 = load(c + 4 * stride),
+                    c5 = load(c + 5 * stride);
+            wl.q[q] = weno5z_v(c0, c1, c2, c3, c4, we);
+            wr.q[q] = weno5z_v(c5, c4, c3, c2, c1, we);
+        }
+        store4(UL + k, wl);
+        store4(UR + k, wr);
+    }
+    end_batch();
+}
+
 void weno_gather_simd(const EOS& eos, double eps_rel, bool five, const State* W, const int* st, int n, State* UL, State* UR) {
     const V we = set1(eps_rel);
     const VEos E(eos);

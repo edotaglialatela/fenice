@@ -54,6 +54,8 @@ public:
 
     // Solver variant.
     RiemannType type() const { return type_; }
+    // The shock-face dissipation threshold (0: off).
+    double shock_blend() const { return shock_blend_; }
 
 private:
     State hllc(const State& UL, const State& UR, int axis, double& smax) const;
@@ -172,6 +174,11 @@ public:
     double muscl_residual_3d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
                              const Halos& h, Field& R) const;
 
+    // WENO3-Z / WENO5-Z of the CONSERVED cell averages (not the primitives) on the faces with a full stencil of a uniform mesh (2-D when nz = 1): the
+    // face-averaged states of the fourth-order flux (flux_quadrature = fourth). The other faces keep what UL / UR hold. Halos as for the other
+    // reconstructions (three cells deep with WENO5-Z). Scalar.
+    void reconstruct_conserved(Field& UL, Field& UR, const Field& U, const Mesh& m, const Halos& h) const;
+
     // The WENO3-Z value at the face on the right of c1 from the cells (c0, c1, c2) (the right-hand state of the same face is
     // weno3_value(c3, c2, c1)): the very function the uniform reconstruction calls, so another engine (the adaptive face
     // list) gets the same bits. `weno_eps`: the relative regularisation of the scheme.
@@ -201,5 +208,14 @@ private:
     Reconstruction scheme_;
     double weno_eps_;
 };
+
+// The fluxes of the faces of a uniform mesh from the face-averaged left / right states UL / UR (conserved), with the fourth-order transverse
+// correction: point values U - (1/24) sum_t d2_t U, the Riemann solver on them, F + (1/24) sum_t d2_t F (d2_t: second difference over the
+// neighbouring faces of the same family along the transverse axis t; periodic[t] wraps). A face keeps the flux of the averaged states where its
+// full correction cannot be made: a face that is not reconstructed (no full stencil), a transverse neighbour or neighbour of it that does not exist,
+// the shock sensor of the Riemann solver firing on it or on them, or a non-positive density or pressure of a point value. Returns the maximum wave
+// speed. `h` tells which sides have a halo (their boundary faces are reconstructed).
+double fourth_order_fluxes(const RiemannSolver& riemann, const EOS& eos, const Field& UL, const Field& UR, const Mesh& m, const Halos& h,
+                           const bool periodic[3], Field& F);
 
 }   // namespace fv

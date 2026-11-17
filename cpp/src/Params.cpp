@@ -145,6 +145,7 @@ const std::vector<ParamSpec>& parameter_table() {
 
     {"riemann_solver", "numerics", "HLLC"},
     {"reconstruction", "numerics", "none"},
+    {"flux_quadrature", "numerics", "midpoint"},
     {"muscl_limiter", "numerics", "Van Leer"},
     {"weno_epsilon", "numerics", "1e-6"},
     {"boundary_order", "numerics", "2"},
@@ -300,6 +301,7 @@ SimParams SimParams::from(const Params& p) {
     s.reynolds = p.num("reynolds", 0.0);
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
     s.reconstruction = lower(p.str("reconstruction", "none"));
+    s.flux_quadrature = lower(p.str("flux_quadrature", "midpoint"));
     if (p.has("use_muscl")) {   // the retired switch of the second-order path, read with its old meaning
         s.use_muscl_alias = true;
         if (!p.flag("use_muscl")) {
@@ -393,6 +395,15 @@ SimParams SimParams::from(const Params& p) {
         if (ts == "ssp runge-kutta 2" || ts == "ssprk2" || ts == "rk2")
             throw std::invalid_argument("reconstruction = " + s.reconstruction + " is not used with SSP Runge-Kutta 2 (use SSP "
                                         "Runge-Kutta 3)");
+    }
+    if (s.flux_quadrature != "midpoint" && s.flux_quadrature != "fourth")
+        throw std::invalid_argument("flux_quadrature must be midpoint or fourth; got '" + s.flux_quadrature + "'");
+    if (s.fourth_flux()) {
+        if (s.reconstruction != "weno3" && s.reconstruction != "weno5")
+            throw std::invalid_argument("flux_quadrature = fourth needs reconstruction = weno3 or weno5");
+        if (s.use_amr) throw std::invalid_argument("flux_quadrature = fourth is not available with AMR yet");
+        if (s.use_mpi) throw std::invalid_argument("flux_quadrature = fourth is serial yet (its corrections read faces two cells across a rank interface)");
+        if (s.use_ibm) throw std::invalid_argument("flux_quadrature = fourth is not available with an immersed body yet");
     }
     if (s.boundary_order != 1 && s.boundary_order != 2) throw std::invalid_argument("boundary_order must be 1 or 2");
     // a first-order scheme has no reconstruction to extend to the boundary faces: the order is then 1 whatever was asked

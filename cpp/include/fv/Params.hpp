@@ -93,6 +93,10 @@ struct SimParams {
     std::string reconstruction = "none";
     // True if the input set the retired key use_muscl (read as an alias of reconstruction; Simulation::setup prints a note)
     bool use_muscl_alias = false;
+    // Flux quadrature of the uniform mesh: midpoint (default: the flux of the face-averaged states) or fourth (point values and a
+    // transverse correction, fourth order in space with weno3 / weno5; reconstructs the conserved averages)
+    std::string flux_quadrature = "midpoint";
+    bool fourth_flux() const { return flux_quadrature == "fourth"; }
     // A reconstruction is used (anything but none): the second-order path
     bool reconstructs() const { return reconstruction != "none"; }
     double shock_blend = 0.2;   // > 0: faces whose pressure jump |pR - pL| / min(pL, pR) exceeds it blend HLLC toward HLL (0: off)

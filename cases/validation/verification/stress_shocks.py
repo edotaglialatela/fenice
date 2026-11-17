@@ -35,7 +35,10 @@ SCHEMES = {"godunov": ["reconstruction=none"],
            "muscl": ["reconstruction=muscl", "muscl_limiter=MC", "time_scheme=SSP Runge-Kutta 2"],
            "weno3": ["reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"],
            # WENO5 with SSP-RK3 is stable up to CFL 0.3 on the near-vacuum tube (0.4 diverges)
-           "weno5": ["reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3", "cfl=0.3"]}
+           "weno5": ["reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3", "cfl=0.3"],
+           # flux_quadrature = fourth: conserved reconstruction and the transverse correction (not with the immersed body)
+           "weno3_fourth": ["reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3", "flux_quadrature=fourth"],
+           "weno5_fourth": ["reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3", "cfl=0.3", "flux_quadrature=fourth"]}
 NX, NY = 400, 4
 
 
@@ -258,6 +261,8 @@ def main():
 
     case = study.write_case(STUDY, "cylinder_mach10", cylinder_case(10.0))
     for scheme, sets in SCHEMES.items():
+        if scheme.endswith("_fourth"):
+            continue   # the immersed body is not available with flux_quadrature = fourth yet
         run_dir, why = run_case(f"cylinder_mach10_{scheme}", case, sets + ["nx=100", "ny=150"], args)
         res = {"finished": run_dir is not None}
         if run_dir is None:

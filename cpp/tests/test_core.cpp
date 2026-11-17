@@ -605,6 +605,153 @@ TEST(fused_weno_fluxes_equal_the_two_pass_fluxes_bit_for_bit) {
     std::printf("    %lld WENO face fluxes compared\n", compared);
 }
 
+TEST(fourth_order_flux_properties) {
+    // flux_quadrature = fourth: the transverse correction vanishes on a field that does not vary across the faces (the flux is then the
+    // midpoint flux bit for bit), changes the flux of a field that does, keeps the balance conservative on a periodic box, treats an
+    // extruded 3-D field as its 2-D layer, and leaves the faces at a shock on the flux of their averaged states.
+    const EOS eos = EOS::ideal(1.4);
+    const RiemannSolver rs(eos, RiemannType::HLLC, 0.2);
+    const MusclReconstruction mu(eos, Limiter::VanLeer, Reconstruction::Weno5, 1e-6);
+    const double pi = 3.14159265358979323846;
+    // periodic halos, three deep, of a mesh and its field (the layouts of Halos)
+    struct PerHalos {
+        Field l, r, b, t, f, bk;
+        Halos h;
+    };
+    const auto make_halos = [](const Mesh& m, const Field& U, PerHalos& ph) {
+        const int D = 3, nx = m.nx, ny = m.ny, nz = m.nz;
+        ph.l.resize(static_cast<size_t>(ny) * nz * D);
+        ph.r.resize(ph.l.size());
+        ph.b.resize(static_cast<size_t>(D) * nz * nx);
+        ph.t.resize(ph.b.size());
+        for (int k = 0; k < nz; ++k)
+            for (int j = 0; j < ny; ++j)
+                for (int d = 0; d < D; ++d) {
+                    ph.l[(k * ny + j) * D + d] = U[m.cell(nx - D + d, j, k)];
+                    ph.r[(k * ny + j) * D + d] = U[m.cell(d, j, k)];
+                }
+        for (int d = 0; d < D; ++d)
+            for (int k = 0; k < nz; ++k)
+                for (int i = 0; i < nx; ++i) {
+                    ph.b[(d * nz + k) * nx + i] = U[m.cell(i, m.ny - D + d, k)];
+                    ph.t[(d * nz + k) * nx + i] = U[m.cell(i, d, k)];
+                }
+        ph.h.depth = D;
+        ph.h.l = &ph.l;
+        ph.h.r = &ph.r;
+        ph.h.b = &ph.b;
+        ph.h.t = &ph.t;
+        if (nz > 1) {
+            ph.f.resize(static_cast<size_t>(D) * ny * nx);
+            ph.bk.resize(ph.f.size());
+            for (int d = 0; d < D; ++d)
+                for (int j = 0; j < ny; ++j)
+                    for (int i = 0; i < nx; ++i) {
+                        ph.f[(d * ny + j) * nx + i] = U[m.cell(i, j, nz - D + d)];
+                        ph.bk[(d * ny + j) * nx + i] = U[m.cell(i, j, d)];
+                    }
+            ph.h.f = &ph.f;
+            ph.h.bk = &ph.bk;
+        }
+    };
+    const bool per[3] = {true, true, true};
+    const auto smooth = [&](const Mesh& m, bool vary_y, bool vary_z) {
+        Field U(m.num_cells());
+        for (int k = 0; k < m.nz; ++k)
+            for (int j = 0; j < m.ny; ++j)
+                for (int i = 0; i < m.nx; ++i) {
+                    const double x = (i + 0.5) / m.nx, y = vary_y ? (j + 0.5) / m.ny : 0.0, z = vary_z ? (k + 0.5) / m.nz : 0.0;
+                    const double ph = 2.0 * pi * (x + y + z);
+                    U[m.cell(i, j, k)] = eos.prim_to_cons({1.0 + 0.2 * std::sin(ph), 0.5 + 0.1 * std::cos(ph), vary_y ? 0.3 * std::sin(ph) : 0.0,
+                                                           1.0 + 0.1 * std::sin(ph + 1.0), 0.0});
+                }
+        return U;
+    };
+    // the same arrays as Simulation::assemble: the sides filled by the boundary condition (unused here: everything periodic)
+    const auto fluxes = [&](const Mesh& m, const Field& U, Field& F2, Field& F4) {
+        PerHalos ph;
+        make_halos(m, U, ph);
+        Field UL, UR;
+        UL.resize(m.num_faces());
+        UR.resize(m.num_faces());
+        mu.reconstruct_conserved(UL, UR, U, m, ph.h);
+        rs.compute_flux(UL, UR, m, F2);
+        fourth_order_fluxes(rs, eos, UL, UR, m, ph.h, per, F4);
+        return std::make_pair(UL, UR);
+    };
+    {
+        // x-only field: no transverse variation, the correction is zero
+        const Mesh m = generate_cartesian_mesh(1.0, 1.0, 24, 12);
+        Field F2, F4;
+        fluxes(m, smooth(m, false, false), F2, F4);
+        bool same = F2.size() == F4.size();
+        for (int f = 0; same && f < m.num_xfaces(); ++f)   // the x faces: their transverse axis is y
+            for (int q = 0; q < kNVar; ++q) same = same && F2[f][q] == F4[f][q];
+        CHECK(same);
+    }
+    {
+        // 2-D field varying in both directions: the flux changes (by a truncation-sized amount) and the balance is conservative
+        const Mesh m = generate_cartesian_mesh(1.0, 1.0, 24, 24);
+        Field F2, F4;
+        fluxes(m, smooth(m, true, false), F2, F4);
+        double dmax = 0.0;
+        for (size_t f = 0; f < F2.size(); ++f)
+            for (int q = 0; q < kNVar; ++q) dmax = std::max(dmax, std::abs(F4[f][q] - F2[f][q]));
+        CHECK(dmax > 1e-7);
+        CHECK(dmax < 1e-2);
+        double sum[kNVar] = {};
+        for (int j = 0; j < m.ny; ++j)
+            for (int i = 0; i < m.nx; ++i)
+                for (int q = 0; q < kNVar; ++q)
+                    sum[q] += (F4[m.xface(i + 1, j)][q] - F4[m.xface(i, j)][q]) * m.dy + (F4[m.yface(i, j + 1)][q] - F4[m.yface(i, j)][q]) * m.dx;
+        for (int q = 0; q < kNVar; ++q) CHECK(std::abs(sum[q]) < 1e-12);
+    }
+    {
+        // a 3-D field that does not vary along z is its 2-D layer: the same x and y fluxes
+        const Mesh m2 = generate_cartesian_mesh(1.0, 1.0, 16, 16);
+        const Mesh m3 = generate_cartesian_mesh_3d(1.0, 1.0, 0.5, 16, 16, 6);
+        Field F2a, F4a, F2b, F4b;
+        fluxes(m2, smooth(m2, true, false), F2a, F4a);
+        fluxes(m3, smooth(m3, true, false), F2b, F4b);
+        bool same = true;
+        for (int k = 0; k < m3.nz; ++k)
+            for (int j = 0; j < m3.ny; ++j)
+                for (int i = 0; i <= m3.nx; ++i)
+                    for (int q = 0; q < kNVar; ++q) same = same && F4b[m3.xface(i, j, k)][q] == F4a[m2.xface(i, j)][q];
+        for (int k = 0; k < m3.nz; ++k)
+            for (int j = 0; j <= m3.ny; ++j)
+                for (int i = 0; i < m3.nx; ++i)
+                    for (int q = 0; q < kNVar; ++q) same = same && F4b[m3.yface(i, j, k)][q] == F4a[m2.yface(i, j)][q];
+        CHECK(same);
+        // and a field that varies along z has z fluxes that are corrected too
+        Field F2c, F4c;
+        fluxes(m3, smooth(m3, true, true), F2c, F4c);
+        double dz = 0.0;
+        for (int k = 1; k < m3.nz; ++k)
+            for (int j = 0; j < m3.ny; ++j)
+                for (int i = 0; i < m3.nx; ++i)
+                    for (int q = 0; q < kNVar; ++q) dz = std::max(dz, std::abs(F4c[m3.zface(i, j, k)][q] - F2c[m3.zface(i, j, k)][q]));
+        CHECK(dz > 1e-8);
+    }
+    {
+        // a strong pressure jump: the shock sensor fires on the faces next to it, which keep the flux of their averaged states
+        const Mesh m = generate_cartesian_mesh(1.0, 1.0, 24, 24);
+        Field U = smooth(m, true, false);
+        for (int j = 8; j < 16; ++j)
+            for (int i = 12; i < 24; ++i) U[m.cell(i, j)] = eos.prim_to_cons({1.0, 0.0, 0.0, 30.0, 0.0});
+        Field F2, F4;
+        const auto st = fluxes(m, U, F2, F4);
+        const int f = m.xface(12, 10);   // between the jump cell (12) and its neighbour
+        double sm = 0.0;
+        const State mid = rs.face_flux(st.first[f], st.second[f], 0, sm);
+        bool same = true;
+        for (int q = 0; q < kNVar; ++q) same = same && F4[f][q] == mid[q];
+        CHECK(same);
+        for (const State& s : F4)
+            for (int q = 0; q < kNVar; ++q) CHECK(std::isfinite(s[q]));
+    }
+}
+
 TEST(viscous_uniform_zero_and_couette) {
     const EOS eos = EOS::ideal(1.4);
     const Mesh m = generate_cartesian_mesh(1.0, 1.0, 6, 10);

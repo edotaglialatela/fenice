@@ -43,6 +43,10 @@ void weno3_line_simd(const EOS& eos, double eps_rel, const double* const* planes
 // the left / right state, bit-identical to eos.prim_to_cons of weno5z(c0 .. c4) and weno5z(c5 .. c1) per variable (Schemes.cpp).
 void weno5_line_simd(const EOS& eos, double eps_rel, const double* const* planes, size_t base, size_t stride, int n, State* UL,
                      State* UR);
+// WENO3-Z / WENO5-Z of CONSERVED variables on the faces of one line (flux_quadrature = fourth): like weno3_line_simd / weno5_line_simd, planes of the
+// conserved cell averages, the left / right face states written as they come (no conversion); bit-identical to weno3z / weno5z per variable.
+void weno3_line_cons_simd(double eps_rel, const double* const* planes, size_t base, size_t stride, int n, State* UL, State* UR);
+void weno5_line_cons_simd(double eps_rel, const double* const* planes, size_t base, size_t stride, int n, State* UL, State* UR);
 // WENO3-Z (`five` false: four cells per face) or WENO5-Z (`five`: six) conservative states of n faces (a multiple of 4) of the adaptive
 // engine: face k has its primitive cells at W[st[ns * k + p]], p = 0 .. ns - 1 (ns = 4 or 6, the cells in order along the normal);
 // UL[k] / UR[k] are bit-identical to MusclReconstruction::weno_face_states' scalar loop (weno3_value / weno5_value, prim_to_cons).

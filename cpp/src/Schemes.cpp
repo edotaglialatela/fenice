@@ -871,7 +871,8 @@ void fused_line(const FusedGrid& g, int axis, int j, int k, State* F_line, doubl
 // The primitive state padded by `pad` cells (edge replication; halos, `pad` deep, replace it where present). The layouts of Halos reduce to
 // the 2-D ones when nz = 1. The cells of the rows of the domain are converted by the vector kernel where the CPU has it.
 void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& h, std::vector<double>& Wp, int& PX, int& PY, int& zp,
-                    int pad) {
+                    int pad, bool prim = true) {
+    const auto conv = [&](const State& u) { return prim ? eos.cons_to_prim(u) : u; };
     const int nx = m.nx, ny = m.ny, nz = m.nz;
     const bool three_d = nz > 1;
     zp = three_d ? pad : 0;   // padding along z (none in 2-D)
@@ -891,7 +892,7 @@ void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& 
         const int j = std::min(std::max(jj - pad, 0), ny - 1);
         int iv = 0;   // the cells of the row that the vector kernel converts
 #ifdef FV_SIMD
-        if (detail::simd_available() && jj >= pad && jj < pad + ny && kk >= zp && kk < zp + nz) {
+        if (prim && detail::simd_available() && jj >= pad && jj < pad + ny && kk >= zp && kk < zp + nz) {
             iv = nx & ~3;
             double* o[kNVar];
             for (int q = 0; q < kNVar; ++q) o[q] = Wp.data() + q * plane + P(pad, jj, kk);
@@ -900,28 +901,28 @@ void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& 
 #endif
         for (int ii = 0; ii < PX; ++ii) {
             if (ii >= pad && ii < pad + iv) continue;
-            put(P(ii, jj, kk), eos.cons_to_prim(U[m.cell(std::min(std::max(ii - pad, 0), nx - 1), j, k)]));
+            put(P(ii, jj, kk), conv(U[m.cell(std::min(std::max(ii - pad, 0), nx - 1), j, k)]));
         }
     }
     for (int k = 0; k < nz; ++k)
         for (int d = 0; d < pad; ++d) {
             if (h.b)
-                for (int i = 0; i < nx; ++i) put(P(i + pad, d, k + zp), eos.cons_to_prim((*h.b)[(d * nz + k) * nx + i]));
+                for (int i = 0; i < nx; ++i) put(P(i + pad, d, k + zp), conv((*h.b)[(d * nz + k) * nx + i]));
             if (h.t)
                 for (int i = 0; i < nx; ++i)
-                    put(P(i + pad, ny + pad + d, k + zp), eos.cons_to_prim((*h.t)[(d * nz + k) * nx + i]));
+                    put(P(i + pad, ny + pad + d, k + zp), conv((*h.t)[(d * nz + k) * nx + i]));
             if (h.l)
-                for (int j = 0; j < ny; ++j) put(P(d, j + pad, k + zp), eos.cons_to_prim((*h.l)[(k * ny + j) * pad + d]));
+                for (int j = 0; j < ny; ++j) put(P(d, j + pad, k + zp), conv((*h.l)[(k * ny + j) * pad + d]));
             if (h.r)
                 for (int j = 0; j < ny; ++j)
-                    put(P(nx + pad + d, j + pad, k + zp), eos.cons_to_prim((*h.r)[(k * ny + j) * pad + d]));
+                    put(P(nx + pad + d, j + pad, k + zp), conv((*h.r)[(k * ny + j) * pad + d]));
         }
     if (three_d)
         for (int d = 0; d < pad; ++d)
             for (int j = 0; j < ny; ++j)
                 for (int i = 0; i < nx; ++i) {
-                    if (h.f) put(P(i + pad, j + pad, d), eos.cons_to_prim((*h.f)[(d * ny + j) * nx + i]));
-                    if (h.bk) put(P(i + pad, j + pad, nz + pad + d), eos.cons_to_prim((*h.bk)[(d * ny + j) * nx + i]));
+                    if (h.f) put(P(i + pad, j + pad, d), conv((*h.f)[(d * ny + j) * nx + i]));
+                    if (h.bk) put(P(i + pad, j + pad, nz + pad + d), conv((*h.bk)[(d * ny + j) * nx + i]));
                 }
 }
 
@@ -1150,4 +1151,300 @@ double RiemannSolver::first_order_residual_2d(const Field& UL, const Field& UR, 
     g.solid = nullptr;
     return fused_residual_2d(g, m, R);
 }
+
+void MusclReconstruction::reconstruct_conserved(Field& UL, Field& UR, const Field& U, const Mesh& m, const Halos& h) const {
+    const bool five = scheme_ == Reconstruction::Weno5;
+    const int pad = five ? 3 : kHaloDepth;
+    if ((h.l || h.r || h.b || h.t || h.f || h.bk) && h.depth < pad)
+        throw std::logic_error(five ? "WENO5-Z needs halos three cells deep" : "WENO3-Z needs halos two cells deep");
+    const int nx = m.nx, ny = m.ny, nz = m.nz;
+    thread_local std::vector<double> W_scratch;
+    std::vector<double>& Wp = W_scratch;   // the master's buffer: the worker threads read it through this name
+    int PX, PY, zp;
+    pad_primitives(eos_, U, m, h, Wp, PX, PY, zp, pad, false);
+    const size_t plane = Wp.size() / 5;
+    const double* const W = Wp.data();
+    const double* const pl[kNVar] = {W, W + plane, W + 2 * plane, W + 3 * plane, W + 4 * plane};
+    const double we = weno_eps_;
+#ifdef FV_SIMD
+    const bool vec = detail::simd_available();
+#else
+    const bool vec = false;
+#endif
+    UL.resize(m.num_faces());
+    UR.resize(m.num_faces());
+    // conserved reconstruction can give a negative pressure (or density) where the primitive one cannot: such a face takes the first-order states,
+    // the two cells next to it (positive by induction)
+    const double g1 = eos_.gamma - 1.0, gp = eos_.type == EOS::Type::IdealGas ? 0.0 : eos_.gamma * eos_.p_inf;
+    const auto positive = [&](const State& u) {
+        return u[0] > 0.0 && g1 * (u[3] * u[0] - 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4])) > gp * u[0];
+    };
+    const auto sweep = [&](int axis, bool has_lo, bool has_hi) {
+        const int n_a = axis == 0 ? nx : (axis == 1 ? ny : nz);
+        const size_t stride = axis == 0 ? 1 : (axis == 1 ? static_cast<size_t>(PX) : static_cast<size_t>(PX) * PY);
+        const int ni = axis == 0 ? nx + 1 : nx, nj = axis == 1 ? ny + 1 : ny, nk = axis == 2 ? nz + 1 : nz;
+#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
+        for (int kj = 0; kj < nk * nj; ++kj) {
+            const int j = kj % nj, k = kj / nj;
+            const int t_line = axis == 1 ? j : k;
+            int first, last;   // the faces of the line with a full stencil
+            if (axis == 0) {
+                first = has_lo ? 0 : 1;
+                last = has_hi ? nx : nx - 1;
+            } else if ((t_line > 0 && t_line < n_a) || (t_line == 0 && has_lo) || (t_line == n_a && has_hi)) {
+                first = 0;
+                last = nx - 1;
+            } else {
+                continue;
+            }
+            const int f0 = axis == 0 ? m.xface(0, j, k) : (axis == 1 ? m.yface(0, j, k) : m.zface(0, j, k));
+            const auto base_of = [&](int i) {
+                return (static_cast<size_t>(axis == 2 ? k : k + zp) * PY + (axis == 1 ? j : j + pad)) * PX + (axis == 0 ? i : i + pad);
+            };
+            int done = 0;
+            const int cnt = last - first + 1;
+#ifdef FV_SIMD
+            if (vec) {
+                done = cnt & ~3;
+                if (done > 0) {
+                    if (five)
+                        detail::weno5_line_cons_simd(we, pl, base_of(first), stride, done, &UL[f0 + first], &UR[f0 + first]);
+                    else
+                        detail::weno3_line_cons_simd(we, pl, base_of(first), stride, done, &UL[f0 + first], &UR[f0 + first]);
+                }
+            }
+#endif
+            for (int i = first + done; i <= last; ++i) {
+                const size_t base = base_of(i);
+                State wl, wr;
+                for (int q = 0; q < kNVar; ++q) {
+                    const double* c = pl[q] + base;
+                    if (five) {
+                        wl[q] = weno5z(c[0], c[stride], c[2 * stride], c[3 * stride], c[4 * stride], we);
+                        wr[q] = weno5z(c[5 * stride], c[4 * stride], c[3 * stride], c[2 * stride], c[stride], we);
+                    } else {
+                        wl[q] = weno3z(c[0], c[stride], c[2 * stride], we);
+                        wr[q] = weno3z(c[3 * stride], c[2 * stride], c[stride], we);
+                    }
+                }
+                UL[f0 + i] = wl;
+                UR[f0 + i] = wr;
+            }
+            // the faces of the line whose states are not admissible: the cells on both sides (padded positions 2 and 3 of the six, 1 and 2 of
+            // the four)
+            const int left = five ? 2 : 1, ncell = five ? 6 : 4;
+            const auto prs = [&](const State& u) { return g1 * (u[3] - 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4]) / u[0]) - gp; };
+            for (int i = first; i <= last; ++i) {
+                const size_t base = base_of(i);
+                // admissible: positive, and the density and the pressure inside the range of the stencil cells (a wild overshoot at a face)
+                bool ok = positive(UL[f0 + i]) && positive(UR[f0 + i]);
+                if (ok) {
+                    double rlo = 1e300, rhi = -1e300, plo = 1e300, phi = -1e300;
+                    for (int c = 0; c < ncell; ++c) {
+                        State u;
+                        for (int q = 0; q < kNVar; ++q) u[q] = pl[q][base + c * stride];
+                        const double pc = prs(u);
+                        rlo = std::min(rlo, u[0]);
+                        rhi = std::max(rhi, u[0]);
+                        plo = std::min(plo, pc);
+                        phi = std::max(phi, pc);
+                    }
+                    // a smooth extremum puts the face value a little beyond the cell averages: the range is widened by its own width
+                    const double rw = rhi - rlo, pw = phi - plo;
+                    rlo -= rw;
+                    rhi += rw;
+                    plo -= pw;
+                    phi += pw;
+                    for (const State* st : {&UL[f0 + i], &UR[f0 + i]}) {
+                        const double pf = prs(*st);
+                        ok = ok && (*st)[0] >= rlo && (*st)[0] <= rhi && pf >= plo && pf <= phi;
+                    }
+                }
+                if (ok) continue;
+                for (int q = 0; q < kNVar; ++q) {
+                    UL[f0 + i][q] = pl[q][base + left * stride];
+                    UR[f0 + i][q] = pl[q][base + (left + 1) * stride];
+                }
+            }
+        }
+    };
+    sweep(0, h.l != nullptr, h.r != nullptr);
+    sweep(1, h.b != nullptr, h.t != nullptr);
+    if (nz > 1) sweep(2, h.f != nullptr, h.bk != nullptr);
+}
+
+double fourth_order_fluxes(const RiemannSolver& riemann, const EOS& eos, const Field& UL, const Field& UR, const Mesh& m, const Halos& h,
+                           const bool periodic[3], Field& F) {
+    const int nx = m.nx, ny = m.ny, nz = m.nz;
+    const int dims[3] = {nx, ny, nz};
+    const int nax = nz > 1 ? 3 : 2;
+    const bool lo[3] = {h.l != nullptr, h.b != nullptr, h.f != nullptr}, hi[3] = {h.r != nullptr, h.t != nullptr, h.bk != nullptr};
+    const int nf = m.num_faces();
+    const double sb = riemann.shock_blend();
+    // p = g1 * rho e - gp
+    const double g1 = eos.gamma - 1.0, gp = eos.type == EOS::Type::IdealGas ? 0.0 : eos.gamma * eos.p_inf;
+    const auto m2 = [](const State& u) { return u[1] * u[1] + u[2] * u[2] + u[4] * u[4]; };
+    // positive density and pressure without a division (rho > 0: p > 0 <=> g1 (E rho - m^2 / 2) > gp rho)
+    const auto positive = [&](const State& u) { return u[0] > 0.0 && g1 * (u[3] * u[0] - 0.5 * m2(u)) > gp * u[0]; };
+    const auto pressure = [&](const State& u) { return g1 * (u[3] - 0.5 * m2(u) / u[0]) - gp; };
+    thread_local Field a_l, a_r, f_p;
+    thread_local std::vector<unsigned char> st_good, st_pt, st_full;
+    Field &AL = a_l, &AR = a_r, &Fp = f_p;
+    std::vector<unsigned char> &good = st_good, &pt = st_pt, &full = st_full;
+    AL.assign(UL.begin(), UL.end());
+    AR.assign(UR.begin(), UR.end());
+    good.assign(static_cast<size_t>(nf), 0);
+    pt.assign(static_cast<size_t>(nf), 0);
+    full.assign(static_cast<size_t>(nf), 0);
+    // Every face of every family, one line at a time: fn(a, f0, e0, c) is called per line (f0 the first face, c[1], c[2] its lattice position)
+    // and the line loop runs over c0 = 0 .. e0 - 1. Neighbours along the transverse axis t are f -+ stride, wrapped when periodic.
+    for (int a = 0; a < nax; ++a) {
+        const int e[3] = {nx + (a == 0), ny + (a == 1), nz + (a == 2)};
+        const int fbase = a == 0 ? m.xface(0, 0, 0) : (a == 1 ? m.yface(0, 0, 0) : m.zface(0, 0, 0));
+        const int nlines = e[1] * e[2];
+        const auto lattice = [&](int line, int i, int* c) { c[0] = i; c[1] = line % e[1]; c[2] = line / e[1]; };
+        // good: a full stencil, positive states, the shock sensor quiet
+#pragma omp parallel for schedule(static) if (nf >= kOmpMinWork)
+        for (int line = 0; line < nlines; ++line) {
+            int c[3];
+            for (int i = 0; i < e[0]; ++i) {
+                lattice(line, i, c);
+                const int f = fbase + line * e[0] + i;
+                const int ca = c[a], n_a = dims[a];
+                if (!((ca > 0 && ca < n_a) || (ca == 0 && lo[a]) || (ca == n_a && hi[a]))) continue;
+                if (!positive(UL[f]) || !positive(UR[f])) continue;
+                if (sb > 0.0) {
+                    const double pL = pressure(UL[f]), pR = pressure(UR[f]);
+                    if (std::abs(pR - pL) > sb * std::min(pL, pR)) continue;
+                }
+                good[f] = 1;
+            }
+        }
+    }
+    for (int a = 0; a < nax; ++a) {
+        const int e[3] = {nx + (a == 0), ny + (a == 1), nz + (a == 2)};
+        const long long st[3] = {1, e[0], static_cast<long long>(e[0]) * e[1]};
+        const int fbase = a == 0 ? m.xface(0, 0, 0) : (a == 1 ? m.yface(0, 0, 0) : m.zface(0, 0, 0));
+        const int nlines = e[1] * e[2];
+        const auto nbr = [&](int f, const int* c, int t, int s) -> int {
+            const int ct = c[t] + s;
+            if (ct >= 0 && ct < dims[t]) return f + s * static_cast<int>(st[t]);
+            if (!periodic[t]) return -1;
+            return f - s * (dims[t] - 1) * static_cast<int>(st[t]);
+        };
+        // point values where the faces at +-1 along every transverse axis are good too
+#pragma omp parallel for schedule(static) if (nf >= kOmpMinWork)
+        for (int line = 0; line < nlines; ++line) {
+            int c[3];
+            c[1] = line % e[1];
+            c[2] = line / e[1];
+            for (int i = 0; i < e[0]; ++i) {
+                const int f = fbase + line * e[0] + i;
+                if (!good[f]) continue;
+                c[0] = i;
+                int nb[2][2];
+                int cnt = 0;
+                bool ok = true;
+                for (int t = 0; t < nax && ok; ++t) {
+                    if (t == a) continue;
+                    nb[cnt][0] = nbr(f, c, t, -1);
+                    nb[cnt][1] = nbr(f, c, t, 1);
+                    ok = nb[cnt][0] >= 0 && nb[cnt][1] >= 0 && good[nb[cnt][0]] && good[nb[cnt][1]];
+                    ++cnt;
+                }
+                if (!ok) continue;
+                State pl = UL[f], pr = UR[f];
+                for (int q = 0; q < kNVar; ++q) {
+                    double dl = 0.0, dr = 0.0;
+                    for (int u = 0; u < cnt; ++u) {
+                        dl += UL[nb[u][1]][q] - 2.0 * UL[f][q] + UL[nb[u][0]][q];
+                        dr += UR[nb[u][1]][q] - 2.0 * UR[f][q] + UR[nb[u][0]][q];
+                    }
+                    pl[q] -= dl / 24.0;
+                    pr[q] -= dr / 24.0;
+                }
+                if (!positive(pl) || !positive(pr)) continue;
+                AL[f] = pl;
+                AR[f] = pr;
+                pt[f] = 1;
+            }
+        }
+    }
+    for (int a = 0; a < nax; ++a) {
+        const int e[3] = {nx + (a == 0), ny + (a == 1), nz + (a == 2)};
+        const long long st[3] = {1, e[0], static_cast<long long>(e[0]) * e[1]};
+        const int fbase = a == 0 ? m.xface(0, 0, 0) : (a == 1 ? m.yface(0, 0, 0) : m.zface(0, 0, 0));
+        const int nlines = e[1] * e[2];
+        const auto nbr = [&](int f, const int* c, int t, int s) -> int {
+            const int ct = c[t] + s;
+            if (ct >= 0 && ct < dims[t]) return f + s * static_cast<int>(st[t]);
+            if (!periodic[t]) return -1;
+            return f - s * (dims[t] - 1) * static_cast<int>(st[t]);
+        };
+#pragma omp parallel for schedule(static) if (nf >= kOmpMinWork)
+        for (int line = 0; line < nlines; ++line) {
+            int c[3];
+            c[1] = line % e[1];
+            c[2] = line / e[1];
+            for (int i = 0; i < e[0]; ++i) {
+                const int f = fbase + line * e[0] + i;
+                if (!pt[f]) continue;
+                c[0] = i;
+                bool ok = true;
+                for (int t = 0; t < nax && ok; ++t) {
+                    if (t == a) continue;
+                    const int g0 = nbr(f, c, t, -1), g1n = nbr(f, c, t, 1);
+                    ok = g0 >= 0 && g1n >= 0 && pt[g0] && pt[g1n];
+                }
+                full[f] = ok ? 1 : 0;
+            }
+        }
+    }
+    const double smax = riemann.compute_flux(AL, AR, m, Fp);   // the flux of the point values where there are any, else of the averages
+    F.resize(static_cast<size_t>(nf));
+    for (int a = 0; a < nax; ++a) {
+        const int e[3] = {nx + (a == 0), ny + (a == 1), nz + (a == 2)};
+        const long long st[3] = {1, e[0], static_cast<long long>(e[0]) * e[1]};
+        const int fbase = a == 0 ? m.xface(0, 0, 0) : (a == 1 ? m.yface(0, 0, 0) : m.zface(0, 0, 0));
+        const int nlines = e[1] * e[2];
+        const auto nbr = [&](int f, const int* c, int t, int s) -> int {
+            const int ct = c[t] + s;
+            if (ct >= 0 && ct < dims[t]) return f + s * static_cast<int>(st[t]);
+            if (!periodic[t]) return -1;
+            return f - s * (dims[t] - 1) * static_cast<int>(st[t]);
+        };
+#pragma omp parallel for schedule(static) if (nf >= kOmpMinWork)
+        for (int line = 0; line < nlines; ++line) {
+            int c[3];
+            c[1] = line % e[1];
+            c[2] = line / e[1];
+            for (int i = 0; i < e[0]; ++i) {
+                const int f = fbase + line * e[0] + i;
+                c[0] = i;
+                if (full[f]) {
+                    int nb[2][2];
+                    int cnt = 0;
+                    for (int t = 0; t < nax; ++t) {
+                        if (t == a) continue;
+                        nb[cnt][0] = nbr(f, c, t, -1);
+                        nb[cnt][1] = nbr(f, c, t, 1);
+                        ++cnt;
+                    }
+                    for (int q = 0; q < kNVar; ++q) {
+                        double d = 0.0;
+                        for (int u = 0; u < cnt; ++u) d += Fp[nb[u][1]][q] - 2.0 * Fp[f][q] + Fp[nb[u][0]][q];
+                        F[f][q] = Fp[f][q] + d / 24.0;
+                    }
+                } else if (pt[f]) {   // a point value without the full correction: back to the flux of the averaged states
+                    double sm = 0.0;
+                    F[f] = riemann.face_flux(UL[f], UR[f], a, sm);
+                } else {
+                    F[f] = Fp[f];
+                }
+            }
+        }
+    }
+    return smax;
+}
+
 }   // namespace fv
