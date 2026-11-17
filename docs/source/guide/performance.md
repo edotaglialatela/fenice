@@ -107,6 +107,45 @@ MUSCL uses the MC limiter with SSP-RK2, the WENO schemes SSP-RK3, CFL 0.5.
 $128^2$ (16.1 s on one thread) an error below that of MUSCL at $256^2$ (27.0 s), so for a given error it is the cheaper scheme there;
 the Taylor-Green reference peak is 0.0127. The thread count never changes the result: all runs above are bitwise equal on 1 and 44 threads.
 
+## Scaling on a 24-core workstation
+
+Strong scaling of the time loop on a 24-core workstation (Threadripper PRO 5965WX, 48 hardware threads, gcc, Linux), minimum of two runs, no output.
+Each case is a fixed number of steps: the viscous Taylor-Green vortex on $4096^2$ (MUSCL, SSP-RK2, 40 steps) and on $2048^2$ (`weno3`,
+SSP-RK3, 40 steps), the 3-D Taylor-Green vortex on $256^3$ (MUSCL, 10 steps), the AMR airfoil on a $1440\times720$ base mesh with 2 levels (50 steps, MUSCL and `weno5`)
+and the octree sphere of the [sphere case]({{root}}cases/sphere.html) (60 steps). The speed-up is the time loop on one rank (or one thread) over the time loop of the run; ranks are bound to
+physical cores up to 24, and the counts above 24 use both hardware threads of a core.
+
+| Case | 1 rank | best MPI | best OpenMP | best ranks x threads |
+|---|---:|---:|---:|---:|
+| uniform 2-D MUSCL $4096^2$ | 81.2 s | 9.7x (48 ranks) | 8.9x (48 threads) | 10.9x (8 x 6) |
+| uniform 2-D `weno3` $2048^2$ | 57.1 s | 7.7x (48 ranks) | 7.7x (48 threads) | 8.3x (8 x 6) |
+| uniform 3-D MUSCL $256^3$ | 58.0 s | 6.9x (24 ranks) | 5.0x (48 threads) | 8.1x (12 x 4) |
+| AMR airfoil, MUSCL | 20.1 s | 5.1x (48 ranks) | 5.5x (16 threads) | 4.8x (24 x 2) |
+| AMR airfoil, `weno5` | 67.0 s | 11.2x (48 ranks) | 10.6x (48 threads) | 10.3x (24 x 2) |
+| AMR octree sphere | 4.75 s | 2.5x (16 ranks) | 4.1x (24 threads) | 1.9x (12 x 2) |
+
+<figure>
+<img src="{{root}}img/workstation_scaling.png" alt="Strong scaling on MPI ranks, OpenMP threads and ranks x threads">
+<figcaption>Speed-up (top) and parallel efficiency (bottom) of the six cases on MPI ranks, OpenMP threads and ranks x threads (triangles, at the number of ranks). The grey band marks the counts above the 24 physical cores.</figcaption>
+</figure>
+
+* **The uniform cases stop at 7 to 11 times the single-core speed**, whatever the mix of ranks and threads, and gain little past 16 to 24 workers: the same ceiling for MPI and OpenMP,
+  as expected of passes over the whole array that are limited by the memory of the node. The hybrid runs (8 ranks of 6 threads, 12 of 4) are 7 to 17 % faster than the best pure mode on the uniform meshes.
+* **MPI against OpenMP** is close on the uniform cases (ranks ahead on the 3-D mesh, 6.9x against 5.0x). On the adaptive meshes OpenMP is ahead up to 16 workers, and the remesh grows with the ranks:
+  on the octree sphere 16 ranks take 1.87 s with 1.28 s in the remesh, 48 ranks take 3.1 s with 2.6 s in it, and 24 threads take 1.16 s. Use MPI to go beyond one node; on one node prefer threads, or a few ranks of several threads.
+* **`weno5` scales better than MUSCL** (11.2x against 5.1x on the AMR airfoil): the larger arithmetic cost per cell hides the memory traffic and the remesh.
+* The results are bitwise equal for every rank and thread count; only the time changes.
+
+The weak scaling keeps $1024\times512$ cells per rank (viscous Taylor-Green vortex, MUSCL, 40 steps): the time grows from 2.7 s on one rank to 3.5 s on 4, 5.6 s on 16 and 12.3 s on 48, an efficiency of 0.77, 0.49 and 0.22;
+threads give 0.77, 0.49 and 0.19.
+
+<figure>
+<img src="{{root}}img/workstation_weak_scaling.png" alt="Weak scaling efficiency on MPI ranks and OpenMP threads">
+<figcaption>Weak scaling (fixed cells per rank): $T(1)/T(N)$ on MPI ranks and OpenMP threads.</figcaption>
+</figure>
+
+The table of every run, with the time split by section, is `results/validation/workstation_scaling/scaling.md` (written by the scaling stage of the workstation script, see `cases/validation/workstation_postprocess.py`).
+
 ## Practical notes
 
 * The final line of a run reports the **time-loop** duration. Snapshots are binary VTK
