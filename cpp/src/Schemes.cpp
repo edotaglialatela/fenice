@@ -931,8 +931,10 @@ void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& 
 FusedGrid make_grid(const RiemannSolver& riemann, const EOS& eos, Limiter lim, Reconstruction scheme, double weno_eps,
                     const std::vector<double>& Wp, std::vector<char>& S_pad, const Field& UL, const Field& UR, const Mesh& m,
                     const Halos& h, int PX, int PY, int zp, int pad) {
+    if ((h.l || h.r || h.b || h.t || h.f || h.bk) && h.depth < pad)
+        throw std::logic_error(pad == 3 ? "WENO5-Z needs halos three cells deep" : "the reconstruction needs halos two cells deep");
     FusedGrid g{};
-    g.weno = scheme == Reconstruction::Weno5 ? 5 : (scheme == Reconstruction::Weno3 ? 3 : 0);
+    g.weno = scheme ==Reconstruction::Weno5 ? 5 : (scheme == Reconstruction::Weno3 ? 3 : 0);
     g.weno_eps = weno_eps;
     g.solid = nullptr;
     if (g.weno == 5 && h.narrow) {
