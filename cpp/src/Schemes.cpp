@@ -1169,7 +1169,8 @@ void MusclReconstruction::reconstruct_conserved(Field& UL, Field& UR, const Fiel
 #ifdef FV_SIMD
     const bool vec = detail::simd_available();
 #else
-    const bool vec = false;
+    const bool vec = false;   // (read only by the vector branch below)
+    (void)vec;
 #endif
     UL.resize(m.num_faces());
     UR.resize(m.num_faces());
@@ -1182,7 +1183,7 @@ void MusclReconstruction::reconstruct_conserved(Field& UL, Field& UR, const Fiel
     const auto sweep = [&](int axis, bool has_lo, bool has_hi) {
         const int n_a = axis == 0 ? nx : (axis == 1 ? ny : nz);
         const size_t stride = axis == 0 ? 1 : (axis == 1 ? static_cast<size_t>(PX) : static_cast<size_t>(PX) * PY);
-        const int ni = axis == 0 ? nx + 1 : nx, nj = axis == 1 ? ny + 1 : ny, nk = axis == 2 ? nz + 1 : nz;
+        const int nj = axis == 1 ? ny + 1 : ny, nk = axis == 2 ? nz + 1 : nz;
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
         for (int kj = 0; kj < nk * nj; ++kj) {
             const int j = kj % nj, k = kj / nj;
@@ -1202,7 +1203,7 @@ void MusclReconstruction::reconstruct_conserved(Field& UL, Field& UR, const Fiel
                 return (static_cast<size_t>(axis == 2 ? k : k + zp) * PY + (axis == 1 ? j : j + pad)) * PX + (axis == 0 ? i : i + pad);
             };
             int done = 0;
-            const int cnt = last - first + 1;
+            [[maybe_unused]] const int cnt = last - first + 1;
 #ifdef FV_SIMD
             if (vec) {
                 done = cnt & ~3;
