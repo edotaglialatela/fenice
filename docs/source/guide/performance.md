@@ -9,14 +9,15 @@ Every kernel is native C++. Three levels of parallelism combine:
 
 | Level | Mechanism | Used for |
 |---|---|---|
-| Vector | four faces or cells at a time: AVX2 (x86-64) or NEON (ARM64) | Riemann solvers, the MUSCL reconstruction of the interior faces of AMR meshes, the viscous cell quantities and time-step bound of AMR meshes |
+| Vector | four faces or cells at a time: AVX2 (x86-64) or NEON (ARM64) | Riemann solvers, the MUSCL, WENO3-Z and WENO5-Z reconstructions (uniform meshes; the interior faces of AMR meshes), the viscous cell quantities and time-step bound of AMR meshes |
 | Loop | OpenMP `parallel for` over faces / cells | Riemann fluxes, MUSCL, BCs, gradients, viscous terms, time-scheme updates |
 | AMR faces | OpenMP over the faces and leaves of one refinement level | AMR runs |
 | Domain | MPI strips with halo exchange | large uniform meshes, multiple nodes |
 | AMR leaves | MPI over the leaves of each level, cut along a Morton curve | AMR runs (correct on any rank count; see the limits below) |
 
 **Vector kernels.** On x86-64 CPUs with AVX2 and on ARM64 (NEON) the Riemann solver (the three HLLC variants, ideal and stiffened gas) runs four faces
-at a time, and on AMR meshes the MUSCL reconstruction of the interior faces is fused with it. Every lane performs the same
+at a time, and the MUSCL, WENO3-Z and WENO5-Z reconstructions run four faces at a time too (on AMR meshes for the interior faces whose stencil is made
+of leaves; MUSCL is fused with the Riemann solver there). Every lane performs the same
 IEEE operations in the same order as the scalar code (no fused multiply-add, no vector min / max, every branch computed and
 selected by a mask), so the results are **bit-identical** with and without it, on any CPU. The scalar code is used on other CPUs
 and for the leftover faces of a batch; `FENICE_NO_SIMD=1` switches the vector kernels off (to time them, or to check the bits).
@@ -34,8 +35,8 @@ loops. The CPU check that decides whether they run is compiled without AVX, so t
 face flux stays scalar: its vector version was slower than the scalar loop (1.1 to 1.25 s against 0.88 s), the kernel being dominated
 by scattered loads with three divisions per face.
 
-**Fused passes.** On a uniform mesh the residual is computed in one pass over rows of faces: the MUSCL reconstruction (or the
-cell states, first order), the Riemann solver and, in 2-D, the flux balance of the cells run on a row at a time, so the face fluxes
+**Fused passes.** On a uniform mesh the residual is computed in one pass over rows of faces: the reconstruction (MUSCL, WENO3-Z or
+WENO5-Z, or the cell states, first order), the Riemann solver and the flux balance of the cells run on a row at a time, so the face fluxes
 and the left / right states never go to memory. `FENICE_NO_FUSED=1` takes the
 separate passes; the two give the same bits (`fused_residual_passes_equal_the_two_pass_residual_bit_for_bit`). The 2-D viscous
 residual is one sweep over rows as well: the velocity, temperature and their derivatives of a row and of the row above stay in a

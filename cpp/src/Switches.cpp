@@ -12,8 +12,8 @@ const std::vector<EnvSwitch>& env_switches() {
          "Run the scalar Riemann and viscous kernels instead of the vector ones (AVX2, NEON). The results are identical bit for bit; use it to time "
          "the vector kernels or to check the equivalence."},
         {"FENICE_NO_FUSED", "flag", "solver",
-         "Uniform mesh with MUSCL: reconstruct the face states into arrays and run the Riemann solver on them in a second pass, "
-         "instead of the one pass that does both (RiemannSolver::muscl_face_flux_batch). The results are identical bit for bit; "
+         "Uniform mesh: reconstruct the face states into arrays and run the Riemann solver on them in a second pass, "
+         "instead of the one pass that does both (MusclReconstruction::muscl_residual_2d / _3d; MUSCL, WENO3-Z, WENO5-Z). The results are identical bit for bit; "
          "for A/B timing."},
         {"FENICE_FULL_REBUILD", "flag", "solver",
          "AMR: rebuild the faces and the engine tables of every leaf after each adaptation instead of copying those of the leaves "
