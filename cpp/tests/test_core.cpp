@@ -1583,3 +1583,107 @@ TEST(mesh_too_large_for_32_bit_indices_is_refused) {
     CHECK(!refused("800", "800", "800"));                       // 1.5e9 faces fit
     CHECK(!refused("30000", "30000", "1"));
 }
+
+TEST(weno5_line_batch_equals_the_scalar_function_bit_for_bit) {
+    // The vector kernel of the uniform WENO5-Z reconstruction (weno5_line_simd, AVX2 or NEON) gives the bits of weno5_value and
+    // prim_to_cons, for the left and the right state of every face of a line, along a stride other than one, with smooth data, jumps, zeros, signed zeros,
+    // tiny and huge values.
+#ifdef FV_SIMD
+    if (!fv::detail::simd_available()) return;
+    unsigned long long seed = 0x2545F4914F6CDD1Dull;
+    const auto rnd = [&]() {
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        return static_cast<double>(seed >> 11) * (1.0 / 9007199254740992.0);
+    };
+    const auto same = [](double a, double b) { return std::memcmp(&a, &b, 8) == 0 || (std::isnan(a) && std::isnan(b)); };
+    const EOS eos = EOS::ideal(1.4);
+    for (double eps : {1e-6, 1e-2}) {
+        const MusclReconstruction w5(eos, Limiter::VanLeer, Reconstruction::Weno5, eps);
+        for (size_t stride : {size_t(1), size_t(7)}) {
+            const int n = 64;
+            const size_t len = static_cast<size_t>(n) + 5 * stride + 8;
+            std::vector<double> plane[5];
+            for (int q = 0; q < 5; ++q) {
+                plane[q].resize(len);
+                for (size_t k = 0; k < len; ++k) {
+                    const double r = rnd();
+                    double x = (q == 3 ? 1.0 : 0.0) + (r - 0.5) * (r < 0.2 ? 5.0 : 0.05);
+                    if (r > 0.9) x = 0.0;   // exact zeros: the regularisation alone keeps the weights finite
+                    if (r > 0.95) x = -0.0;
+                    if (q == 1 && r > 0.85 && r <= 0.9) x = 1.0e150 * (r - 0.8);
+                    if (q == 2 && r > 0.85 && r <= 0.9) x = 1.0e-160 * (r - 0.8);
+                    plane[q][k] = x;
+                }
+            }
+            const double* pl[5] = {plane[0].data(), plane[1].data(), plane[2].data(), plane[3].data(), plane[4].data()};
+            std::vector<State> UL(n), UR(n);
+            fv::detail::weno5_line_simd(eos, eps, pl, 3, stride, n, UL.data(), UR.data());
+            int different = 0;
+            for (int k = 0; k < n; ++k) {
+                State wl, wr;
+                for (int q = 0; q < 5; ++q) {
+                    const double* c = pl[q] + 3 + k;
+                    wl[q] = w5.weno5_value(c[0], c[stride], c[2 * stride], c[3 * stride], c[4 * stride]);
+                    wr[q] = w5.weno5_value(c[5 * stride], c[4 * stride], c[3 * stride], c[2 * stride], c[stride]);
+                }
+                const State el = eos.prim_to_cons(wl), er = eos.prim_to_cons(wr);
+                for (int q = 0; q < 5; ++q)
+                    if (!same(el[q], UL[k][q]) || !same(er[q], UR[k][q])) ++different;
+            }
+            CHECK(different == 0);
+        }
+    }
+#endif
+}
+
+TEST(weno3_line_batch_equals_the_scalar_function_bit_for_bit) {
+    // The vector kernel of the uniform WENO3-Z reconstruction (weno3_line_simd, AVX2 or NEON) gives the bits of weno3_value and
+    // prim_to_cons, for the left and the right state of every face of a line, along a stride other than one, with smooth data, jumps, zeros, signed zeros,
+    // tiny and huge values.
+#ifdef FV_SIMD
+    if (!fv::detail::simd_available()) return;
+    unsigned long long seed = 0x2545F4914F6CDD1Dull;
+    const auto rnd = [&]() {
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        return static_cast<double>(seed >> 11) * (1.0 / 9007199254740992.0);
+    };
+    const auto same = [](double a, double b) { return std::memcmp(&a, &b, 8) == 0 || (std::isnan(a) && std::isnan(b)); };
+    const EOS eos = EOS::ideal(1.4);
+    for (double eps : {1e-6, 1e-2}) {
+        const MusclReconstruction w3(eos, Limiter::VanLeer, Reconstruction::Weno3, eps);
+        for (size_t stride : {size_t(1), size_t(7)}) {
+            const int n = 64;
+            const size_t len = static_cast<size_t>(n) + 3 * stride + 8;
+            std::vector<double> plane[5];
+            for (int q = 0; q < 5; ++q) {
+                plane[q].resize(len);
+                for (size_t k = 0; k < len; ++k) {
+                    const double r = rnd();
+                    double x = (q == 3 ? 1.0 : 0.0) + (r - 0.5) * (r < 0.2 ? 5.0 : 0.05);
+                    if (r > 0.9) x = 0.0;   // exact zeros: the regularisation alone keeps the weights finite
+                    if (r > 0.95) x = -0.0;
+                    if (q == 1 && r > 0.85 && r <= 0.9) x = 1.0e150 * (r - 0.8);
+                    if (q == 2 && r > 0.85 && r <= 0.9) x = 1.0e-160 * (r - 0.8);
+                    plane[q][k] = x;
+                }
+            }
+            const double* pl[5] = {plane[0].data(), plane[1].data(), plane[2].data(), plane[3].data(), plane[4].data()};
+            std::vector<State> UL(n), UR(n);
+            fv::detail::weno3_line_simd(eos, eps, pl, 3, stride, n, UL.data(), UR.data());
+            int different = 0;
+            for (int k = 0; k < n; ++k) {
+                State wl, wr;
+                for (int q = 0; q < 5; ++q) {
+                    const double* c = pl[q] + 3 + k;
+                    wl[q] = w3.weno3_value(c[0], c[stride], c[2 * stride]);
+                    wr[q] = w3.weno3_value(c[3 * stride], c[2 * stride], c[stride]);
+                }
+                const State el = eos.prim_to_cons(wl), er = eos.prim_to_cons(wr);
+                for (int q = 0; q < 5; ++q)
+                    if (!same(el[q], UL[k][q]) || !same(er[q], UR[k][q])) ++different;
+            }
+            CHECK(different == 0);
+        }
+    }
+#endif
+}

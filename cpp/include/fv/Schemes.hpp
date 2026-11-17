@@ -185,10 +185,11 @@ public:
     Reconstruction scheme() const { return scheme_; }
 
 private:
-    // WENO5-Z on a primitive state padded by 3 cells: a side with a halo (depth 3: periodic wrap or physical ghost layers)
-    // reads it and its boundary faces are reconstructed, a side without one replicates the edge cell (first-order
-    // boundary face); serial only: an MPI halo is two cells deep. Faces of the 2-D layout when nz = 1.
-    void reconstruct_weno5(Field& UL, Field& UR, const Field& U, int nx, int ny, int nz, const Halos& h) const;
+    // WENO3-Z (`five` false: four cells per face, a primitive state padded by 2 cells) and WENO5-Z (six cells, padded by 3) on the
+    // uniform mesh: a side with a halo (periodic wrap, physical ghost layers or an MPI neighbour) reads it and its boundary faces
+    // are reconstructed, a side without one replicates the edge cell (first-order boundary face). WENO5-Z is serial only: an MPI
+    // halo is two cells deep. Faces of the 2-D layout when nz = 1. Vector kernels (SchemesSimd.cpp) where the CPU has them.
+    void reconstruct_weno(Field& UL, Field& UR, const Field& U, int nx, int ny, int nz, const Halos& h, bool five) const;
 
     EOS eos_;
     Limiter lim_;

@@ -33,6 +33,16 @@ void muscl_riemann_batch_simd(const EOS& eos, RiemannType type, double sb, Limit
 // W + q * plane), face k of the batch has its stencil at the indices base + k + point * stride, point 0 .. 3. n a multiple of 4.
 void muscl_riemann_line_simd(const EOS& eos, RiemannType type, double sb, Limiter lim, const double* W, size_t plane, size_t base,
                              size_t stride, int axis, int n, State* F, double* smax, bool planar);
+// Primitive states (EOS::cons_to_prim) of the cells U[0 .. n-1] (n a multiple of 4), the variable q at out[q][k].
+void cons_to_prim_planes_simd(const EOS& eos, const State* U, int n, double* const* out);
+// The same for WENO3-Z (weno3z of Schemes.cpp): four cells per face, planes[q][base + k + s * stride], s = 0 .. 3.
+void weno3_line_simd(const EOS& eos, double eps_rel, const double* const* planes, size_t base, size_t stride, int n, State* UL,
+                     State* UR);
+// Conservative WENO5-Z states of the faces of one line (MusclReconstruction::reconstruct_weno): face k of the batch (n a multiple of 4)
+// has its six cells at planes[q][base + k + s * stride], s = 0 .. 5, one plane per primitive variable q = 0 .. 4; UL[k] / UR[k] receive
+// the left / right state, bit-identical to eos.prim_to_cons of weno5z(c0 .. c4) and weno5z(c5 .. c1) per variable (Schemes.cpp).
+void weno5_line_simd(const EOS& eos, double eps_rel, const double* const* planes, size_t base, size_t stride, int n, State* UL,
+                     State* UR);
 // Viscous cell kernels of the AMR engine for the leaves c0 .. c0+n-1 (n a multiple of 4), bit-identical to the scalar functions of
 // CellFlux.cpp; the arguments are those of viscous_cell_quantities_run and viscous_speed_range (CellFlux.hpp), with `out` the seven
 // arrays of ViscousCellArrays in their order (u, v, T, du/dx, du/dy, dv/dx, dv/dy).

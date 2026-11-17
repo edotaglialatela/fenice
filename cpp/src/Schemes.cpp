@@ -359,8 +359,9 @@ double MusclReconstruction::weno5_value(double c0, double c1, double c2, double 
     return weno5z(c0, c1, c2, c3, c4, weno_eps_);
 }
 
-void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U, int nx, int ny, int nz, const Halos& h) const {
-    constexpr int pad = 3;
+void MusclReconstruction::reconstruct_weno(Field& UL, Field& UR, const Field& U, int nx, int ny, int nz, const Halos& h,
+                                           bool five) const {
+    const int pad = five ? 3 : 2;   // cells read on each side of the two of a face (the stencil is 2 pad cells wide)
     const int padz = nz > 1 ? pad : 0;
     const int PX = nx + 2 * pad, PY = ny + 2 * pad, PZ = nz + 2 * padz;
     Mesh m;
@@ -369,7 +370,7 @@ void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U
     m.nz = nz;
     // a side with a halo (periodic wrap or ghost layers of a physical boundary) reads it, the others replicate the edge cell
     if ((h.l || h.r || h.b || h.t || h.f || h.bk) && h.depth < pad)
-        throw std::logic_error("WENO5-Z needs halos three cells deep");
+        throw std::logic_error(five ? "WENO5-Z needs halos three cells deep" : "WENO3-Z needs halos two cells deep");
     const int dh = h.depth;
     const auto clampi = [](int i, int n) { return i < 0 ? 0 : (i >= n ? n - 1 : i); };
     // conservative state of cell (i, j, k), one axis possibly outside the domain
@@ -382,30 +383,49 @@ void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U
         if (k >= nz && h.bk) return (*h.bk)[(static_cast<size_t>(k - nz) * ny + j) * nx + i];
         return U[m.cell(clampi(i, nx), clampi(j, ny), clampi(k, nz))];
     };
-    thread_local Field W_pad;
-    W_pad.resize(static_cast<size_t>(PZ) * PY * PX);
-    Field& Wp = W_pad;
+    const size_t padded_cells = static_cast<size_t>(PZ) * PY * PX;
     const auto P = [&](int ii, int jj, int kk) -> size_t { return (static_cast<size_t>(kk) * PY + jj) * PX + ii; };
+    // the primitive state of the padded cells, one plane per variable (the vector kernel reads four neighbouring faces along a line)
+#ifdef FV_SIMD
+    const bool vec = detail::simd_available();
+#else
+    const bool vec = false;
+#endif
+    thread_local std::vector<double> planes_scratch[kNVar];
+    std::vector<double>(&planes_)[kNVar] = planes_scratch;   // the master's buffers: the worker threads write through this name
+    for (int q = 0; q < kNVar; ++q) planes_[q].resize(padded_cells);
+    double* const wplane[kNVar] = {planes_[0].data(), planes_[1].data(), planes_[2].data(), planes_[3].data(), planes_[4].data()};
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
     for (int kk = 0; kk < PZ; ++kk) {
         const int k = kk - padz;
         for (int jj = 0; jj < PY; ++jj) {
             const int j = jj - pad;
+            int iv = 0;   // the cells of the row of the domain that the vector kernel converts
+#ifdef FV_SIMD
+            if (vec && j >= 0 && j < ny && k >= 0 && k < nz) {
+                iv = nx & ~3;
+                double* o[kNVar];
+                for (int q = 0; q < kNVar; ++q) o[q] = wplane[q] + P(pad, jj, kk);
+                detail::cons_to_prim_planes_simd(eos_, &U[m.cell(0, j, k)], iv, o);
+            }
+#endif
             for (int ii = 0; ii < PX; ++ii) {
                 const int i = ii - pad;
+                if (i >= 0 && i < iv) continue;
                 // a cell outside the domain along two axes (a corner) is not on any stencil: edge replication
                 const int out = (i < 0 || i >= nx) + (j < 0 || j >= ny) + (k < 0 || k >= nz);
-                Wp[P(ii, jj, kk)] = eos_.cons_to_prim(out > 1 ? U[m.cell(clampi(i, nx), clampi(j, ny), clampi(k, nz))] : cell_state(i, j, k));
+                const State w = eos_.cons_to_prim(out > 1 ? U[m.cell(clampi(i, nx), clampi(j, ny), clampi(k, nz))] : cell_state(i, j, k));
+                for (int q = 0; q < kNVar; ++q) wplane[q][P(ii, jj, kk)] = w[q];
             }
         }
     }
     // immersed body: the solid cells on the same padded layout (a cell outside the domain is solid if the cell it replicates or the
     // cell a periodic wrap puts there is)
     thread_local std::vector<char> S_pad;
-    const std::vector<char>* solid = h.narrow;
+    const std::vector<char>* solid = five ? h.narrow : nullptr;   // WENO3-Z has no narrower stencil to fall back on
     if (solid) {
         if (solid->size() != static_cast<size_t>(nx) * ny * nz) throw std::logic_error("WENO5-Z: the solid mask is not that of the mesh");
-        S_pad.resize(Wp.size());
+        S_pad.resize(padded_cells);
         const auto wrapi = [](int i, int n) { return ((i % n) + n) % n; };
         for (int kk = 0; kk < PZ; ++kk)
             for (int jj = 0; jj < PY; ++jj)
@@ -425,9 +445,35 @@ void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U
         const int n_a = axis == 0 ? nx : (axis == 1 ? ny : nz);
         const size_t stride = axis == 0 ? 1 : (axis == 1 ? static_cast<size_t>(PX) : static_cast<size_t>(PX) * PY);
         const int ni = axis == 0 ? nx + 1 : nx, nj = axis == 1 ? ny + 1 : ny, nk = axis == 2 ? nz + 1 : nz;
-#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
+        const double* const pl[kNVar] = {wplane[0], wplane[1], wplane[2], wplane[3], wplane[4]};
+#pragma omp parallel if (nx * ny * nz >= kOmpMinWork)
+        {
+#pragma omp for schedule(static)
         for (int kj = 0; kj < nk * nj; ++kj) {
             const int j = kj % nj, k = kj / nj;
+            // faces vs .. vs+nv-1 of the line (a multiple of four, all with a full stencil) take the vector kernel, which writes their
+            // conservative states; a face with a solid cell among its six is overwritten below, the others are left as they are
+            int vs = 0, nv = 0;
+#ifdef FV_SIMD
+            if (vec) {
+                if (axis == 0) {
+                    vs = has_lo ? 0 : 1;
+                    nv = ((has_hi ? nx : nx - 1) - vs + 1) & ~3;
+                } else {
+                    const int t = axis == 1 ? j : k;
+                    nv = ((t > 0 && t < n_a) || (t == 0 && has_lo) || (t == n_a && has_hi)) ? (ni & ~3) : 0;
+                }
+                if (nv > 0) {
+                    // the six cells of face i of the line are at b0 + i + s * stride, whatever the axis
+                    const size_t b0 = axis == 0 ? P(vs, j + pad, k + padz) : (axis == 1 ? P(pad, j, k + padz) : P(pad, j + pad, k));
+                    const int f0 = axis == 0 ? m.xface(vs, j, k) : (axis == 1 ? m.yface(0, j, k) : m.zface(0, j, k));
+                    if (five)
+                        detail::weno5_line_simd(eos, we, pl, b0, stride, nv, &UL[f0], &UR[f0]);
+                    else
+                        detail::weno3_line_simd(eos, we, pl, b0, stride, nv, &UL[f0], &UR[f0]);
+                }
+            }
+#endif
             for (int i = 0; i < ni; ++i) {
                 const int t = axis == 0 ? i : (axis == 1 ? j : k);
                 const int f = axis == 0 ? m.xface(i, j, k) : (axis == 1 ? m.yface(i, j, k) : m.zface(i, j, k));
@@ -442,9 +488,15 @@ void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U
                 bool four = false;   // a solid cell among the six: the four-cell stencil (as the adaptive engine does)
                 if (solid)
                     for (int s = 0; s < 6; ++s) four = four || Sp[base + s * stride] != 0;
+                if (!four && i >= vs && i < vs + nv) continue;
                 for (int q = 0; q < kNVar; ++q) {
-                    const double c0 = Wp[base][q], c1 = Wp[base + stride][q], c2 = Wp[base + 2 * stride][q];
-                    const double c3 = Wp[base + 3 * stride][q], c4 = Wp[base + 4 * stride][q], c5 = Wp[base + 5 * stride][q];
+                    const double* c = pl[q] + base;
+                    if (!five) {
+                        wl[q] = weno3z(c[0], c[stride], c[2 * stride], we);
+                        wr[q] = weno3z(c[3 * stride], c[2 * stride], c[stride], we);
+                        continue;
+                    }
+                    const double c0 = c[0], c1 = c[stride], c2 = c[2 * stride], c3 = c[3 * stride], c4 = c[4 * stride], c5 = c[5 * stride];
                     if (four) {
                         wl[q] = weno3z(c1, c2, c3, we);
                         wr[q] = weno3z(c4, c3, c2, we);
@@ -457,6 +509,7 @@ void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U
                 UR[f] = eos.prim_to_cons(wr);
             }
         }
+        }
     };
     sweep(0, h.l, h.r);
     sweep(1, h.b, h.t);
@@ -464,9 +517,7 @@ void MusclReconstruction::reconstruct_weno5(Field& UL, Field& UR, const Field& U
 }
 
 void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int nx, int ny, const Halos& h) const {
-    if (scheme_ == Reconstruction::Weno5) return reconstruct_weno5(UL, UR, U, nx, ny, 1, h);
-    const bool weno3 = scheme_ == Reconstruction::Weno3;
-    const double we = weno_eps_;
+    if (scheme_ != Reconstruction::Muscl) return reconstruct_weno(UL, UR, U, nx, ny, 1, h, scheme_ == Reconstruction::Weno5);
     constexpr int pad = kHaloDepth;
     const int PW = nx + 2 * pad;   // padded row width
     thread_local Field W_pad;      // scratch buffer, per thread
@@ -515,11 +566,6 @@ void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int 
             State wl, wr;
             for (int q = 0; q < kNVar; ++q) {
                 const double c0 = row[i][q], c1 = row[i + 1][q], c2 = row[i + 2][q], c3 = row[i + 3][q];
-                if (weno3) {
-                    wl[q] = weno3z(c0, c1, c2, we);
-                    wr[q] = weno3z(c3, c2, c1, we);
-                    continue;
-                }
                 const double b = c2 - c1;
                 wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, b);
                 wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, b);
@@ -546,11 +592,6 @@ void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int 
             for (int q = 0; q < kNVar; ++q) {
                 const double r0 = Wp[j * PW + col][q], r1 = Wp[(j + 1) * PW + col][q];
                 const double r2 = Wp[(j + 2) * PW + col][q], r3 = Wp[(j + 3) * PW + col][q];
-                if (weno3) {
-                    wl[q] = weno3z(r0, r1, r2, we);
-                    wr[q] = weno3z(r3, r2, r1, we);
-                    continue;
-                }
                 const double b = r2 - r1;
                 wl[q] = r1 + 0.5 * apply_limiter(lim, r1 - r0, b);
                 wr[q] = r2 - 0.5 * apply_limiter(lim, r3 - r2, b);
@@ -565,9 +606,7 @@ void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int 
 // state padded by 2 cells in every direction.  Halos (MPI or periodic) replace
 // the padding on their side; layouts as documented in Halos.
 void MusclReconstruction::reconstruct_3d(Field& UL, Field& UR, const Field& U, const Mesh& m, const Halos& h) const {
-    if (scheme_ == Reconstruction::Weno5) return reconstruct_weno5(UL, UR, U, m.nx, m.ny, m.nz, h);
-    const bool weno3 = scheme_ == Reconstruction::Weno3;
-    const double we = weno_eps_;
+    if (scheme_ != Reconstruction::Muscl) return reconstruct_weno(UL, UR, U, m.nx, m.ny, m.nz, h, scheme_ == Reconstruction::Weno5);
     constexpr int pad = kHaloDepth;
     const int nx = m.nx, ny = m.ny, nz = m.nz;
     const int PX = nx + 2 * pad, PY = ny + 2 * pad, PZ = nz + 2 * pad;
@@ -634,11 +673,6 @@ void MusclReconstruction::reconstruct_3d(Field& UL, Field& UR, const Field& U, c
                 for (int q = 0; q < kNVar; ++q) {
                     const double c0 = Wp[base][q], c1 = Wp[base + stride][q];
                     const double c2 = Wp[base + 2 * stride][q], c3 = Wp[base + 3 * stride][q];
-                    if (weno3) {
-                        wl[q] = weno3z(c0, c1, c2, we);
-                        wr[q] = weno3z(c3, c2, c1, we);
-                        continue;
-                    }
                     const double b = c2 - c1;
                     wl[q] = c1 + 0.5 * apply_limiter(lim, c1 - c0, b);
                     wr[q] = c2 - 0.5 * apply_limiter(lim, c3 - c2, b);

@@ -358,6 +358,98 @@ void muscl_riemann_line_simd(const EOS& eos, RiemannType type, double sb, Limite
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// WENO5-Z reconstruction of the faces of one line (scalar twin: weno5z in Schemes.cpp, same operations in the same order).
+
+namespace {
+
+inline V weno5z_v(V c0, V c1, V c2, V c3, V c4, V eps_rel) {
+    const V m1 = set1(-1.0);
+    const V eps = add(mul(mul(eps_rel, add(add(add(add(mul(c0, c0), mul(c1, c1)), mul(c2, c2)), mul(c3, c3)), mul(c4, c4))), set1(0.2)),
+                      set1(1e-300));
+    const V six = set1(6.0);
+    const V p0 = dv(add(sub(mul(set1(2.0), c0), mul(set1(7.0), c1)), mul(set1(11.0), c2)), six);
+    const V p1 = dv(add(add(mul(c1, m1), mul(set1(5.0), c2)), mul(set1(2.0), c3)), six);
+    const V p2 = dv(sub(add(mul(set1(2.0), c2), mul(set1(5.0), c3)), c4), six);
+    const V s0 = add(sub(c0, mul(set1(2.0), c1)), c2), t0 = add(sub(c0, mul(set1(4.0), c1)), mul(set1(3.0), c2));
+    const V s1 = add(sub(c1, mul(set1(2.0), c2)), c3), t1 = sub(c1, c3);
+    const V s2 = add(sub(c2, mul(set1(2.0), c3)), c4), t2 = add(sub(mul(set1(3.0), c2), mul(set1(4.0), c3)), c4);
+    const V k13 = set1(13.0 / 12.0), q = set1(0.25);
+    const V b0 = add(mul(mul(k13, s0), s0), mul(mul(q, t0), t0));
+    const V b1 = add(mul(mul(k13, s1), s1), mul(mul(q, t1), t1));
+    const V b2 = add(mul(mul(k13, s2), s2), mul(mul(q, t2), t2));
+    const V tau = vabs(sub(b0, b2));
+    const V one = set1(1.0);
+    const V a0 = mul(set1(0.1), add(one, dv(tau, add(b0, eps))));
+    const V a1 = mul(set1(0.6), add(one, dv(tau, add(b1, eps))));
+    const V a2 = mul(set1(0.3), add(one, dv(tau, add(b2, eps))));
+    return dv(add(add(mul(a0, p0), mul(a1, p1)), mul(a2, p2)), add(add(a0, a1), a2));
+}
+
+}   // namespace
+
+namespace {
+
+inline V weno3z_v(V c0, V c1, V c2, V eps_rel) {
+    const V eps = add(mul(mul(eps_rel, add(add(mul(c0, c0), mul(c1, c1)), mul(c2, c2))), set1(1.0 / 3.0)), set1(1e-300));
+    const V v0 = add(mul(set1(-0.5), c0), mul(set1(1.5), c1)), v1 = add(mul(set1(0.5), c1), mul(set1(0.5), c2));
+    const V d0 = sub(c1, c0), d1 = sub(c2, c1);
+    const V b0 = mul(d0, d0), b1 = mul(d1, d1);
+    const V tau = vabs(sub(b0, b1));
+    const V one = set1(1.0);
+    const V a0 = mul(set1(1.0 / 3.0), add(one, dv(tau, add(b0, eps))));
+    const V a1 = mul(set1(2.0 / 3.0), add(one, dv(tau, add(b1, eps))));
+    return dv(add(mul(a0, v0), mul(a1, v1)), add(a0, a1));
+}
+
+}   // namespace
+
+void weno3_line_simd(const EOS& eos, double eps_rel, const double* const* planes, size_t base, size_t stride, int n, State* UL,
+                     State* UR) {
+    const V we = set1(eps_rel);
+    const VEos E(eos);
+    for (int k = 0; k < n; k += 4) {
+        Vec5 wl, wr;
+        for (int q = 0; q < 5; ++q) {
+            const double* c = planes[q] + base + k;
+            const V c0 = load(c), c1 = load(c + stride), c2 = load(c + 2 * stride), c3 = load(c + 3 * stride);
+            wl.q[q] = weno3z_v(c0, c1, c2, we);
+            wr.q[q] = weno3z_v(c3, c2, c1, we);
+        }
+        store4(UL + k, E.prim_to_cons(wl));
+        store4(UR + k, E.prim_to_cons(wr));
+    }
+    end_batch();
+}
+
+void cons_to_prim_planes_simd(const EOS& eos, const State* U, int n, double* const* out) {
+    const VEos E(eos);
+    for (int k = 0; k < n; k += 4) {
+        const Vec5 W = E.cons_to_prim(load4(U + k));
+        for (int q = 0; q < 5; ++q) store(out[q] + k, W.q[q]);
+    }
+    end_batch();
+}
+
+void weno5_line_simd(const EOS& eos, double eps_rel, const double* const* planes, size_t base, size_t stride, int n, State* UL,
+                     State* UR) {
+    const V we = set1(eps_rel);
+    const VEos E(eos);
+    for (int k = 0; k < n; k += 4) {
+        Vec5 wl, wr;
+        for (int q = 0; q < 5; ++q) {
+            const double* c = planes[q] + base + k;
+            const V c0 = load(c), c1 = load(c + stride), c2 = load(c + 2 * stride), c3 = load(c + 3 * stride),
+                    c4 = load(c + 4 * stride), c5 = load(c + 5 * stride);
+            wl.q[q] = weno5z_v(c0, c1, c2, c3, c4, we);
+            wr.q[q] = weno5z_v(c5, c4, c3, c2, c1, we);
+        }
+        store4(UL + k, E.prim_to_cons(wl));
+        store4(UR + k, E.prim_to_cons(wr));
+    }
+    end_batch();
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Viscous cell kernels of the AMR engine (scalar twins in CellFlux.cpp: viscous_cell_quantities, viscous_cell_speed).  Same rules:
 // the operation order of the scalar code, operands of commutative operations included.  The leaves are consecutive: their states
 // are loaded like a batch of faces; neighbour states and the sizes of the levels are read with scalar loads (no gather
