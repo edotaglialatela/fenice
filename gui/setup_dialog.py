@@ -455,7 +455,7 @@ class SetupDialog(QDialog):
 
         note = QLabel(
             "ℹ  Lx / Ly of source and target must match.\n"
-            "   IBM mask is re-applied on the fine grid after interpolation."
+            "   The immersed body is re-applied on the fine grid after interpolation."
         )
         note.setObjectName("fieldNote")
         note.setWordWrap(True)
@@ -1012,10 +1012,6 @@ class SetupDialog(QDialog):
                 return False
             if self.sim_params['nz'] > 1 and self.sim_params['use_amr'] and self.sim_params.get('use_hot_start'):
                 self._error( "Config Error", "A 3-D AMR run cannot start from a hot start yet: disable one of them.")
-                return False
-            if self.sim_params['resume'] and self.sim_params['use_amr']:
-                self._error( "Config Error",
-                                     "Resume is not available with AMR (AMR runs write no checkpoint).")
                 return False
             for a, b in (('bc_left', 'bc_right'), ('bc_bottom', 'bc_top'), ('bc_front', 'bc_back')):
                 if (self.sim_params[a] == 'periodic') != (self.sim_params[b] == 'periodic'):

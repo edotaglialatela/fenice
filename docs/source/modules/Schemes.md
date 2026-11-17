@@ -139,7 +139,7 @@ result. `weno5` takes about 3 to 5 times as long as MUSCL on one thread for the 
 
 * The stencil is as deep as the MUSCL one for `weno3` (so it runs on MPI ranks, with results identical to the serial run bit
   for bit and independent of the thread count); `weno5` reads three cells on each side and is serial on the uniform mesh (with AMR it runs on MPI ranks).
-* Faces on a non-periodic physical boundary keep the first-order ghost states, as with MUSCL.
+* Faces on a non-periodic physical boundary are reconstructed through ghost layers with `boundary_order = 2` (the default; three layers for `weno5`); with 1 they keep the first-order ghost states, as with MUSCL.
 * There is no positivity limiter. Estimate (2026-11-05, 1-D tubes of `stress_shocks.py` on 400 x 4 cells, HLLC, the suite's CFL): no shock is strong enough to need it. A shock of Mach 30000 into gas at rest (pressure ratio about 1e9) and a 1e10 pressure-ratio Sod tube keep rho and p positive and finite with MUSCL, `weno3` and `weno5` (the smallest pressure is 0.88 of the ambient one, an undershoot of `weno5`). What breaks a WENO scheme is an expansion into near-vacuum, not a shock: for two receding rarefactions with speed +-u, vacuum forms at u = 3.7 (for p = 0.4, rho = 1); `weno3` and MUSCL survive u = 20 (5.3 times that), `weno5` survives u = 8 (2.1 times) and diverges at u = 12 and 20 even at CFL 0.3. The strong-shock suite (Sod with a 1000:1 pressure ratio, the 123 problem, the near-vacuum tube,
   Mach 10, 20 and 100 tubes, the Mach 10 cylinder, the odd-even test) is passed by `weno3` at the suite's CFL (0.4 for the tubes and the odd-even test, the case's own value for the cylinder) and by `weno5` at CFL 0.3.
   `weno5` with SSP-RK3 diverges on the near-vacuum tube at CFL 0.4 (it is stable up to 0.3), so
@@ -153,6 +153,59 @@ result. `weno5` takes about 3 to 5 times as long as MUSCL on one thread for the 
   its neighbour away from the face and the mean of the fine leaves. The interpolated value itself still uses the limited
   slopes of the coarse leaf, and those and the averaged values are second order. Measured on the Sod tube (base 50 cells, two levels, static refined band, SSP-RK3): the density L1 error is 2.972e-3, against 2.972e-3 on the uniform 200-cell grid and 1.05e-2 on the uniform 50-cell grid; with the band narrowed so that the waves cross the jumps, the error inside the window stays within 1.6 times the uniform-200 one. Smooth flow across the seams (isentropic vortex, one period, a 40 x 40 base mesh with one level in the strip 2.5 < x < 7.5, so the vortex crosses both seams): the L1 density error is 4.3e-3 with `weno3` (3.1e-3 with MUSCL MC), between the uniform 40 (5.9e-3 and 4.4e-3) and uniform 80 (9.6e-4 and 9.3e-4) grids, in the same ratio to MUSCL as on the uniform grids; no overshoot or loss of order specific to the seam shows, but the error is dominated by the coarse part, so this is a sanity check, not an order measurement. The transmissive ends of a WENO run leak about 1e-10 of the mass (the tails of the waves), also on a uniform grid.
   The level-0 mesh equals the uniform solver bit for bit, and the state is the same on any number of ranks.
+
+**Other weights (tried, not adopted).** A search for a better `weno5` weighting (2026-11-17) found no variant that is a general gain. At four to eight
+points per wave the present nonlinear weights cost resolution (dissipation -0.19 against -0.13 for the linear fifth-order scheme at $kh = \pi/2$). Ideal weights wherever
+the three Z ratios agree (a hard switch) and TENO5 recover most of it, but a hard switch breaks the time order (about 1 instead of 3 with SSP-RK3, the weights jumping with the
+sensor) and TENO5 overshoots 3-8 times more at discontinuities. A continuous blend of the Z weights into the ideal ones keeps the time order and gains 1-2 % of the Sod error and
+a third of the dissipation at 4-8 points per wave, for 16 % more cost per step and 2-4 % more error on the finest Shu-Osher grid. A fourth, downwind stencil was unstable at
+discontinuities. Bypassing the weights where all sensors agree could save at most 19 % of a step (the linear weights with no sensor at all), less with a real sensor, so it was not built.
+The cost went elsewhere: the vector kernels and the fused residual above.
+
+## Fourth-order flux quadrature
+
+The Riemann flux of the face-averaged states is a midpoint-type quadrature of the flux over the face: in 2-D and 3-D it makes the flux
+balance second order whatever the reconstruction (the one-dimensional orders of the WENO schemes need exact cell averages and a flux that
+is constant across the face). `flux_quadrature = fourth` removes that limit on uniform meshes with `weno3` or `weno5`, with one Riemann
+solve per face (the transverse correction of Buchmüller and Helzel, 2014):
+
+1. the **conserved** variables are reconstructed componentwise to both sides of every face (reconstructing the primitive variables
+   adds two $O(h^2)$ errors that the correction cannot remove, and the order then stays at about 2);
+2. each face state $\bar U$ becomes a face-centre value, $U_{pt} = \bar U - \frac{1}{24}\sum_t \delta_t^2 \bar U$, the sum running over the directions
+   $t$ transverse to the face (one in 2-D, two in 3-D), the differences taken on the faces of the same family;
+3. the Riemann solver runs on the point values;
+4. the flux is turned back into a face average, $\bar F = F_{pt} + \frac{1}{24}\sum_t \delta_t^2 F_{pt}$, so the balance stays conservative.
+
+A face keeps the flux of its averaged states (the `midpoint` flux) where the correction cannot be completed: a face on a physical side or
+next to one (a transverse neighbour is missing), a face where the shock sensor of the Riemann solver fires (`shock_blend`), and a face whose
+point value has a non-positive density or pressure. Reconstructing conserved variables does not keep density and pressure positive, so a
+reconstructed face whose density or pressure is not positive, or lies outside the range of its stencil cells by more than the width of that
+range, takes the two neighbouring cell states instead (the width is the margin that a smooth extremum needs: with the range itself the guard
+fires at every extremum and the order of the vortex below falls to 1.2).
+
+Measured on the isentropic vortex with exact cell-averaged initial data (a restart file written from $5 \times 5$ Gauss points per cell,
+`cases/validation/verification/flux_quadrature_order.py`), `weno5` and SSP-RK3, density $L_2$ error at $t = 1$:
+
+| cells per side | `midpoint` | order | `fourth` | order |
+|---:|---:|---:|---:|---:|
+| 32 | 8.63e-4 | | 6.29e-4 | |
+| 48 | 4.01e-4 | 1.89 | 1.22e-4 | 4.05 |
+| 64 | 2.29e-4 | 1.95 | 3.38e-5 | 4.46 |
+| 96 | 1.03e-4 | 1.98 | 5.27e-6 | 4.58 |
+
+**Limits.**
+
+* Uniform meshes without MPI and without an immersed body (each is rejected when the case is read). The result does not depend on the thread
+  count, and the key off is bit-identical to the solver without it. Three dimensions run, an extruded field gives its 2-D fluxes layer by layer
+  (`fourth_order_flux_properties`), and the order was measured in 2-D only.
+* The viscous terms, the source terms and the body force stay second order, and initial states given at cell centres carry an $O(h^2)$ error
+  of their own: the order shows with cell-averaged data.
+* The strong-shock suite (`stress_shocks.py`, also with `weno3_fourth` and `weno5_fourth`) is passed. Its 1-D tubes have walls on the transverse
+  sides, so the correction is inactive there and only the conserved reconstruction and its guard act. The density $L_1$ error of the 123 problem
+  is larger than with `midpoint` (`weno5` 0.0013 to 0.0029, `weno3` 0.0025 to 0.0037) and that of the Mach 10, 20 and 100 tubes smaller
+  (`weno5` 0.0127 to 0.0117, 0.0134 to 0.0123, 0.0136 to 0.0125).
+* A step costs about twice a `midpoint` WENO5-Z step on one core of a desktop CPU; the extra time is the admissibility check of the
+  reconstructed faces (measured on a machine other than the workstation of the [performance guide]({{root}}guide/performance.html)).
 
 ### References
 

@@ -26,7 +26,7 @@ validation scripts and full documentation.
   Explicit Euler, SSP-RK2 and SSP-RK3.
 - **Physics:** ideal and stiffened-gas equations of state, Navier-Stokes viscous and heat fluxes, body forces, source terms, and an
   immersed boundary method (cylinder, sphere, or an airfoil from the NACA 4-digit formulas or a coordinate file; a sharp ghost-cell
-  wall, the default, or a staircase mask) with lift / drag monitoring. Slip and no-slip walls, moving walls, velocity and mass-flow
+  wall) with lift / drag monitoring. Slip and no-slip walls, moving walls, velocity and mass-flow
   inlets, pressure outlets, transmissive and periodic boundaries.
 - **Adaptive meshes in 2-D and 3-D:** cell-based AMR, a quadtree in 2-D and an octree in 3-D (`use_amr`, one engine for both), with
   subcycling, conservative flux replacement, 2:1 balance, immersed bodies, bitwise restart and distributed MPI runs. On a 3-D sphere

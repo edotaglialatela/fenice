@@ -41,6 +41,7 @@ accuracy are measured, not estimated.
 | `sod_schemes.py` | Sod on 100 / 200 / 400 cells for every scheme (first order, four limiters, WENO3-Z, WENO5-Z, adaptive) against the exact solution and a published table ([page]({{root}}cases/sod.html)) |
 | `shock_order.py` | order of accuracy at a shock: Sod's problem on 100 to 1600 cells, $L_1$, $L_2$, $L_\infty$, shock position |
 | `isentropic_vortex.py` | isentropic-vortex convergence and limiter comparison |
+| `flux_quadrature_order.py` | order of the flux quadrature: the vortex with exact cell-averaged data, `midpoint` against `fourth` (bands set after the first run; `--check`) ([Schemes]({{root}}modules/Schemes.html)) |
 | `taylor_green.py` | Taylor-Green kinetic-energy decay and grid convergence |
 | `taylor_green_animation.py` | animation of the Taylor-Green vorticity surface decaying, against the exact solution |
 | `poiseuille.py` | Poiseuille parabola, grid convergence; serial vs 4 MPI ranks |
@@ -50,7 +51,7 @@ accuracy are measured, not estimated.
 | `implosions.py` | Noh implosion against its exact solution, Sedov blast scaling laws ([page]({{root}}cases/implosions.html)) |
 | `kelvin_helmholtz.py` | linear growth rate of a smooth shear layer against the analytic value ([page]({{root}}cases/kelvin-helmholtz.html)) |
 | `riemann_2d.py` | four 2-D Riemann configurations: positivity, symmetry, self-convergence, AMR against uniform ([page]({{root}}cases/riemann-2d.html)) |
-| `stress_shocks.py` | strong-shock robustness: pressure ratio 1000, vacuum, Mach 10-100, Mach 10 cylinder, odd-even test ([page]({{root}}guide/studies.html)) |
+| `stress_shocks.py` | strong-shock robustness: pressure ratio 1000, vacuum, Mach 10-100, Mach 10 cylinder, odd-even test, also with `flux_quadrature = fourth` ([page]({{root}}guide/studies.html)) |
 | `mms_weno.py` | the periodic manufactured solutions (Euler 2-D, Navier-Stokes 2-D / 3-D) with WENO3-Z and WENO5-Z: observed orders, bands fixed beforehand, WENO3-Z reported above the band ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_time_weno.py` | time order of the unsteady manufactured solution with WENO3-Z and WENO5-Z (SSP-RK3); the default-epsilon WENO5-Z row is reported, not banded ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_amr_weno.py` | periodic manufactured solutions on an adaptive mesh with a static refined square (interior level jumps and corners), WENO3-Z, WENO5-Z and MUSCL; `--full` adds the grid 128, where the $L_\infty$ order falls below its band ([page]({{root}}cases/manufactured-solution.html)) |
@@ -111,16 +112,16 @@ first run.
 
 | scheme | quantity | 100 | 200 | 400 | 800 | 1600 | order (finest pair) | band | |
 |---|---|---:|---:|---:|---:|---:|---:|---|---|
-| Godunov | rho L1 | 1.76e-02 | 1.12e-02 | 7.10e-03 | 4.49e-03 | 2.82e-03 | 0.67 (fit 0.66) | [0.50, 1.10] | OK |
-| Godunov | u L1 | 3.07e-02 | 1.76e-02 | 9.96e-03 | 5.65e-03 | 2.97e-03 | 0.93 (fit 0.84) | [0.60, 1.20] | OK |
-| Godunov | p L1 | 1.53e-02 | 9.22e-03 | 5.49e-03 | 3.23e-03 | 1.85e-03 | 0.80 (fit 0.76) | [0.60, 1.20] | OK |
-| Godunov | rho L2 | 2.71e-02 | 1.96e-02 | 1.47e-02 | 1.13e-02 | 8.73e-03 | 0.37 (fit 0.41) | [0.25, 0.75] | OK |
-| Godunov | rho Linf | 9.27e-02 | 8.43e-02 | 8.34e-02 | 8.25e-02 | 8.46e-02 | -0.04 (fit 0.03) | <= 0.30 | OK |
-| MUSCL | rho L1 | 5.56e-03 | 2.96e-03 | 1.64e-03 | 9.32e-04 | 4.99e-04 | 0.90 (fit 0.86) | [0.60, 1.10] | OK |
-| MUSCL | u L1 | 1.11e-02 | 5.64e-03 | 2.93e-03 | 1.59e-03 | 6.22e-04 | 1.35 (fit 1.02) | [0.60, 1.20] | OUTSIDE (documented) |
-| MUSCL | p L1 | 4.17e-03 | 2.09e-03 | 1.06e-03 | 5.46e-04 | 2.51e-04 | 1.12 (fit 1.00) | [0.60, 1.20] | OK |
-| MUSCL | rho L2 | 1.33e-02 | 9.29e-03 | 7.19e-03 | 5.77e-03 | 4.01e-03 | 0.52 (fit 0.41) | [0.25, 0.75] | OK |
-| MUSCL | rho Linf | 8.14e-02 | 6.67e-02 | 7.46e-02 | 8.24e-02 | 7.42e-02 | 0.15 (fit -0.00) | <= 0.30 | OK |
+| Godunov | rho L1 | 1.79e-02 | 1.13e-02 | 7.15e-03 | 4.51e-03 | 2.83e-03 | 0.67 (fit 0.67) | [0.50, 1.10] | OK |
+| Godunov | u L1 | 3.10e-02 | 1.76e-02 | 1.00e-02 | 5.68e-03 | 3.00e-03 | 0.92 (fit 0.84) | [0.60, 1.20] | OK |
+| Godunov | p L1 | 1.54e-02 | 9.26e-03 | 5.51e-03 | 3.24e-03 | 1.86e-03 | 0.80 (fit 0.76) | [0.60, 1.20] | OK |
+| Godunov | rho L2 | 2.74e-02 | 1.98e-02 | 1.47e-02 | 1.13e-02 | 8.75e-03 | 0.37 (fit 0.41) | [0.25, 0.75] | OK |
+| Godunov | rho Linf | 9.19e-02 | 8.43e-02 | 8.35e-02 | 8.23e-02 | 8.47e-02 | -0.04 (fit 0.03) | <= 0.30 | OK |
+| MUSCL | rho L1 | 5.65e-03 | 2.99e-03 | 1.66e-03 | 9.38e-04 | 5.03e-04 | 0.90 (fit 0.87) | [0.60, 1.10] | OK |
+| MUSCL | u L1 | 1.12e-02 | 5.68e-03 | 2.95e-03 | 1.60e-03 | 6.27e-04 | 1.35 (fit 1.01) | [0.60, 1.20] | OUTSIDE (documented) |
+| MUSCL | p L1 | 4.21e-03 | 2.11e-03 | 1.07e-03 | 5.52e-04 | 2.55e-04 | 1.12 (fit 1.00) | [0.60, 1.20] | OK |
+| MUSCL | rho L2 | 1.34e-02 | 9.34e-03 | 7.21e-03 | 5.77e-03 | 4.01e-03 | 0.52 (fit 0.42) | [0.25, 0.75] | OK |
+| MUSCL | rho Linf | 8.15e-02 | 6.66e-02 | 7.44e-02 | 8.22e-02 | 7.40e-02 | 0.15 (fit -0.00) | <= 0.30 | OK |
 
 * **$L_1$:** density converges at 0.66 (Godunov) and 0.8 to 0.9 (MUSCL), pressure and velocity, which have no
   contact error, at about 0.75 to 1. MUSCL's error is below Godunov's on every grid and for every variable.
@@ -165,35 +166,35 @@ systematic refinement).</figcaption>
 
 | study | quantity | grids (coarse to fine) | $p_{obs}$ | $F_s$ | fine-grid GCI | extrapolated | asymptotic ratio | reference |
 |---|---|---|---:|---:|---:|---:|---:|---|
-| cavity, MUSCL | $\psi_{\min}$ | -0.1058, -0.1123, -0.1136 | 2.24 | 1.25 | 0.5 % | -0.1141 | 1.18 | Ghia (1982) -0.1139; fine - ref = +2.70e-04, inside the GCI band |
-| cavity, MUSCL | $u_{\min}$ on $x = 0.5$ | -0.2997, -0.3232, -0.3277 | 2.38 | 1.25 | 0.573 % | -0.3292 | 1.30 | Ghia (1982) -0.3273; fine - ref = -4.39e-04, inside the GCI band |
-| cavity, MUSCL | $v_{\max}$ on $y = 0.5$ | 0.2725, 0.2975, 0.3025 | 2.30 | 1.25 | 0.7 % | 0.3042 | 1.23 | Ghia (1982) 0.302; fine - ref = +5.14e-04, inside the GCI band |
-| cavity, MUSCL | $v_{\min}$ on $y = 0.5$ | -0.4074, -0.4447, -0.4519 | 2.38 | 1.25 | 0.663 % | -0.4543 | 1.30 | Ghia (1982) -0.4499; fine - ref = -1.94e-03, inside the GCI band |
+| cavity, MUSCL | $\psi_{\min}$ | -0.1072, -0.1125, -0.1137 | 2.12 | 1.25 | 0.442 % | -0.1141 | 1.09 | Ghia (1982) -0.1139; fine - ref = +2.41e-04, inside the GCI band |
+| cavity, MUSCL | $u_{\min}$ on $x = 0.5$ | -0.3032, -0.3235, -0.3278 | 2.26 | 1.25 | 0.539 % | -0.3292 | 1.20 | Ghia (1982) -0.3273; fine - ref = -5.23e-04, inside the GCI band |
+| cavity, MUSCL | $v_{\max}$ on $y = 0.5$ | 0.2771, 0.2981, 0.3026 | 2.20 | 1.25 | 0.629 % | 0.3041 | 1.15 | Ghia (1982) 0.302; fine - ref = +5.96e-04, inside the GCI band |
+| cavity, MUSCL | $v_{\min}$ on $y = 0.5$ | -0.4131, -0.4452, -0.4523 | 2.18 | 1.25 | 0.651 % | -0.4546 | 1.14 | Ghia (1982) -0.4499; fine - ref = -2.35e-03, inside the GCI band |
 | cavity, 1st order | $\psi_{\min}$ | -0.08475, -0.09796, -0.1056 | 0.79 | 1.25 | 12.5 % | -0.1161 | 1.00 | Ghia (1982) -0.1139; fine - ref = +8.30e-03, inside the GCI band |
 | cavity, 1st order | $u_{\min}$ on $x = 0.5$ | -0.1982, -0.254, -0.2885 | 0.69 | 3 | 58.3 % | -0.3446 | 1.00 | Ghia (1982) -0.3273; fine - ref = +3.87e-02, inside the GCI band |
 | cavity, 1st order | $v_{\max}$ on $y = 0.5$ | 0.1934, 0.2426, 0.2716 | 0.76 | 1.25 | 19.2 % | 0.3133 | 1.00 | Ghia (1982) 0.302; fine - ref = -3.04e-02, inside the GCI band |
 | cavity, 1st order | $v_{\min}$ on $y = 0.5$ | -0.3193, -0.3829, -0.4177 | 0.87 | 1.25 | 12.6 % | -0.4597 | 1.00 | Ghia (1982) -0.4499; fine - ref = +3.22e-02, inside the GCI band |
-| IBM airfoil, Re = 1000 | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1636, 0.177, 0.1831 | 1.13 | 3 | 8.46 % | 0.1883 | 1.00 | observed order 1.13 far from the formal 2: Fs = 3 |
-| IBM airfoil, Re = 1000 (coarser triplet) | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1485, 0.1636, 0.177 | 0.17 | 3 | 185 % | 0.2864 | 1.00 | observed order 0.17 far from the formal 2: Fs = 3 |
-| IBM airfoil, Re = 1000 | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.5252, 0.3764, 0.513 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
-| IBM airfoil, Re = 1000 (coarser triplet) | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1684, 0.5252, 0.3764 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
+| IBM airfoil, Re = 1000 | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1636, 0.177, 0.1832 | 1.13 | 3 | 8.4 % | 0.1883 | 1.00 | observed order 1.13 far from the formal 2: Fs = 3 |
+| IBM airfoil, Re = 1000 (coarser triplet) | $\overline{C_d}$, $2 \leq t \leq 6$ | 0.1485, 0.1636, 0.177 | 0.16 | 3 | 189 % | 0.2886 | 1.00 | observed order 0.16 far from the formal 2: Fs = 3 |
+| IBM airfoil, Re = 1000 | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.5253, 0.3765, 0.513 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
+| IBM airfoil, Re = 1000 (coarser triplet) | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1685, 0.5253, 0.3765 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
 | 3-D Taylor-Green, Re = 1600 | $E_k(20)/E_k(0)$ | 0.2312, 0.2064, 0.1883 | -0.41 | 3 | - | - | - | apparent order -0.41 <= 0: the solutions do not converge on these grids, no GCI |
-| 3-D Taylor-Green, Re = 1600 | peak $\varepsilon$ | 0.01102, 0.01132, 0.01248 | -3.70 | 3 | - | - | - | DNS 512$^3$ 0.0127; fine - ref = -2.17e-04, no GCI band |
+| 3-D Taylor-Green, Re = 1600 | peak $\varepsilon$ | 0.01102, 0.01132, 0.01248 | -3.70 | 3 | - | - | - | DNS 512$^3$ 0.0127; fine - ref = -2.18e-04, no GCI band |
 
 What the table says:
 
-* **Cavity, second order.** The apparent orders (2.2 to 2.4) are close to the formal 2, so $F_s = 1.25$ and the
-  fine-grid GCI is 0.5 to 0.7 %. All four of Ghia's values lie inside the band of the 128² solution, so the
+* **Cavity, second order.** The apparent orders (2.1 to 2.3) are close to the formal 2, so $F_s = 1.25$ and the
+  fine-grid GCI is 0.4 to 0.7 %. All four of Ghia's values lie inside the band of the 128² solution, so the
   remaining difference to the benchmark is covered by the numerical uncertainty (Ghia's tables are samples of
   the extrema, so the centreline values are compared with the extremum of a local parabola through the solver's
-  profile). The asymptotic ratio of 1.2 to 1.3 says the 32²-64²-128² triplet is close to, not exactly in, the
+  profile). The asymptotic ratio of 1.1 to 1.2 says the 32²-64²-128² triplet is close to, not exactly in, the
   asymptotic range.
 * **Cavity, first order.** The apparent orders are 0.7 to 0.9 and the bands 12 to 58 %: the first-order scheme
   needs far finer grids, which is why the second-order scheme is the default.
 * **IBM airfoil.** Four grids, 192×96 to 1536×768; each quantity has two
-  triplets. The mean drag (0.1485, 0.1636, 0.1770, 0.1831) is monotone: observed order 1.13 on the three finest grids, $F_s = 3$, GCI 8.5 %
-  around the extrapolated 0.188; on the three coarsest the order is 0.17, so the range is not asymptotic and the number is
-  indicative. The mean lift (0.168, 0.525, 0.376, 0.513) is not monotone. These are means over $2 \leq t \leq 6$ of an
+  triplets. The mean drag (0.1485, 0.1636, 0.1770, 0.1832) is monotone: observed order 1.13 on the three finest grids, $F_s = 3$, GCI 8.4 %
+  around the extrapolated 0.188; on the three coarsest the order is 0.16, so the range is not asymptotic and the number is
+  indicative. The mean lift (0.168, 0.525, 0.377, 0.513) is not monotone. These are means over $2 \leq t \leq 6$ of an
   impulsive start, not of a statistically steady flow; whether that window is what limits the lift was not tested. The AMR run
   lies between the two finest uniform meshes.
 * **3-D Taylor-Green.** The energy at $t = 20$ and the peak dissipation do not converge on 32³, 64³ and 96³
@@ -225,11 +226,11 @@ benchmarks that have a reference value. A hollow marker has no numerical uncerta
 
 | quantity | $S$ | $D$ | $E = S - D$ | $U_{num}$ | $U_{val}$ | $|E|/U_{val}$ | reading |
 |---|---:|---:|---:|---:|---:|---:|---|
-| cavity, MUSCL: $\psi_{\min}$ | -0.1136 | -0.1139 | +2.70e-04 | 5.68e-04 | 5.68e-04 | 0.47 | within the noise level |
-| cavity, MUSCL: $u_{\min}$ on $x = 0.5$ | -0.3277 | -0.3273 | -4.39e-04 | 1.88e-03 | 1.88e-03 | 0.23 | within the noise level |
-| cavity, MUSCL: $v_{\max}$ on $y = 0.5$ | 0.3025 | 0.302 | +5.14e-04 | 2.12e-03 | 2.12e-03 | 0.24 | within the noise level |
-| cavity, MUSCL: $v_{\min}$ on $y = 0.5$ | -0.4519 | -0.4499 | -1.94e-03 | 2.99e-03 | 2.99e-03 | 0.65 | within the noise level |
-| 3-D Taylor-Green, Re = 1600: peak $\varepsilon$ | 0.01248 | 0.0127 | -2.17e-04 | - | - | - | not assessable (no numerical uncertainty) |
+| cavity, MUSCL: $\psi_{\min}$ | -0.1137 | -0.1139 | +2.41e-04 | 5.03e-04 | 5.03e-04 | 0.48 | within the noise level |
+| cavity, MUSCL: $u_{\min}$ on $x = 0.5$ | -0.3278 | -0.3273 | -5.23e-04 | 1.77e-03 | 1.77e-03 | 0.30 | within the noise level |
+| cavity, MUSCL: $v_{\max}$ on $y = 0.5$ | 0.3026 | 0.302 | +5.96e-04 | 1.90e-03 | 1.90e-03 | 0.31 | within the noise level |
+| cavity, MUSCL: $v_{\min}$ on $y = 0.5$ | -0.4523 | -0.4499 | -2.35e-03 | 2.95e-03 | 2.95e-03 | 0.80 | within the noise level |
+| 3-D Taylor-Green, Re = 1600: peak $\varepsilon$ | 0.01248 | 0.0127 | -2.18e-04 | - | - | - | not assessable (no numerical uncertainty) |
 
 * **Cavity against Ghia.** For all four extrema $|E| < U_{val}$ ($|E|/U_{val}$ between 0.2 and 0.65): the remaining
   difference to the benchmark is smaller than the numerical uncertainty of the 128² solution, so the cavity
@@ -242,9 +243,8 @@ benchmarks that have a reference value. A hollow marker has no numerical uncerta
   domain) are taken as exact, the strong-model assumption. $U_D = 0$: Ghia's tables and the DNS value come without an
   uncertainty, and a benchmark computed by another code is a gray area for validation (Roache, sec. 10.10).
   A data uncertainty would raise $U_{val}$ and push more comparisons to "within the noise level".
-* **Not done.** The cylinder against the literature values would need three grids of the long unsteady run, whose lift
-  is not stationary at $t = 80$, and the literature values are for an unbounded domain (the 10 % blockage is a
-  modelling difference, not a numerical one); it is left out rather than given an unreliable $U_{num}$.
+* **Not done.** The confined cylinder against the literature values is left out: the literature values are for an unbounded domain (the 10 % blockage is a
+  modelling difference, not a numerical one). The low-blockage cylinder has a GCI of its own (three resolutions, see the cylinder page).
 
 ### Fault injection (`verification/fault_injection.py`)
 

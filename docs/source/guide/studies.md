@@ -77,7 +77,7 @@ NumPy only; SciPy is optional (Sobol sequences). Each module is verified against
   recovers the exponents of a travelling wave, of a damped oscillation and of two damped oscillations in one delay-embedded
   record to $10^{-14}$; POD recovers the energies of two orthogonal modes to $10^{-15}$. Snapshots must be sampled above the
   Nyquist rate of the dynamics (more than two per period): the application on the cylinder wake
-  (`benchmarks/cylinder_modal.py`, [cylinder page]({{root}}cases/cylinder.html)) uses the run with 3.15 snapshots per period.
+  (`benchmarks/cylinder_modal.py`, [cylinder page]({{root}}cases/cylinder.html)) uses the run with 3.33 snapshots per period.
 * `fenice.spectra`: `psd` (Welch, Hann, detrend) with `peaks` and `strouhal`, `resample_uniform`, `energy_spectrum` (shell
   averaged, Parseval exact; the Taylor-Green field has all its energy in one shell), `helmholtz` (solenoidal / dilatational split).
   Derived quantities of a shell spectrum: exact enstrophy, `taylor_microscale`, `integral_scale`, `dissipation_spectrum`, and

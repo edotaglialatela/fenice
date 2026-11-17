@@ -89,30 +89,28 @@ shedding periods.
 <img src="{{root}}img/cylinder_loads.png" style="width:100%">
 <figcaption>Default 400×200 mesh to $t = 80$: vorticity at the end and loads. The flow stays symmetric
 until about $t = 20$ and starts to shed from numerical noise around $t = 25$; over $t \ge 50$,
-C<sub>d</sub> = 1.41, C<sub>l</sub> = ±0.28 (still decaying from ±0.34 at $t \approx 35$, so
-not yet a limit cycle) and St = 0.175, against 1.33-1.35, ±0.33 and 0.164-0.166 in the literature for
+C<sub>d</sub> = 1.54, C<sub>l</sub> = ±0.46 at its peak and St = 0.178, against 1.33-1.35, ±0.33 and 0.164-0.166 in the literature for
 Re = 100 (unbounded domain; the 4×2 box with slip walls blocks 10 % of the channel, which raises both
 C<sub>d</sub> and St). The run is <code>benchmarks/ibm_loads.py cylinder</code>.</figcaption>
 </figure>
 <figure>
 <img src="{{root}}img/cylinder_spectrum.png" style="width:100%">
 <figcaption>Spectral analysis of the shedding on the 400×200 run, $t \ge 50$ (30 time units, 26 periods; Hann window, zero
-padded). The lift peaks at St = 0.1746 with amplitude 0.23; the drag peaks at 0.350, 2.006 times the lift frequency
-(each vortex of either sign adds a drag pulse), and the lift has a third harmonic at 0.525. The resolution of the record is
-$D/T = 0.0067$ in St. A window of 12 time units slid along the record gives St = 0.173-0.178: it drifts
-down as the lift amplitude decays towards its limit cycle, so the record is not stationary and the value is
-quoted to two digits, 0.17-0.18, 5-7 % above the literature band 0.164-0.166 (green), the direction expected from the 10 % blockage, which the [low-blockage run](#re-100-in-a-large-box-amr) confirms (St = 0.166 in a box with 1.7 % blockage)
+padded). The lift peaks at St = 0.1775 with amplitude 0.42; the drag peaks at 0.355, 2.001 times the lift frequency
+(each vortex of either sign adds a drag pulse). The resolution of the record is
+$D/T = 0.0067$ in St. A window of 12 time units slid along the record gives St = 0.176 at its first position and 0.178 from then on:
+the record is stationary, and the value is 7-8 % above the literature band 0.164-0.166 (green), the direction expected from the 10 % blockage, which the [low-blockage run](#re-100-in-a-large-box-amr) confirms (St = 0.166 in a box with 1.7 % blockage)
 (<code>cases/validation/benchmarks/cylinder_spectrum.py</code>).</figcaption>
 </figure>
 <figure>
 <img src="{{root}}img/cylinder_modal.png" style="width:100%">
-<figcaption>Modal analysis of the same run, from the 82 snapshots of the transverse velocity $v$ at $t \ge 50$ (3.15 snapshots per
-period; the steps are uniform to $7\times10^{-4}$, a phase error of $1.4\times10^{-3}$ rad per step). Two POD modes carry 96.3 % of the fluctuation
-energy (52.1 % and 44.2 %, the third has 1.1 %); their time coefficients draw a circle, in quadrature to 89.8°, and the pair
-is the travelling wave of the vortex street. The exact DMD of the same snapshots has a leading pair at St = 0.1748
-($|\lambda| = 1.0001$), against 0.1746 from the lift spectrum; a time-delay DMD of the lift record gives 0.1747
-and, for the drag, 2.005 times that frequency. The DMD mode lies in the plane of the two POD modes. On the 1.7 %-blockage AMR runs
-([low blockage](#re-100-in-a-large-box-amr)) the lift record gives St = 0.1657 (20 cells per diameter) and 0.1660
+<figcaption>Modal analysis of the same run, from the 89 snapshots of the transverse velocity $v$ at $t \ge 50$ (3.33 snapshots per
+period; the steps are uniform to $7.6\times10^{-4}$, a phase error of $1.4\times10^{-3}$ rad per step). Two POD modes carry 96.5 % of the fluctuation
+energy (51.5 % and 45.0 %, the third has 1.0 %); their time coefficients draw a circle, in quadrature to 89.3°, and the pair
+is the travelling wave of the vortex street. The exact DMD of the same snapshots has a leading pair at St = 0.1776
+($|\lambda| = 0.99975$), against 0.1775 from the lift spectrum; a time-delay DMD of the lift record gives 0.1776
+and, for the drag, 2.0002 times that frequency. The DMD mode lies in the plane of the two POD modes. On the 1.7 %-blockage AMR runs
+([low blockage](#re-100-in-a-large-box-amr)) the lift record gives St = 0.1658 (20 cells per diameter) and 0.1661
 (40), by DMD, spectrum and zero crossings alike to $10^{-4}$, inside the literature band (green); the snapshots of those runs are
 four time units apart, three periods, so only their lift records are used. Bands fixed beforehand, no simulation run for it
 (<code>cases/validation/benchmarks/cylinder_modal.py</code>).</figcaption>
@@ -121,8 +119,8 @@ four time units apart, three periods, so only their lift records are used. Bands
 <img src="{{root}}img/cylinder_mesh_transition.gif" style="width:100%">
 <figcaption>Loads across a hot start: the 400×200 run of the loads study ($t \le 80$, developed street), then 800×400 mapped
 from its checkpoint for three more time units. Shedding carries on without a new start-up transient. After a short
-drag spike while the field adapts to the finer mesh, C<sub>l</sub> has an amplitude of 0.21 (0.17 on the coarse mesh
-over the last two time units, where it is still decaying slowly) and C<sub>d</sub> averages 1.43 (1.40 on the coarse mesh)
+drag spike while the field adapts to the finer mesh, C<sub>l</sub> has an amplitude of 0.42 (0.44 on the coarse mesh
+over the last two time units) and C<sub>d</sub> averages 1.47 (1.53 on the coarse mesh)
 (<code>cases/validation/features/cylinder_mesh_transition.py</code>).</figcaption>
 </figure>
 <figure>
@@ -186,7 +184,7 @@ size, $h_\ell = 0.08/2^\ell$:
 
 | level | cell size | cells per diameter | where it is used |
 |---|---:|---:|---|
-| 0 | 0.08 | 2.5 | far field, inlet side, above and below the wake (29 506 of 42 126 leaves at the end of the 4-level run) |
+| 0 | 0.08 | 2.5 | far field, inlet side, above and below the wake (most of the 42 621 leaves at the end of the 4-level run) |
 | 1 | 0.04 | 5 | the vortex street downstream of $x \approx 5$ |
 | 2 | 0.02 | 10 | transition between the body and the wake |
 | 3 | 0.01 | 20 | the body of the 3-level run (`amr_max_level = 3`); a transition level in the 4-level run |
@@ -206,34 +204,37 @@ size, $h_\ell = 0.08/2^\ell$:
 ```powershell
 build\release\fenice.exe --case "IBM Cylinder Low Blockage AMR"                    # 20 cells per diameter, t = 60
 build\release\fenice.exe --case "IBM Cylinder Low Blockage AMR" --set amr_max_level=4   # 40 cells per diameter
-python cases\validation\benchmarks\cylinder_low_blockage.py                          # both runs, loads, spectra, figure
+build\release\fenice.exe --case "IBM Cylinder Low Blockage AMR" --set amr_max_level=5   # 80 cells per diameter
+python cases\validation\benchmarks\cylinder_low_blockage.py                          # the first two runs, loads, spectra, figure
 ```
 
 ### Results
 
-Over $25 \le t \le 60$ (28 shedding periods), 3 levels (20 cells per diameter) and 4 levels (40 cells per diameter):
+Over $t \ge 25$ (to $t = 60$), 3, 4 and 5 levels (20, 40 and 80 cells per diameter at the body):
 
-| | 20 cells/D | 40 cells/D | literature, Re = 100 |
-|---|---:|---:|---:|
-| $\overline{C_d}$ | 1.421 | 1.367 | 1.33-1.35 |
-| lift amplitude | 0.429 | 0.362 | about 0.33 |
-| St (spectrum of $C_l$) | 0.1657 | 0.1659 | 0.164-0.166 |
-| St (zero crossings of $C_l$) | 0.1657 | 0.1659 | |
-| leaves at the end | 36 186 | 42 126 | |
+| | 20 cells/D | 40 cells/D | 80 cells/D | literature, Re = 100 |
+|---|---:|---:|---:|---:|
+| $\overline{C_d}$ | 1.4204 | 1.3670 | 1.3601 | 1.33-1.35 |
+| lift amplitude | 0.4290 | 0.3632 | 0.3508 | about 0.33 |
+| St (spectrum of $C_l$) | 0.1657 | 0.1661 | 0.1659 | 0.164-0.166 |
+| St (zero crossings of $C_l$) | 0.1658 | 0.1660 | 0.1659 | |
+| leaves at the end | 36 693 | 42 621 | 55 941 | |
 
 <figure>
 <img src="{{root}}img/cylinder_low_blockage.png" style="width:100%">
 <figcaption>Re = 100 in the $16\times12$ box, 40 cells per diameter at the body: vorticity at $t = 60$ (the velocity of the
 leaves is smoothed over one coarse wake cell before the derivative; the body is drawn), a zoom on the body at the finest
 cell size (smoothing 2.5 cells, so the boundary layer is not widened; vorticity saturated at $\pm 20$) with the AMR level
-there, the lift of both resolutions and its spectrum around the peak (the literature band is drawn at its true width). The final mesh has 42 126 leaves in place of 7.7 million cells.</figcaption>
+there, the lift of both resolutions and its spectrum around the peak (the literature band is drawn at its true width). The final mesh has 42 621 leaves in place of 7.7 million cells.</figcaption>
 </figure>
 
-The Strouhal number is $0.166$ at both resolutions, inside the literature band, and the frequency is the same to the
-fourth digit, whereas the 10 %-blockage run gives $0.175$: the excess of the confined case is a blockage effect,
-not a resolution one. The drag and the lift amplitude are more sensitive to the resolution: the mean drag falls from 1.42 to
-1.37 and the lift amplitude from 0.43 to 0.36 when the cells are halved, towards the literature values (1.33-1.35 and
-about 0.33); the two runs do not allow an extrapolation (two grids give no observed order), so no further digit is claimed.
+The Strouhal number is $0.166$ at all three resolutions, inside the literature band, and the frequency agrees to $4 \cdot 10^{-4}$,
+whereas the 10 %-blockage run gives $0.178$: the excess of the confined case is a blockage effect, not a resolution one. The drag and
+the lift amplitude are more sensitive to the resolution and converge monotonically towards the literature values (1.33-1.35 and about 0.33):
+the mean drag falls from 1.420 to 1.367 and 1.360 when the cells are halved twice, observed order 3.0 (above the formal 2, so the formal
+order is used), $F_s = 3$, fine-grid GCI 0.50 % of the finest value, extrapolated 1.358, asymptotic ratio 1.94; the lift amplitude falls from 0.429 to
+0.363 and 0.351, observed order 2.4, $F_s = 1.25$, GCI 1.5 %, extrapolated 0.347, asymptotic ratio 1.33. The 80-cell drag is 0.8 % above the
+upper end of the literature range and the lift amplitude about 6 % above 0.33.
 
 ### Spectra of the loads
 
@@ -246,11 +247,10 @@ Hann window and zero padding.
 Bottom: drag spectrum and the Strouhal number from a sliding window of 12 time units, at 20 and 40 cells per diameter.</figcaption>
 </figure>
 
-The lift peaks at $\mathrm{St} = 0.1657$ (20 cells per diameter, amplitude 0.39) and $0.1659$ (40, amplitude 0.33) with a third
-harmonic at $0.495$ and $0.497$. The drag peaks at $2.000$ and $2.001$ times the shedding frequency, and has no component at
-the shedding frequency itself, as the symmetry of the street requires. A window of 12 time units gives $0.1656$-$0.1658$ and
-$0.1658$-$0.1662$ along the record: the signal is stationary, unlike that of the confined case, where the lift amplitude was
-still decaying.
+The lift peaks at $\mathrm{St} = 0.1657$ (20 cells per diameter, amplitude 0.39) and $0.1661$ (40, amplitude 0.33) with a third
+harmonic near $0.5$. The drag peaks at twice the shedding frequency, and has no component at
+the shedding frequency itself, as the symmetry of the street requires. A window of 12 time units gives $0.166$ to the third digit
+along the record at both resolutions: the signal is stationary.
 
 In space, the spectrum of $v$ along the wake axis ($y = 6$, $4 \le x \le 11$) of the 40-cells-per-diameter final state, resampled to the
 finest level (5 600 cells, Hann window), peaks at wavenumber $6.28$, a wavelength of $1.00$ (5 diameters; resolution in $k$: $0.90$, so the wavelength is known to about
