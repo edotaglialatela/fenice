@@ -59,24 +59,24 @@ python cases\validation\amr\airfoil_amr.py --docs                  # AMR against
 <img src="{{root}}img/airfoil_amr.png" style="width:100%">
 <figcaption>NACA 0012 at 10°, Re = 1000, up to $t = 6$ (<code>cases/validation/amr/airfoil_amr.py</code>).
 Top: vorticity with the refined leaves of the AMR run, which follow the airfoil and the wake. Bottom: drag and lift of the AMR run and of
-uniform 192×96, 384×192 and 768×384 meshes. Bottom right: work and precision, the wall time of each run (16 OpenMP threads) against its
+uniform 192×96, 384×192 and 768×384 meshes. Bottom right: work and precision, the wall time of each run (on the workstation) against its
 rms load error with respect to the 768×384 run (circles $C_l$, squares $C_d$).</figcaption>
 </figure>
 
 | run | cells | wall time | rms error of $C_d$ | rms error of $C_l$ |
 |---|---:|---:|---:|---:|
-| uniform 192×96 | 18 432 | 1.0 s | 0.043 | 0.29 |
-| uniform 384×192 | 73 728 | 5.3 s | 0.026 | 0.20 |
-| uniform 768×384 | 294 912 | 35.8 s | (reference) | (reference) |
-| AMR, 192×96 + 2 levels | 23 304 | 6.5 s | 0.010 | 0.048 |
+| uniform 192×96 | 18 432 | 2.9 s | 0.043 | 0.29 |
+| uniform 384×192 | 73 728 | 23.3 s | 0.026 | 0.20 |
+| uniform 768×384 | 294 912 | 200.4 s | (reference) | (reference) |
+| AMR, 192×96 + 2 levels | 23 304 | 13.6 s | 0.010 | 0.048 |
 
 The errors are rms differences of $C_d(t)$ and $C_l(t)$ from the 768×384 run over
 $1 \le t \le 6$ (this is the impulsive start of the flow, not a statistically steady state).
 The comparison that matters is the time to a given error. AMR reaches the loads of the fine mesh (8 % of its cells)
-in 6.5 s against 35.8 s, about 5.5× faster, and it is four times more accurate than the uniform 384×192 run at a similar cost
-(6.5 s against 5.3 s, lift error 0.048 against 0.20). The cheap uniform 192×96 run takes 1.0 s, but its lift error
+in 13.6 s against 200.4 s, about 15× faster, and it is four times more accurate than the uniform 384×192 run at a lower cost
+(13.6 s against 23.3 s, lift error 0.048 against 0.20). The cheap uniform 192×96 run takes 2.9 s, but its lift error
 is about 6× larger: "AMR is slower than the coarse mesh" compares two runs of different accuracy. The wall times
-are one run each on 16 OpenMP threads.
+are one run each on the workstation.
 
 Caveats. The window is an impulsive start, not a statistically steady flow, so these figures are not a converged
 work-precision study. With more cores the advantage shrinks slightly because AMR parallelises worse than the uniform

@@ -33,8 +33,8 @@ parallelises less well, so the comparison that means anything is at **the same f
 
 | same finest mesh, 16 OpenMP threads | uniform cells | adaptive leaves | adaptive time loop / uniform |
 |---|---:|---:|---:|
-| 2-D airfoil, Re 1000, 2 levels | 4.1 M | 268 k (6.5 %) | 0.04 (**23× faster**) |
-| 3-D sphere, Re 20, 2 levels | 432 k | 76 k (18 %) | 0.13-0.16 (**6-8× faster**) |
+| 2-D airfoil, Re 1000, 2 levels | 4.1 M | 268 k (6.5 %) | 0.07 (**15× faster**) |
+| 3-D sphere, Re 20, 2 levels | 432 k | 76 k (18 %) | 0.26-0.28 (**3.6-3.8× faster**) |
 
 The same solution costs a fraction of the uniform time, on one thread and on 16, and the fraction shrinks as the levels deepen. The sections below
 describe the engine; the last one measures it.
@@ -75,7 +75,7 @@ Against WENO3-Z on the same adaptive mesh (`cases/validation/amr/weno5_amr.py`, 
 | Shu-Osher, base 200 + 1 level | $L_1$ density error (reference: uniform WENO5-Z, 3200 cells) | 7.38e-2 | 2.99e-2 | 0.40 |
 | cavity Re 400, base 32 + 1 level | RMS of centreline $u$ / $v$ against the tabulated values | 4.23e-3 / 4.40e-3 | 3.65e-3 / 3.53e-3 | 0.86 / 0.80 |
 | cylinder Re 40, 20 finest cells per diameter | $C_d$ (uniform 400×200: 1.9047 / 1.9041) | 1.9424 | 1.8922 | 0.974 |
-| cost per step, 1 thread / 16 threads / 4 ranks | wall time | 60.5 / 12.1 / 21.8 ms | 96.3 / 16.9 / 31.0 ms | 1.59 / 1.40 / 1.42 |
+| cost per step, 1 thread / 16 threads / 4 ranks | wall time | 61.0 / 11.1 / 20.6 ms | 94.5 / 13.3 / 29.5 ms | 1.55 / 1.19 / 1.44 |
 
 The bands fixed before the runs are met (vortex: not above WENO3-Z; the tubes: within 5 % of WENO3-Z and no new over- or undershoot above $10^{-3}$ of the
 jump); the cavity, the cylinder and the cost are reported. The gain is largest where smooth structure is carried through the fine leaves (Shu-Osher) and
@@ -219,17 +219,17 @@ after it advanced, and the registers of the coarse-fine faces. A same-level face
 by the owner of the fine leaf. The result is identical to the serial run for any number of ranks (1 to 7 are checked in
 `amr_mpi.py --check`, on cases with remeshing, an immersed body, viscosity, a non-reflecting outlet and a time-dependent source).
 
-**Known limits.** The indicator, the flags and the state of the new leaves are local, each rank builds its share of the mesh and the engine tables directly from the leaves near its own (a wider reach is tried if a face reads what the share lacks), and the first mesh is adapted the same way, so no rank builds the engine of the whole mesh or adapts a mesh with faces (the base mesh itself is constructed once at setup, and every rank keeps the leaves and lookups of the whole topology). No rank holds the topology of the whole mesh: the ranks fetch the leaves around their own from the owners, settle the ripple and the merges between them and migrate the new leaves; same result bit for bit). The memory per rank at the end of the run falls from 279 MB serial to 140 / 92 / 64 / 51 MB on 2 / 4 / 8 / 16 ranks (peak 373 MB serial, 210 / 128 / 84 / 81 MB), and the wall time of the 720×360 airfoil is 5.0 / 2.6 / 2.1 / 2.4 s (table above); on the 1.06 M-leaf airfoil (1440×720) the memory per rank at the end falls from 1071 MB to 506 / 304 / 200 / 154 MB (peak 1447 MB serial, 774 / 448 / 297 / 297 MB) and the wall time goes from 20.9 s to 24.2 / 14.3 / 10.3 / 9.5 s (17.4 / 10.7 s on 2 / 4 ranks with the ranks pinned to physical cores: on one node the cores the ranks land on matter). The peak is the remesh and the first share. A checkpoint is written by rank 0 as the leaves of each rank reach it, one rank after the other: it holds its own leaves and those of one other rank, never the whole state. The whole mesh is gathered on rank 0 only for the post-processing outputs (probes, samples, averages) and for `dump_state`. On one node
+**Known limits.** The indicator, the flags and the state of the new leaves are local, each rank builds its share of the mesh and the engine tables directly from the leaves near its own (a wider reach is tried if a face reads what the share lacks), and the first mesh is adapted the same way, so no rank builds the engine of the whole mesh or adapts a mesh with faces (the base mesh itself is constructed once at setup, and every rank keeps the leaves and lookups of the whole topology). No rank holds the topology of the whole mesh: the ranks fetch the leaves around their own from the owners, settle the ripple and the merges between them and migrate the new leaves; same result bit for bit). The memory per rank at the end of the run (the largest over the ranks) falls from 432 MB serial to 298 / 177 / 115 / 83 MB on 2 / 4 / 8 / 16 ranks (peak 470 MB serial, 304 / 183 / 115 / 83 MB), and the wall time of the 720×360 airfoil is 4.9 s serial and 3.8 / 2.4 / 1.5 / 0.95 s (table below); on the 1.06 M-leaf airfoil (1440×720) the memory per rank at the end falls from 1304 MB to 950 / 528 / 375 / 268 MB (peak 1557 MB serial, 1070 / 601 / 395 / 274 MB) and the wall time goes from 20.2 s to 16.2 / 10.6 / 7.7 / 4.4 s; on 24 and 48 ranks the peak stays at 270 MB (the end falls to 237 and 212 MB). The peak is the remesh and the first share. A checkpoint is written by rank 0 as the leaves of each rank reach it, one rank after the other: it holds its own leaves and those of one other rank, never the whole state. The whole mesh is gathered on rank 0 only for the post-processing outputs (probes, samples, averages) and for `dump_state`. On one node
 OpenMP is the better choice; MPI gives the same result for any rank count and a moderate speed-up. Checkpoint and `dump_state` gather the
 leaves on rank 0 (a transient copy of the whole state); a restart cuts each rank's share from the leaf list of the checkpoint (three integer arrays) and reads only the state rows of its own leaves and their halo (`NpzFile`), so no rank holds the whole state or mesh; a hot start reads the whole source field.
 At the end of a run the solver prints the resident memory of the ranks (after setup, after the initial adaptation, at the end,
-the peak: minimum / maximum over the ranks) and the size of the tables of a rank: about 1.5 kB per leaf on the airfoil
-(`cases/validation/amr/amr_memory.py` measures it on 1 to 16 ranks; the remesh is distributed as well, see below).
+the peak: minimum / maximum over the ranks) and the size of the tables of a rank: about 1.4 kB per leaf on the airfoil
+(`cases/validation/amr/amr_memory.py` measures it on 1 to 48 ranks; the remesh is distributed as well, see below).
 
 ## Cost and scaling
 
-Machine for all numbers: Ryzen 7 7800X3D (8 cores, 16 threads), MSVC build, `FENICE_PROFILE=1` where the time is split, one run each, on an idle
-machine. The right question is what an adaptive run costs **against a uniform run that gives the same answer**, that is, on the same finest mesh;
+Machine for all numbers: a workstation with a Threadripper PRO 5965WX (24 cores, 48 hardware threads), gcc build under Linux, `FENICE_PROFILE=1` where the time is split, on an idle
+machine (the solver was also built and run on other x86-64 and ARM64 machines, see [Getting started]({{root}}guide/getting-started.html)). The right question is what an adaptive run costs **against a uniform run that gives the same answer**, that is, on the same finest mesh;
 the adaptive run against itself on more cores (further below) only says how well it parallelises.
 
 ### Against the uniform solver on the same finest mesh
@@ -244,10 +244,10 @@ over uniform cells and time over uniform time for the 2-D airfoil and the 3-D oc
 | | 2-D airfoil, 2 levels | 3-D sphere, Re 20, 2 levels |
 |---|---:|---:|
 | uniform cells at the finest resolution | 4 147 200 | 432 000 |
-| adaptive leaves at the end | 268 299 (6.5 %) | 73 012 (17 %) |
-| time loop, adaptive / uniform, 1 thread | 5.0 s / 179 s: **36× faster** | 0.27 (steady state): **3.7× faster** |
-| time loop, adaptive / uniform, 16 threads | 1.4 s / 34 s: **23× faster** | 0.09-0.13: **8-11× faster** |
-| difference of the result | loads of the fine mesh (see the [airfoil]({{root}}cases/airfoil.html) page) | $C_d$ within 0.02-0.85 % (see the [sphere]({{root}}cases/sphere.html) page) |
+| adaptive leaves at the end | 268 299 (6.5 %) | 76 120 (18 %) |
+| time loop, adaptive / uniform, 1 thread | 5.0 s / 104.6 s: **21× faster** | 0.32-0.38 (steady state): **2.6-3.1× faster** |
+| time loop, adaptive / uniform, 16 threads | 0.9 s / 13.6 s: **15× faster** | 0.26-0.28 (steady state): **3.6-3.8× faster** |
+| difference of the result | loads of the fine mesh (see the [airfoil]({{root}}cases/airfoil.html) page) | $C_d$ within 0.02-0.13 % (Re 20 and 100, see the [sphere]({{root}}cases/sphere.html) page) |
 
 Two things make the adaptive solver win by more than the cell count would suggest at first sight, and one limits the gain:
 
@@ -255,41 +255,48 @@ Two things make the adaptive solver win by more than the cell count would sugges
   one coarse step of the adaptive run (200 against 50 here), the adaptive one subcycles only the fine levels, which hold a small part of the cells.
 * The 2-D airfoil needs 6.5 % of the cells, the 3-D sphere 17 %, at only two levels: a refined region of a given thickness is a smaller fraction of the
   domain the finer the target resolution is, so the saving grows with the number of levels.
-* The adaptive run has overhead that a uniform mesh does not (the face list, the virtual cells, the flux registers, the remesh), and its step scales less well on threads (below). With more cores the ratio therefore creeps up (0.027 on one thread, 0.042 on 16 for the airfoil), it does not reverse.
+* The adaptive run has overhead that a uniform mesh does not (the face list, the virtual cells, the flux registers, the remesh), and its step scales less well on threads (below). With more cores the ratio therefore creeps up (0.048 on one thread, 0.067 on 16 for the airfoil), it does not reverse.
 
-A coarse uniform mesh is of course cheaper than a fine adaptive one (the 192×96 airfoil mesh takes 1.2 s); but it does not resolve the flow, and what
-counts is the time to a given error: AMR reaches the loads of the 768×384 mesh in 6.5 s against 56.5 s (see the [airfoil]({{root}}cases/airfoil.html) page).
+A coarse uniform mesh is of course cheaper than a fine adaptive one (the 192×96 airfoil mesh takes 2.9 s); but it does not resolve the flow, and what
+counts is the time to a given error: AMR reaches the loads of the 768×384 mesh in 13.6 s against 200.4 s (see the [airfoil]({{root}}cases/airfoil.html) page).
 
 ### Scaling on one node
 
-The same airfoil run (720×360 base mesh, 2 levels, 50 steps, 268 209 leaves):
+The same airfoil run (720×360 base mesh, 2 levels, 50 steps, 268 299 leaves):
 
 | run | wall time | speed-up | of which remesh |
 |---|---:|---:|---:|
-| serial, 1 thread | 4.94 s | 1.0 | 0.88 s |
-| OpenMP, 2 / 4 / 8 / 16 threads | 2.71 / 1.67 / 1.42 / 1.36 s | 1.8 / 3.0 / 3.5 / 3.6 | 0.54 / 0.40 / 0.37 / 0.39 s |
-| uniform 2880×1440, 1 / 16 threads (200 steps) | 179 / 33.7 s | 1.0 / 5.3 | |
-| MPI, 2 / 4 / 8 / 16 ranks, each rank its share of the mesh | 4.99 / 2.64 / 2.05 / 2.41 s | 0.99 / 1.87 / 2.41 / 2.05 | 2.41 / 1.33 / 0.99 / 1.12 s |
+| serial, 1 thread | 4.89 s | 1.0 | 0.84 s |
+| OpenMP, 2 / 4 / 8 / 16 threads | 2.74 / 1.81 / 1.28 / 0.87 s | 1.8 / 2.7 / 3.8 / 5.6 | 0.48 / 0.32 / 0.25 / 0.22 s |
+| uniform 2880×1440, 1 / 16 threads (200 steps) | 104.6 / 13.6 s | 1.0 / 7.7 | |
+| MPI, 2 / 4 / 8 / 16 ranks, each rank its share of the mesh | 3.84 / 2.43 / 1.53 / 0.95 s | 1.3 / 2.0 / 3.2 / 5.2 | 1.59 / 1.00 / 0.62 / 0.47 s |
 
-Every final state is bit for bit the serial one (`amr_mpi.py`). On a node, **use OpenMP threads for adaptive runs**: 3.6× on 16 threads against 5.3× for the
-uniform solver, whose time stays 25 times higher. The adaptive step parallelises less well than the uniform sweep because its levels are small (loops
-under 4096 items run on one thread), the remesh does not scale, and 50 steps are short (the remesh and the setup are a fixed part of them, which a long run
-amortises less than it looks: the remesh stays 18-29 % of the time loop). MPI gives the same result for any number of ranks but on one node it does not pay for this case: the
-remesh of a rank's share costs 1.0-2.4 s against 0.4-0.9 s on threads, and the stepping alone scales (2.6 s on 2 ranks, 1.1 s on 8), so MPI is for runs that
-do not fit in the memory of one node. The ranks of this table are placed by the system; pinned to physical cores the 2 / 4 / 8-rank runs take
-4.25 / 2.49 / 1.74 s (remesh 2.00 / 1.23 / 0.83 s). Eight ranks on the eight cores of this machine run each about 1.35 times slower than alone and wait for
-each other in the collective calls, which a run on several nodes does not pay. It scales better on a larger 3-D mesh, where the stepping is the larger share (the 3-D sphere below).
+Every final state is bit for bit the serial one (`amr_mpi.py`). Up to 16 workers OpenMP threads are ahead of MPI ranks at every count, and the two meet at 16 (5.6× and 5.2×);
+the uniform solver gains 7.7× on 16 threads and its time stays 15 times higher. The adaptive step parallelises less well than the uniform sweep because its levels are small (loops
+under 4096 items run on one thread), the remesh scales less than the stepping, and 50 steps are short (the remesh and the setup are a fixed part of them, which a long run
+amortises less than it looks: the remesh stays 17-25 % of the time loop on threads, and 41-49 % on ranks). The remesh of a rank's share costs 0.5-1.6 s against 0.2-0.5 s on threads,
+while the stepping alone scales on ranks as well as on threads, so MPI is for runs that do not fit in the memory of one node, or that go beyond it.
+The larger airfoil (1440×720 base mesh, 1.06 M leaves, 50 steps) takes 20.2 s serial, 3.7 s on 16 threads (5.5×) and 4.4 s on 16 ranks (4.5×), and its best time on MPI is 3.9 s on 48 ranks (5.1×);
+with WENO5-Z the same run takes 67.0 s serial and 6.0 s on 48 ranks (11.2×), and the remesh is a smaller share of it (30 % against 44 % for MUSCL on 48 ranks). The scaling over 1 to 48 workers of this and
+of the other adaptive and uniform cases is on the [Performance]({{root}}guide/performance.html#scaling-on-a-24-core-workstation) page.
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/amr_mpi.png" style="width:100%">
-<figcaption>AMR airfoil on a 720×360 base mesh with 2 levels, 50 steps, 16 logical processors
+<figcaption>AMR airfoil on a 720×360 base mesh with 2 levels, 50 steps, 1 to 16 workers on the 24-core workstation
 (<code>cases/validation/amr/amr_mpi.py</code>). Left: speed-up over the serial adaptive run on OpenMP threads and on MPI ranks,
-for the time stepping alone and with the remesh (the shaded counts use both threads of a core). Right: time of the uniform solver on the
+for the time stepping alone and with the remesh. Right: time of the uniform solver on the
 same finest mesh over the time of the adaptive run, on the same number of threads. Every final state is bit for bit the serial one.</figcaption>
 </figure>
 
-The 3-D sphere (octree, 73 k leaves, 200 steps from the steady state): 16 OpenMP threads 4.6 s (the remesh 7 % of it, 9× faster than on one thread), 8 MPI ranks
-10.9 s (the remesh 22 %), 4 ranks 17.1 s. Memory is 87 MB at the end (128 MB at the peak); per rank on 8 ranks 34-39 MB (peak 63-68 MB).
+The 3-D sphere (octree, 76 k leaves, Re 20, 200 steps from the steady state) takes 30.5 s per unit of physical time on one thread and 9.5 / 7.1 / 4.9 s on 4 / 8 / 16 threads
+(6.2× on 16, no further gain on 24 and 48: 4.9 s); on MPI ranks 18.9 / 11.3 / 7.4 / 5.1 / 4.9 s on 2 / 4 / 8 / 24 / 48 ranks, with the remesh at 7 / 11 / 16 / 30 / 39 % of the time.
+Memory is 109 MB at the end (142 MB at the peak) in the process of 16 threads; per rank 63 MB (peak 78 MB) on 8 ranks, 60 MB (76 MB) on 24 and 65 MB (76 MB) on 48.
+
+<figure style="margin:1em 0;">
+<img src="{{root}}img/amr_memory.png" style="width:100%">
+<figcaption>Memory and time per rank of the airfoil on 1 to 16 MPI ranks (720×360 and 1440×720 base meshes, 2 levels, 50 steps; <code>cases/validation/amr/amr_memory.py</code>):
+the resident memory of the largest rank, at the peak and at the end, and the wall time split into the time stepping and the remesh.</figcaption>
+</figure>
 
 ### Where the time goes
 
@@ -297,16 +304,16 @@ The 3-D sphere (octree, 73 k leaves, 200 steps from the steady state): 16 OpenMP
 
 Pie charts of the measured splits (`cases/validation/amr/time_split.py`; the "rest" slices are differences of measured totals). Reading them:
 
-* **The step is faces.** In the 3-D sphere step (100 steps on 16 threads, 1.94 s) the convective faces are 35 %, the viscous cell quantities and faces 28 %, the primitive state and
-  the virtual cells (means of the fine leaves under a coarse neighbour, interpolated values; evaluated for every level's call) 17 %, and the rest (stage copies, flux
-  registers, the gather of the cell fluxes, the immersed-body forcing, halo exchanges) about a fifth.
-* **The remesh is the price of adaptivity** and what limits the parallel efficiency: 7-11 % of a 200-step run on 16 threads, but a fifth to a half of it on 8 ranks:
-  2.35 s of 10.9 s on the sphere, where no leaf changes and the fetch of the region the indicator reads is 1.3 s of it, and 1.0 s of 2.05 s on the airfoil above, where
-  the leaves change at every remesh and each rank builds its new share over the old one.
-* **On the 2-D airfoil** (192×96 base mesh, 8 threads, t = 20) the remesh is 3.1 s of a 19.2 s loop: the indicator 1.15 s, the engine build 0.75 s, the wave-speed
-  bound 0.68 s, the adaptation of the mesh 0.55 s. A remesh that changes no leaf costs only the indicator, and the engine tables are updated, not rebuilt.
+* **The step is faces.** In the 3-D sphere step (60 steps on one thread, 4.26 s) the face fluxes take 3.54 s (83 %): the convective faces 1.44 s, the primitive state and
+  the virtual cells (means of the fine leaves under a coarse neighbour, interpolated values; evaluated for every level's call) 0.89 s, and the rest, the viscous cell quantities and faces, about 1.2 s. The stage copies, flux
+  registers, the gather of the cell fluxes, the immersed-body forcing and the halo exchanges are the other 17 %.
+* **The remesh is the price of adaptivity** and what limits the parallel efficiency: 17-25 % of the 50-step airfoil run on threads (17 % of the 60-step sphere run on 16 threads), but about 40-50 % of it on ranks:
+  0.62 s of 1.53 s on 8 ranks for the airfoil above, where the leaves change at every remesh and each rank builds its new share over the old one, and 1.28 s of 1.87 s on 16 ranks
+  for the sphere (60 steps), of which the rebuild is 0.96 s and the fetch of the leaves 0.46 s.
+* **On the 2-D airfoil** (720×360 base mesh, 1 thread, 50 steps) the remesh is 0.86 s of 5.0 s: the wave-speed
+  bound 0.31 s, the indicator 0.28 s, the adaptation of the mesh 0.24 s and the engine build 0.21 s. A remesh that changes no leaf costs only the indicator, and the engine tables are updated, not rebuilt.
 
-`FENICE_PROFILE=1` prints these sections (the `amr:` and `fetch:` lines); `cases/validation/amr/amr_memory.py` measures the memory per rank, about 1.5 kB per leaf on the airfoil.
+`FENICE_PROFILE=1` prints these sections (the `amr:` and `fetch:` lines); `cases/validation/amr/amr_memory.py` measures the memory per rank, about 1.4 kB per leaf on the airfoil.
 
 {{widget:AMR}}
 

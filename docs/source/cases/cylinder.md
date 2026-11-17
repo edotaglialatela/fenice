@@ -226,9 +226,7 @@ Over $25 \le t \le 60$ (28 shedding periods), 3 levels (20 cells per diameter) a
 <figcaption>Re = 100 in the $16\times12$ box, 40 cells per diameter at the body: vorticity at $t = 60$ (the velocity of the
 leaves is smoothed over one coarse wake cell before the derivative; the body is drawn), a zoom on the body at the finest
 cell size (smoothing 2.5 cells, so the boundary layer is not widened; vorticity saturated at $\pm 20$) with the AMR level
-there, the lift of both resolutions and its spectrum around the peak (the literature band is drawn at its true width). The final mesh has 42 126 leaves in place of 7.7 million cells;
-the run takes about 6 minutes on 16 OpenMP threads at 20 cells per diameter and about 13 minutes on 8 MPI ranks at 40
-(Ryzen 7 7800X3D).</figcaption>
+there, the lift of both resolutions and its spectrum around the peak (the literature band is drawn at its true width). The final mesh has 42 126 leaves in place of 7.7 million cells.</figcaption>
 </figure>
 
 The Strouhal number is $0.166$ at both resolutions, inside the literature band, and the frequency is the same to the

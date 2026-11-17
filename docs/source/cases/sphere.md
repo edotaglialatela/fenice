@@ -37,7 +37,7 @@ steady and symmetric.</figcaption>
   say where it is going. The study's band (a change of at most 3 %) is a regression guard set after the run.
 * The serial and distributed runs of the sphere agree bit for bit (`ibm_ghost.py --check`, 2 to 7 ranks).
 
-On the adaptive octree (`cases/validation/amr/octree_q8.py`) the same sphere at an equal finest resolution of 20 cells per diameter gives $C_d$ within about 0.1 % of the uniform solver (Re 20 and 100), in 0.1-0.2 of the time (16 threads) and with 76 k leaves against 432 k cells; see [AMR]({{root}}modules/AMR.html).
+On the adaptive octree (`cases/validation/amr/octree_q8.py`) the same sphere at an equal finest resolution of 20 cells per diameter gives $C_d$ within about 0.1 % of the uniform solver (Re 20 and 100), in 0.3-0.5 of the time (whole runs on 16 threads) and with 76 k leaves against 432 k cells; see [AMR]({{root}}modules/AMR.html).
 
 ## Related
 

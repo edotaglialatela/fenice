@@ -70,27 +70,9 @@ are faster on one node; see [AMR]({{root}}modules/AMR.html) for the timings.
 `--threads N` or set `OMP_NUM_THREADS` for hybrid MPI + OpenMP runs. The MPI result is
 identical to the serial one (see [MPIDecomposition]({{root}}modules/MPIDecomposition.html)).
 
-## Benchmark
-
-Time-loop wall time on a 16-thread workstation (Ryzen 7 7800X3D, MSVC), minimum of five runs
-(`cpp/tests/bench_cases.py`).
-
-| Case | Steps | 1 thread | 16 threads | MPI 4×1 | 16 threads vs 1 |
-|---|---:|---:|---:|---:|---:|
-| IBM cylinder 400×200 | 20 | 0.333 s | 0.079 s | 0.096 s | 4.2× |
-| Supersonic IBM 400×400 | 20 | 0.364 s | 0.075 s | 0.113 s | 4.9× |
-| Shu-Osher 4000×2 | 200 | 0.469 s | 0.507 s | 0.131 s | 0.9× |
-| Lid cavity SSP-RK3 128×128 | 20 | 0.092 s | 0.026 s | 0.027 s | 3.5× |
-
-The Shu-Osher mesh is small (8 000 cells), so the thread fork/join overhead outweighs the work and
-16 threads are no faster than one; MPI strips suit it better.
-
-On a MacBook Air (Apple M4, 10 threads), which runs the scalar kernels, supersonic IBM 400×400 takes
-0.138 s on 10 OpenMP threads, and the IBM cylinder 400×200 0.125 s on 4 MPI ranks.
-
 ## Cost of the reconstructions
 
-Wall time of the whole run on a 44-thread workstation (gcc, OpenMP, one process), cases as in the validation studies: the 2-D isentropic vortex
+Wall time of the whole run on the 24-core workstation of the next section (gcc, OpenMP, one process, 44 threads), cases as in the validation studies: the 2-D isentropic vortex
 over one period (`nx = ny = 256`, 65 536 cells) and the 3-D Taylor-Green vortex at Re 1600 on $64^3$ to $t = 20$.
 MUSCL uses the MC limiter with SSP-RK2, the WENO schemes SSP-RK3, CFL 0.5.
 
@@ -109,7 +91,9 @@ the Taylor-Green reference peak is 0.0127. The thread count never changes the re
 
 ## Scaling on a 24-core workstation
 
-Strong scaling of the time loop on a 24-core workstation (Threadripper PRO 5965WX, 48 hardware threads, gcc, Linux), minimum of two runs, no output.
+The timings of the studies, here and on the [AMR]({{root}}modules/AMR.html) page, are measured on one workstation, a Threadripper PRO 5965WX (24 cores, 48 hardware threads, gcc, Linux). The solver was also built and run on other x86-64 machines (MSVC and gcc), on Apple M4 and on Linux ARM64, with the tests and the regression references passing, but no timing of those machines is quoted.
+
+Strong scaling of the time loop, minimum of two runs, no output.
 Each case is a fixed number of steps: the viscous Taylor-Green vortex on $4096^2$ (MUSCL, SSP-RK2, 40 steps) and on $2048^2$ (`weno3`,
 SSP-RK3, 40 steps), the 3-D Taylor-Green vortex on $256^3$ (MUSCL, 10 steps), the AMR airfoil on a $1440\times720$ base mesh with 2 levels (50 steps, MUSCL and `weno5`)
 and the octree sphere of the [sphere case]({{root}}cases/sphere.html) (60 steps). The speed-up is the time loop on one rank (or one thread) over the time loop of the run; ranks are bound to
@@ -134,6 +118,7 @@ physical cores up to 24, and the counts above 24 use both hardware threads of a 
 * **MPI against OpenMP** is close on the uniform cases (ranks ahead on the 3-D mesh, 6.9x against 5.0x). On the adaptive meshes OpenMP is ahead up to 16 workers, and the remesh grows with the ranks:
   on the octree sphere 16 ranks take 1.87 s with 1.28 s in the remesh, 48 ranks take 3.1 s with 2.6 s in it, and 24 threads take 1.16 s. Use MPI to go beyond one node; on one node prefer threads, or a few ranks of several threads.
 * **`weno5` scales better than MUSCL** (11.2x against 5.1x on the AMR airfoil): the larger arithmetic cost per cell hides the memory traffic and the remesh.
+* A mesh of a few thousand cells gains nothing from threads: loops under 4096 items run on one thread, so the fork/join of a longer loop would cost more than the work; MPI strips or one thread suit such cases.
 * The results are bitwise equal for every rank and thread count; only the time changes.
 
 The weak scaling keeps $1024\times512$ cells per rank (viscous Taylor-Green vortex, MUSCL, 40 steps): the time grows from 2.7 s on one rank to 3.5 s on 4, 5.6 s on 16 and 12.3 s on 48, an efficiency of 0.77, 0.49 and 0.22;
