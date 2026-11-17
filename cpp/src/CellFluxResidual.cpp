@@ -114,6 +114,7 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
         int nw4 = 0, nw6 = 0;
         const auto flush_weno = [&](bool five) {
             int& nw = five ? nw6 : nw4;
+            if (nw == 0) return;   // also: without a reconstruction muscl_ is null
             const int* wst = five ? wst6 : wst4;
             const int* wface = five ? wface6 : wface4;
             const int* wax = five ? wax6 : wax4;
