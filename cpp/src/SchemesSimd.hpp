@@ -64,6 +64,10 @@ void viscous_faces3d_simd(int d, double mu, double k_cond, double h, double area
 // neighbour cell of the first cell on each side. Bit-identical to the scalar loop of NavierStokes::viscous_residual_3d.
 void viscous_cells3d_simd(double dx, double dy, double dz, const State* W, const State* xm, const State* xp, const State* ym,
                           const State* yp, const State* zm, const State* zp, int n, double* const* out, double* const* g);
+// out[i] = a[i] + s * b[i] for i = 0 .. n-1, written past the caches (non-temporal stores: no read of the old `out`, which is a pure
+// output of the time update). `out` aligned to 32 bytes, n a multiple of 4; `out` must not overlap `a` or `b`. Bit-identical to the
+// scalar loop.
+void axpy_stream_simd(double* out, const double* a, double s, const double* b, size_t n);
 #else
 inline bool simd_available() { return false; }
 #endif

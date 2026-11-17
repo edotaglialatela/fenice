@@ -34,6 +34,9 @@ inline V set4(double a0, double a1, double a2, double a3) { return _mm256_set_pd
 // Lanes 0 .. 3 from / to p[0] .. p[3] (any alignment)
 inline V load(const double* p) { return _mm256_loadu_pd(p); }
 inline void store(double* p, V a) { _mm256_storeu_pd(p, a); }
+// Lanes 0 .. 3 to p[0] .. p[3] past the caches (p aligned to 32 bytes); stream_fence() makes them visible to the other threads
+inline void store_stream(double* p, V a) { _mm256_stream_pd(p, a); }
+inline void stream_fence() { _mm_sfence(); }
 inline V add(V a, V b) { return _mm256_add_pd(a, b); }
 inline V sub(V a, V b) { return _mm256_sub_pd(a, b); }
 inline V mul(V a, V b) { return _mm256_mul_pd(a, b); }
@@ -81,6 +84,9 @@ inline void store(double* p, V a) {
     vst1q_f64(p, a.lo);
     vst1q_f64(p + 2, a.hi);
 }
+// No store past the caches on this instruction set: an ordinary store
+inline void store_stream(double* p, V a) { store(p, a); }
+inline void stream_fence() {}
 inline V add(V a, V b) { return {vaddq_f64(a.lo, b.lo), vaddq_f64(a.hi, b.hi)}; }
 inline V sub(V a, V b) { return {vsubq_f64(a.lo, b.lo), vsubq_f64(a.hi, b.hi)}; }
 inline V mul(V a, V b) { return {vmulq_f64(a.lo, b.lo), vmulq_f64(a.hi, b.hi)}; }

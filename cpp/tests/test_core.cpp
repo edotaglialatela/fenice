@@ -1,5 +1,6 @@
 // EOS, Riemann solvers, boundary conditions, residual, time schemes, IBM, mapping and I/O, behavioural checks
 // Part of the unit tests: see test_common.hpp for the harness; test_main.cpp holds main().
+#include <cstring>
 #include <map>
 #include "test_common.hpp"
 
@@ -656,6 +657,34 @@ TEST(time_schemes_linear_decay) {
     auto e = make_time_scheme(TimeSchemeType::ExplicitEuler, 0.5);
     Field U(1, State{1, 1, 1, 1});
     CHECK_NEAR(e->step(U, res, 1.0, 0.99, 1.0).dt, 0.01, 1e-12);
+}
+
+// A field above the size at which the first-stage update of SSP-RK2 / RK3 writes past the caches (odd cell count: the ragged ends and the
+// unaligned start of every thread's range) gives the same bits as the plain loops of the scheme.
+TEST(time_update_past_the_caches_equals_the_plain_loops_bit_for_bit) {
+    const size_t n = 1100003;   // 44 MB of State
+    Field U(n);
+    for (size_t c = 0; c < n; ++c)
+        for (int q = 0; q < kNVar; ++q) U[c][q] = std::sin(0.001 * double(c) + q) + 2.0;
+    const ResidualFn res = [](const Field& V, Field& R) {
+        R.resize(V.size());
+        for (size_t c = 0; c < V.size(); ++c)
+            for (int q = 0; q < kNVar; ++q) R[c][q] = -V[c][q] * V[c][q] + 0.1 * q;
+        return 1.0;
+    };
+    const double cfl = 0.4;
+    const double dt = cfl * 1.0 / (1.0 + 1e-10);
+    // plain SSP-RK2 reference
+    Field U1(n), R(n), expect(n);
+    res(U, R);
+    for (size_t c = 0; c < n; ++c)
+        for (int q = 0; q < kNVar; ++q) U1[c][q] = U[c][q] + dt * R[c][q];
+    res(U1, R);
+    for (size_t c = 0; c < n; ++c)
+        for (int q = 0; q < kNVar; ++q) expect[c][q] = 0.5 * U[c][q] + 0.5 * (U1[c][q] + dt * R[c][q]);
+    auto ts = make_time_scheme(TimeSchemeType::SSPRK2, cfl);
+    ts->step(U, res, 1.0, 0.0, 10.0);
+    CHECK(std::memcmp(U.data(), expect.data(), n * sizeof(State)) == 0);
 }
 
 // ---------------------------------------------------------------------------

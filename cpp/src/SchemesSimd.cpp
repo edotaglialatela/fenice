@@ -585,6 +585,13 @@ void viscous_cells3d_simd(double dx, double dy, double dz, const State* W, const
     end_batch();
 }
 
+void axpy_stream_simd(double* out, const double* a, double s, const double* b, size_t n) {
+    const V vs = set1(s);
+    for (size_t i = 0; i < n; i += 4) store_stream(out + i, add(load(a + i), mul(vs, load(b + i))));
+    stream_fence();
+    end_batch();
+}
+
 }   // namespace detail
 }   // namespace fv
 

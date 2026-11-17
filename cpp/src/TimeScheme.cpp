@@ -1,8 +1,14 @@
 #include "fv/TimeScheme.hpp"
 
+#ifdef _OPENMP
+#include <omp.h>
+#endif
+
 #include <cctype>
+#include <cstdint>
 #include <stdexcept>
 
+#include "SchemesSimd.hpp"
 #include "fv/Profile.hpp"
 
 namespace fv {
@@ -14,11 +20,39 @@ constexpr double kDtEps = 1e-10;
 
 inline int isize(const Field& f) { return static_cast<int>(f.size()); }
 
+// A field of at least this many bytes is not kept in the last-level cache between two passes: its pure outputs are written past the caches.
+constexpr size_t kStreamBytes = size_t(32) << 20;
+
 // out = a + s * b
 void axpy(Field& out, const Field& a, double s, const Field& b) {
     ProfileScope profile(Section::UpdateAxpy);
     const int n = isize(a);
     out.resize(a.size());
+#ifdef FV_SIMD
+    // A separate output that does not fit the cache (the first stage of SSP-RK2 / RK3): the old values of `out` are never read, so the
+    // stores skip the write-allocate read. Same operations per element, so the same bits; any split of the range gives them.
+    if (&out != &a && &out != &b && out.size() * sizeof(State) >= kStreamBytes && detail::simd_available()) {
+        double* o = out[0].data();
+        const double* pa = a[0].data();
+        const double* pb = b[0].data();
+        const long total = static_cast<long>(n) * kNVar;
+#pragma omp parallel
+        {
+#ifdef _OPENMP
+            const long nt = omp_get_num_threads(), t = omp_get_thread_num();
+#else
+            const long nt = 1, t = 0;
+#endif
+            const long lo = total * t / nt, hi = total * (t + 1) / nt;
+            long i = lo;
+            for (; i < hi && (reinterpret_cast<std::uintptr_t>(o + i) & 31) != 0; ++i) o[i] = pa[i] + s * pb[i];
+            const long m = (hi - i) & ~3L;
+            if (m > 0) detail::axpy_stream_simd(o + i, pa + i, s, pb + i, static_cast<size_t>(m));
+            for (i += m; i < hi; ++i) o[i] = pa[i] + s * pb[i];
+        }
+        return;
+    }
+#endif
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int c = 0; c < n; ++c)
         for (int q = 0; q < kNVar; ++q) out[c][q] = a[c][q] + s * b[c][q];
