@@ -224,9 +224,11 @@ def main():
     ax[0].set_yscale("log", base=2)
     ax[0].set_xticks(n_all, [str(n) for n in n_all])
     ax[0].set_yticks(n_all, [str(n) for n in n_all])
-    ax[0].axvspan(8, 16.5, color="grey", alpha=0.08)
-    ax[0].text(11.3, 1.08, "SMT", fontsize=8, color="grey", ha="center")
-    ax[0].set(xlabel="threads or ranks (8 physical cores)", ylabel="speed-up over the serial adaptive run", title="Scaling of the adaptive run",
+    phys = max(1, (os.cpu_count() or 2) // 2)   # physical cores, taking two hardware threads per core as elsewhere in the package
+    if phys < 16:   # the counts above the physical cores use both hardware threads of a core
+        ax[0].axvspan(phys, 16.5, color="grey", alpha=0.08)
+        ax[0].text((phys * 16.5) ** 0.5, 1.08, "SMT", fontsize=8, color="grey", ha="center")
+    ax[0].set(xlabel=f"threads or ranks ({phys} physical cores)", ylabel="speed-up over the serial adaptive run", title="Scaling of the adaptive run",
               xlim=(0.9, 16.5), ylim=(0.9, 16.5))
     ax[0].legend(fontsize=8)
     ax[0].grid(True, which="major", ls="--", alpha=0.4)
