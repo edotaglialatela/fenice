@@ -77,8 +77,8 @@ def main():
 
     names = ["airfoil 2-D\n(16 threads)", "sphere 3-D, Re 20\n(16 threads)"]
     sph = json.loads((fenice.RESULTS / "validation" / "amr_octree_q8" / "summary.json").read_text())["runs"]
-    sph_leaves = np.mean([sph[f"re20_oct_{m}_b5M2"]["leaves"] for m in ("mask", "ghost")])
-    sph_time = np.mean([sph[f"re20_oct_{m}_b5M2"]["wall"] / sph[f"re20_uni_{m}_n20"]["wall"] for m in ("mask", "ghost")])
+    sph_leaves = sph["re20_oct_ghost_b5M2"]["leaves"]
+    sph_time = sph["re20_oct_ghost_b5M2"]["wall"] / sph["re20_uni_ghost_n20"]["wall"]
     leaf_share = [leaves / cells, sph_leaves / 432e3]
     time_share = [amr[16]["wall"] / uni[16]["wall"], sph_time]   # sphere: octree_q8.py, time loop octree / uniform
     x = np.arange(2)
