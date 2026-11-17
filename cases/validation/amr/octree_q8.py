@@ -4,6 +4,7 @@
     python cases/validation/amr/octree_q8.py run          # accuracy runs to t = 30, cached: sphere Re 20 and 100, uniform and octree
     python cases/validation/amr/octree_q8.py timing       # steady-state cost: threads, MPI ranks, remesh share, memory (resumes the runs)
     python cases/validation/amr/octree_q8.py report       # tables, bands, summary.json and a figure
+    python cases/validation/amr/octree_q8.py long         # one long run: 80 cells per diameter to t = 60 (--re, --t-end, --base, --levels); not in the others
 
 Everything goes to results/validation/amr_octree_q8/. Run it on an idle machine, one stage at a time: the times are the point. Not in CI.
 
@@ -87,7 +88,7 @@ def run_one(c, force=False):
         shutil.rmtree(d)
     d.mkdir(parents=True)
     octree = c["kind"] == "oct"
-    case = sphere_case(c["re"], c["base"], t_end=T_END)
+    case = sphere_case(c["re"], c["base"], t_end=c.get("t_end", T_END))
     sets = amr_sets(c["M"]) if octree else []
     print(f"[RUN] {c['tag']}", flush=True)
     t0 = time.time()
@@ -132,6 +133,23 @@ def cmd_run(args):
     wanted = [c for c in configs(args.include_40) if not args.only or args.only in c["tag"]]
     for c in wanted:
         run_one(c, force=args.force)
+
+
+def cmd_long(args):
+    """One long run on the octree: 80 cells per diameter (base 10, 3 levels), t = 60 by default; cached, not part of run / timing / report.
+    Prints the drag at fixed times so that the settling of the steady flow can be read (python octree_q8.py long --re 20 --t-end 60)."""
+    tag = f"re{args.re}_oct_ghost_b{args.base}M{args.levels}_t{args.t_end:g}"
+    c = dict(tag=tag, re=args.re, kind="oct", fin=args.base * 2 ** args.levels * 1, base=args.base, M=args.levels, method="ghost", t_end=args.t_end)
+    r = run_one(c, force=args.force)
+    m = np.genfromtxt(next((OUT / tag).rglob("*_monitor.csv")), delimiter=",", names=True)
+    _, keep = np.unique(m["t"], return_index=True)
+    t, cd = np.asarray(m["t"])[np.sort(keep)], np.asarray(m["Cd"])[np.sort(keep)]
+    print(f"\n{tag}: {c['fin']} cells per diameter at the body, Re {args.re}, t = {args.t_end:g}")
+    for tt in np.arange(10.0, args.t_end + 1e-9, 10.0):
+        print(f"  t = {tt:5.1f}: Cd {np.interp(tt, t, cd):.5f}")
+    print(f"  final Cd {r['cd']:.5f}, change over the last 5 monitor points {r['settling']:.1e}, {r.get('leaves', '')} leaves, "
+          f"{r['steps']} steps, time loop {r['wall']:.0f} s on {THREADS} threads")
+    return 0
 
 
 # ---- timing ---------------------------------------------------------------------------------------------------------------------
@@ -241,12 +259,16 @@ def cmd_report(args):
 
 def main():
     ap = study.parser(__doc__.splitlines()[0])
-    ap.add_argument("stage", choices=("calibrate", "run", "timing", "report"))
+    ap.add_argument("stage", choices=("calibrate", "run", "timing", "report", "long"))
     ap.add_argument("--only", default="", help="run: substring filter on the run tags")
     ap.add_argument("--include-40", action="store_true", help="run: also the octree with 40 cells per diameter (1-2 h each)")
     ap.add_argument("--steps", type=int, default=200, help="timing: steps per resumed run")
+    ap.add_argument("--re", type=int, default=20, help="long: Reynolds number")
+    ap.add_argument("--t-end", type=float, default=60.0, help="long: end time")
+    ap.add_argument("--base", type=int, default=10, help="long: base cells per diameter (level 0)")
+    ap.add_argument("--levels", type=int, default=3, help="long: refinement levels (finest = base x 2^levels = 80)")
     args = ap.parse_args()
-    return {"calibrate": cmd_calibrate, "run": cmd_run, "timing": cmd_timing, "report": cmd_report}[args.stage](args) or 0
+    return {"calibrate": cmd_calibrate, "run": cmd_run, "timing": cmd_timing, "report": cmd_report, "long": cmd_long}[args.stage](args) or 0
 
 
 if __name__ == "__main__":
