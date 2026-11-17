@@ -107,6 +107,26 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
         State mF[kChunk];
         double msm[kChunk];
         int nm = 0;
+        // faces with an ordinary WENO stencil (four cells with WENO3-Z, six with WENO5-Z on a wide face, none of them a ghost layer):
+        // the face states by the vector kernels, then the Riemann batch above
+        int wst4[4 * kChunk], wst6[6 * kChunk], wface4[kChunk], wface6[kChunk], wax4[kChunk], wax6[kChunk];
+        State wUL[kChunk] = {}, wUR[kChunk] = {};
+        int nw4 = 0, nw6 = 0;
+        const auto flush_weno = [&](bool five) {
+            int& nw = five ? nw6 : nw4;
+            const int* wst = five ? wst6 : wst4;
+            const int* wface = five ? wface6 : wface4;
+            const int* wax = five ? wax6 : wax4;
+            muscl_->weno_face_states(five, W_.data(), wst, nw, wUL, wUR);
+            for (int k = 0; k < nw; ++k) {
+                bUL[nb] = wUL[k];
+                bUR[nb] = wUR[k];
+                bax[nb] = wax[k];
+                bface[nb] = wface[k];
+                if (++nb == kChunk) flush();
+            }
+            nw = 0;
+        };
         const auto flush_muscl = [&]() {
             riemann_.muscl_face_flux_batch(lim, W_.data(), mst, max_, nm, mF, msm, dim_ == 2);
             for (int k = 0; k < nm; ++k) {
@@ -215,6 +235,14 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                             pf1 = &gf1;
                         }
                     }
+                    if (pf0 == &W_[fr[0]] && pf1 == &W_[fr[1]] && p0 == &W_[s[0]] && p3 == &W_[s[3]]) {
+                        const int cells[6] = {fr[0], s[0], s[1], s[2], s[3], fr[1]};
+                        for (int k = 0; k < 6; ++k) wst6[6 * nw6 + k] = cells[k];
+                        wax6[nw6] = face.axis;
+                        wface6[nw6] = f;
+                        if (++nw6 == kChunk) flush_weno(true);
+                        continue;
+                    }
                     recon6(*pf0, w0, w1, w2, w3, *pf1, wl, wr);
                 } else if (face.kind == CellFaceKind::CoarseFine) {
                     // the fine side is reconstructed against the (virtual) cell across the face, the coarse side is its cell state
@@ -254,7 +282,13 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                             wr[q] = weno3 ? muscl_->weno3_value(c3, c2, c1) : c2 - 0.5 * apply_limiter(lim, c3 - c2, c2 - c1);
                         }
                     }
-                } else if (weno3 || wall) {   // WENO3-Z, or a face with a ghost layer: the same four cells, the scalar reconstruction
+                } else if (weno3 && !wall) {   // WENO3-Z on four leaves: the vector kernel
+                    for (int k = 0; k < 4; ++k) wst4[4 * nw4 + k] = s[k];
+                    wax4[nw4] = face.axis;
+                    wface4[nw4] = f;
+                    if (++nw4 == kChunk) flush_weno(false);
+                    continue;
+                } else if (wall) {   // a face with a ghost layer: the same four cells, the scalar reconstruction
                     recon4(w0, w1, w2, w3, wl, wr);
                 } else {
                     for (int k = 0; k < 4; ++k) mst[4 * nm + k] = s[k];
@@ -272,6 +306,8 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
             bface[nb] = f;
             if (++nb == kChunk) flush();
         }
+        flush_weno(false);
+        flush_weno(true);
         flush();
         flush_muscl();
 #pragma omp critical(fv_cellflux_max)

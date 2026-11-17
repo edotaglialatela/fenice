@@ -1721,6 +1721,55 @@ TEST(weno5_line_batch_equals_the_scalar_function_bit_for_bit) {
 #endif
 }
 
+TEST(weno_face_states_equal_the_scalar_functions_bit_for_bit) {
+    // The face states of the adaptive engine (MusclReconstruction::weno_face_states, vector kernel for runs of four faces) are the bits of
+    // weno3_value / weno5_value and prim_to_cons per face, for cells read from anywhere in the primitive array (repeated cells included).
+    unsigned long long seed = 0x9E3779B97F4A7C15ull;
+    const auto rnd = [&]() {
+        seed = seed * 6364136223846793005ull + 1442695040888963407ull;
+        return static_cast<double>(seed >> 11) * (1.0 / 9007199254740992.0);
+    };
+    const auto same = [](double a, double b) { return std::memcmp(&a, &b, 8) == 0 || (std::isnan(a) && std::isnan(b)); };
+    const EOS eos = EOS::ideal(1.4);
+    const int ncell = 200, n = 67;
+    std::vector<State> W(ncell);
+    for (auto& w : W) {
+        const double r = rnd();
+        w = {0.5 + rnd(), (rnd() - 0.5) * (r < 0.2 ? 5.0 : 0.05), r > 0.9 ? 0.0 : rnd() - 0.5, 0.4 + rnd(), 0.0};
+    }
+    for (const double eps : {1e-6, 1e-2}) {
+        const MusclReconstruction mu(eos, Limiter::VanLeer, Reconstruction::Weno5, eps);
+        for (const bool five : {false, true}) {
+            const int ns = five ? 6 : 4;
+            std::vector<int> st(static_cast<size_t>(ns) * n);
+            for (int k = 0; k < n; ++k) {
+                const int c0 = static_cast<int>(rnd() * (ncell - 8));
+                for (int p = 0; p < ns; ++p) st[static_cast<size_t>(ns) * k + p] = rnd() < 0.1 ? c0 + (p > 0 ? p - 1 : 0) : c0 + p;
+            }
+            std::vector<State> UL(n), UR(n);
+            mu.weno_face_states(five, W.data(), st.data(), n, UL.data(), UR.data());
+            int different = 0;
+            for (int k = 0; k < n; ++k) {
+                const int* c = &st[static_cast<size_t>(ns) * k];
+                State wl, wr;
+                for (int q = 0; q < kNVar; ++q) {
+                    if (five) {
+                        wl[q] = mu.weno5_value(W[c[0]][q], W[c[1]][q], W[c[2]][q], W[c[3]][q], W[c[4]][q]);
+                        wr[q] = mu.weno5_value(W[c[5]][q], W[c[4]][q], W[c[3]][q], W[c[2]][q], W[c[1]][q]);
+                    } else {
+                        wl[q] = mu.weno3_value(W[c[0]][q], W[c[1]][q], W[c[2]][q]);
+                        wr[q] = mu.weno3_value(W[c[3]][q], W[c[2]][q], W[c[1]][q]);
+                    }
+                }
+                const State el = eos.prim_to_cons(wl), er = eos.prim_to_cons(wr);
+                for (int q = 0; q < kNVar; ++q)
+                    if (!same(el[q], UL[k][q]) || !same(er[q], UR[k][q])) ++different;
+            }
+            CHECK(different == 0);
+        }
+    }
+}
+
 TEST(weno3_line_batch_equals_the_scalar_function_bit_for_bit) {
     // The vector kernel of the uniform WENO3-Z reconstruction (weno3_line_simd, AVX2 or NEON) gives the bits of weno3_value and
     // prim_to_cons, for the left and the right state of every face of a line, along a stride other than one, with smooth data, jumps, zeros, signed zeros,

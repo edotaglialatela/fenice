@@ -179,6 +179,11 @@ public:
     // The WENO5-Z value at the face on the right of c2 from the cells (c0 .. c4); the right-hand state of the same face is
     // weno5_value(c5, c4, c3, c2, c1) of the six cells c0 .. c5. The function the uniform reconstruction calls, as weno3_value.
     double weno5_value(double c0, double c1, double c2, double c3, double c4) const;
+    // The conservative WENO3-Z (`five` false: the four primitive cells W[st[4k .. 4k+3]] of face k) or WENO5-Z (`five`: the six cells
+    // W[st[6k .. 6k+5]]) states of n faces of the adaptive engine, in order along the normal: UL[k] = prim_to_cons of weno3_value(c0, c1, c2)
+    // (weno5_value(c0 .. c4)) of every variable, UR[k] that of weno3_value(c3, c2, c1) (weno5_value(c5, c4, c3, c2, c1)). Vector kernels
+    // where the CPU has them; the same bits as one scalar call per face.
+    void weno_face_states(bool five, const State* W, const int* st, int n, State* UL, State* UR) const;
     // Active limiter.
     Limiter limiter() const { return lim_; }
     // Active face reconstruction.

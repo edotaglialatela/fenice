@@ -359,6 +359,32 @@ double MusclReconstruction::weno5_value(double c0, double c1, double c2, double 
     return weno5z(c0, c1, c2, c3, c4, weno_eps_);
 }
 
+void MusclReconstruction::weno_face_states(bool five, const State* W, const int* st, int n, State* UL, State* UR) const {
+    const int ns = five ? 6 : 4;
+    int done = 0;
+#ifdef FV_SIMD
+    if (detail::simd_available()) {
+        done = n & ~3;
+        if (done > 0) detail::weno_gather_simd(eos_, weno_eps_, five, W, st, done, UL, UR);
+    }
+#endif
+    for (int k = done; k < n; ++k) {
+        const int* s = st + static_cast<size_t>(ns) * k;
+        State wl, wr;
+        for (int q = 0; q < kNVar; ++q) {
+            if (five) {
+                wl[q] = weno5z(W[s[0]][q], W[s[1]][q], W[s[2]][q], W[s[3]][q], W[s[4]][q], weno_eps_);
+                wr[q] = weno5z(W[s[5]][q], W[s[4]][q], W[s[3]][q], W[s[2]][q], W[s[1]][q], weno_eps_);
+            } else {
+                wl[q] = weno3z(W[s[0]][q], W[s[1]][q], W[s[2]][q], weno_eps_);
+                wr[q] = weno3z(W[s[3]][q], W[s[2]][q], W[s[1]][q], weno_eps_);
+            }
+        }
+        UL[k] = eos_.prim_to_cons(wl);
+        UR[k] = eos_.prim_to_cons(wr);
+    }
+}
+
 void MusclReconstruction::reconstruct_weno(Field& UL, Field& UR, const Field& U, int nx, int ny, int nz, const Halos& h,
                                            bool five) const {
     const int pad = five ? 3 : 2;   // cells read on each side of the two of a face (the stencil is 2 pad cells wide)

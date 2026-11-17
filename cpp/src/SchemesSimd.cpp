@@ -449,6 +449,31 @@ void weno5_line_simd(const EOS& eos, double eps_rel, const double* const* planes
     end_batch();
 }
 
+void weno_gather_simd(const EOS& eos, double eps_rel, bool five, const State* W, const int* st, int n, State* UL, State* UR) {
+    const V we = set1(eps_rel);
+    const VEos E(eos);
+    const int ns = five ? 6 : 4;
+    for (int k = 0; k < n; k += 4) {
+        const int *s0 = st + ns * k, *s1 = s0 + ns, *s2 = s1 + ns, *s3 = s2 + ns;
+        Vec5 wl, wr;
+        for (int q = 0; q < 5; ++q) {
+            const auto cell = [&](int p) { return set4(W[s0[p]][q], W[s1[p]][q], W[s2[p]][q], W[s3[p]][q]); };
+            if (five) {
+                const V c0 = cell(0), c1 = cell(1), c2 = cell(2), c3 = cell(3), c4 = cell(4), c5 = cell(5);
+                wl.q[q] = weno5z_v(c0, c1, c2, c3, c4, we);
+                wr.q[q] = weno5z_v(c5, c4, c3, c2, c1, we);
+            } else {
+                const V c0 = cell(0), c1 = cell(1), c2 = cell(2), c3 = cell(3);
+                wl.q[q] = weno3z_v(c0, c1, c2, we);
+                wr.q[q] = weno3z_v(c3, c2, c1, we);
+            }
+        }
+        store4(UL + k, E.prim_to_cons(wl));
+        store4(UR + k, E.prim_to_cons(wr));
+    }
+    end_batch();
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // Viscous cell kernels of the AMR engine (scalar twins in CellFlux.cpp: viscous_cell_quantities, viscous_cell_speed).  Same rules:
 // the operation order of the scalar code, operands of commutative operations included.  The leaves are consecutive: their states

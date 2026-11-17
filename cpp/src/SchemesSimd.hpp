@@ -43,6 +43,10 @@ void weno3_line_simd(const EOS& eos, double eps_rel, const double* const* planes
 // the left / right state, bit-identical to eos.prim_to_cons of weno5z(c0 .. c4) and weno5z(c5 .. c1) per variable (Schemes.cpp).
 void weno5_line_simd(const EOS& eos, double eps_rel, const double* const* planes, size_t base, size_t stride, int n, State* UL,
                      State* UR);
+// WENO3-Z (`five` false: four cells per face) or WENO5-Z (`five`: six) conservative states of n faces (a multiple of 4) of the adaptive
+// engine: face k has its primitive cells at W[st[ns * k + p]], p = 0 .. ns - 1 (ns = 4 or 6, the cells in order along the normal);
+// UL[k] / UR[k] are bit-identical to MusclReconstruction::weno_face_states' scalar loop (weno3_value / weno5_value, prim_to_cons).
+void weno_gather_simd(const EOS& eos, double eps_rel, bool five, const State* W, const int* st, int n, State* UL, State* UR);
 // Viscous cell kernels of the AMR engine for the leaves c0 .. c0+n-1 (n a multiple of 4), bit-identical to the scalar functions of
 // CellFlux.cpp; the arguments are those of viscous_cell_quantities_run and viscous_speed_range (CellFlux.hpp), with `out` the seven
 // arrays of ViscousCellArrays in their order (u, v, T, du/dx, du/dy, dv/dx, dv/dy).
