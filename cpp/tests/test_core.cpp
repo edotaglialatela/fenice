@@ -520,6 +520,91 @@ TEST(fused_residual_passes_equal_the_two_pass_residual_bit_for_bit) {
     std::printf("    %lld face fluxes compared\n", compared);
 }
 
+TEST(fused_weno_fluxes_equal_the_two_pass_fluxes_bit_for_bit) {
+    const EOS eos = EOS::ideal(1.4);
+    unsigned seed = 4242u;
+    const auto rnd = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<double>(seed >> 8) / 16777216.0;
+    };
+    long long compared = 0;
+    for (const int nz : {1, 5}) {
+        const Mesh m = nz == 1 ? generate_cartesian_mesh(1.0, 0.8, 21, 13) : generate_cartesian_mesh_3d(1.0, 0.8, 0.6, 11, 9, nz);
+        Field U(m.num_cells());
+        for (auto& u : U) u = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, 0.4 + rnd(), nz > 1 ? rnd() - 0.5 : 0.0});
+        std::vector<char> solid(m.num_cells(), 0);
+        for (int c = 0; c < m.num_cells(); ++c) solid[c] = rnd() < 0.04 ? 1 : 0;
+        BoundaryManager bm(m, eos);
+        bm.set_boundary_types(BCType::Wall, BCType::Transmissive, BCType::Transmissive, BCType::Periodic);
+        const RiemannSolver rs(eos, RiemannType::HLLC, 0.2);
+        for (const Reconstruction scheme : {Reconstruction::Weno3, Reconstruction::Weno5}) {
+            const int pad = scheme == Reconstruction::Weno5 ? 3 : kHaloDepth;
+            for (const bool with_solid : {false, true}) {
+                if (with_solid && scheme != Reconstruction::Weno5) continue;
+                for (const bool with_halo : {false, true}) {
+                    const MusclReconstruction mu(eos, Limiter::VanLeer, scheme, 1e-6);
+                    // periodic wrap-around halos on y (2-D) or z (3-D), `pad` deep, as Simulation::assemble builds them
+                    Field perB, perT;
+                    Halos h;
+                    h.depth = pad;
+                    if (with_solid) h.narrow = &solid;
+                    if (with_halo) {
+                        const size_t layer = static_cast<size_t>(nz == 1 ? m.nx : m.nx * m.ny);
+                        perB.assign(U.end() - static_cast<std::ptrdiff_t>(pad * layer), U.end());
+                        perT.assign(U.begin(), U.begin() + static_cast<std::ptrdiff_t>(pad * layer));
+                        if (nz == 1) {
+                            h.b = &perB;
+                            h.t = &perT;
+                        } else {
+                            h.f = &perB;
+                            h.bk = &perT;
+                        }
+                    }
+                    Field UL, UR, F2, ULs, URs, F1;
+                    bm.apply_boundary_conditions(U, UL, UR);
+                    if (nz == 1)
+                        mu.reconstruct(UL, UR, U, m.nx, m.ny, h);
+                    else
+                        mu.reconstruct_3d(UL, UR, U, m, h);
+                    const double s2 = rs.compute_flux(UL, UR, m, F2);
+                    bm.apply_boundary_conditions(U, ULs, URs, nullptr, false);
+                    const double s1 = mu.muscl_fluxes(rs, ULs, URs, U, m, h, F1);
+                    CHECK(s1 == s2);
+                    CHECK(F1.size() == F2.size());
+                    bool same = F1.size() == F2.size();
+                    for (size_t f = 0; same && f < F1.size(); ++f)
+                        for (int q = 0; q < kNVar; ++q) same = same && F1[f][q] == F2[f][q];
+                    CHECK(same);
+                    compared += static_cast<long long>(F1.size());
+                    // the flux balance in the same pass
+                    Field R1;
+                    const double s3 = nz == 1 ? mu.muscl_residual_2d(rs, ULs, URs, U, m, h, R1) : mu.muscl_residual_3d(rs, ULs, URs, U, m, h, R1);
+                    CHECK(s3 == s2);
+                    const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
+                    bool rsame = R1.size() == U.size();
+                    for (int k = 0; rsame && k < m.nz; ++k)
+                        for (int j = 0; j < m.ny; ++j)
+                            for (int i = 0; i < m.nx; ++i)
+                                for (int q = 0; q < kNVar; ++q) {
+                                    const State &fl = F2[m.xface(i, j, k)], &fr = F2[m.xface(i + 1, j, k)], &fb = F2[m.yface(i, j, k)],
+                                                &ft = F2[m.yface(i, j + 1, k)];
+                                    double r;
+                                    if (nz == 1) {
+                                        r = ((0.0 - (fr[q] * m.dy - fl[q] * m.dy)) - (ft[q] * m.dx - fb[q] * m.dx)) * (1.0 / m.cell_area());
+                                    } else {
+                                        const State &ff = F2[m.zface(i, j, k)], &fk = F2[m.zface(i, j, k + 1)];
+                                        r = (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) * inv_vol;
+                                    }
+                                    rsame = rsame && R1[m.cell(i, j, k)][q] == r;
+                                }
+                    CHECK(rsame);
+                }
+            }
+        }
+    }
+    std::printf("    %lld WENO face fluxes compared\n", compared);
+}
+
 TEST(viscous_uniform_zero_and_couette) {
     const EOS eos = EOS::ideal(1.4);
     const Mesh m = generate_cartesian_mesh(1.0, 1.0, 6, 10);

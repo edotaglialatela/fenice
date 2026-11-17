@@ -706,6 +706,9 @@ struct FusedGrid {
     const Mesh* m;
     int nx, ny, nz, PX, PY, pad, zp;
     bool halo_lo[3], halo_hi[3];   // a halo on the low / high side of the axis
+    int weno;                // 0 MUSCL (or first order), 3 WENO3-Z, 5 WENO5-Z (the states come from weno_line_states)
+    double weno_eps;         // relative regularisation of the WENO smoothness indicators
+    const char* solid;       // WENO5-Z with an immersed body: the solid cells on the padded layout (null: none)
     size_t P(int ii, int jj, int kk) const { return (static_cast<size_t>(kk) * PY + jj) * PX + ii; }
 };
 
@@ -715,6 +718,53 @@ struct FusedScratch {
     double sm[kFusedChunk];
     State ul[kFusedChunk], ur[kFusedChunk];   // first order: the states on both sides of the faces of a chunk
 };
+
+// The conservative WENO3-Z / WENO5-Z states of cnt consecutive faces of a line (the cells of face k at base + k + s * stride of the padded
+// planes): the vector kernels for runs of four, the scalar functions for the rest and for the faces with a solid cell among their six (the
+// four-cell stencil), exactly what MusclReconstruction::reconstruct_weno does.
+void weno_line_states(const FusedGrid& g, size_t base, size_t stride, int cnt, State* UL, State* UR) {
+    const bool five = g.weno == 5;
+    int done = 0;
+#ifdef FV_SIMD
+    if (detail::simd_available()) {
+        const double* pl[kNVar];
+        for (int q = 0; q < kNVar; ++q) pl[q] = g.Wp + q * g.plane;
+        done = cnt & ~3;
+        if (done > 0) {
+            if (five)
+                detail::weno5_line_simd(*g.eos, g.weno_eps, pl, base, stride, done, UL, UR);
+            else
+                detail::weno3_line_simd(*g.eos, g.weno_eps, pl, base, stride, done, UL, UR);
+        }
+    }
+#endif
+    for (int k = 0; k < cnt; ++k) {
+        const size_t b = base + static_cast<size_t>(k);
+        bool four = false;
+        if (g.solid)
+            for (int s = 0; s < 6; ++s) four = four || g.solid[b + s * stride] != 0;
+        if (!four && k < done) continue;
+        State wl, wr;
+        for (int q = 0; q < kNVar; ++q) {
+            const double* c = g.Wp + q * g.plane + b;
+            if (!five) {
+                wl[q] = weno3z(c[0], c[stride], c[2 * stride], g.weno_eps);
+                wr[q] = weno3z(c[3 * stride], c[2 * stride], c[stride], g.weno_eps);
+                continue;
+            }
+            const double c0 = c[0], c1 = c[stride], c2 = c[2 * stride], c3 = c[3 * stride], c4 = c[4 * stride], c5 = c[5 * stride];
+            if (four) {
+                wl[q] = weno3z(c1, c2, c3, g.weno_eps);
+                wr[q] = weno3z(c4, c3, c2, g.weno_eps);
+                continue;
+            }
+            wl[q] = weno5z(c0, c1, c2, c3, c4, g.weno_eps);
+            wr[q] = weno5z(c5, c4, c3, c2, c1, g.weno_eps);
+        }
+        UL[k] = g.eos->prim_to_cons(wl);
+        UR[k] = g.eos->prim_to_cons(wr);
+    }
+}
 
 // The fluxes of the faces of one line normal to `axis`, written to F_line[i]; `local` receives the largest wave speed.
 // A line is: for axis 0 the x faces i = 0..nx of row (j, k); for axis 1 the y faces i = 0..nx-1 at face index j along y of plane
@@ -764,7 +814,13 @@ void fused_line(const FusedGrid& g, int axis, int j, int k, State* F_line, doubl
         // face i of the line has its stencil at base + i + p * stride: the faces of a chunk are consecutive in memory
         const size_t base = axis == 0 ? g.P(i0, j + pad, k + zp)
                                       : (axis == 1 ? g.P(i0 + pad, t_line, k + zp) : g.P(i0 + pad, j + pad, t_line));
-        g.riemann->muscl_line_flux_batch(g.lim, g.Wp, g.plane, base, stride, axis, cnt, F_line + i0, s.sm, nz == 1);
+        if (g.weno) {
+            weno_line_states(g, base, stride, cnt, s.ul, s.ur);
+            for (int c = 0; c < cnt; ++c) s.ax[c] = axis;
+            g.riemann->face_flux_batch(s.ul, s.ur, s.ax, cnt, F_line + i0, s.sm);
+        } else {
+            g.riemann->muscl_line_flux_batch(g.lim, g.Wp, g.plane, base, stride, axis, cnt, F_line + i0, s.sm, nz == 1);
+        }
         for (int c = 0; c < cnt; ++c)
             if (s.sm[c] > local) local = s.sm[c];
     }
@@ -786,10 +842,10 @@ void fused_line(const FusedGrid& g, int axis, int j, int k, State* F_line, doubl
     }
 }
 
-// The primitive state padded by kHaloDepth cells (edge replication; halos replace it where present). The layouts of Halos reduce to
-// the 2-D ones when nz = 1.
-void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& h, std::vector<double>& Wp, int& PX, int& PY, int& zp) {
-    constexpr int pad = kHaloDepth;
+// The primitive state padded by `pad` cells (edge replication; halos, `pad` deep, replace it where present). The layouts of Halos reduce to
+// the 2-D ones when nz = 1. The cells of the rows of the domain are converted by the vector kernel where the CPU has it.
+void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& h, std::vector<double>& Wp, int& PX, int& PY, int& zp,
+                    int pad) {
     const int nx = m.nx, ny = m.ny, nz = m.nz;
     const bool three_d = nz > 1;
     zp = three_d ? pad : 0;   // padding along z (none in 2-D)
@@ -807,8 +863,19 @@ void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& 
         const int kk = kj / PY, jj = kj % PY;
         const int k = std::min(std::max(kk - zp, 0), nz - 1);
         const int j = std::min(std::max(jj - pad, 0), ny - 1);
-        for (int ii = 0; ii < PX; ++ii)
+        int iv = 0;   // the cells of the row that the vector kernel converts
+#ifdef FV_SIMD
+        if (detail::simd_available() && jj >= pad && jj < pad + ny && kk >= zp && kk < zp + nz) {
+            iv = nx & ~3;
+            double* o[kNVar];
+            for (int q = 0; q < kNVar; ++q) o[q] = Wp.data() + q * plane + P(pad, jj, kk);
+            detail::cons_to_prim_planes_simd(eos, &U[m.cell(0, j, k)], iv, o);
+        }
+#endif
+        for (int ii = 0; ii < PX; ++ii) {
+            if (ii >= pad && ii < pad + iv) continue;
             put(P(ii, jj, kk), eos.cons_to_prim(U[m.cell(std::min(std::max(ii - pad, 0), nx - 1), j, k)]));
+        }
     }
     for (int k = 0; k < nz; ++k)
         for (int d = 0; d < pad; ++d) {
@@ -832,9 +899,34 @@ void pad_primitives(const EOS& eos, const Field& U, const Mesh& m, const Halos& 
                 }
 }
 
-FusedGrid make_grid(const RiemannSolver& riemann, const EOS& eos, Limiter lim, const std::vector<double>& Wp, const Field& UL, const Field& UR,
-                    const Mesh& m, const Halos& h, int PX, int PY, int zp) {
+// The grid description of a reconstruction `scheme` (the padded primitives are `pad` cells deep: 3 for WENO5-Z, else 2). With WENO5-Z and
+// an immersed body the solid cells go on the padded layout (a cell outside the domain is solid if the cell it replicates or the cell a
+// periodic wrap puts there is), as reconstruct_weno does.
+FusedGrid make_grid(const RiemannSolver& riemann, const EOS& eos, Limiter lim, Reconstruction scheme, double weno_eps,
+                    const std::vector<double>& Wp, std::vector<char>& S_pad, const Field& UL, const Field& UR, const Mesh& m,
+                    const Halos& h, int PX, int PY, int zp, int pad) {
     FusedGrid g{};
+    g.weno = scheme == Reconstruction::Weno5 ? 5 : (scheme == Reconstruction::Weno3 ? 3 : 0);
+    g.weno_eps = weno_eps;
+    g.solid = nullptr;
+    if (g.weno == 5 && h.narrow) {
+        const int nx = m.nx, ny = m.ny, nz = m.nz;
+        if (h.narrow->size() != static_cast<size_t>(nx) * ny * nz) throw std::logic_error("WENO5-Z: the solid mask is not that of the mesh");
+        const int PZ = nz + 2 * zp;
+        S_pad.resize(static_cast<size_t>(PZ) * PY * PX);
+        const auto clampi = [](int i, int n) { return i < 0 ? 0 : (i >= n ? n - 1 : i); };
+        const auto wrapi = [](int i, int n) { return ((i % n) + n) % n; };
+        for (int kk = 0; kk < PZ; ++kk)
+            for (int jj = 0; jj < PY; ++jj)
+                for (int ii = 0; ii < PX; ++ii) {
+                    const int i = ii - pad, j = jj - pad, k = kk - zp;
+                    S_pad[(static_cast<size_t>(kk) * PY + jj) * PX + ii] =
+                        ((*h.narrow)[m.cell(clampi(i, nx), clampi(j, ny), clampi(k, nz))] != 0 ||
+                         (*h.narrow)[m.cell(wrapi(i, nx), wrapi(j, ny), wrapi(k, nz))] != 0)
+                            ? 1 : 0;
+                }
+        g.solid = S_pad.data();
+    }
     g.riemann = &riemann;
     g.eos = &eos;
     g.lim = lim;
@@ -849,7 +941,7 @@ FusedGrid make_grid(const RiemannSolver& riemann, const EOS& eos, Limiter lim, c
     g.nz = m.nz;
     g.PX = PX;
     g.PY = PY;
-    g.pad = kHaloDepth;
+    g.pad = pad;
     g.zp = zp;
     g.halo_lo[0] = h.l != nullptr;
     g.halo_hi[0] = h.r != nullptr;
@@ -866,10 +958,12 @@ double MusclReconstruction::muscl_fluxes(const RiemannSolver& riemann, const Fie
                                          const Mesh& m, const Halos& h, Field& F) const {
     const int nx = m.nx, ny = m.ny, nz = m.nz;
     thread_local std::vector<double> W_pad;
+    thread_local std::vector<char> S_pad;
     int PX, PY, zp;
-    pad_primitives(eos_, U, m, h, W_pad, PX, PY, zp);
+    const int pad = scheme_ == Reconstruction::Weno5 ? 3 : kHaloDepth;
+    pad_primitives(eos_, U, m, h, W_pad, PX, PY, zp, pad);
     F.resize(m.num_faces());
-    const FusedGrid g = make_grid(riemann, eos_, lim_, W_pad, UL, UR, m, h, PX, PY, zp);
+    const FusedGrid g = make_grid(riemann, eos_, lim_, scheme_, weno_eps_, W_pad, S_pad, UL, UR, m, h, PX, PY, zp, pad);
     double smax_all = 0.0;
 #pragma omp parallel if (nx * ny * nz >= kOmpMinWork)
     {
@@ -944,10 +1038,12 @@ double fused_residual_2d(const FusedGrid& g, const Mesh& m, Field& R) {
 double MusclReconstruction::muscl_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U,
                                               const Mesh& m, const Halos& h, Field& R) const {
     thread_local std::vector<double> W_pad;
+    thread_local std::vector<char> S_pad;
     int PX, PY, zp;
-    pad_primitives(eos_, U, m, h, W_pad, PX, PY, zp);
+    const int pad = scheme_ == Reconstruction::Weno5 ? 3 : kHaloDepth;
+    pad_primitives(eos_, U, m, h, W_pad, PX, PY, zp, pad);
     R.resize(U.size());
-    return fused_residual_2d(make_grid(riemann, eos_, lim_, W_pad, UL, UR, m, h, PX, PY, zp), m, R);
+    return fused_residual_2d(make_grid(riemann, eos_, lim_, scheme_, weno_eps_, W_pad, S_pad, UL, UR, m, h, PX, PY, zp, pad), m, R);
 }
 
 namespace {
@@ -1002,10 +1098,12 @@ double fused_residual_3d(const FusedGrid& g, const Mesh& m, Field& R) {
 double MusclReconstruction::muscl_residual_3d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U,
                                               const Mesh& m, const Halos& h, Field& R) const {
     thread_local std::vector<double> W_pad;
+    thread_local std::vector<char> S_pad;
     int PX, PY, zp;
-    pad_primitives(eos_, U, m, h, W_pad, PX, PY, zp);
+    const int pad = scheme_ == Reconstruction::Weno5 ? 3 : kHaloDepth;
+    pad_primitives(eos_, U, m, h, W_pad, PX, PY, zp, pad);
     R.resize(U.size());
-    return fused_residual_3d(make_grid(riemann, eos_, lim_, W_pad, UL, UR, m, h, PX, PY, zp), m, R);
+    return fused_residual_3d(make_grid(riemann, eos_, lim_, scheme_, weno_eps_, W_pad, S_pad, UL, UR, m, h, PX, PY, zp, pad), m, R);
 }
 
 double RiemannSolver::first_order_residual_2d(const Field& UL, const Field& UR, const Field& U, const Mesh& m, Field& R) const {
@@ -1020,6 +1118,8 @@ double RiemannSolver::first_order_residual_2d(const Field& UL, const Field& UR, 
     g.nx = m.nx;
     g.ny = m.ny;
     g.nz = m.nz;
+    g.weno = 0;
+    g.solid = nullptr;
     return fused_residual_2d(g, m, R);
 }
 }   // namespace fv

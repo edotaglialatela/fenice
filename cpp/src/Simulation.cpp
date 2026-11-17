@@ -678,13 +678,13 @@ Field Simulation::initial_field() const {
 // Residuals
 // ---------------------------------------------------------------------------
 
-// Reconstruction and Riemann solver in one pass (MusclReconstruction::muscl_fluxes): the MUSCL scheme on the AVX2 kernels; the
+// Reconstruction and Riemann solver in one pass (MusclReconstruction::muscl_fluxes): MUSCL, WENO3-Z and WENO5-Z on the vector kernels; the
 // results are the same as with the two passes (FENICE_NO_FUSED=1 takes those, for A/B timing).
 static bool fused_enabled() {
     static const bool off = switch_on("FENICE_NO_FUSED");
     return !off;
 }
-static bool fused_muscl(const MusclReconstruction& mu) { return fused_enabled() && mu.scheme() == Reconstruction::Muscl; }
+static bool fused_recon(const MusclReconstruction&) { return fused_enabled(); }
 
 // Puts the cells of an in-place forcing back when the residual is done (also when it throws).
 struct Simulation::InPlaceForcing {
@@ -779,7 +779,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         ghost(Face::Top, mh.t, ghT_);
     }
     double S;
-    if (mu && fused_muscl(*mu)) {
+    if (mu && fused_recon(*mu)) {
         // reconstruction, Riemann solver and flux balance in one pass over rows of faces: the face fluxes are not stored
         ProfileScope ps(Section::Flux);
         S = mu->muscl_residual_2d(riemann, UL_, UR_, *Uc, m, mh, R);
@@ -964,7 +964,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     }
 
     double S;
-    const bool fused_balance = mu && fused_muscl(*mu);
+    const bool fused_balance = mu && fused_recon(*mu);
     if (fused_balance) {
         ProfileScope ps(Section::Flux);   // reconstruction, Riemann solver and flux balance in one pass over planes
         S = mu->muscl_residual_3d(riemann, UL_, UR_, Uv, m, mh, R);
