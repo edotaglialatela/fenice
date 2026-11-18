@@ -1,9 +1,13 @@
 ---
 title: Writing a test case
 nav: Writing a test case
-section: Guide
-order: 25
+section: User guide
+order: 20
 ---
+
+> **In short.** A case is a folder `cases/<name>/` with one `case.toml`. Start from an existing one with
+> `fenice --new-case "My Case" --from "Sod Shock Tube"`, edit the file, and run it with `--case`. No C++ and no recompilation are needed.
+> [A complete example](#a-complete-example) comes first; the rest of the page is the reference for each section.
 
 A test case is a folder under `cases/` holding one file, `case.toml`. The file describes
 the mesh, physics, numerics, boundary conditions, run control and initial conditions. The

@@ -1,10 +1,13 @@
 ---
 title: MPIDecomposition - domain decomposition
 nav: MPIDecomposition
-section: Modules
+section: Methods
 order: 90
-header: MPIDecomposition.hpp
 ---
+
+> **In short.** A run on several MPI ranks splits the mesh into strips and exchanges a two-cell halo between neighbours each
+> stage. You do not set this up by hand: `use_mpi = true` and `n_cpus` are enough, and the result is identical to the serial one.
+> Read on for how the strips are chosen and why a mesh may refuse many ranks.
 
 The global mesh is split into contiguous **strips**, one per rank. In 3-D a strip
 spans the full depth: z is never split, so the halos are `(depth × nz × length)` slabs.
@@ -55,4 +58,6 @@ MPI. The fields agree to 1.8e-15, the round-off of the inlet sum.</figcaption>
 
 {{widget:mpiDecomposition}}
 
-{{api}}
+---
+
+*Declarations: [`fv/MPIDecomposition.hpp`]({{root}}api/MPIDecomposition.html).*

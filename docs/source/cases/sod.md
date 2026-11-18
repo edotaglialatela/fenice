@@ -5,6 +5,8 @@ section: Test cases
 order: 10
 ---
 
+> **Run it:** `build\release\fenice.exe --case "Sod Shock Tube"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).
+
 The canonical validation case for Riemann solvers (Sod 1978). A membrane at
 $x = L_x/2$ separates two regions of quiescent ideal gas:
 

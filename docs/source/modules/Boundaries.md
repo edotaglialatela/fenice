@@ -1,10 +1,15 @@
 ---
 title: Boundaries - ghost-cell boundary conditions
 nav: Boundaries
-section: Modules
+section: Methods
 order: 20
-header: Boundaries.hpp
 ---
+
+> **In short.** Each side of the domain has its own boundary condition: `bc_left`, `bc_right`, `bc_bottom`, `bc_top` and, in 3-D,
+> `bc_front`, `bc_back`. The table [below](#boundary-condition-types) lists the types. Use `wall` or `no_slip` for solid walls,
+> `vel_inlet` or `massflow_inlet` to feed a flow in, `outlet`, `transmissive` or `nonreflecting` where it leaves, and
+> `periodic` (always in pairs) for a repeated box. `boundary_order` (default 2) controls whether the faces at the boundary
+> are second order.
 
 Every boundary condition is applied through a **ghost cell**. For each
 boundary face, a fictitious exterior state $\mathbf{U}_g$ is chosen so that the
@@ -62,6 +67,8 @@ Feed 3-D inflows through the x or y sides.
 
 Under MPI the mass-flow average $\langle\rho\rangle$ is reduced over every rank
 sharing the inlet, so the inlet behaves exactly as in a serial run.
+
+{{widget:ghostCells}}
 
 ## Non-reflecting outlet
 
@@ -122,4 +129,6 @@ identical to serial ones.
   (the second ghost layer mirrors the first). The manufactured outflow solution has zero normal gradient by construction, so it reaches order 2
   and does not test this.
 
-{{api}}
+---
+
+*Declarations: [`fv/Boundaries.hpp`]({{root}}api/Boundaries.html).*

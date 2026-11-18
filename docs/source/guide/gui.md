@@ -1,7 +1,7 @@
 ---
 title: GUI
 nav: GUI
-section: Guide
+section: User guide
 order: 40
 ---
 
@@ -28,10 +28,20 @@ appears when a Monitor is linked, with separate **Plots** and **Console** tabs; 
 as modules are added. One Geometry node can feed multiple Solvers. Its
 geometry is shared: edits and case-default reloads from any linked Solver update all of them.
 
+<figure style="margin:1em 0;">
+<img src="{{root}}img/gui_workflow.png" style="width:100%">
+<figcaption>The workbench with a full workflow: Geometry feeds a Solver, whose run output feeds a Monitor (plots and console in the bottom half) and whose results feed Postprocessing and Analysis Tools. The solver node carries Run and Stop, the Low-Mach slider and the recording interval.</figcaption>
+</figure>
+
 **Save state...** writes the workflow to a `.fenice.json` file: graph nodes and links, their canvas positions, solver setup, geometry,
 result-folder selections, analysis settings, open editor windows and monitor layout. **Restore state...** rebuilds that view; solver
 processes return idle and are not resumed from a state file. Restoring replaces the current workflow after confirmation and is
 unavailable while a solver is running.
+
+<div style="display:flex; gap:12px; flex-wrap:wrap; margin:1em 0;">
+<figure style="flex:1; min-width:300px; margin:0;"><img src="{{root}}img/gui_geometry.png" style="width:100%"><figcaption>The Geometry editor on the cylinder case: domain, base mesh, immersed body and side conditions on the left, the mesh preview on the right.</figcaption></figure>
+<figure style="flex:1; min-width:300px; margin:0;"><img src="{{root}}img/gui_geometry_amr.png" style="width:100%"><figcaption>The same editor on the AMR airfoil case: the NACA section on the domain, with the inlet and the non-reflecting outlet labelled.</figcaption></figure>
+</div>
 
 * **Geometry** (output: geometry). Its editor keeps the domain, base mesh, immersed body, adaptive mesh and boundary conditions in a
   scrollable control column beside a larger mesh preview. The initial view and **Show domain** fit the exact simulation domain, without
@@ -95,6 +105,11 @@ The run setup uses a left navigation rail for **Configuration**, **Immersed body
 split into **Case and physics**, **Domain and boundaries**, and **Numerics and output**, so related settings stay together while longer
 sections remain scrollable.
 
+<figure style="margin:1em 0;">
+<img src="{{root}}img/gui_run_setup.png" style="width:90%">
+<figcaption>The run setup dialog (Sod shock tube): navigation rail on the left, the three Configuration pages as tabs, and Run, Save case and Cancel at the bottom.</figcaption>
+</figure>
+
 Run the setup dialog on its own with:
 
 ```powershell
@@ -127,6 +142,11 @@ python gui\viewer.py results\<case>          # a results folder, or one of its s
 python gui\viewer.py results\<case> --screenshot view.png --field Mach --step 100 --zoom 2.5,4.2,2.6,3.5 --leaves
 ```
 
+<figure style="margin:1em 0;">
+<img src="{{root}}img/gui_viewer.png" style="width:100%">
+<figcaption>The Postprocessing viewer on a supersonic flow over a cylinder (Mach number at t = 3.5): field and colour map selectors, Field and Monitor tabs, and the snapshot slider with Play and Follow latest.</figcaption>
+</figure>
+
 The Postprocessing module shows the fields of a run snapshot by snapshot, and its monitor curves. Its toolbar groups folder, field and colour-map
 selection separately from display options; 3-D slice controls appear only for 3-D results. The playback row keeps the snapshot slider,
 Play and **Follow latest** together. It reads the `.vtr` snapshots of a uniform mesh and
@@ -150,6 +170,11 @@ The viewer is a widget (`gui.viewer.ViewerPanel`), so it can sit in its own wind
 
 The workbench's separate **Analysis Tools** module reads the same results folder as Postprocessing and groups quantitative work into
 four general-purpose pages. The cylinder recipes in the case guide are examples of how to set them up.
+
+<figure style="margin:1em 0;">
+<img src="{{root}}img/gui_analysis.png" style="width:100%">
+<figcaption>Analysis Tools, POD / DMD page, on the vortex-shedding wake of the Re = 100 cylinder (82 snapshots of the y velocity): the two leading POD modes, the real and imaginary parts of the leading exact-DMD mode, the POD energy spectrum and the phase portrait of the first two coefficients, with the summary below. The other pages are Fields / profiles, Signals / spectra and Sensitivity.</figcaption>
+</figure>
 
 * **Fields / profiles.** See minimum, maximum, mean, standard deviation, RMS, median and the 5th/95th percentiles across the displayed
   cells or slice. Sample a line between editable coordinates and export it as CSV. A spatial spectrum can use a Hann window, even

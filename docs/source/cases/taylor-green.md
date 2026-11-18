@@ -5,6 +5,8 @@ section: Test cases
 order: 70
 ---
 
+> **Run it:** `build\release\fenice.exe --case "Taylor-Green Vortex"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).
+
 The 2-D Taylor-Green vortex is an exact solution of the incompressible Navier-Stokes
 equations: a periodic array of counter-rotating vortices that keeps its shape while
 viscosity damps it. On the periodic square $[0, L]^2$ with $k = 2\pi/L$:

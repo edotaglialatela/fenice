@@ -1,15 +1,16 @@
 ---
-title: Test cases
-nav: Test cases (registry)
-section: Modules
-order: 110
-header: TestCases.hpp
+title: All test cases
+nav: All test cases
+section: Test cases
+order: 0
 ---
+
+> **In short.** The registry of the cases shipped in `cases/`: which benchmark validates what, and where its page is.
 
 Every test case is a case file, `cases/<folder>/case.toml`, read at start-up (see
 [Writing a test case]({{root}}guide/writing-cases.html)). `test_registry()` loads all of
 them, sorted by their `[case] order`. `get_test_case()` finds a case by name, by folder
-name, or by path. The nine benchmarks shipped with Fenice are such files. Their
+name, or by path. The benchmarks shipped with Fenice are such files. Their
 defaults override the baseline defaults, and anything set in a config file or with `--set`
 overrides those (see [Parameters]({{root}}guide/parameters.html)).
 
@@ -29,7 +30,8 @@ overrides those (see [Parameters]({{root}}guide/parameters.html)).
 | `Isentropic Vortex` | 2nd-order accuracy on smooth advection, periodic BCs | [Isentropic vortex]({{root}}cases/isentropic-vortex.html) |
 | `IBM Sphere` | 3-D sphere in a channel, Re = 100, octree AMR, ghost-cell wall | [Sphere]({{root}}cases/sphere.html) |
 | `Taylor-Green Vortex 3D` | 3-D solver: vortex stretching, transition, dissipation peak (Re = 1600) | [Taylor-Green 3-D]({{root}}cases/taylor-green-3d.html) |
-| `Manufactured Solution`, `... Euler`, `... 3D`, `... Walls`, `... Outflow`, `... Unsteady Euler` | Code verification: source terms, observed orders of accuracy, wall and outflow boundary conditions (generated cases) | [Manufactured solutions]({{root}}cases/manufactured-solution.html) |
+| `IBM Airfoil`, `IBM Airfoil AMR` | NACA 0012 at 10° incidence, Re = 1000: IBM, non-reflecting outlet, lift and drag | [Airfoil]({{root}}cases/airfoil.html) |
+| `Manufactured Solution`, `... Euler`, `... 3D`, `... Walls`, `... Outflow`, `... Unsteady Euler`, `... Box` | Code verification: source terms, observed orders of accuracy, wall and outflow boundary conditions (generated cases) | [Manufactured solutions]({{root}}cases/manufactured-solution.html) |
 
 The 2-D cases also run on a 3-D mesh (`--set nz=...`). Their initial field is then
 extruded unchanged along z. With periodic (default) front/back sides, every z-layer
@@ -49,4 +51,6 @@ written in the case file.
 and in the GUI. A new initial field that cannot be written as regions and expressions can
 be added as a profile in `cpp/src/TestCases.cpp`.
 
-{{api}}
+---
+
+*Declarations: [`fv/TestCases.hpp`]({{root}}api/TestCases.html).*

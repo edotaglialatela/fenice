@@ -5,6 +5,12 @@ section: Test cases
 order: 40
 ---
 
+> **Run it** (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)):
+>
+> * `build\release\fenice.exe --case "IBM Flow over Cylinder"`
+> * `build\release\fenice.exe --case "IBM Cylinder Low Blockage AMR"`
+> * `build\release\fenice.exe --case "IBM Supersonic Flow over Cylinder"`
+
 At moderate Reynolds number the wake of a circular cylinder becomes time-periodic,
 shedding counter-rotating vortices alternately from the top and bottom of the body. This
 **von Kármán vortex street** is a classical 2-D benchmark for viscous unsteady solvers, and at Mach 2 the same body

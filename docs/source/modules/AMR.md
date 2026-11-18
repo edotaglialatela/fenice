@@ -1,10 +1,14 @@
 ---
 title: AMR - adaptive mesh refinement on leaf cells
 nav: AMR
-section: Modules
+section: Methods
 order: 60
-header: CellMesh.hpp
 ---
+
+> **In short.** With `use_amr = true` the mesh refines itself where the flow changes quickly (shocks, shear layers, the
+> neighbourhood of a body) and coarsens elsewhere, so a run costs a fraction of a uniform mesh with the same finest cells. The base
+> mesh is `nx x ny (x nz)`; `amr_max_level` sets how many times a cell may be split, and the `amr_*` keys tune the indicator. Results are bit-identical on any number of MPI
+> ranks. The [cost](#cost-and-scaling) section shows what to expect.
 
 The adaptive mesh is a set of **leaf cells** in $d$ dimensions. A leaf is a cell of the level-0 mesh (the `nx × ny × nz` grid of the
 case, any sizes) split $\ell$ times by two along each of the $d$ axes, so its size is $h_\ell = h_0/2^\ell$. There are no patches: a
@@ -205,18 +209,24 @@ uniform 3-D solver report, so a 3-D row equals the serial one for any number of 
 ## Parallel runs
 
 OpenMP threads share the face loops of a level. With `use_mpi` each level is cut into contiguous blocks of equal leaf count along
-its Morton order and a rank advances its owned leaves. A rank keeps only its owned leaves and the halo, the leaves its faces read
+its Morton order and a rank advances its owned leaves.
+
+* A rank keeps only its owned leaves and the halo, the leaves its faces read
 (stencil points, virtual cells, gradients): its share of the mesh, faces, stencils and state, with the same numbers a whole-mesh
-build gives for them (a face that read a leaf outside the share would be an error, checked when the share is made). The remesh
+build gives for them (a face that read a leaf outside the share would be an error, checked when the share is made).
+* The remesh
 does not gather the state: each rank takes the indicator of its owned leaves from the leaves around them (the ones it does not hold
 are fetched from their owners), the refine / coarsen flags of all ranks are gathered (one number per leaf), every rank applies
 them to the topology of the whole mesh (leaves and faces, no state; the ripple and the merges are the same on every rank), builds
 the state of its new leaves from the old leaves they come from, and builds its new share over the old one: only the margin
 around its owned leaves is fetched and looked up, and the faces, neighbour codes and stencils of a leaf that had no leaf come
 or go next to it are copied from the old share (`FENICE_FULL_REBUILD=1` computes them all; the tables are the same)
-(`FENICE_REPLICATED_REMESH=1` keeps the whole mesh and state on every rank and remeshes it there instead). The owners exchange the halo after each stage, the final state of a level
-after it advanced, and the registers of the coarse-fine faces. A same-level face is computed by both owners with the same inputs, a coarse-fine face
-by the owner of the fine leaf. The result is identical to the serial run for any number of ranks (1 to 7 are checked in
+(`FENICE_REPLICATED_REMESH=1` keeps the whole mesh and state on every rank and remeshes it there instead).
+* The owners exchange the halo after each stage, the final state of a level
+after it advanced, and the registers of the coarse-fine faces.
+* A same-level face is computed by both owners with the same inputs, a coarse-fine face
+by the owner of the fine leaf.
+* The result is identical to the serial run for any number of ranks (1 to 7 are checked in
 `amr_mpi.py --check`, on cases with remeshing, an immersed body, viscosity, a non-reflecting outlet and a time-dependent source).
 
 **Known limits.** The indicator, the flags and the state of the new leaves are local, each rank builds its share of the mesh and the engine tables directly from the leaves near its own (a wider reach is tried if a face reads what the share lacks), and the first mesh is adapted the same way, so no rank builds the engine of the whole mesh or adapts a mesh with faces (the base mesh itself is constructed once at setup, and every rank keeps the leaves and lookups of the whole topology). No rank holds the topology of the whole mesh: the ranks fetch the leaves around their own from the owners, settle the ripple and the merges between them and migrate the new leaves; same result bit for bit). The memory per rank at the end of the run (the largest over the ranks) falls from 432 MB serial to 298 / 177 / 115 / 83 MB on 2 / 4 / 8 / 16 ranks (peak 470 MB serial, 304 / 183 / 115 / 83 MB), and the wall time of the 720×360 airfoil is 4.9 s serial and 3.8 / 2.4 / 1.5 / 0.95 s (table below); on the 1.06 M-leaf airfoil (1440×720) the memory per rank at the end falls from 1304 MB to 950 / 528 / 375 / 268 MB (peak 1557 MB serial, 1070 / 601 / 395 / 274 MB) and the wall time goes from 20.2 s to 16.2 / 10.6 / 7.7 / 4.4 s; on 24 and 48 ranks the peak stays at 270 MB (the end falls to 237 and 212 MB). The peak is the remesh and the first share. A checkpoint is written by rank 0 as the leaves of each rank reach it, one rank after the other: it holds its own leaves and those of one other rank, never the whole state. The whole mesh is gathered on rank 0 only for the post-processing outputs (probes, samples, averages) and for `dump_state`. On one node
@@ -324,4 +334,6 @@ Pie charts of the measured splits (`cases/validation/amr/time_split.py`; the "re
 * Morton, G. M. (1966). A computer oriented geodetic data base and a new technique in file
   sequencing. Technical report, IBM Ltd., Ottawa.
 
-{{api}}
+---
+
+*Declarations: [`fv/CellMesh.hpp`]({{root}}api/AMR.html).*

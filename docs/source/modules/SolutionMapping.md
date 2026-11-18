@@ -1,10 +1,12 @@
 ---
 title: SolutionMapping - interpolation and restriction
 nav: SolutionMapping
-section: Modules
+section: Methods
 order: 70
-header: SolutionMapping.hpp
 ---
+
+> **In short.** Interpolation between meshes. Its main use is the **hot start**: `use_hot_start = true` with `hot_start_file` loads a
+> checkpoint from a run on another mesh (coarser, finer, or 2-D into 3-D) and continues from it.
 
 ## Hot start (solution mapping)
 
@@ -31,4 +33,6 @@ AMR ghost layers from coarser neighbours.
 
 A worked example, with the loads across a 400×200 → 800×400 hot start, is on the [cylinder page]({{root}}cases/cylinder.html).
 
-{{api}}
+---
+
+*Declarations: [`fv/SolutionMapping.hpp`]({{root}}api/SolutionMapping.html).*

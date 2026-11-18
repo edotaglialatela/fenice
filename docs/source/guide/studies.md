@@ -1,9 +1,12 @@
 ---
 title: Studies, cost tiers and the analysis layer
 nav: Studies and analysis
-section: Guide
-order: 75
+section: Verification
+order: 30
 ---
+
+> **In short.** How the validation studies are run in bulk: the cost tiers and the resumable queue, the strong-shock stress cases, and the Python
+> analysis layer (spectra, modal decomposition, uncertainty) behind the GUI's analysis tools.
 
 ## Cost tiers and the queue
 
@@ -48,13 +51,19 @@ fallback to first order at those faces could never act. What remains is the upda
 
 **Shock-face dissipation (`shock_blend`,** defined in [Parameters]({{root}}guide/parameters.html)**).** Blending a shock face toward HLL
 removes the contact and shear waves that let row-to-row differences along a shock grow; the sensor reads only the face's own two
-states, so the flux is still a function of (UL, UR) in every path. `verification/shock_blend.py` gates it: the odd-even spread falls from 9.6 to 0.5 cells
+states, so the flux is still a function of (UL, UR) in every path.
+
+* `verification/shock_blend.py` gates it: the odd-even spread falls from 9.6 to 0.5 cells
 (first order) and from 0.2 to 0.05 (MUSCL), the Sod L1 error grows by 1.0 % and 2.1 %, and all 12 strong-shock tube runs still
-pass. A sweep over 0.2 to 5 showed that only 0.2 brought the first-order spread under one cell; larger thresholds leave the
-shock-face smear partly undissipated. The price: on meshes so coarse that a smooth flow changes pressure by 20 % per cell the
+pass.
+* A sweep over 0.2 to 5 showed that only 0.2 brought the first-order spread under one cell; larger thresholds leave the
+shock-face smear partly undissipated.
+* The price: on meshes so coarse that a smooth flow changes pressure by 20 % per cell the
 sensor fires there too (the tiny regression meshes of the vortex and manufactured solutions moved by 1e-3 to 1e-1); on the
-validation meshes the observed orders are unchanged. The GUI exposes it as the checkbox "Shock-face dissipation" (on by default;
-unticked writes `shock_blend = 0`). Measured with it off: a blunt-body cylinder at Mach 10 and 20 (400 x 600, MUSCL, WENO3-Z) keeps a
+validation meshes the observed orders are unchanged.
+* The GUI exposes it as the checkbox "Shock-face dissipation" (on by default;
+unticked writes `shock_blend = 0`).
+* Measured with it off: a blunt-body cylinder at Mach 10 and 20 (400 x 600, MUSCL, WENO3-Z) keeps a
 straight, symmetric bow shock, but the Woodward-Colella blast waves pass the self-convergence band in only 1 of 6 rounding-level
 perturbations of the run (6 of 6 with it on; see `cases/blast-waves.md`), so the default stays on.
 

@@ -1,10 +1,14 @@
 ---
 title: Core - mesh and equations of state
 nav: Core (mesh, EOS)
-section: Modules
+section: Methods
 order: 10
-header: Core.hpp
 ---
+
+> **In short.** This page defines the grid and the gas. The mesh comes from `Lx`, `Ly`, `Lz` and `nx`, `ny`, `nz`
+> (a run is 2-D when `nz = 1`). The gas is an ideal gas by default; set `eos_type = Stiffened Gas` (with `gamma` and `p_inf`) for liquids.
+> Most runs need nothing else from this page, but it explains how cells and faces are numbered, which you need when you read the
+> output arrays or the C++ code.
 
 ## Cartesian mesh
 
@@ -64,9 +68,13 @@ $p_\infty = 6\times10^8$ Pa model liquid water.
 `kEosEps` $= 10^{-10}$, which prevents division by zero and negative sound speeds in
 cells that become unphysical during transients.
 
+{{widget:eos}}
+
 ### References
 
 * Menikoff, R. & Plohr, B.J. (1989). The Riemann problem for fluid flow of real
   materials. *Rev. Mod. Phys.* 61(1), 75-130.
 
-{{api}}
+---
+
+*Declarations: [`fv/Core.hpp`]({{root}}api/Core.html).*

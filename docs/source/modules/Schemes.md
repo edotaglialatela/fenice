@@ -1,10 +1,16 @@
 ---
 title: Schemes - Riemann solvers, TVD limiters, MUSCL, WENO
 nav: Schemes
-section: Modules
+section: Methods
 order: 30
-header: Schemes.hpp
 ---
+
+> **In short.** The scheme decides how sharp and how robust the solution is. The Riemann solver (`riemann_solver`) computes the flux
+> at each face; the reconstruction (`reconstruction`, default `none`) raises the order of the face states: `none` is first order, `muscl`
+> is second order with a limiter (`muscl_limiter`), and `weno3` / `weno5` are the WENO-Z schemes (they need `time_scheme` SSP-RK3).
+> The measurements [below](#measured-behaviour) show what each gains on smooth flow and what it costs; `weno5` runs on MPI ranks only with AMR
+> (it is serial on the uniform mesh). `shock_blend` (default 0.2) blends the flux toward the more dissipative HLL on any face whose pressure jump
+> exceeds that fraction of the lower pressure.
 
 ## Riemann solvers
 
@@ -126,16 +132,23 @@ to about 2.5 whatever the units of the variable. The reconstruction is dimension
 formal order of a multi-dimensional run is limited by the quadrature and by the nonlinear flux evaluation at the faces to second order, whatever the
 one-dimensional order; the higher order shows as a smaller error constant.
 
-**Measured** (1-D entropy wave with exact cell-average data, one period, SSP-RK3, observed order between successive meshes, $16\to128$ cells):
-`weno3` with `weno_epsilon = 1e-4` converges at 3.0 on the coarsest pair and 3.4 to 4.3 on the finer ones; `weno5` at 5.0 (CFL 0.1; at CFL 0.5 the time error takes over
-and the order falls to 3). The 2-D isentropic vortex at $256^2$: density error $6.4\cdot10^{-5}$ with MUSCL (MC),
-$4.8\cdot10^{-5}$ with `weno3` and $2.1\cdot10^{-6}$ with `weno5`. The 3-D Taylor-Green vortex at $64^3$, Re 1600:
-peak dissipation $-10.8\,\%$ (MUSCL), $-14.1\,\%$ (`weno3`) and $-0.2\,\%$ (`weno5`) from the reference value 0.0127; at $32^3$ the three
-give $-13.3\,\%$, $-5.4\,\%$ and $-8.8\,\%$, so the `weno3` error is not monotone in the resolution and a single peak value is a trend, not a convergence
-result. `weno5` takes about 3 to 5 times as long as MUSCL on one thread for the same run (it also uses a three-stage time scheme): 2.7 on this case,
-4.8 on the vortex at $256^2$ (table in [Performance]({{root}}guide/performance.html)). `weno3` is not more accurate than MUSCL on the turbulent case.
+{{widget:wenoReconstruction}}
 
-**Limits.**
+### Measured behaviour
+
+* **Order of accuracy** (1-D entropy wave with exact cell-average data, one period, SSP-RK3, observed order between successive meshes, $16\to128$ cells):
+  `weno3` with `weno_epsilon = 1e-4` converges at 3.0 on the coarsest pair and 3.4 to 4.3 on the finer ones; `weno5` at 5.0 (CFL 0.1; at CFL 0.5 the time error takes over
+  and the order falls to 3).
+* **2-D isentropic vortex** at $256^2$: density error $6.4\cdot10^{-5}$ with MUSCL (MC),
+  $4.8\cdot10^{-5}$ with `weno3` and $2.1\cdot10^{-6}$ with `weno5`.
+* **3-D Taylor-Green vortex** at $64^3$, Re 1600:
+  peak dissipation $-10.8\,\%$ (MUSCL), $-14.1\,\%$ (`weno3`) and $-0.2\,\%$ (`weno5`) from the reference value 0.0127; at $32^3$ the three
+  give $-13.3\,\%$, $-5.4\,\%$ and $-8.8\,\%$, so the `weno3` error is not monotone in the resolution and a single peak value is a trend, not a convergence
+  result. `weno3` is not more accurate than MUSCL on the turbulent case.
+* **Cost.** `weno5` takes about 3 to 5 times as long as MUSCL on one thread for the same run (it also uses a three-stage time scheme): 2.7 on this case,
+  4.8 on the vortex at $256^2$ (table in [Performance]({{root}}guide/performance.html)).
+
+### Limits
 
 * The stencil is as deep as the MUSCL one for `weno3` (so it runs on MPI ranks, with results identical to the serial run bit
   for bit and independent of the thread count); `weno5` reads three cells on each side and is serial on the uniform mesh (with AMR it runs on MPI ranks).
@@ -151,8 +164,11 @@ result. `weno5` takes about 3 to 5 times as long as MUSCL on one thread for the 
   flux registers are unchanged. On a coarse-fine face both sides are reconstructed with WENO-Z from the data the limited
   formula uses: the fine side from its two fine cells and the interpolated coarse value, the coarse side from its own cell,
   its neighbour away from the face and the mean of the fine leaves. The interpolated value itself still uses the limited
-  slopes of the coarse leaf, and those and the averaged values are second order. Measured on the Sod tube (base 50 cells, two levels, static refined band, SSP-RK3): the density L1 error is 2.972e-3, against 2.972e-3 on the uniform 200-cell grid and 1.05e-2 on the uniform 50-cell grid; with the band narrowed so that the waves cross the jumps, the error inside the window stays within 1.6 times the uniform-200 one. Smooth flow across the seams (isentropic vortex, one period, a 40 x 40 base mesh with one level in the strip 2.5 < x < 7.5, so the vortex crosses both seams): the L1 density error is 4.3e-3 with `weno3` (3.1e-3 with MUSCL MC), between the uniform 40 (5.9e-3 and 4.4e-3) and uniform 80 (9.6e-4 and 9.3e-4) grids, in the same ratio to MUSCL as on the uniform grids; no overshoot or loss of order specific to the seam shows, but the error is dominated by the coarse part, so this is a sanity check, not an order measurement. The transmissive ends of a WENO run leak about 1e-10 of the mass (the tails of the waves), also on a uniform grid.
-  The level-0 mesh equals the uniform solver bit for bit, and the state is the same on any number of ranks.
+  slopes of the coarse leaf, and those and the averaged values are second order.
+  * Measured on the Sod tube (base 50 cells, two levels, static refined band, SSP-RK3): the density L1 error is 2.972e-3, against 2.972e-3 on the uniform 200-cell grid and 1.05e-2 on the uniform 50-cell grid; with the band narrowed so that the waves cross the jumps, the error inside the window stays within 1.6 times the uniform-200 one.
+  * Smooth flow across the seams (isentropic vortex, one period, a 40 x 40 base mesh with one level in the strip 2.5 < x < 7.5, so the vortex crosses both seams): the L1 density error is 4.3e-3 with `weno3` (3.1e-3 with MUSCL MC), between the uniform 40 (5.9e-3 and 4.4e-3) and uniform 80 (9.6e-4 and 9.3e-4) grids, in the same ratio to MUSCL as on the uniform grids; no overshoot or loss of order specific to the seam shows, but the error is dominated by the coarse part, so this is a sanity check, not an order measurement.
+  * The transmissive ends of a WENO run leak about 1e-10 of the mass (the tails of the waves), also on a uniform grid.
+  * The level-0 mesh equals the uniform solver bit for bit, and the state is the same on any number of ranks.
 
 **Other weights (tried, not adopted).** A search for a better `weno5` weighting (2026-11-17) found no variant that is a general gain. At four to eight
 points per wave the present nonlinear weights cost resolution (dissipation -0.19 against -0.13 for the linear fifth-order scheme at $kh = \pi/2$). Ideal weights wherever
@@ -222,4 +238,6 @@ Measured on the isentropic vortex with exact cell-averaged initial data (a resta
 * Koren, B. (1993). A robust upwind discretisation method for advection, diffusion and
   source terms. *Notes on Numerical Fluid Mechanics* 45.
 
-{{api}}
+---
+
+*Declarations: [`fv/Schemes.hpp`]({{root}}api/Schemes.html).*

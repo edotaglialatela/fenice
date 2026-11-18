@@ -1,10 +1,13 @@
 ---
 title: TimeScheme - time integration
 nav: TimeScheme
-section: Modules
+section: Methods
 order: 50
-header: TimeScheme.hpp
 ---
+
+> **In short.** `time_scheme` picks the integrator: explicit Euler, SSP-RK2 or SSP-RK3. The time step follows from `cfl`
+> and the fastest wave in the domain, so you normally set only the CFL number (default 0.5). Use SSP-RK3 with the WENO schemes
+> (they need it, SSP-RK2 is rejected); the CFL values that kept each WENO scheme stable on the strong-shock tests are in the [limits of the Schemes page]({{root}}modules/Schemes.html#limits).
 
 Every scheme advances the semi-discrete system
 $\mathrm{d}\mathbf U/\mathrm{d}t = \mathcal R(\mathbf U)$ in place. The residual callback
@@ -80,4 +83,6 @@ The adaptive-mesh path does not take it yet.
 
 {{widget:timeScheme}}
 
-{{api}}
+---
+
+*Declarations: [`fv/TimeScheme.hpp`]({{root}}api/TimeScheme.html).*

@@ -25,8 +25,8 @@
         </div>
         
         <div style="display: flex; flex-direction: column; gap: 8px;">
-            <button id="btnPlay" style="padding: 6px 15px; font-size: 13px; font-weight: bold; cursor: pointer; border: none; border-radius: 4px; background-color: #2ecc71; color: white;">▶ Avvia Sim</button>
-            <button id="btnReset" style="padding: 6px 15px; font-size: 13px; font-weight: bold; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background-color: #f8f9fa; color: #333;">⟲ Resetta</button>
+            <button id="btnPlay" style="padding: 6px 15px; font-size: 13px; font-weight: bold; cursor: pointer; border: none; border-radius: 4px; background-color: #2ecc71; color: white;">▶ Start Sim</button>
+            <button id="btnReset" style="padding: 6px 15px; font-size: 13px; font-weight: bold; cursor: pointer; border: 1px solid #ccc; border-radius: 4px; background-color: #f8f9fa; color: #333;">⟲ Reset</button>
         </div>
     </div>
     
@@ -49,18 +49,18 @@
             if (!canvas) return;
             const ctx = canvas.getContext('2d');
             
-            // Variabili Fisiche e Numeriche
-            const nx = 100;         // Numero di celle
-            const dx = 2.0 / nx;    // Dimensione cella (dominio da x=0 a x=2)
-            let u = 1.0;            // Velocità dell'onda
-            let dt = 0.01;          // Passo temporale
-            let time = 0;           // Tempo simulato
+            // Physical and numerical variables
+            const nx = 100;         // Number of cells
+            const dx = 2.0 / nx;    // Cell size (domain x = 0 to 2)
+            let u = 1.0;            // Wave speed
+            let dt = 0.01;          // Time step
+            let time = 0;           // Simulated time
             
-            let q_num = new Array(nx).fill(0); // Vettore soluzione numerica
+            let q_num = new Array(nx).fill(0); // Numerical solution
             let isRunning = false;
             let animationId = null;
 
-            // Elementi DOM
+            // DOM elements
             const dtSlider = document.getElementById('dtSlider');
             const uSlider = document.getElementById('uSlider');
             const dtValDisp = document.getElementById('dtValDisp');
@@ -71,9 +71,9 @@
             const overlay = document.getElementById('crashOverlay');
             const btnPlay = document.getElementById('btnPlay');
             
-            // Funzione Pulsazione Gaussiana Iniziale
+            // Initial Gaussian pulse
             function initialCondition(x) {
-                // Impulso centrato in x=0.4
+                // Pulse centred at x = 0.4
                 return Math.exp(-200 * Math.pow(x - 0.4, 2));
             }
 
@@ -85,7 +85,7 @@
                 overlay.style.display = "none";
                 time = 0;
                 
-                // Inizializza array
+                // Initialise the array
                 for(let i=0; i<nx; i++) {
                     q_num[i] = initialCondition(i * dx);
                 }
@@ -117,18 +117,18 @@
                 }
             }
 
-            // Funzione di aggiornamento matematico (1 Step Numerico)
+            // One numerical step
             function stepSimulation() {
                 let cfl = (u * dt) / dx;
                 let q_new = new Array(nx).fill(0);
                 let hasExploded = false;
                 
-                // Schema Upwind del 1° Ordine con condizioni periodiche
+                // First-order upwind scheme with periodic boundaries
                 for(let i=0; i<nx; i++) {
                     let i_prev = (i === 0) ? nx - 1 : i - 1;
                     q_new[i] = q_num[i] - cfl * (q_num[i] - q_num[i_prev]);
                     
-                    // Controllo di blow-up
+                    // Blow-up check
                     if (Math.abs(q_new[i]) > 5.0 || isNaN(q_new[i])) {
                         hasExploded = true;
                     }
@@ -153,22 +153,22 @@
                 
                 ctx.clearRect(0, 0, W, H);
                 
-                // Disegna Griglia e Assi
+                // Draw the axes
                 ctx.strokeStyle = "#eee"; ctx.lineWidth = 1;
                 ctx.beginPath(); ctx.moveTo(pad.l, pad.t); ctx.lineTo(pad.l, H - pad.b); ctx.stroke(); // Y
                 ctx.beginPath(); ctx.moveTo(pad.l, H - pad.b); ctx.lineTo(W - pad.r, H - pad.b); ctx.stroke(); // X
                 
-                // Helper funzioni coordinate
+                // Coordinate helpers
                 const px = (i) => pad.l + (i / nx) * (W - pad.l - pad.r);
-                const py = (val) => (H - pad.b) - (val / 1.5) * (H - pad.t - pad.b); // Y max a 1.5
+                const py = (val) => (H - pad.b) - (val / 1.5) * (H - pad.t - pad.b); // y max is 1.5
                 
-                // 1. Disegna Soluzione Analitica Esatta (Onda Traslata)
+                // 1. Exact solution (translated wave)
                 ctx.strokeStyle = "#bdc3c7";
                 ctx.lineWidth = 3;
                 ctx.beginPath();
                 for(let i=0; i<=nx; i++) {
                     let x = (i * dx);
-                    // Traslazione u*t con modulo per periodicità
+                    // Shift by u*t, modulo the period
                     let x_shifted = (x - u * time) % 2.0;
                     if (x_shifted < 0) x_shifted += 2.0;
                     
@@ -178,14 +178,14 @@
                 }
                 ctx.stroke();
 
-                // 2. Disegna Soluzione Numerica
+                // 2. Numerical solution
                 ctx.strokeStyle = "#2980b9";
                 ctx.fillStyle = "#3498db";
                 ctx.lineWidth = 1.5;
                 ctx.beginPath();
                 for(let i=0; i<nx; i++) {
                     let y_num = q_num[i];
-                    // Evita disegni fuori scala estremi
+                    // Clip extreme values
                     if (y_num > 5) y_num = 5; 
                     if (y_num < -2) y_num = -2;
                     
@@ -194,10 +194,10 @@
                 }
                 ctx.stroke();
                 
-                // Disegna pallini (rappresentazione nodi volumi finiti)
+                // Dots at the cell values
                 for(let i=0; i<nx; i++) {
                     let y_num = q_num[i];
-                    if (y_num <= 5 && y_num >= -2) { // Non disegnare pallini se è già esploso fuori canvas
+                    if (y_num <= 5 && y_num >= -2) { // Skip dots that are off the canvas
                         ctx.beginPath();
                         ctx.arc(px(i), py(y_num), 2, 0, Math.PI*2);
                         ctx.fill();
@@ -207,7 +207,7 @@
 
             function gameLoop() {
                 if (isRunning) {
-                    // Eseguiamo 1 step numerico ad ogni frame (se dt è piccolo sembra lento, se dt è grande va veloce, ed è corretto fisicamente)
+                    // One numerical step per frame (a small dt looks slow, a large dt looks fast: that is physically right)
                     stepSimulation();
                     drawState();
                     animationId = requestAnimationFrame(gameLoop);
@@ -222,7 +222,7 @@
             
             btnPlay.addEventListener('click', () => {
                 if (overlay.style.display === "flex") {
-                    // Se era esploso, ripristina e avvia in automatico
+                    // If it blew up, reset and start again
                     resetSimulation();
                     isRunning = true;
                     btnPlay.innerHTML = "⏸ Pause";
@@ -243,7 +243,7 @@
                 }
             });
 
-            // Avvio pulito
+            // Clean start
             resetSimulation();
         })();
     </script>

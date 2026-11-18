@@ -5,6 +5,8 @@ section: Test cases
 order: 54
 ---
 
+> **Run it:** `build\release\fenice.exe --case "Noh Implosion"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).
+
 Two point-symmetric problems on one quarter of the plane (symmetry walls on $x = 0$ and $y = 0$, transmissive far sides).
 
 **Noh implosion** (Noh 1987), $\gamma = 5/3$: cold gas ($p = 10^{-6}$) flows radially inward at unit speed. A shock moves out at

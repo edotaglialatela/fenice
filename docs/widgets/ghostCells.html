@@ -1,0 +1,101 @@
+<div style="max-width: 680px; margin: 20px 0; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fafbfc; font-family: sans-serif;">
+    <h4 style="margin-top: 0; color: #24292e;">Ghost-Cell Boundary Conditions</h4>
+    <p style="font-size: 13px; color: #586069; margin-bottom: 12px;">
+        The boundary is the right side of the domain (outward normal +x). Choose a boundary condition and the velocity in the last interior cell: the arrows show the ghost state
+        that the Riemann problem on the boundary face sees. Density and pressure are copied from the interior unless the condition sets them.
+    </p>
+
+    <div style="display: flex; gap: 20px; flex-wrap: wrap; align-items: flex-end; margin-bottom: 12px;">
+        <div style="display: flex; flex-direction: column;">
+            <label style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 3px;">Boundary condition</label>
+            <select id="gcType" style="padding: 5px; font-size: 14px; border-radius: 4px; border: 1px solid #ccc;">
+                <option value="wall">wall (inviscid slip)</option>
+                <option value="no_slip">no_slip (viscous wall)</option>
+                <option value="moving_wall">moving_wall</option>
+                <option value="vel_inlet">vel_inlet</option>
+                <option value="outlet">outlet (pressure)</option>
+                <option value="transmissive">transmissive</option>
+            </select>
+        </div>
+        <div style="flex: 1; min-width: 150px;">
+            <label style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; color: #333;"><span>Interior u (normal)</span><span id="gcUv">0.8</span></label>
+            <input type="range" id="gcU" min="-1" max="1" step="0.1" value="0.8" style="width: 100%;">
+        </div>
+        <div style="flex: 1; min-width: 150px;">
+            <label style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; color: #333;"><span>Interior v (tangential)</span><span id="gcVv">0.4</span></label>
+            <input type="range" id="gcV" min="-1" max="1" step="0.1" value="0.4" style="width: 100%;">
+        </div>
+        <div style="flex: 1; min-width: 150px;">
+            <label style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; color: #333;"><span>u<sub>in</sub>, v<sub>in</sub> / p<sub>out</sub> (set by the case)</span><span id="gcPv"></span></label>
+            <input type="range" id="gcP" min="-1" max="1" step="0.1" value="0.5" style="width: 100%;">
+        </div>
+    </div>
+
+    <canvas id="gcCanvas" width="640" height="230" style="background: white; border: 1px solid #ddd; border-radius: 4px; max-width: 100%;"></canvas>
+    <div id="gcRule" style="font-size: 13px; color: #333; margin-top: 8px; font-family: monospace;"></div>
+
+    <script>
+        (function() {
+            const canvas = document.getElementById('gcCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const ids = ['gcType', 'gcU', 'gcV', 'gcP'];
+
+            function ghost(type, u, v, s) {
+                // s is the case's boundary value: u_in = s, v_in = s/2, p_out = 1 + s/2 (illustrative values)
+                const uin = s, vin = 0.5 * s;
+                switch (type) {
+                    case 'wall': return {u: u - 2 * u, v: v, p: null, rule: "u_g = u - 2 (u.n) n  ->  normal velocity reflected, tangential kept"};
+                    case 'no_slip': return {u: -u, v: -v, p: null, rule: "u_g = -u  ->  the face-average velocity is zero"};
+                    case 'moving_wall': return {u: 2 * uin - u, v: 2 * vin - v, p: null, rule: "u_g = 2 u_w - u  ->  the face-average velocity is the wall velocity (u_in, v_in)"};
+                    case 'vel_inlet': return {u: 2 * uin - u, v: 2 * vin - v, p: null, rule: "u_g = 2 u_in - u  ->  face-average velocity (u_in, v_in); rho and p extrapolated"};
+                    case 'outlet': return u >= 0 ? {u: u, v: v, p: 1 + 0.5 * s, rule: "outflow (V_n >= 0): velocity kept, p_g = p_out"}
+                                                  : {u: 0, v: 0, p: 1 + 0.5 * s, rule: "backflow (V_n < 0): velocity clamped to zero, p_g = p_out"};
+                    default: return {u: u, v: v, p: null, rule: "U_g = U_i  ->  zero gradient (far field / outflow)"};
+                }
+            }
+
+            function arrow(x, y, dx, dy, color, label) {
+                const L = 70;
+                const ex = x + dx * L, ey = y - dy * L;
+                ctx.strokeStyle = color; ctx.fillStyle = color; ctx.lineWidth = 3;
+                ctx.beginPath(); ctx.moveTo(x, y); ctx.lineTo(ex, ey); ctx.stroke();
+                const a = Math.atan2(ey - y, ex - x);
+                if (Math.hypot(ex - x, ey - y) > 4) {
+                    ctx.beginPath(); ctx.moveTo(ex, ey);
+                    ctx.lineTo(ex - 10 * Math.cos(a - 0.4), ey - 10 * Math.sin(a - 0.4));
+                    ctx.lineTo(ex - 10 * Math.cos(a + 0.4), ey - 10 * Math.sin(a + 0.4)); ctx.fill();
+                }
+                ctx.font = "12px sans-serif"; ctx.textAlign = "center"; ctx.fillText(label, x, y + 52);
+            }
+
+            function draw() {
+                const type = document.getElementById('gcType').value;
+                const u = parseFloat(document.getElementById('gcU').value), v = parseFloat(document.getElementById('gcV').value);
+                const s = parseFloat(document.getElementById('gcP').value);
+                document.getElementById('gcUv').textContent = u.toFixed(1);
+                document.getElementById('gcVv').textContent = v.toFixed(1);
+                const usesIn = (type === 'moving_wall' || type === 'vel_inlet');
+                document.getElementById('gcPv').textContent = usesIn ? `u_in=${s.toFixed(1)}, v_in=${(0.5 * s).toFixed(2)}` : type === 'outlet' ? `p_out=${(1 + 0.5 * s).toFixed(2)}` : 'unused';
+                document.getElementById('gcP').disabled = !(usesIn || type === 'outlet');
+                const g = ghost(type, u, v, s);
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height);
+                const cw = 150, ch = 150, y0 = 25, xb = 320;
+                ctx.fillStyle = "#ebf5fb"; ctx.fillRect(xb - cw, y0, cw, ch);
+                ctx.fillStyle = "#fdebd0"; ctx.fillRect(xb, y0, cw, ch);
+                ctx.strokeStyle = "#999"; ctx.lineWidth = 1; ctx.strokeRect(xb - cw, y0, cw, ch); ctx.strokeRect(xb, y0, cw, ch);
+                ctx.strokeStyle = "#333"; ctx.lineWidth = 4; ctx.beginPath(); ctx.moveTo(xb, y0 - 8); ctx.lineTo(xb, y0 + ch + 8); ctx.stroke();
+                ctx.fillStyle = "#333"; ctx.font = "bold 12px sans-serif"; ctx.textAlign = "center";
+                ctx.fillText("interior cell", xb - cw / 2, y0 - 8); ctx.fillText("ghost cell", xb + cw / 2, y0 - 8);
+                ctx.fillText("boundary face", xb, y0 + ch + 22);
+                const cy = y0 + ch / 2;
+                arrow(xb - cw / 2, cy, u, v, "#2980b9", `(u, v) = (${u.toFixed(2)}, ${v.toFixed(2)})`);
+                arrow(xb + cw / 2, cy, g.u, g.v, "#d35400", `(u, v)_g = (${g.u.toFixed(2)}, ${g.v.toFixed(2)})`);
+                document.getElementById('gcRule').textContent = g.rule + (g.p !== null ? "" : "");
+            }
+            ids.forEach(id => document.getElementById(id).addEventListener('input', draw));
+            draw();
+        })();
+    </script>
+</div>

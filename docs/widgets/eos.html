@@ -1,0 +1,78 @@
+<div style="max-width: 680px; margin: 20px 0; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fafbfc; font-family: sans-serif;">
+    <h4 style="margin-top: 0; color: #24292e;">Equation of State Explorer</h4>
+    <p style="font-size: 13px; color: #586069; margin-bottom: 12px;">
+        Pressure and speed of sound against the internal energy per unit volume, $\rho e_{\rm int}$, at fixed density, for the two equations of state of the solver:
+        ideal gas $p = (\gamma-1)\rho e_{\rm int}$ and stiffened gas $p + p_\infty = (\gamma-1)\rho e_{\rm int}$.
+    </p>
+
+    <div style="display: flex; gap: 20px; flex-wrap: wrap; margin-bottom: 12px;">
+        <div style="flex: 1; min-width: 170px;">
+            <label style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; color: #333;"><span>&gamma;</span><span id="eosGv"></span></label>
+            <input type="range" id="eosG" min="1.1" max="6" step="0.05" value="1.4" style="width: 100%;">
+        </div>
+        <div style="flex: 1; min-width: 170px;">
+            <label style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; color: #333;"><span>p<sub>&infin;</sub> (stiffened gas)</span><span id="eosPv"></span></label>
+            <input type="range" id="eosP" min="0" max="2" step="0.05" value="0" style="width: 100%;">
+        </div>
+        <div style="flex: 1; min-width: 170px;">
+            <label style="display: flex; justify-content: space-between; font-size: 12px; font-weight: bold; color: #333;"><span>Density &rho;</span><span id="eosRv"></span></label>
+            <input type="range" id="eosR" min="0.2" max="3" step="0.1" value="1" style="width: 100%;">
+        </div>
+    </div>
+
+    <canvas id="eosCanvas" width="640" height="270" style="background: white; border: 1px solid #ddd; border-radius: 4px; max-width: 100%;"></canvas>
+    <div id="eosInfo" style="font-size: 12px; color: #333; margin-top: 8px;"></div>
+    <p style="font-size: 12px; color: #586069; margin: 6px 0 0 0;">Non-dimensional units. The solver defaults are &gamma; = 1.4 (air) and, for water, &gamma; = 4.4 with p<sub>&infin;</sub> = 6&times;10<sup>8</sup> Pa; the slider values here only show the trend.</p>
+
+    <script>
+        (function() {
+            const canvas = document.getElementById('eosCanvas');
+            if (!canvas) return;
+            const ctx = canvas.getContext('2d');
+            const W = canvas.width, H = canvas.height;
+            const pad = {l: 50, r: 20, t: 20, b: 35};
+            const E_MAX = 4;
+            function draw() {
+                const g = parseFloat(document.getElementById('eosG').value);
+                const pinf = parseFloat(document.getElementById('eosP').value);
+                const rho = parseFloat(document.getElementById('eosR').value);
+                document.getElementById('eosGv').textContent = g.toFixed(2);
+                document.getElementById('eosPv').textContent = pinf.toFixed(2);
+                document.getElementById('eosRv').textContent = rho.toFixed(1);
+                // abscissa: rho*e_int in [0, E_MAX]; ordinates p and c
+                const pOf = (E, pi) => (g - 1) * E - pi;
+                const cOf = (E, pi) => { const p = pOf(E, pi); return p + pi > 0 ? Math.sqrt(g * (p + pi) / rho) : 0; };
+                const pMax = Math.max(pOf(E_MAX, 0), pOf(E_MAX, pinf), 1) * 1.05;
+                const cMax = Math.max(cOf(E_MAX, 0), cOf(E_MAX, pinf), 1) * 1.05;
+                const px = (E) => pad.l + E / E_MAX * (W - pad.l - pad.r);
+                const pyP = (p) => H - pad.b - (p - Math.min(0, -pinf * 1.0)) / (pMax - Math.min(0, -pinf)) * (H - pad.t - pad.b);
+                ctx.clearRect(0, 0, W, H);
+                const pMin = Math.min(0, -pinf);
+                ctx.strokeStyle = "#ccc"; ctx.lineWidth = 1;
+                ctx.beginPath(); ctx.moveTo(px(0), pyP(0)); ctx.lineTo(px(E_MAX), pyP(0)); ctx.stroke();
+                ctx.beginPath(); ctx.moveTo(px(0), pad.t); ctx.lineTo(px(0), H - pad.b); ctx.stroke();
+                ctx.fillStyle = "#333"; ctx.font = "12px sans-serif"; ctx.textAlign = "left";
+                ctx.fillText("p", 8, pad.t + 6); ctx.fillText("rho e_int", W - 70, H - 10);
+                ctx.fillStyle = "#c0392b"; ctx.fillText("c (sound speed)", W - 110, pad.t + 6);
+                // ideal gas (grey) and the selected stiffened gas (blue)
+                const plot = (fn, color, dash) => {
+                    ctx.strokeStyle = color; ctx.lineWidth = 2.5; ctx.setLineDash(dash); ctx.beginPath();
+                    for (let i = 0; i <= 200; i++) { const E = i / 200 * E_MAX; if (i === 0) ctx.moveTo(px(E), fn(E)); else ctx.lineTo(px(E), fn(E)); }
+                    ctx.stroke(); ctx.setLineDash([]);
+                };
+                plot((E) => pyP(pOf(E, 0)), "#999", [5, 4]);
+                plot((E) => pyP(pOf(E, pinf)), "#2980b9", []);
+                // sound speed on the secondary scale (same canvas, own scaling)
+                const pyC = (c) => H - pad.b - c / cMax * (H - pad.t - pad.b);
+                plot((E) => pyC(cOf(E, pinf)), "#c0392b", []);
+                ctx.fillStyle = "#999"; ctx.fillText("ideal gas", px(E_MAX) - 70, pyP(pOf(E_MAX, 0)) + 14);
+                ctx.fillStyle = "#2980b9"; ctx.fillText("selected gas", px(E_MAX) - 80, pyP(pOf(E_MAX, pinf)) - 6);
+                document.getElementById('eosInfo').innerHTML = pinf === 0
+                    ? "With p<sub>&infin;</sub> = 0 the stiffened gas is the ideal gas exactly (the two lines coincide)."
+                    : `The offset shifts the pressure down by p<sub>&infin;</sub>: the stiffened gas keeps a sound speed c = &radic;(&gamma;(p + p<sub>&infin;</sub>)/&rho;) at p = 0, here ${Math.sqrt(g * pinf / rho).toFixed(2)}, which is why liquids stay nearly incompressible.`;
+            }
+            ['eosG', 'eosP', 'eosR'].forEach(id => document.getElementById(id).addEventListener('input', draw));
+            draw();
+        })();
+    </script>
+</div>

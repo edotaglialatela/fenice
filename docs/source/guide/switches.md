@@ -1,7 +1,7 @@
 ---
 title: Environment switches
 nav: Switches
-section: Guide
+section: User guide
 order: 60
 ---
 

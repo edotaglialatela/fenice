@@ -5,6 +5,8 @@ section: Test cases
 order: 30
 ---
 
+> **Run it:** `build\release\fenice.exe --case "Lid Driven Cavity"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).
+
 A square box ($L_x = L_y = 1$) whose top wall moves at $u_{\rm lid}$ drives a primary
 recirculation vortex. The Reynolds number is
 

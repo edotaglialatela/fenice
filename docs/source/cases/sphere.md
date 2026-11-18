@@ -5,6 +5,8 @@ section: Test cases
 order: 95
 ---
 
+> **Run it:** `build\release\fenice.exe --case "IBM Sphere"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).
+
 A sphere of diameter $D = 1$ in a $6 \times 3 \times 3$ channel with walls on four sides (8.7 % blockage), inflow at $x = 0$, Reynolds
 number $\mathrm{Re} = 20$ and Mach 0.3, run to $t = 30$, when the flow is steady. It is the 3-D check of the immersed boundary: the
 **ghost-cell wall** with trilinear image points over eight cells.

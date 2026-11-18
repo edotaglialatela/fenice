@@ -5,6 +5,8 @@ section: Test cases
 order: 80
 ---
 
+> **Run it:** `build\release\fenice.exe --case "Isentropic Vortex"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).
+
 A smooth, exact solution of the Euler equations (Shu 1998). A vortex is superposed on a
 uniform free stream $(u_\infty, v_\infty) = (1, 1)$ on the periodic square $[0, 10]^2$ and
 is advected without change of shape. The exact solution at any time is therefore the

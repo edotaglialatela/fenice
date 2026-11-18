@@ -1,197 +1,148 @@
 <div style="max-width: 680px; margin: 20px 0; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fafbfc; font-family: sans-serif;">
-    <h4 style="margin-top: 0; color: #24292e;">MPI Domain Decomposition & Halo Exchange</h4>
+    <h4 style="margin-top: 0; color: #24292e;">MPI Domain Decomposition &amp; Halo Exchange</h4>
     <p style="font-size: 13px; color: #586069; margin-bottom: 15px;">
-        Explore how the mash gets subdivided across the processes (Ranks). Activate the <b>Halo Cells</b> to visualise the superposition levels to exchange information across the subdomains.
+        See how the mesh is split into strips, one per rank, as the solver does it: row strips when every rank can own at least two rows, column strips otherwise.
+        Switch on the <b>halo cells</b> to see the two layers each rank receives from its neighbours before every residual evaluation.
     </p>
-    
-    <div style="display: flex; gap: 15px; margin-bottom: 15px; align-items: center; flex-wrap: wrap;">
+
+    <div style="display: flex; gap: 15px; margin-bottom: 15px; align-items: flex-end; flex-wrap: wrap;">
         <div style="display: flex; flex-direction: column;">
-            <label style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 3px;">Nproc:</label>
+            <label style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 3px;">Ranks:</label>
             <select id="ranksSelect" onchange="drawMPI()" style="padding: 4px; font-size: 13px; border-radius: 4px; border: 1px solid #ccc;">
-                <option value="1">1 Rank (Serial run)</option>
-                <option value="2">2 Ranks</option>
-                <option value="4" selected>4 Ranks</option>
-            </select>
-        </div>
-        
-        <div style="display: flex; flex-direction: column;">
-            <label style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 3px;">Topology:</label>
-            <select id="topoSelect" onchange="drawMPI()" style="padding: 4px; font-size: 13px; border-radius: 4px; border: 1px solid #ccc;">
-                <option value="x">Slab 1D (Slice along X)</option>
-                <option value="y">Slab 1D (Slice along Y)</option>
-                <option value="xy" selected>Block 2D (Slice along X and Y)</option>
+                <option value="1">1 rank (serial run)</option>
+                <option value="2">2 ranks</option>
+                <option value="3">3 ranks</option>
+                <option value="4" selected>4 ranks</option>
+                <option value="8">8 ranks</option>
             </select>
         </div>
 
-        <div style="display: flex; align-items: center; margin-top: 15px; background: #fff; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px;">
+        <div style="display: flex; flex-direction: column;">
+            <label style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 3px;">Mesh (nx &times; ny):</label>
+            <select id="meshSelect" onchange="drawMPI()" style="padding: 4px; font-size: 13px; border-radius: 4px; border: 1px solid #ccc;">
+                <option value="24x10" selected>24 &times; 10</option>
+                <option value="24x2">24 &times; 2 (nearly 1-D, like Shu-Osher)</option>
+                <option value="12x12">12 &times; 12</option>
+            </select>
+        </div>
+
+        <div style="display: flex; align-items: center; background: #fff; padding: 5px 10px; border: 1px solid #ddd; border-radius: 4px;">
             <input type="checkbox" id="haloCheck" onchange="drawMPI()" checked style="cursor: pointer;">
-            <label for="haloCheck" style="font-size: 13px; font-weight: bold; color: #d35400; margin-left: 5px; cursor: pointer;">Mostra Halo/Ghost Cells</label>
+            <label for="haloCheck" style="font-size: 13px; font-weight: bold; color: #d35400; margin-left: 5px; cursor: pointer;">Show halo cells</label>
         </div>
     </div>
-    
-    <div id="mpiLegend" style="display: flex; gap: 15px; margin-bottom: 10px; font-size: 12px; font-weight: bold;"></div>
-    
-    <canvas id="mpiCanvas" width="650" height="300" style="background: white; border: 1px solid #ccc; border-radius: 4px;"></canvas>
-    
+
+    <div id="mpiLegend" style="display: flex; gap: 15px; margin-bottom: 6px; font-size: 12px; font-weight: bold; flex-wrap: wrap;"></div>
+    <div id="mpiInfo" style="font-size: 12px; color: #333; margin-bottom: 10px; min-height: 32px;"></div>
+
+    <canvas id="mpiCanvas" width="650" height="300" style="background: white; border: 1px solid #ccc; border-radius: 4px; max-width: 100%;"></canvas>
+
     <script>
         (function() {
             const canvas = document.getElementById('mpiCanvas');
             if (!canvas) return;
             const ctx = canvas.getContext('2d');
-            
-            // Impostazioni Griglia Globale
-            const cols = 24;
-            const rows = 10;
             const pad = 20;
-            const W = canvas.width - pad * 2;
-            const H = canvas.height - pad * 2;
-            const cellW = W / cols;
-            const cellH = H / rows;
-            
-            // Colori per i rank MPI
-            const rankColors = [
-                { hex: "#3498db", name: "Blue" },   // Rank 0
-                { hex: "#e74c3c", name: "Red" },    // Rank 1
-                { hex: "#2ecc71", name: "Green" },  // Rank 2
-                { hex: "#9b59b6", name: "Purple" }  // Rank 3
-            ];
+            const HALO = 2;   // kHaloDepth
+
+            const rankColors = ["#3498db", "#e74c3c", "#2ecc71", "#9b59b6", "#f39c12", "#16a085", "#7f8c8d", "#d35400"];
+
+            // Split n cells over N ranks: the counts differ by at most one, the first ranks take the extra cells
+            function split(n, N) {
+                const base = Math.floor(n / N), rem = n % N, counts = [];
+                for (let r = 0; r < N; r++) counts.push(base + (r < rem ? 1 : 0));
+                return counts;
+            }
 
             window.drawMPI = function() {
-                const numRanks = parseInt(document.getElementById('ranksSelect').value);
-                let topo = document.getElementById('topoSelect').value;
+                const N = parseInt(document.getElementById('ranksSelect').value);
+                const [nx, ny] = document.getElementById('meshSelect').value.split('x').map(Number);
                 const showHalo = document.getElementById('haloCheck').checked;
-                
-                // Forza Slab 1D se i rank sono 2 e si è selezionato Block 2D (impossibile dividere in 4 blocchi con 2 rank)
-                if (numRanks === 2 && topo === 'xy') {
-                    topo = 'x'; 
-                    document.getElementById('topoSelect').value = 'x';
-                }
-                
-                // Costruisci Legenda
-                let legendHTML = '';
-                for(let i=0; i<numRanks; i++) {
-                    legendHTML += `<span style="color: ${rankColors[i].hex};">■ Rank ${i}</span>`;
-                }
-                document.getElementById('mpiLegend').innerHTML = legendHTML;
+                const info = document.getElementById('mpiInfo');
+
+                // Same rule as the solver: row strips if ny >= 2N, else column strips if nx >= 2N, else an error
+                let dir = null;
+                if (N === 1) dir = 'none';
+                else if (ny >= 2 * N) dir = 'y';
+                else if (nx >= 2 * N) dir = 'x';
 
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
-                
-                // Determina la divisione (tagli)
-                let divX = 1, divY = 1;
-                if (numRanks === 2) {
-                    if (topo === 'x') divX = 2; else divY = 2;
-                } else if (numRanks === 4) {
-                    if (topo === 'x') divX = 4;
-                    else if (topo === 'y') divY = 4;
-                    else { divX = 2; divY = 2; }
-                }
-                
-                const cellsPerRankX = cols / divX;
-                const cellsPerRankY = rows / divY;
+                let legend = '';
+                for (let r = 0; r < N; r++) legend += `<span style="color: ${rankColors[r]};">&#9632; Rank ${r}</span>`;
+                document.getElementById('mpiLegend').innerHTML = legend;
 
-                // 1. Disegna le celle fisiche (Core domain)
-                for (let r = 0; r < numRanks; r++) {
-                    // Calcola gli indici I e J del processore nella griglia logica MPI
-                    let rankI = r % divX;
-                    let rankJ = Math.floor(r / divX);
-                    if (topo === 'y') { rankI = 0; rankJ = r; }
-                    
-                    let startX = rankI * cellsPerRankX;
-                    let startY = rankJ * cellsPerRankY;
-                    
-                    ctx.fillStyle = rankColors[r].hex;
-                    ctx.strokeStyle = "rgba(255,255,255,0.7)";
-                    ctx.lineWidth = 1;
-                    
-                    // Disegna le celle appartenenti a questo rank
-                    for (let i = 0; i < cellsPerRankX; i++) {
-                        for (let j = 0; j < cellsPerRankY; j++) {
-                            let cx = pad + (startX + i) * cellW;
-                            let cy = pad + (startY + j) * cellH;
-                            
-                            // Disegna cella leggermente rimpicciolita per effetto "gap" tra sottomesh
-                            let shrink = 1.5;
-                            ctx.globalAlpha = 0.85;
-                            ctx.fillRect(cx + shrink, cy + shrink, cellW - shrink*2, cellH - shrink*2);
-                        }
+                if (dir === null) {
+                    info.innerHTML = `<b style="color:#c0392b;">Rejected:</b> ${N} ranks need at least ${2 * N} rows or ${2 * N} columns (two cells per strip, the halo depth); this mesh has ${nx} &times; ${ny}.`;
+                    ctx.fillStyle = "#c0392b"; ctx.font = "bold 15px sans-serif"; ctx.textAlign = "center";
+                    ctx.fillText("The run stops with an explicit error", canvas.width / 2, canvas.height / 2);
+                    return;
+                }
+
+                const cellW = (canvas.width - 2 * pad) / nx;
+                const cellH = (canvas.height - 2 * pad) / ny;
+                const counts = split(dir === 'x' ? nx : ny, N);
+
+                // Owned region of each rank, in cells
+                const owned = [];
+                let start = 0;
+                for (let r = 0; r < N; r++) {
+                    if (dir === 'x') owned.push({x0: start, x1: start + counts[r], y0: 0, y1: ny});
+                    else if (dir === 'y') owned.push({x0: 0, x1: nx, y0: start, y1: start + counts[r]});
+                    else owned.push({x0: 0, x1: nx, y0: 0, y1: ny});
+                    start += counts[r];
+                }
+
+                // 1. Owned cells
+                for (let r = 0; r < N; r++) {
+                    const o = owned[r];
+                    ctx.fillStyle = rankColors[r];
+                    ctx.globalAlpha = 0.85;
+                    for (let i = o.x0; i < o.x1; i++)
+                        for (let j = o.y0; j < o.y1; j++)
+                            ctx.fillRect(pad + i * cellW + 1, pad + j * cellH + 1, cellW - 2, cellH - 2);
+                    ctx.globalAlpha = 1;
+                    ctx.strokeStyle = rankColors[r]; ctx.lineWidth = 3;
+                    ctx.strokeRect(pad + o.x0 * cellW + 1, pad + o.y0 * cellH + 1, (o.x1 - o.x0) * cellW - 2, (o.y1 - o.y0) * cellH - 2);
+                    ctx.fillStyle = "white"; ctx.font = "bold 16px sans-serif"; ctx.textAlign = "center"; ctx.textBaseline = "middle";
+                    ctx.fillText(`R${r}`, pad + (o.x0 + o.x1) / 2 * cellW, pad + (o.y0 + o.y1) / 2 * cellH);
+                }
+
+                // 2. Halo cells: the two layers a rank receives from each neighbour, drawn on the neighbour's cells
+                let haloCells = 0;
+                for (let r = 0; r < N; r++) {
+                    const o = owned[r];
+                    const layers = [];
+                    if (dir === 'x') {
+                        if (r < N - 1) layers.push({x0: o.x1, x1: o.x1 + HALO, y0: 0, y1: ny});
+                        if (r > 0) layers.push({x0: o.x0 - HALO, x1: o.x0, y0: 0, y1: ny});
+                    } else if (dir === 'y') {
+                        if (r < N - 1) layers.push({x0: 0, x1: nx, y0: o.y1, y1: o.y1 + HALO});
+                        if (r > 0) layers.push({x0: 0, x1: nx, y0: o.y0 - HALO, y1: o.y0});
                     }
-                    
-                    // Disegna il bordo "Spesso" del sottodominio
-                    ctx.strokeStyle = rankColors[r].hex;
-                    ctx.lineWidth = 3;
-                    ctx.globalAlpha = 1.0;
-                    ctx.strokeRect(pad + startX * cellW + 1, pad + startY * cellH + 1, cellsPerRankX * cellW - 2, cellsPerRankY * cellH - 2);
-                    
-                    // Label del Rank al centro
-                    ctx.fillStyle = "white";
-                    ctx.font = "bold 16px sans-serif";
-                    ctx.textAlign = "center";
-                    ctx.textBaseline = "middle";
-                    let labelX = pad + (startX + cellsPerRankX/2) * cellW;
-                    let labelY = pad + (startY + cellsPerRankY/2) * cellH;
-                    ctx.fillText(`R${r}`, labelX, labelY);
-                }
-
-                // 2. Disegna le Halo/Ghost Cells
-                if (showHalo && numRanks > 1) {
-                    for (let r = 0; r < numRanks; r++) {
-                        let rankI = r % divX;
-                        let rankJ = Math.floor(r / divX);
-                        if (topo === 'y') { rankI = 0; rankJ = r; }
-                        
-                        let startX = rankI * cellsPerRankX;
-                        let startY = rankJ * cellsPerRankY;
-                        
-                        ctx.fillStyle = rankColors[r].hex;
-                        // Halo cells trasparenti e con pattern
-                        ctx.globalAlpha = 0.4;
-                        
-                        const drawHaloLayer = (x_start, y_start, w_cells, h_cells, shift_x, shift_y) => {
-                            for (let i = 0; i < w_cells; i++) {
-                                for (let j = 0; j < h_cells; j++) {
-                                    // Spostiamo la halo cell leggermente "sopra" il rank vicino per l'effetto ottico
-                                    let cx = pad + (x_start + i) * cellW + shift_x;
-                                    let cy = pad + (y_start + j) * cellH + shift_y;
-                                    
-                                    ctx.fillRect(cx + 2, cy + 2, cellW - 4, cellH - 4);
-                                    
-                                    // Bordo tratteggiato
-                                    ctx.save();
-                                    ctx.strokeStyle = rankColors[r].hex;
-                                    ctx.lineWidth = 2;
-                                    ctx.setLineDash([4, 3]);
-                                    ctx.strokeRect(cx + 2, cy + 2, cellW - 4, cellH - 4);
-                                    ctx.restore();
-                                }
+                    for (const L of layers) {
+                        haloCells += (L.x1 - L.x0) * (L.y1 - L.y0);
+                        if (!showHalo) continue;
+                        ctx.save();
+                        ctx.fillStyle = rankColors[r]; ctx.globalAlpha = 0.35;
+                        ctx.strokeStyle = rankColors[r]; ctx.lineWidth = 2; ctx.setLineDash([4, 3]);
+                        for (let i = L.x0; i < L.x1; i++)
+                            for (let j = L.y0; j < L.y1; j++) {
+                                ctx.fillRect(pad + i * cellW + 3, pad + j * cellH + 3, cellW - 6, cellH - 6);
+                                ctx.globalAlpha = 1;
+                                ctx.strokeRect(pad + i * cellW + 3, pad + j * cellH + 3, cellW - 6, cellH - 6);
+                                ctx.globalAlpha = 0.35;
                             }
-                        };
-
-                        // Controllo Vicino DESTRO
-                        if (rankI < divX - 1) {
-                            // Prende la propria ultima colonna e la disegna sul vicino di destra
-                            drawHaloLayer(startX + cellsPerRankX, startY, 1, cellsPerRankY, -cellW/3, 0);
-                        }
-                        // Controllo Vicino SINISTRO
-                        if (rankI > 0) {
-                            // Prende la propria prima colonna e la disegna sul vicino di sinistra
-                            drawHaloLayer(startX - 1, startY, 1, cellsPerRankY, cellW/3, 0);
-                        }
-                        // Controllo Vicino SOTTO
-                        if (rankJ < divY - 1) {
-                            // Prende la propria ultima riga e la disegna sul vicino di sotto
-                            drawHaloLayer(startX, startY + cellsPerRankY, cellsPerRankX, 1, 0, -cellH/3);
-                        }
-                        // Controllo Vicino SOPRA
-                        if (rankJ > 0) {
-                            // Prende la propria prima riga e la disegna sul vicino di sopra
-                            drawHaloLayer(startX, startY - 1, cellsPerRankX, 1, 0, cellH/3);
-                        }
+                        ctx.restore();
                     }
                 }
-                ctx.globalAlpha = 1.0;
-            }
-            
-            // Inizializza
+                ctx.globalAlpha = 1;
+
+                const word = dir === 'y' ? 'rows' : 'columns';
+                if (N === 1) info.innerHTML = 'One rank owns the whole mesh: nothing to exchange.';
+                else info.innerHTML = `<b>${dir === 'y' ? 'Row strips' : 'Column strips'}</b> (${counts.join(' + ')} ${word}, at most one cell of difference). ` +
+                    `${haloCells} cells are received per exchange (${HALO} layers from each neighbour).` +
+                    (dir === 'x' && ny >= 2 ? ` Row strips would need ny &ge; ${2 * N}.` : '');
+            };
             drawMPI();
         })();
     </script>

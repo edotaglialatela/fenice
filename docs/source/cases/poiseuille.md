@@ -5,6 +5,8 @@ section: Test cases
 order: 20
 ---
 
+> **Run it:** `build\release\fenice.exe --case "Poiseuille Flow"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).
+
 Laminar flow between two infinite parallel plates (no-slip top and bottom), driven by a
 constant pressure gradient. The exact steady solution is the **Poiseuille parabola**:
 

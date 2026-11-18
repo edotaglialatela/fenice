@@ -5,6 +5,8 @@ section: Test cases
 order: 56
 ---
 
+> **Run it:** `build\release\fenice.exe --case "Kelvin-Helmholtz"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).
+
 A smooth shear layer $u = U \tanh\bigl((y - 8)/\delta\bigr)$ with $U = 0.2$, $\delta = 1$, density 1 and sound speed 1 (Mach 0.2
 on each side) is periodic in $x$ and closed by slip walls at $y = 0$ and $16$. The box is one wavelength of the most unstable
 mode of the tanh layer, $\alpha\delta = 0.4446$ ($L_x = 14.1319$); a small transverse velocity of that wavelength seeds the

@@ -10,7 +10,7 @@ Pages are Markdown files in ``docs/source/`` with a small front-matter block::
     ---
     title: Riemann solvers, limiters, MUSCL
     nav: Schemes                 # short label in the page list
-    section: Modules             # Guide | Modules | Test cases
+    section: API reference       # Start here | User guide | Methods | Test cases | Verification | API reference
     order: 30                    # position within the section
     header: Schemes.hpp          # optional: C++ header documented on this page
     ---
@@ -57,7 +57,7 @@ SOURCE = DOCS / "source"
 HEADERS = ROOT / "cpp" / "include" / "fv"
 TEMPLATES = DOCS / "_templates"
 SITE = DOCS / "site"   # the generated site (gitignored; published to GitHub Pages by CI)
-SECTIONS = ["Guide", "Modules", "Test cases"]
+SECTIONS = ["Start here", "User guide", "Methods", "Test cases", "Verification", "API reference"]
 
 EXTRAS = {"code-friendly": None, "cuddled-lists": None, "fenced-code-blocks": {"cssclass": "pdoc-code codehilite"},
           "footnotes": None, "header-ids": {"mixed": True, "reset-count": True}, "markdown-in-html": None,

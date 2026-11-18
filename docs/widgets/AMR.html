@@ -14,7 +14,7 @@
             </div>
             
             <div style="display: flex; flex-direction: column;">
-                <label style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 3px;">Campo Fluidodinamico:</label>
+                <label style="font-size: 12px; font-weight: bold; color: #333; margin-bottom: 3px;">Flow field:</label>
                 <select id="fieldSelect" style="padding: 4px; font-size: 13px; border-radius: 4px; border: 1px solid #ccc;">
                     <option value="shock">Shock Front</option>
                     <option value="sphere">Gaussian</option>
@@ -78,28 +78,28 @@
 
             let leafCount = 0;
 
-            // Funzione del campo scalare (0.0 -> 1.0)
+            // Scalar field (0.0 -> 1.0)
             function scalarField(x, y) {
                 let pos = parseFloat(posSlider.value) / 100.0; // 0 to 1
                 let type = fieldSelect.value;
                 
                 if (type === 'sphere') {
-                    // Mappa la posizione per far muovere il cerchio in diagonale
+                    // Map the position so that the blob moves along the diagonal
                     let cx = 0.2 + pos * 0.6;
                     let cy = 0.2 + pos * 0.6;
                     let r2 = Math.pow(x - cx, 2) + Math.pow(y - cy, 2);
                     return Math.exp(-r2 / 0.02);
                 } else {
-                    // Fronte d'urto obliquo (onda a gradino smussata)
-                    let d = pos * 2.0; // Distanza del fronte
+                    // Oblique shock front (smoothed step)
+                    let d = pos * 2.0; // Position of the front
                     let val = 0.5 * (1.0 + Math.tanh(25.0 * (x + y - d + 0.5)));
                     return val;
                 }
             }
 
-            // Valutazione del gradiente in una cella
+            // Gradient estimate in a cell
             function needsRefinement(x, y, w, h, threshold) {
-                // Campioniamo 5 punti: 4 angoli e 1 centro
+                // Sample 5 points: 4 corners and the centre
                 let v1 = scalarField(x, y);
                 let v2 = scalarField(x + w, y);
                 let v3 = scalarField(x, y + h);
@@ -112,7 +112,7 @@
                 return (maxV - minV) > threshold;
             }
 
-            // Costruzione ricorsiva del Quadtree
+            // Recursive construction of the quadtree
             function buildQuadTree(node, maxLevel, threshold) {
                 if (node.level < maxLevel && needsRefinement(node.x, node.y, node.w, node.h, threshold)) {
                     let hw = node.w / 2;
@@ -130,22 +130,22 @@
                 }
             }
 
-            // Mapping colore (Valore 0-1 -> Colore)
+            // Colour map (value 0-1 -> colour)
             function getColor(val) {
-                // Sfumatura da Bianco (0) a Blu Scuro (1)
+                // Gradient from white (0) to dark blue (1)
                 let r = Math.floor(255 * (1 - val));
-                let g = Math.floor(255 * (1 - val) * 0.95 + 50 * val); // Un po' di azzurro
+                let g = Math.floor(255 * (1 - val) * 0.95 + 50 * val); // A touch of light blue
                 let b = Math.floor(255 * (1 - val) + 150 * val); 
                 return `rgb(${r},${g},${b})`;
             }
 
-            // Rendering del Quadtree
+            // Draw the quadtree
             function drawNode(node, canvasW, canvasH) {
                 if (node.children && node.children.length > 0) {
-                    // Nodo interno: disegna i figli
+                    // Internal node: draw its children
                     node.children.forEach(child => drawNode(child, canvasW, canvasH));
                 } else {
-                    // Foglia: Disegna la cella
+                    // Leaf: draw the cell
                     leafCount++;
                     
                     let px = node.x * canvasW;
@@ -153,13 +153,13 @@
                     let pw = node.w * canvasW;
                     let ph = node.h * canvasH;
                     
-                    // Colore basato sul valore al centro della cella
+                    // Colour from the value at the cell centre
                     let val = scalarField(node.x + node.w/2, node.y + node.h/2);
                     
                     ctx.fillStyle = getColor(val);
                     ctx.fillRect(px, py, pw, ph);
                     
-                    // Bordo della cella
+                    // Cell edge
                     ctx.strokeStyle = "rgba(0, 0, 0, 0.3)";
                     ctx.lineWidth = 0.5;
                     ctx.strokeRect(px, py, pw, ph);
@@ -173,8 +173,8 @@
                 lvlDisp.innerText = maxLvl;
                 sensDisp.innerText = sens.toFixed(2);
                 
-                // Inizializza Root Node (L'intero dominio)
-                // Usiamo level 1 come root (4x4 iniziale) per garantire una maglia base
+                // Root cells (the whole domain)
+                // Start from a 4x4 base mesh
                 let rootCells = [];
                 let baseDivs = 4; 
                 for(let i=0; i<baseDivs; i++) {
@@ -184,20 +184,20 @@
                             y: j/baseDivs, 
                             w: 1/baseDivs, 
                             h: 1/baseDivs, 
-                            level: 2 // Livello logico di partenza
+                            level: 2 // Starting level
                         });
                     }
                 }
                 
-                // Costruisci albero
+                // Build the tree
                 rootCells.forEach(cell => buildQuadTree(cell, maxLvl, sens));
                 
-                // Disegna e conta
+                // Draw and count
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 leafCount = 0;
                 rootCells.forEach(cell => drawNode(cell, canvas.width, canvas.height));
                 
-                // Aggiorna Statistiche
+                // Update the statistics
                 let uniformEquivalent = Math.pow(4, maxLvl);
                 let savings = ((1.0 - (leafCount / uniformEquivalent)) * 100).toFixed(1);
                 
@@ -212,7 +212,7 @@
             lvlSlider.addEventListener('input', drawAMR);
             sensSlider.addEventListener('input', drawAMR);
 
-            // Inizializza
+            // Initialise
             drawAMR();
         })();
     </script>

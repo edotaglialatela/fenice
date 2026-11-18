@@ -1,9 +1,13 @@
 ---
 title: Testing
 nav: Testing
-section: Guide
-order: 50
+section: Verification
+order: 10
 ---
+
+> **In short.** Two commands check that a change did not move the numerics: the unit tests and the regression against stored reference
+> states. They are the first thing to run after touching the solver. Whether the solver is *right*, rather than unchanged, is the subject of
+> [Validation]({{root}}guide/validation.html).
 
 ```powershell
 .\cpp\build.ps1 -Test                          # build + unit tests

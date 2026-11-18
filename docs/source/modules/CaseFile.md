@@ -1,10 +1,12 @@
 ---
 title: CaseFile - case.toml reader and writer
 nav: CaseFile
-section: Modules
+section: Methods
 order: 105
-header: CaseFile.hpp
 ---
+
+> **In short.** The reader and writer of `case.toml`, the file that defines a case. You will rarely need this page: the file format
+> is described on [Writing a test case]({{root}}guide/writing-cases.html). It is here for the details of how the file is parsed and saved.
 
 `load_case_file` parses a `case.toml` with [toml++](https://github.com/marzer/tomlplusplus).
 It checks every section, key, value type, region and expression, and reports problems with
@@ -19,4 +21,6 @@ shortest decimal that reads back to the same double. Numbers in initial states a
 passed through the expression engine, so an initial field defined in a case file is bit
 for bit the same as the equivalent C++ loop.
 
-{{api}}
+---
+
+*Declarations: [`fv/CaseFile.hpp`]({{root}}api/CaseFile.html).*

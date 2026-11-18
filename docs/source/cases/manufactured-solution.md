@@ -1,9 +1,11 @@
 ---
 title: Manufactured solutions - code verification
 nav: Manufactured solutions
-section: Test cases
-order: 100
+section: Verification
+order: 15
 ---
+
+> **Run it:** `build\release\fenice.exe --case "Manufactured Solution"`, or one of its variants (`Manufactured Solution Euler`, `... 3D`, `... Walls`, `... Outflow`, `... Unsteady Euler`, `... Box`); output in `results/`, [how to open it]({{root}}guide/getting-started.html#your-first-run).
 
 Exact solutions of the full compressible Navier-Stokes equations hardly exist, and the few that do
 exercise only some terms. The **method of manufactured solutions** (MMS) turns the problem around: a
@@ -395,8 +397,8 @@ of the uniform base mesh.
 ## WENO-Z reconstruction on the periodic cases
 
 ```powershell
-python casesalidationerification\mms_weno.py            # up to 64^2 / 48^3 (about 1.5 minutes)
-python casesalidationerification\mms_weno.py --full     # up to 128^2 / 96^3, and 256^2 for the diagnostic
+python cases\validation\verification\mms_weno.py            # up to 64^2 / 48^3 (about 1.5 minutes)
+python cases\validation\verification\mms_weno.py --full     # up to 128^2 / 96^3, and 256^2 for the diagnostic
 ```
 
 The same three periodic solutions (Euler 2-D, Navier-Stokes 2-D and 3-D), grids, final time and error measures as above, with
@@ -420,7 +422,7 @@ Only an order below the lower bound, or a truncation error from the exact state 
   that the order of this test is capped at two is wrong for WENO3-Z. No cause is established. A fit $e = a h^2 + b h^3$ does not
   describe the errors (misfits 7 to 110 %); the difference between the WENO3-Z and WENO5-Z solutions falls at the same 2.3 to 2.8 as
   the WENO3-Z error; and a sweep of `weno_epsilon` on the Navier-Stokes case gives, for the error of the whole conserved state,
-  order 1.96 and 1.98 on $128 	o 256$ for $arepsilon = 10^{-2}$ and $10^{-4}$ (the errors agree to 0.1 % at $256^2$) while the individual
+  order 1.96 and 1.98 on $128 	o 256$ for $\varepsilon = 10^{-2}$ and $10^{-4}$ (the errors agree to 0.1 % at $256^2$) while the individual
   variables are still above two. The truncation error from the exact state falls at 1.3 to 2.1 for WENO3-Z (on the finest pair 1.75 to 2.05) and at 1.8 to 2.7 for WENO5-Z.
 * Table: `results/validation/mms_weno/mms_weno_table.md`; figure below.
 

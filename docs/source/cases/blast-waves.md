@@ -5,6 +5,8 @@ section: Test cases
 order: 52
 ---
 
+> **Run it:** `build\release\fenice.exe --case "Woodward-Colella Blast Waves"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).
+
 Two strong shocks (pressure 1000 and 100 against 0.01, $\gamma = 1.4$) start at the two ends of a tube closed by reflecting
 walls. They run into each other, and their contacts interact: a severe test of shock capturing, of positivity (the pressure
 ratio is $10^5$) and of conservation (Woodward & Colella 1984). The $y$ direction has four cells between slip walls, so the

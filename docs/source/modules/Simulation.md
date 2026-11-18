@@ -1,10 +1,13 @@
 ---
 title: Simulation - the run driver
 nav: Simulation
-section: Modules
+section: Methods
 order: 100
-header: Simulation.hpp
 ---
+
+> **In short.** `Simulation` is the object that owns a whole run: it reads the parameters, builds the mesh, schemes and boundary
+> conditions, then drives the time loop. This page is a tour of the order in which things happen; read it before changing the
+> solver itself.
 
 `Simulation` owns every solver object of a run and drives it:
 
@@ -74,4 +77,6 @@ The progress line reports step, time, $\Delta t$, $S_{\max}$ (and the number of 
 leaves) and the wall time. The final line gives the
 time-loop duration.
 
-{{api}}
+---
+
+*Declarations: [`fv/Simulation.hpp`]({{root}}api/Simulation.html).*

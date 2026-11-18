@@ -1,10 +1,14 @@
 ---
 title: Parameters
 nav: Parameters
-section: Guide
-order: 20
+section: User guide
+order: 30
 header: Params.hpp
 ---
+
+> **In short.** Every setting of a run is a `key = value` pair, listed here by topic with its default. To change one for a single run use
+> `--set key=value`; to keep the change, put it in the case file. `fenice --case NAME --print-config` shows the value every key
+> has for a case.
 
 Every run is described by the same set of `key = value` parameters. They can
 come from a test case's file (`cases/<case>/case.toml`, see

@@ -1,0 +1,67 @@
+<div style="max-width: 680px; margin: 20px 0; padding: 15px; border: 1px solid #e1e4e8; border-radius: 6px; background-color: #fafbfc; font-family: sans-serif;">
+    <h4 style="margin-top: 0; color: #24292e;">Run-Time Estimator</h4>
+    <p style="font-size: 13px; color: #586069; margin-bottom: 12px;">
+        A rough guide to how long a uniform-mesh run takes, from the cost per cell and stage measured on this page
+        (Ryzen 7 7800X3D, 1 and 16 threads): time = cells &times; stages &times; steps &times; cost. It scales the numbers of one machine and one set of cases, so treat it as an order of magnitude.
+    </p>
+
+    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 12px;">
+        <label style="font-size: 12px; font-weight: bold; color: #333;">nx
+            <input type="number" id="ceNx" value="512" min="1" style="width: 70px; padding: 4px; margin-left: 4px;"></label>
+        <label style="font-size: 12px; font-weight: bold; color: #333;">ny
+            <input type="number" id="ceNy" value="512" min="1" style="width: 70px; padding: 4px; margin-left: 4px;"></label>
+        <label style="font-size: 12px; font-weight: bold; color: #333;">nz
+            <input type="number" id="ceNz" value="1" min="1" style="width: 70px; padding: 4px; margin-left: 4px;"></label>
+        <label style="font-size: 12px; font-weight: bold; color: #333;">steps
+            <input type="number" id="ceSteps" value="5000" min="1" style="width: 90px; padding: 4px; margin-left: 4px;"></label>
+    </div>
+    <div style="display: flex; gap: 15px; flex-wrap: wrap; margin-bottom: 12px;">
+        <select id="ceKind" style="padding: 5px; font-size: 13px; border-radius: 4px; border: 1px solid #ccc;">
+            <option value="42,9">First order, Euler</option>
+            <option value="53,12" selected>MUSCL, Euler equations</option>
+            <option value="107,19">MUSCL, Navier-Stokes (2-D)</option>
+            <option value="243,58">MUSCL, Navier-Stokes (3-D)</option>
+        </select>
+        <select id="ceStages" style="padding: 5px; font-size: 13px; border-radius: 4px; border: 1px solid #ccc;">
+            <option value="1">Explicit Euler (1 stage)</option>
+            <option value="2" selected>SSP-RK2 (2 stages)</option>
+            <option value="3">SSP-RK3 (3 stages)</option>
+        </select>
+        <select id="ceThreads" style="padding: 5px; font-size: 13px; border-radius: 4px; border: 1px solid #ccc;">
+            <option value="0">1 thread</option>
+            <option value="1" selected>16 threads</option>
+        </select>
+    </div>
+
+    <div style="display: flex; justify-content: space-around; background: #fff; border: 1px solid #ddd; padding: 10px; border-radius: 4px; text-align: center;">
+        <div><div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase;">Cells</div><div id="ceCells" style="font-size: 18px; font-weight: bold; font-family: monospace;"></div></div>
+        <div><div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase;">Estimated time</div><div id="ceTime" style="font-size: 22px; font-weight: bold; font-family: monospace; color: #2980b9;"></div></div>
+        <div><div style="font-size: 11px; color: #7f8c8d; text-transform: uppercase;">Memory (state only)</div><div id="ceMem" style="font-size: 18px; font-weight: bold; font-family: monospace;"></div></div>
+    </div>
+    <p style="font-size: 12px; color: #586069; margin: 8px 0 0 0;">Memory counts the conservative state (5 doubles per cell); the solver needs several times that for the stage copies and the residual.</p>
+
+    <script>
+        (function() {
+            const ids = ['ceNx', 'ceNy', 'ceNz', 'ceSteps', 'ceKind', 'ceStages', 'ceThreads'];
+            function fmt(s) {
+                if (s < 1) return (s * 1000).toFixed(0) + " ms";
+                if (s < 120) return s.toFixed(1) + " s";
+                if (s < 7200) return (s / 60).toFixed(1) + " min";
+                return (s / 3600).toFixed(1) + " h";
+            }
+            function update() {
+                const g = (id) => parseFloat(document.getElementById(id).value) || 0;
+                const cells = Math.max(1, g('ceNx')) * Math.max(1, g('ceNy')) * Math.max(1, g('ceNz'));
+                const cost = document.getElementById('ceKind').value.split(',').map(Number)[parseInt(document.getElementById('ceThreads').value)];
+                const stages = parseInt(document.getElementById('ceStages').value);
+                const t = cells * stages * g('ceSteps') * cost * 1e-9;
+                document.getElementById('ceCells').textContent = cells.toLocaleString();
+                document.getElementById('ceTime').textContent = fmt(t);
+                const mb = cells * 5 * 8 / 1e6;
+                document.getElementById('ceMem').textContent = mb < 1000 ? mb.toFixed(1) + " MB" : (mb / 1000).toFixed(2) + " GB";
+            }
+            ids.forEach(id => document.getElementById(id).addEventListener('input', update));
+            update();
+        })();
+    </script>
+</div>

@@ -1,9 +1,13 @@
 ---
 title: Performance and parallelism
 nav: Performance
-section: Guide
-order: 30
+section: User guide
+order: 50
 ---
+
+> **In short.** Fenice uses vector instructions, OpenMP threads and MPI ranks together, and the result is the same bit for bit whichever you use.
+> For one node use threads (the default); use MPI for several nodes or for more memory than one node has.
+> The [practical notes](#practical-notes) are the quick answers; the tables are the measurements behind them.
 
 Every kernel is native C++. Three levels of parallelism combine:
 
@@ -19,36 +23,49 @@ Every kernel is native C++. Three levels of parallelism combine:
 at a time, and the MUSCL, WENO3-Z and WENO5-Z reconstructions run four faces at a time too (on AMR meshes for the interior faces whose stencil is made
 of leaves; MUSCL is fused with the Riemann solver there). Every lane performs the same
 IEEE operations in the same order as the scalar code (no fused multiply-add, no vector min / max, every branch computed and
-selected by a mask), so the results are **bit-identical** with and without it, on any CPU. The scalar code is used on other CPUs
+selected by a mask), so the results are **bit-identical** with and without it, on any CPU.
+* The scalar code is used on other CPUs
 and for the leftover faces of a batch; `FENICE_NO_SIMD=1` switches the vector kernels off (to time them, or to check the bits).
-The Riemann solver costs 47 / 71 ns per face (HLLC / Low-Mach) as scalar code and 16 / 21 ns vectorised
-(`bench_riemann`). On ARM64, where a value is two NEON registers, the gain is smaller: 55 / 84 against 41 / 54 ns on a hosted Linux
+* The Riemann solver costs 47 / 71 ns per face (HLLC / Low-Mach) as scalar code and 16 / 21 ns vectorised
+(`bench_riemann`).
+* On ARM64, where a value is two NEON registers, the gain is smaller: 55 / 84 against 41 / 54 ns on a hosted Linux
 runner and 63 / 101 against 30 / 32 ns on an Apple-silicon one (shared machines: indicative figures).
-The viscous cell quantities (velocities, temperature and the gradients from the four neighbours) and the viscous time-step bound of
+* The viscous cell quantities (velocities, temperature and the gradients from the four neighbours) and the viscous time-step bound of
 AMR meshes also run four leaves at a time, for runs of consecutive leaves whose neighbours are leaves (the others take the scalar
-path). On the 720×360 airfoil (50 steps, one thread) all the vector kernels together save 3.6 s: 4.9 s against 8.5 s with `FENICE_NO_SIMD=1`
-(Ryzen 7 7800X3D, MSVC). The kernels are written once, on a small set of operations (`SimdOps.hpp`: add, subtract, multiply, divide,
+path).
+* On the 720×360 airfoil (50 steps, one thread) all the vector kernels together save 3.6 s: 4.9 s against 8.5 s with `FENICE_NO_SIMD=1`
+(Ryzen 7 7800X3D, MSVC).
+* The kernels are written once, on a small set of operations (`SimdOps.hpp`: add, subtract, multiply, divide,
 square root, comparisons that give a mask, bit logic and the selection of a lane) that each instruction set provides as one block of
-that file: a value is four doubles, one AVX2 register or two NEON registers. On x86-64 the file of the kernels is compiled for AVX2 (`/arch:AVX2` with MSVC,
+that file: a value is four doubles, one AVX2 register or two NEON registers.
+* On x86-64 the file of the kernels is compiled for AVX2 (`/arch:AVX2` with MSVC,
 `-mavx2` with gcc / clang; FMA stays off): without `/arch:AVX2` the MSVC build of these kernels was 0.42 s *slower* than the scalar
-loops. The CPU check that decides whether they run is compiled without AVX, so the program still starts on older CPUs. The viscous
+loops.
+* The CPU check that decides whether they run is compiled without AVX, so the program still starts on older CPUs.
+* The viscous
 face flux stays scalar: its vector version was slower than the scalar loop (1.1 to 1.25 s against 0.88 s), the kernel being dominated
 by scattered loads with three divisions per face.
 
 **Fused passes.** On a uniform mesh the residual is computed in one pass over rows of faces: the reconstruction (MUSCL, WENO3-Z or
 WENO5-Z, or the cell states, first order), the Riemann solver and the flux balance of the cells run on a row at a time, so the face fluxes
 and the left / right states never go to memory. `FENICE_NO_FUSED=1` takes the
-separate passes; the two give the same bits (`fused_residual_passes_equal_the_two_pass_residual_bit_for_bit`). The 2-D viscous
+separate passes; the two give the same bits (`fused_residual_passes_equal_the_two_pass_residual_bit_for_bit`).
+
+* The 2-D viscous
 residual is one sweep over rows as well: the velocity, temperature and their derivatives of a row and of the row above stay in a
 small per-thread buffer, a cell's primitive state is converted with its row, and the padded state of the diffusive ghosts is never
-built, only its ghost ring (`get_padded_frame`, a few entries per row and column; the interior is read from the cell field). On
+built, only its ghost ring (`get_padded_frame`, a few entries per row and column; the interior is read from the cell field).
+* On
 large meshes, where the arrays do not fit in cache, this matters: viscous MUSCL RK2 on 2048^2 takes 109 / 22 / 20 ns per
 cell-stage on 1 / 8 / 16 threads, about 1.2x less than with a padded and a primitive copy on 8-16 threads (1.03x on one); a 512^2
-mesh, which stays in cache, takes the same time either way. Passes that only copy or convert a whole array run at the same
+mesh, which stays in cache, takes the same time either way.
+* Passes that only copy or convert a whole array run at the same
 rate on one thread and on sixteen, so they limit the thread scaling of a large mesh; that is why removing them pays most on many
-threads. The primitive
+threads.
+* The primitive
 variables share one reciprocal of the density and the divergence multiplies by the reciprocal of the cell area, so the divisions
-per face are few. Measured on a Ryzen 7 7800X3D (ns per cell-stage, 1 / 16 threads): Sod MUSCL 2000x200 53 / 12, first order
+per face are few.
+* Measured on a Ryzen 7 7800X3D (ns per cell-stage, 1 / 16 threads): Sod MUSCL 2000x200 53 / 12, first order
 42 / 9, Kelvin-Helmholtz 512^2 56 / 11, viscous Taylor-Green 512^2 107 / 19, 3-D Taylor-Green 64^3 243 / 58.
 
 **Loop parallelism.** Loops shorter than `kOmpMinWork` (4096 items) run on one thread,
@@ -79,7 +96,7 @@ Wall time of the whole run on the 24-core workstation of the next section (gcc, 
 over one period (`nx = ny = 256`, 65 536 cells) and the 3-D Taylor-Green vortex at Re 1600 on $64^3$ to $t = 20$.
 MUSCL uses the MC limiter with SSP-RK2, the WENO schemes SSP-RK3, CFL 0.5.
 
-| Case | scheme | 1 thread | 44 threads | 44 threads vs 1 | $L_2$ density error / peak $arepsilon$ |
+| Case | scheme | 1 thread | 44 threads | 44 threads vs 1 | $L_2$ density error / peak $\varepsilon$ |
 |---|---|---:|---:|---:|---|
 | vortex $256^2$ | MUSCL (MC) | 20.8 s | 2.3 s | 9.1× | $6.4\cdot10^{-5}$ |
 | vortex $256^2$ | `weno3` | 69.5 s | 10.2 s | 6.8× | $4.8\cdot10^{-5}$ |
@@ -139,6 +156,8 @@ threads give 0.77, 0.49 and 0.19.
 
 The table of every run, with the time split by section, is `results/validation/workstation_scaling/scaling.md` (written by the scaling stage of the workstation script, see `cases/validation/workstation_postprocess.py`).
 
+{{widget:costEstimator}}
+
 ## Practical notes
 
 * The final line of a run reports the **time-loop** duration. Snapshots are binary VTK
@@ -146,7 +165,14 @@ The table of every run, with the time split by section, is `results/validation/w
   output from dominating the run time.
 * `max_steps = N` stops a run after N steps, which is useful for timing.
 
-**Where the time goes.** `FENICE_PROFILE=1` prints the total time step and residual sections on uniform runs, including the time updates, viscous padding and conversion, viscous sweep, IBM forcing, body force and sources. It also prints the output and remesh sections on AMR runs (the region the indicator reads, the flags, the topology, the migration of the state, the rebuild of the share and its engine tables, the partition; inside the rebuild the fetch of the leaves, the mask, the partial mesh, the engine build, the partition and the localisation), with the minimum and maximum over the ranks. Sections are timed once per step or remesh, never per face. Nested sections are inclusive, so the total and its children must not be summed together. With the switch off, profile sections only take the cached flag check. An AMR time step is also split into the stage copy, the face fluxes (primitive state and virtual cells, convective faces, viscous cell quantities, viscous faces), the flux registers, the gather into the cell residuals, the forcing and the halo exchanges (`amr: ...`), and `fetch_leaves` into its frontier, classification, exchange, serving and collection (`fetch: ...`). On one node a single process on all threads is faster than MPI ranks: on a 3-D sphere with 73 k leaves, 200 steps took 4.6 s on 16 threads against 10 s on 8 ranks (the remesh is 7 % of the first and 28 % of the second). Use MPI to go beyond one node, not within it.
+**Where the time goes.** `FENICE_PROFILE=1` prints the total time step and residual sections on uniform runs, including the time updates, viscous padding and conversion, viscous sweep, IBM forcing, body force and sources.
+
+* It also prints the output and remesh sections on AMR runs (the region the indicator reads, the flags, the topology, the migration of the state, the rebuild of the share and its engine tables, the partition; inside the rebuild the fetch of the leaves, the mask, the partial mesh, the engine build, the partition and the localisation), with the minimum and maximum over the ranks.
+* Sections are timed once per step or remesh, never per face.
+* Nested sections are inclusive, so the total and its children must not be summed together.
+* With the switch off, profile sections only take the cached flag check.
+* An AMR time step is also split into the stage copy, the face fluxes (primitive state and virtual cells, convective faces, viscous cell quantities, viscous faces), the flux registers, the gather into the cell residuals, the forcing and the halo exchanges (`amr: ...`), and `fetch_leaves` into its frontier, classification, exchange, serving and collection (`fetch: ...`).
+* On one node a single process on all threads is faster than MPI ranks: on a 3-D sphere with 73 k leaves, 200 steps took 4.6 s on 16 threads against 10 s on 8 ranks (the remesh is 7 % of the first and 28 % of the second). Use MPI to go beyond one node, not within it.
 
 ## Adaptive meshes
 

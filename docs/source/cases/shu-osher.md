@@ -5,6 +5,8 @@ section: Test cases
 order: 50
 ---
 
+> **Run it:** `build\release\fenice.exe --case "Shu-Osher Test"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).
+
 The standard benchmark for a scheme's ability to capture a *strong shock* while
 resolving smooth *high-frequency entropy waves* behind it (Shu & Osher 1989). A Mach-3
 shock propagates rightward into a sinusoidal density perturbation, and the post-shock

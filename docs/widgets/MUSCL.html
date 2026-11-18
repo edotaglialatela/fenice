@@ -42,27 +42,27 @@
             
             ctx.clearRect(0, 0, W, H);
             
-            // Definisci i valori medi di cella (inclusi 2 ghost cell ai bordi per calcolare i delta)
+            // Cell averages (including 2 ghost cells at the ends to compute the differences)
             // U = [ghost_L, cell_0, cell_1, cell_2, cell_3, cell_4, cell_5, ghost_R]
             let U = [];
             if (profile === 'step') U = [8, 8, 8, 8, 2, 2, 2, 2];
             else if (profile === 'sine') U = [5, 6.5, 8, 8.5, 7.5, 5, 2.5, 1.5];
             else if (profile === 'peak') U = [2, 2, 3, 8, 3, 2, 2, 2];
 
-            // Disegna griglia (bordi delle celle)
+            // Draw the grid (cell edges)
             ctx.strokeStyle = "#ddd"; ctx.lineWidth = 1;
             for(let i=0; i<=nCells; i++) {
                 ctx.beginPath(); ctx.moveTo(px(i), py(0)); ctx.lineTo(px(i), py(yMax)); ctx.stroke();
             }
             
-            // Disegna le medie di cella come barre orizzontali grigie chiare
+            // Draw the cell averages as light grey horizontal bars
             ctx.strokeStyle = "rgba(0,0,0,0.2)"; ctx.lineWidth = 4;
             for(let i=0; i<nCells; i++) {
                 let val = U[i+1];
                 ctx.beginPath(); ctx.moveTo(px(i)+2, py(val)); ctx.lineTo(px(i+1)-2, py(val)); ctx.stroke();
             }
 
-            // Funzioni Limitatore (versione phi(a,b))
+            // Limiter functions (phi(a,b) form)
             const sign = Math.sign;
             const min = Math.min;
             const max = Math.max;
@@ -70,7 +70,7 @@
             
             const limiters = {
                 first: (a, b) => 0.0,
-                central: (a, b) => 0.5 * (a + b), // Differenza centrale illimitata
+                central: (a, b) => 0.5 * (a + b), // Unlimited central difference
                 minmod: (a, b) => {
                     if (a*b <= 0) return 0;
                     return 0.5 * (sign(a) + sign(b)) * min(abs(a), abs(b));
@@ -81,8 +81,8 @@
                 }
             };
 
-            // Calcola e disegna la ricostruzione MUSCL
-            ctx.strokeStyle = "#005cc5"; // Blu stile GitHub
+            // Compute and draw the MUSCL reconstruction
+            ctx.strokeStyle = "#005cc5"; // Blue
             ctx.lineWidth = 2.5;
             
             for(let i=0; i<nCells; i++) {
@@ -92,17 +92,17 @@
                 
                 let phi = limiters[scheme](a, b);
                 
-                // Valori ricostruiti alle interfacce della cella i
+                // Values reconstructed at the faces of cell i
                 let u_L = u_i - 0.5 * phi; 
                 let u_R = u_i + 0.5 * phi;
                 
-                // Disegna la linea della pendenza dentro la cella
+                // Draw the slope line inside the cell
                 ctx.beginPath();
                 ctx.moveTo(px(i), py(u_L));
                 ctx.lineTo(px(i+1), py(u_R));
                 ctx.stroke();
                 
-                // Disegna pallini per enfatizzare i valori ricostruiti all'interfaccia
+                // Dots on the reconstructed face values
                 ctx.fillStyle = "#e74c3c";
                 ctx.beginPath(); ctx.arc(px(i), py(u_L), 3, 0, 2*Math.PI); ctx.fill();
                 ctx.beginPath(); ctx.arc(px(i+1), py(u_R), 3, 0, 2*Math.PI); ctx.fill();

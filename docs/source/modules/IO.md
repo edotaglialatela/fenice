@@ -1,14 +1,17 @@
 ---
 title: IO - VTK output and checkpoints
 nav: IO
-section: Modules
+section: Methods
 order: 80
-header: IO.hpp
 ---
+
+> **In short.** Fenice writes ParaView-readable snapshots (`.vtr`, `.vtu` for AMR), a `.pvd` time index, and a checkpoint (`.npz`)
+> that resumes the run bit for bit. `save_interval` sets how often, `resume` continues a run, and `monitor_interval` writes a CSV
+> of forces and norms. This page describes each file.
 
 ## VTK output
 
-`VTKExporter` writes ParaView-readable VTK XML in ASCII. Every file is written to
+`VTKExporter` writes ParaView-readable VTK XML (inline base64 binary by default; `vtk_format = ascii` writes text). Every file is written to
 `<file>.tmp` and then renamed, so ParaView never sees a partially written file, even if
 the run is interrupted mid-write.
 
@@ -78,9 +81,11 @@ solution.
 Three more columns, `res_rho,res_mom,res_E`, always end the row: the residual norms. With
 $R = \mathrm{d}U/\mathrm{d}t$ the right-hand side of the semi-discrete equations at the current
 state, each is the root mean square of $R$ over the fluid cells (weighted by the cell area or
-volume; solid cells of an immersed body are left out), for $ho$, for the momentum (the
-magnitude of the vector) and for $ho E$. They tend to zero as a flow becomes steady; they are
+volume; solid cells of an immersed body are left out), for $\rho$, for the momentum (the
+magnitude of the vector) and for $\rho E$. They tend to zero as a flow becomes steady; they are
 raw values, to be normalised by the reader (the GUI divides by the first row). They come from the
 same extra residual evaluation, now made at every monitor step; under MPI they are all-reduced.
 
-{{api}}
+---
+
+*Declarations: [`fv/IO.hpp`]({{root}}api/IO.html).*

@@ -1,114 +1,78 @@
 ---
 title: Fenice
 nav: Overview
-section: Guide
+section: Start here
 order: 0
 ---
 
-**Fenice** (Italian for *phoenix*) is a structured-Cartesian compressible finite-volume
-solver for the **Euler and Navier-Stokes equations** in 2-D and 3-D, written in C++17 with OpenMP threading and MPI
-domain decomposition. A run is 2-D when `nz = 1` (the default) and 3-D when `nz > 1`.
+**Fenice** (Italian for *phoenix*) simulates compressible gas flow: shock tubes, blast waves, flow past a cylinder, a wing or
+a sphere, turbulence in a box. It solves the **Euler and Navier-Stokes equations** in 2-D and 3-D on a Cartesian grid, with
+optional adaptive mesh refinement around the features that matter. You describe a problem in a small text file, run one
+command, and open the result in ParaView. The solver is written in C++17 and uses OpenMP and MPI; the result does not
+depend on how many threads or ranks you use.
 
-* **Numerics:** HLLC and Low-Mach HLLC Riemann solvers; first order, MUSCL (four TVD limiters) or WENO3-Z / WENO5-Z
-  reconstruction, with second-order boundary faces; Explicit Euler, SSP-RK2 and SSP-RK3. See [Schemes]({{root}}modules/Schemes.html)
-  and [TimeScheme]({{root}}modules/TimeScheme.html).
-* **Physics:** ideal and stiffened-gas EOS, Navier-Stokes, body forces, source terms, and immersed bodies (cylinder, sphere, airfoil)
-  with a sharp ghost-cell wall, with load monitoring. See [Physics]({{root}}modules/Physics.html).
-* **Meshes:** uniform 2-D / 3-D grids and cell-based adaptive refinement (quadtree, octree) with subcycling. See
-  [AMR]({{root}}modules/AMR.html).
-* **Parallelism:** OpenMP and MPI; the result does not depend on the number of threads or ranks, also for adaptive meshes. See
-  [Testing]({{root}}guide/testing.html) for the tests that prove it.
-* **I/O and tools:** VTK output, bitwise restart and hot start ([IO]({{root}}modules/IO.html)), a PyQt6 workbench
-  ([GUI]({{root}}guide/gui.html)), and the validation studies ([Validation]({{root}}guide/validation.html)).
-
-## Where to read what
-
-| You want to | Read |
-|---|---|
-| build and run a case | [Getting started]({{root}}guide/getting-started.html), [Parameters]({{root}}guide/parameters.html) |
-| write your own case | [Writing a test case]({{root}}guide/writing-cases.html) |
-| know what a module does | the Modules pages (one per header, with its API) |
-| see results against exact solutions or data | the Test cases pages and [Validation]({{root}}guide/validation.html) |
-| check that a change did not move the numerics | [Testing]({{root}}guide/testing.html) |
-| make a run faster | [Performance]({{root}}guide/performance.html), [Switches]({{root}}guide/switches.html) |
-
-## Quick start
+## Try it in three commands
 
 ```powershell
-.\cpp\build.ps1 -Test                                   # build + unit tests
-build\release\fenice.exe --case "Sod Shock Tube"          # run a benchmark
-python gui\run.py                                       # or configure it in the GUI
+.\cpp\build.ps1 -Test                                   # build the solver and run its unit tests
+build\release\fenice.exe --case "Sod Shock Tube"        # run a benchmark
+python gui\run.py                                       # or set up and start a run in a window
 ```
 
-Results go to `results/<case>/` as `.vtr` snapshots plus a `.pvd` time
-series. Open the `.pvd` in ParaView. See
-[Getting started]({{root}}guide/getting-started.html) for the build options,
-the command line, MPI and output files, and [Parameters]({{root}}guide/parameters.html)
-for every run setting.
+Results go to `results/<case>/`: open the `<case>.pvd` file in ParaView. The
+[Getting started]({{root}}guide/getting-started.html) page walks through the first run step by step.
 
-## Governing equations
+## I want to...
 
-The solver advances the conservative state
-$\mathbf{U} = [\rho,\ \rho u,\ \rho v,\ \rho E,\ \rho w]^\top$ of
-
-$$\frac{\partial \mathbf{U}}{\partial t} + \nabla\cdot\mathbf{F}_c(\mathbf{U})
-  = \nabla\cdot\mathbf{F}_v(\mathbf{U}, \nabla\mathbf{U}) + \mathbf{S}(\mathbf{U})$$
-
-with the inviscid flux $\mathbf{F}_c$, the viscous flux $\mathbf{F}_v$ (Navier-Stokes only) and
-volumetric sources $\mathbf{S}$ (body forces). The cell-averaged semi-discrete form
-
-$$\frac{\mathrm{d}\mathbf{U}_i}{\mathrm{d}t} = \mathcal{R}_i(\mathbf{U})
-  = -\frac{1}{V_i}\sum_{f\in\partial i} \mathbf{F}^*_f\,A_f
-  + \mathcal{R}^{\rm visc}_i + \mathbf{S}_i$$
-
-is integrated in time with an explicit Runge-Kutta scheme. Here $\mathbf{F}^*_f$ is the
-Riemann-solver flux through face $f$ of area $A_f$, and $V_i$ is the cell volume (in 2-D,
-the face length and cell area). The z-momentum $\rho w$ is stored last so that a 2-D state
-keeps its original layout; in 2-D it stays exactly zero.
-
-## How a time step works
-
-1. **Ghost cells** ([Boundaries]({{root}}modules/Boundaries.html)). Each boundary
-   face receives a ghost state from its BC. Under MPI, faces on a rank interface
-   take the neighbour's halo instead. AMR faces between levels use the virtual
-   cells of the face list.
-2. **Reconstruction** ([Schemes]({{root}}modules/Schemes.html)). Optional MUSCL
-   reconstruction of the primitive variables lifts the face states to 2nd order.
-3. **Riemann fluxes**, then the flux divergence per cell.
-4. **Viscous residual and sources** ([Physics]({{root}}modules/Physics.html)).
-5. **Time update** ([TimeScheme]({{root}}modules/TimeScheme.html)), with
-   $\Delta t = \mathrm{CFL}\,h/S_{\max}$, with $h = \min(\Delta x,\Delta y)$ in 2-D and
-   $h = 2/(1/\Delta x + 1/\Delta y + 1/\Delta z)$ in 3-D. The 3-D length keeps the sum of
-   the three directional Courant numbers at the 2-D bound ($2\,\mathrm{CFL}$). The IBM
-   solid reset follows each complete step.
-6. **Output.** VTK snapshots and checkpoints every `save_interval` steps
-   ([IO]({{root}}modules/IO.html)).
-
-The orchestration lives in [Simulation]({{root}}modules/Simulation.html).
-
-## Data conventions
-
-* **State arrays** are `Field = std::vector<State>`, one `[rho, rho*u, rho*v, rho*E, rho*w]`
-  per cell (`kNVar = 5`; the momentum slots are `kMom = {1, 2, 4}`).
-* **Cells** are row-major: `cell = (k*ny + j)*nx + i` (z outermost, x innermost). In 2-D
-  (`k = 0`) this is `j*nx + i`.
-* **Faces**: the x-normal faces come first, `(k*ny + j)*(nx+1) + i`, then the y-normal faces,
-  `num_xfaces + (k*(ny+1) + j)*nx + i`, then (3-D only) the z-normal faces,
-  `num_xfaces + num_yfaces + (k*ny + j)*nx + i`.
-* **Primitive variables** are `W = [rho, u, v, p, w]` (`EOS::cons_to_prim` / `EOS::prim_to_cons`).
-
-## Repository layout
-
-| Path | Content |
+| Goal | Go to |
 |---|---|
-| `cpp/include/fv/`, `cpp/src/` | Solver library (one header per module page) |
-| `cpp/apps/main.cpp` | `fenice` command-line driver |
-| `cpp/tests/` | Unit tests (`fenice_tests`), regression references and `regression.py` |
-| `cases/` | Test cases, one folder with a `case.toml` each ([Writing a test case]({{root}}guide/writing-cases.html)) |
-| `cpp/third_party/` | toml++ and TinyExpr (case files) |
-| `gui/` | PyQt6 workbench and launcher |
-| `python/fenice/` | Python package shared by the GUI, validation and docs tools: finds and runs the solver, reads its output |
-| `cases/validation/` | One script per validation study, grouped in `verification/`, `benchmarks/`, `amr/`, `features/`; results in `results/validation/<study>/` ([Validation]({{root}}guide/validation.html)) |
-| `docs/` | This documentation: `docs/source/` and `docs/img/`, built into `docs/site/` by `python docs/build.py` |
-| `build/` | Builds: `build/release/`, `build/debug/` |
-| `results/` | Simulation output (not in git) |
+| install Fenice and run a first case | [Getting started]({{root}}guide/getting-started.html) |
+| change a setting of a run (mesh, scheme, boundaries, time) | [Parameters]({{root}}guide/parameters.html) |
+| set up my own problem | [Writing a test case]({{root}}guide/writing-cases.html) |
+| use the graphical front end | [GUI]({{root}}guide/gui.html) |
+| make a run faster, or use more cores | [Performance]({{root}}guide/performance.html), [Switches]({{root}}guide/switches.html) |
+| choose a numerical scheme and understand what it does | [How Fenice works]({{root}}modules/overview.html) and the Methods pages |
+| see a worked example with results | the [Test cases](#test-cases) below |
+| judge how far the results can be trusted | [Testing]({{root}}guide/testing.html), [Validation]({{root}}guide/validation.html) |
+| read or extend the C++ code | [API reference]({{root}}api/index.html) |
+
+## What it can do
+
+* **Equations.** Euler and Navier-Stokes, with ideal-gas or stiffened-gas equations of state, body forces and user-defined
+  source terms (`[source]` expressions of x, y, z and t).
+* **Numerical schemes.** HLLC and low-Mach HLLC Riemann solvers; first order, MUSCL (four TVD limiters) or WENO3-Z / WENO5-Z
+  reconstruction; explicit Euler, SSP-RK2 and SSP-RK3 in time. See [Schemes]({{root}}modules/Schemes.html) and
+  [TimeScheme]({{root}}modules/TimeScheme.html).
+* **Bodies in the flow.** A cylinder, a sphere or an airfoil (polygon) placed on the Cartesian grid with a sharp
+  ghost-cell wall; lift, drag and surface loads are monitored. See [Physics]({{root}}modules/Physics.html).
+* **Adaptive meshes.** Cell-based refinement (a quadtree in 2-D, an octree in 3-D) with subcycling in time, also on many MPI
+  ranks. See [AMR]({{root}}modules/AMR.html).
+* **Parallel and reproducible.** OpenMP threads and MPI ranks give the same bits as a serial run; the regression
+  suite checks it. See [Testing]({{root}}guide/testing.html).
+* **Output and restart.** VTK snapshots for ParaView, force and norm monitors, checkpoints that resume a run bit for
+  bit, and hot start from a run on another mesh. See [IO]({{root}}modules/IO.html).
+* **Tools.** A PyQt6 workbench with a post-processing viewer and analysis tools (spectra, modal decomposition, sensitivity), and
+  a library of verification and validation studies. See [GUI]({{root}}guide/gui.html) and
+  [Validation]({{root}}guide/validation.html).
+
+## How the documentation is organised
+
+| Section | What is in it |
+|---|---|
+| **Start here** | this page and the first-run walkthrough |
+| **User guide** | how to write a case, every parameter, the GUI, performance and the environment switches |
+| **Methods** | what the solver does and why: equations, schemes, boundaries, physics, time integration, AMR, I/O, parallelism |
+| **Test cases** | one page per benchmark, with the command, the setting and the results against exact solutions or data |
+| **Verification** | the unit tests, the regression references, the [manufactured solutions]({{root}}cases/manufactured-solution.html) and the validation studies |
+| **API reference** | the C++ declarations of each header, extracted from the comments in the source |
+
+## Test cases
+
+Each page gives the command that reproduces it and the results: [Sod shock tube]({{root}}cases/sod.html),
+[Shu-Osher]({{root}}cases/shu-osher.html), [blast waves]({{root}}cases/blast-waves.html),
+[2-D Riemann problems]({{root}}cases/riemann-2d.html), [implosions]({{root}}cases/implosions.html),
+[Kelvin-Helmholtz]({{root}}cases/kelvin-helmholtz.html), [isentropic vortex]({{root}}cases/isentropic-vortex.html),
+[Taylor-Green vortex]({{root}}cases/taylor-green.html) (and [in 3-D]({{root}}cases/taylor-green-3d.html)),
+[lid-driven cavity]({{root}}cases/cavity.html), [Poiseuille flow]({{root}}cases/poiseuille.html),
+[flow past a cylinder]({{root}}cases/cylinder.html), [a sphere]({{root}}cases/sphere.html) and [an airfoil]({{root}}cases/airfoil.html).
+The manufactured solutions, which verify the code rather than a flow, are under Verification.

@@ -18,22 +18,22 @@
             if (!canvas) return;
             const ctx = canvas.getContext('2d');
             
-            // Impostazioni Griglia
+            // Grid settings
             const cellSize = 30;
             const cols = canvas.width / cellSize;
             const rows = canvas.height / cellSize;
             
-            // Corpo Immerso (Cerchio)
+            // Immersed body (circle)
             let circle = { x: 300, y: 180, r: 75 };
             let isDragging = false;
             
-            // Gestione Eventi Mouse
+            // Mouse events
             canvas.addEventListener('mousedown', (e) => {
                 const rect = canvas.getBoundingClientRect();
                 const mouseX = e.clientX - rect.left;
                 const mouseY = e.clientY - rect.top;
                 
-                // Controlla se il click è dentro il cerchio
+                // Is the click inside the circle?
                 if (Math.hypot(mouseX - circle.x, mouseY - circle.y) <= circle.r) {
                     isDragging = true;
                     canvas.style.cursor = 'grabbing';
@@ -62,7 +62,7 @@
                 ctx.clearRect(0, 0, canvas.width, canvas.height);
                 let grid = [];
                 
-                // 1. Classificazione iniziale (Fluido vs Solido)
+                // 1. Classify the cells (fluid vs solid)
                 for (let i = 0; i < cols; i++) {
                     grid[i] = [];
                     for (let j = 0; j < rows; j++) {
@@ -73,13 +73,13 @@
                     }
                 }
                 
-                // 2. Identificazione dei nodi Ghost/Forcing (Solidi con vicini Fluidi)
+                // 2. Find the ghost cells (solid cells with a fluid neighbour)
                 let ghosts = [];
                 for (let i = 0; i < cols; i++) {
                     for (let j = 0; j < rows; j++) {
                         if (grid[i][j].type === 'solid') {
                             let isGhost = false;
-                            // Controllo sui 4 vicini ortogonali
+                            // Check the 4 orthogonal neighbours
                             if (i > 0 && grid[i-1][j].type === 'fluid') isGhost = true;
                             if (i < cols-1 && grid[i+1][j].type === 'fluid') isGhost = true;
                             if (j > 0 && grid[i][j-1].type === 'fluid') isGhost = true;
@@ -93,7 +93,7 @@
                     }
                 }
                 
-                // 3. Renderizzazione delle Celle
+                // 3. Draw the cells
                 ctx.lineWidth = 0.5;
                 ctx.strokeStyle = "#e0e0e0";
                 
@@ -101,14 +101,14 @@
                     for (let j = 0; j < rows; j++) {
                         let cell = grid[i][j];
                         
-                        if (cell.type === 'fluid') ctx.fillStyle = "#ebf5fb"; // Azzurro chiaro
-                        else if (cell.type === 'solid') ctx.fillStyle = "#bdc3c7"; // Grigio
-                        else if (cell.type === 'ghost') ctx.fillStyle = "#f39c12"; // Arancione
+                        if (cell.type === 'fluid') ctx.fillStyle = "#ebf5fb"; // Light blue
+                        else if (cell.type === 'solid') ctx.fillStyle = "#bdc3c7"; // Grey
+                        else if (cell.type === 'ghost') ctx.fillStyle = "#f39c12"; // Orange
                         
                         ctx.fillRect(i * cellSize, j * cellSize, cellSize, cellSize);
                         ctx.strokeRect(i * cellSize, j * cellSize, cellSize, cellSize);
                         
-                        // Disegna un piccolo punto al centro della cella
+                        // Small dot at the cell centre
                         ctx.fillStyle = "rgba(0,0,0,0.15)";
                         ctx.beginPath();
                         ctx.arc(cell.cx, cell.cy, 1.5, 0, Math.PI*2);
@@ -116,33 +116,33 @@
                     }
                 }
                 
-                // 4. Renderizzazione del Contorno Immerso (Superficie reale)
+                // 4. Draw the immersed contour (the true surface)
                 ctx.beginPath();
                 ctx.arc(circle.x, circle.y, circle.r, 0, Math.PI * 2);
                 ctx.strokeStyle = "#c0392b";
                 ctx.lineWidth = 2.5;
                 ctx.stroke();
                 
-                // 5. Renderizzazione delle Sonde/Proiezioni per l'interpolazione
+                // 5. Draw the projections used for the interpolation
                 ctx.strokeStyle = "#2c3e50";
                 ctx.lineWidth = 1.5;
                 ghosts.forEach(ghost => {
-                    // Vettore dal centro del cerchio al centro della cella ghost
+                    // Vector from the circle centre to the ghost cell centre
                     let dx = ghost.cx - circle.x;
                     let dy = ghost.cy - circle.y;
                     let dist = Math.hypot(dx, dy);
                     
-                    // Punto di proiezione sulla superficie del corpo immerso
+                    // Projection point on the body surface
                     let boundaryX = circle.x + (dx / dist) * circle.r;
                     let boundaryY = circle.y + (dy / dist) * circle.r;
                     
-                    // Disegna la linea di interpolazione
+                    // Draw the interpolation line
                     ctx.beginPath();
                     ctx.moveTo(ghost.cx, ghost.cy);
                     ctx.lineTo(boundaryX, boundaryY);
                     ctx.stroke();
                     
-                    // Disegna un piccolo marker sul bordo
+                    // Small marker on the surface
                     ctx.fillStyle = "#c0392b";
                     ctx.beginPath();
                     ctx.arc(boundaryX, boundaryY, 2.5, 0, Math.PI*2);
@@ -150,7 +150,7 @@
                 });
             }
             
-            // Inizializza il disegno
+            // Initial drawing
             drawIBM();
         })();
     </script>

@@ -5,6 +5,11 @@ section: Test cases
 order: 45
 ---
 
+> **Run it** (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)):
+>
+> * `build\release\fenice.exe --case "IBM Airfoil"`
+> * `build\release\fenice.exe --case "IBM Airfoil AMR"`
+
 Low-Reynolds-number flow past an airfoil, with the section traced by the
 [immersed boundary]({{root}}modules/Physics.html#immersed-boundary-method). The default is a
 NACA 0012 at 10° incidence, $\mathrm{Re} = \rho\,u_{\rm in}\,c/\mu = 1000$ and Ma = 0.2, in

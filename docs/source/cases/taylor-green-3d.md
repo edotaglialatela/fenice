@@ -5,6 +5,8 @@ section: Test cases
 order: 90
 ---
 
+> **Run it:** `build\release\fenice.exe --case "Taylor-Green Vortex 3D"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).
+
 The 3-D Taylor-Green vortex is the standard check for 3-D compressible Navier-Stokes
 solvers (the "TGV" of the High-Order CFD Workshops). A single large-scale vortex
 arrangement on the periodic box $[0, 2\pi]^3$,
@@ -113,7 +115,7 @@ with the k<sup>−5/3</sup> slope as a guide. Right: decay of the spectrum of th
 
 The DNS peak is 0.0127 at t ≈ 9. At 64³ the WENO5-Z run reaches it (MUSCL needs 96³ for 0.0125, 3.4 times the cells), and the share of the dissipation that the scheme adds falls from 59 % to 43 %. WENO3-Z is
 not better than MUSCL on this problem. The spectra of MUSCL and WENO3-Z at the peak are close; WENO5-Z carries somewhat more energy at the
-intermediate and high wavenumbers. The decay panel shows the spectrum reaching the grid scale around the peak ($t pprox 8$) and the whole spectrum then decaying.
+intermediate and high wavenumbers. The decay panel shows the spectrum reaching the grid scale around the peak ($t \approx 8$) and the whole spectrum then decaying.
 At 32³ the WENO5-Z peak is only a little higher than the others and its energy decays more slowly (0.28 at $t = 20$): at that resolution the
 smallest scales are under-resolved with every scheme.
 

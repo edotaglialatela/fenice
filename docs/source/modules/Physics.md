@@ -1,10 +1,13 @@
 ---
 title: Physics - viscous fluxes, gradients, body forces, IBM
 nav: Physics
-section: Modules
+section: Methods
 order: 40
-header: Physics.hpp
 ---
+
+> **In short.** The physics beyond the Euler equations: viscous and heat fluxes (`use_viscous`, with `mu`, `reynolds` and `pr`), body forces
+> (`use_bodyforce`) and an immersed body in the flow (`use_ibm`: a cylinder, a sphere or an airfoil placed on the Cartesian grid,
+> with force monitoring). Skip to the [immersed boundary method](#immersed-boundary-method) if you want to put a body in the flow.
 
 ## Cell-centre gradients
 
@@ -71,7 +74,7 @@ with $\nu = \mu/\rho_{\min}$ and $\alpha_{\rm th} = k/(\rho_{\min} c_p)$. On squ
 these are $h^2/4\nu$ and $h^2/6\nu$, the forward-Euler limits of the 2-D and 3-D heat
 equation. The limit enters the CFL estimate as an equivalent speed
 $S_{\rm visc} = \mathrm{CFL}\,h/\Delta t_{\rm visc}$, with the same length $h$ as the
-convective step (see [Overview]({{root}}index.html#how-a-time-step-works)).
+convective step (see [How Fenice works]({{root}}modules/overview.html#one-time-step)).
 
 ## Body forces
 
@@ -118,19 +121,23 @@ m image})\,\mathbf u_{
 m image}$; slip (inviscid): only the normal component is reflected.
 
 In 3-D the velocity has three components: slip removes only the normal part (a spanwise velocity along an extruded body survives), no-slip scales all three.
-The deeper solid cells stay at rest and are reset to the reference state (`rho_in`, `p_out`) each step (energy from the EOS).
-The ghost cells are filled inside every residual evaluation (`apply_forcing`), so at every Runge-Kutta stage, and once more after
-the complete step together with the reset of the deeper cells (`apply_solid_reset`). A ghost cell for which no image point with
+
+* The deeper solid cells stay at rest and are reset to the reference state (`rho_in`, `p_out`) each step (energy from the EOS).
+* The ghost cells are filled inside every residual evaluation (`apply_forcing`), so at every Runge-Kutta stage, and once more after
+the complete step together with the reset of the deeper cells (`apply_solid_reset`).
+* A ghost cell for which no image point with
 fluid cells around it exists (a slot one or two cells wide) copies the nearest fluid cell and gets a zero velocity; the solver
-prints how many there are. The wall position is
+prints how many there are.
+* The wall position is
 exact, so no staircase waves are shed and the solution converges fast with the grid: on a cylinder at Re = 40 the drag
-is within 0.15 % of its converged value at 20 cells per diameter. The monitor's loads are the momentum flux into the solid
+is within 0.15 % of its converged value at 20 cells per diameter.
+* The monitor's loads are the momentum flux into the solid
 cells (below); `ImmersedBoundary::surface_loads` integrates the true surface from probes at $d$ and $2d$ along the
 normal (for surface distributions; that integral is 1-3 % low).
-Under MPI each rank fills its own ghost cells and fetches the few cells of other strips their image points read, so the result is
+* Under MPI each rank fills its own ghost cells and fetches the few cells of other strips their image points read, so the result is
 identical for any number of ranks (also in 3-D); with AMR the body is kept at the finest level in a band as wide as the ghost stencils (2-D; in 3-D the band is six finest cells wide, and the wall is active once no leaf coarser than the finest level lies within that reach of the surface, a fact the ranks settle together; a run stops if that cannot be reached).
-`reconstruction = weno5` on a uniform mesh uses the four-cell WENO3-Z stencil on every face that has a solid cell among its six, as the adaptive mesh does.
-In 3-D there are no surface samples (`surface_loads` is zero): the monitor loads are the momentum flux into the solid cells, which is dimension independent.
+* `reconstruction = weno5` on a uniform mesh uses the four-cell WENO3-Z stencil on every face that has a solid cell among its six, as the adaptive mesh does.
+* In 3-D there are no surface samples (`surface_loads` is zero): the monitor loads are the momentum flux into the solid cells, which is dimension independent.
 
 **Curvature correction (`ibm_curvature`, 2-D slip walls).** The zero normal gradient of the pressure is a first-order error on a curved wall, where
 the normal momentum equation gives $\partial p/\partial n = \rho\,\kappa\,u_t^2$ ($\kappa$: curvature of the wall, positive for a convex body; $1/R$ for a
@@ -168,4 +175,6 @@ channel raises both.
 
 {{widget:IBM}}
 
-{{api}}
+---
+
+*Declarations: [`fv/Physics.hpp`]({{root}}api/Physics.html).*
