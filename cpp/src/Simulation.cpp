@@ -516,6 +516,8 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         scheme->set_guard(&fb_guard_);
     }
 
+    if (verbose && p.positivity_fallback)
+        std::printf("[EXPERIMENTAL] positivity_fallback: a stage that leaves a cell without density or pressure is repeated with first-order faces\n");
     if (verbose)
         std::printf("Mesh: %d cells | Riemann: %s | Time: %s | CFL: %g\n", mesh.num_cells(), p.riemann_solver.c_str(),
                     p.time_scheme.c_str(), p.cfl);
