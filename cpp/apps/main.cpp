@@ -218,7 +218,8 @@ int main(int argc, char** argv) {
     }
     if (list_templates) {
         for (const std::string& n : fv::template_names()) {
-            const fv::TestCase& t = fv::get_test_case("template:" + n);
+            const std::string key = "template:" + n;   // a named string: the case returned by reference must not point into a temporary
+            const fv::TestCase& t = fv::get_test_case(key);
             std::printf("%s\t%s\n", n.c_str(), t.description.c_str());
         }
         return 0;

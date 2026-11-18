@@ -127,7 +127,8 @@ TEST(starter_templates_load_validate_and_are_clean) {
     const std::vector<std::string> names = template_names();
     CHECK(names.size() >= 5);
     for (const std::string& n : names) {
-        const TestCase& tc = get_test_case("template:" + n);
+        const std::string key = "template:" + n;
+        const TestCase& tc = get_test_case(key);
         ParamLayers layers;
         layers.baseline = baseline_defaults();
         layers.case_file = tc.defaults;
