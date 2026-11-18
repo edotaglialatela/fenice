@@ -48,7 +48,7 @@ python cases\validation\amr\octree_q8.py run --include-40                       
 python cases\validation\amr\octree_q8.py long                                   # 80 cells per diameter (base 10, 3 levels), Re 20, to t = 60 (hours, 1.9 GB)
 python cases\validation\amr\octree_q8.py long --re 100 --t-end 30 --levels 2    # another Reynolds number, end time or finest level (finest = 10 x 2^levels)
 python cases\validation\amr\octree_sphere.py --docs                              # the figures below, from those runs
-python cases\validation\amr\octree_sphere_3d.py --docs                           # the 3-D render (needs pyvista: python prerequisites.py --viz3d)
+python cases\validation\amr\octree_sphere_3d.py --docs --animation --volume      # the 3-D render and the two animations (needs pyvista: python prerequisites.py --viz3d)
 ```
 
 The runs are cached by their tag in `results/validation/amr_octree_q8/` (a rerun resumes or reuses them) and use 16 threads; `FENICE_OCTREE_THREADS` sets the count (48 for the table below).
@@ -72,6 +72,18 @@ The wake is steady and symmetric; the blocks far from the sphere are the coarse 
 <img src="{{root}}img/ibm_sphere_octree_3d.png" style="width:100%">
 <figcaption>The same 80-cell run in three dimensions (<code>cases/validation/amr/octree_sphere_3d.py</code>): the speed on the plane $z = L_z/2$ (the sphere is cut by it) and on two cross-sections of the wake at $x = 3.6$ and $5.6$, and streamlines that start upstream of the body.
 The state is the final one, $t = 60$, painted from the leaves of the octree on the grid of the finest cells.</figcaption>
+</figure>
+
+<figure>
+<img src="{{root}}img/ibm_sphere_octree_vorticity.gif" style="width:100%">
+<figcaption>Volume rendering of the vorticity magnitude of the 80-cell run on a logarithmic scale (from 0.05 to 7 $U/D$) while the camera turns round the sphere. The opacity follows the gradient of the vorticity,
+so the boundary layer on the sphere (the bright shell) and the edge of the wake show and the sphere is seen through them. The wake carries about a tenth of the vorticity of the boundary layer and is steady, with no shedding at Re 20.</figcaption>
+</figure>
+
+<figure>
+<img src="{{root}}img/ibm_sphere_octree_3d.gif" style="width:100%">
+<figcaption>The same run as nested isosurfaces of the speed at 0.3, 0.6 and 0.85 of the inflow speed (dark to light), smoothed over a few finest cells where the leaves are coarse. Both animations show the final state
+from a turning camera: the flow itself does not change (<code>octree_sphere_3d.py --animation --volume</code>).</figcaption>
 </figure>
 
 * Over the three meshes at $t = 30$ the observed order is 1.23, far from the formal 2, so $F_s = 3$: fine-grid GCI 0.9 %, extrapolated $C_d$ 3.570.
