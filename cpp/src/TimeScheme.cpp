@@ -58,6 +58,16 @@ void axpy(Field& out, const Field& a, double s, const Field& b) {
         for (int q = 0; q < kNVar; ++q) out[c][q] = a[c][q] + s * b[c][q];
 }
 
+// out = a * u0 + b * (v + dt * R) into a separate field: the guarded stages keep their inputs for a repeat. The expression is that of
+// ssp_combine / ssp3_combine, so a stage nothing was repaired in has the same bits as the unguarded one.
+void stage_combine(Field& out, const Field& u0, double a, const Field& v, double b, double dt, const Field& R) {
+    const int n = isize(u0);
+    out.resize(u0.size());
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+    for (int c = 0; c < n; ++c)
+        for (int q = 0; q < kNVar; ++q) out[c][q] = a * u0[c][q] + b * (v[c][q] + dt * R[c][q]);
+}
+
 std::string lower(std::string s) {
     for (auto& c : s) c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
     return s;
@@ -71,6 +81,11 @@ TimeSchemeType parse_time_scheme(const std::string& s_in) {
     if (s == "ssp runge-kutta 2" || s == "ssprk2" || s == "rk2") return TimeSchemeType::SSPRK2;
     if (s == "ssp runge-kutta 3" || s == "ssprk3" || s == "rk3") return TimeSchemeType::SSPRK3;
     throw std::invalid_argument("Unknown time scheme: '" + s_in + "'");
+}
+
+void TimeScheme::repair(const Field& cand, const std::function<void()>& again) {
+    for (int it = 0; it < kMaxRepairs && guard_->mark(cand); ++it) again();
+    guard_->clear();
 }
 
 double TimeScheme::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
@@ -89,6 +104,15 @@ StepResult ExplicitEuler::step(Field& U, const ResidualFn& res, double min_delta
     double dt = cfl * min_delta / (s + kDtEps);
     dt = std::min(dt, t_max - t);
     if (dt_max > 0.0) dt = std::min(dt, dt_max);
+    if (guard_) {
+        axpy(g_, U, dt, R1_);
+        repair(g_, [&] {
+            res(U, R1_);
+            axpy(g_, U, dt, R1_);
+        });
+        U.swap(g_);
+        return {dt, s};
+    }
     axpy(U, U, dt, R1_);
     return {dt, s};
 }
@@ -121,8 +145,21 @@ StepResult SSPRK2::step(Field& U, const ResidualFn& res, double min_delta, doubl
     dt = std::min(dt, t_max - t);
     if (dt_max > 0.0) dt = std::min(dt, dt_max);
     axpy(tmp_, U, dt, R1_);
+    if (guard_) repair(tmp_, [&] {
+        res(U, R1_);
+        axpy(tmp_, U, dt, R1_);
+    });
     stage_time = t + dt;
     const double s2 = res(tmp_, R2_);
+    if (guard_) {
+        stage_combine(g_, U, 0.5, tmp_, 0.5, dt, R2_);
+        repair(g_, [&] {
+            res(tmp_, R2_);
+            stage_combine(g_, U, 0.5, tmp_, 0.5, dt, R2_);
+        });
+        U.swap(g_);
+        return {dt, std::max(s1, s2)};
+    }
     ssp_combine(U, tmp_, dt, R2_);
     return {dt, std::max(s1, s2)};
 }
@@ -158,11 +195,33 @@ StepResult SSPRK3::step(Field& U, const ResidualFn& res, double min_delta, doubl
     dt = std::min(dt, t_max - t);
     if (dt_max > 0.0) dt = std::min(dt, dt_max);
     axpy(tmp_, U, dt, R1_);
+    if (guard_) repair(tmp_, [&] {
+        res(U, R1_);
+        axpy(tmp_, U, dt, R1_);
+    });
     stage_time = t + dt;
     const double s2 = res(tmp_, R2_);
-    ssp3_combine(tmp_, U, 0.75, tmp_, 0.25, dt, R2_);
+    if (guard_) {
+        stage_combine(g_, U, 0.75, tmp_, 0.25, dt, R2_);
+        repair(g_, [&] {
+            res(tmp_, R2_);
+            stage_combine(g_, U, 0.75, tmp_, 0.25, dt, R2_);
+        });
+        tmp_.swap(g_);
+    } else {
+        ssp3_combine(tmp_, U, 0.75, tmp_, 0.25, dt, R2_);
+    }
     stage_time = t + 0.5 * dt;
     const double s3 = res(tmp_, R3_);
+    if (guard_) {
+        stage_combine(g_, U, 1.0 / 3.0, tmp_, 2.0 / 3.0, dt, R3_);
+        repair(g_, [&] {
+            res(tmp_, R3_);
+            stage_combine(g_, U, 1.0 / 3.0, tmp_, 2.0 / 3.0, dt, R3_);
+        });
+        U.swap(g_);
+        return {dt, std::max(s1, std::max(s2, s3))};
+    }
     ssp3_combine(U, U, 1.0 / 3.0, tmp_, 2.0 / 3.0, dt, R3_);
     return {dt, std::max(s1, std::max(s2, s3))};
 }

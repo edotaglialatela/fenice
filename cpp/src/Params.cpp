@@ -148,6 +148,7 @@ const std::vector<ParamSpec>& parameter_table() {
     {"flux_quadrature", "numerics", "midpoint"},
     {"muscl_limiter", "numerics", "Van Leer"},
     {"weno_epsilon", "numerics", "1e-6"},
+    {"positivity_fallback", "numerics", "false"},
     {"boundary_order", "numerics", "2"},
     {"time_scheme", "numerics", "Explicit Euler"},
     {"cfl", "numerics", "0.5"},
@@ -314,6 +315,7 @@ SimParams SimParams::from(const Params& p) {
         }
     }
     s.weno_epsilon = p.num("weno_epsilon", 1e-6);
+    s.positivity_fallback = p.flag("positivity_fallback");
     s.boundary_order = p.integer("boundary_order", 2);
     s.shock_blend = p.num("shock_blend", 0.2);
     s.use_hot_start = p.flag("use_hot_start");
@@ -406,6 +408,12 @@ SimParams SimParams::from(const Params& p) {
         if (s.use_ibm) throw std::invalid_argument("flux_quadrature = fourth is not available with an immersed body yet");
     }
     if (s.boundary_order != 1 && s.boundary_order != 2) throw std::invalid_argument("boundary_order must be 1 or 2");
+    if (s.positivity_fallback) {
+        if (s.reconstruction != "weno3" && s.reconstruction != "weno5")
+            throw std::invalid_argument("positivity_fallback needs reconstruction = weno3 or weno5 (the other schemes keep their reconstructed states between the cells)");
+        if (s.use_amr) throw std::invalid_argument("positivity_fallback is not available with use_amr yet");
+        if (s.flux_quadrature != "midpoint") throw std::invalid_argument("positivity_fallback needs flux_quadrature = midpoint");
+    }
     // a first-order scheme has no reconstruction to extend to the boundary faces: the order is then 1 whatever was asked
     if (s.boundary_order == 2 && !s.reconstructs()) s.boundary_order = 1;
     if (s.use_amr && !(s.amr_criterion > 0.0)) throw std::invalid_argument("amr_criterion must be positive");

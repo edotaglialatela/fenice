@@ -88,6 +88,7 @@ struct SimParams {
     double reynolds;             // > 0: sets mu = rho_in u_in L / reynolds (L: chord or diameter)
     std::string muscl_limiter;   // limiter of reconstruction = muscl
     double weno_epsilon = 1e-6;   // WENO smoothness-indicator regularisation, relative to the stencil data (eps = weno_epsilon * mean(c^2))
+    bool positivity_fallback = false;   // WENO only (uniform mesh, serial): a stage that leaves a cell with density or pressure <= 0 is repeated with first-order faces around those cells
     int boundary_order = 2;   // 2 (default): physical-boundary faces are reconstructed through ghost layers; 1: they keep the first-order ghost states (always 1 with a first-order scheme)
     // Face reconstruction: none (default: first order, the cell states), muscl (limited, 2nd order), weno3 or weno5
     std::string reconstruction = "none";

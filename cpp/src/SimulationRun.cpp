@@ -260,6 +260,8 @@ void Simulation::solve() {
     const LoopResult loop = run_loop(engine);
     step = loop.step;
     const double loop_wall = loop.wall;
+    if (p.positivity_fallback)
+        std::printf("[POSITIVITY] %lld repair passes, %lld cell flags over the run (0: no stage left the admissible set)\n", fb_repairs_, fb_flagged_);
 
     if (mon) {
         if (step % p.monitor_interval != 0) row(step);
@@ -630,6 +632,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     const bool root = (rank == 0);
 
     setup(p, root);
+    if (p.positivity_fallback) throw std::invalid_argument("positivity_fallback is not available with MPI ranks yet (run it on one rank, with OpenMP threads)");
     MPIDecomposition decomp(p.nx, p.ny, comm, p.nz);
 
     // Layout table

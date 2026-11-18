@@ -139,6 +139,9 @@ struct Halos {
     // WENO5-Z only: cells (row-major, 1 = solid cell of an immersed body). A face with such a cell among its six takes the
     // four-cell WENO3-Z stencil: the wall's ghost cells are two deep, the third cell would be a cell at rest inside the body.
     const std::vector<char>* narrow = nullptr;
+    // WENO only, two-pass path (positivity_fallback): cells (row-major, 1 = flagged) whose update left the admissible set. Every face with
+    // a flagged cell on one side takes the two cell values as its states (first order). Null: nothing is overridden.
+    const std::vector<char>* fallback = nullptr;
 };
 class MusclReconstruction {
 public:

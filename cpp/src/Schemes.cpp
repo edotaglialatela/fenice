@@ -540,6 +540,32 @@ void MusclReconstruction::reconstruct_weno(Field& UL, Field& UR, const Field& U,
     sweep(0, h.l, h.r);
     sweep(1, h.b, h.t);
     if (nz > 1) sweep(2, h.f, h.bk);
+    if (h.fallback) {
+        // positivity_fallback: a face next to a flagged cell takes the cell values (the faces of a boundary without halo keep their ghost
+        // states). The pass is serial: the flagged set is small.
+        const std::vector<char>& fb = *h.fallback;
+        if (fb.size() != static_cast<size_t>(nx) * ny * nz) throw std::logic_error("positivity_fallback: the flagged set is not that of the mesh");
+        const auto flagged = [&](int i, int j, int k) {
+            return i >= 0 && i < nx && j >= 0 && j < ny && k >= 0 && k < nz && fb[m.cell(i, j, k)] != 0;
+        };
+        for (int axis = 0; axis < (nz > 1 ? 3 : 2); ++axis) {
+            const bool lo = axis == 0 ? h.l != nullptr : (axis == 1 ? h.b != nullptr : h.f != nullptr);
+            const bool hi = axis == 0 ? h.r != nullptr : (axis == 1 ? h.t != nullptr : h.bk != nullptr);
+            const int n_a = axis == 0 ? nx : (axis == 1 ? ny : nz);
+            const int ni = axis == 0 ? nx + 1 : nx, nj = axis == 1 ? ny + 1 : ny, nk = axis == 2 ? nz + 1 : nz;
+            for (int k = 0; k < nk; ++k)
+                for (int j = 0; j < nj; ++j)
+                    for (int i = 0; i < ni; ++i) {
+                        const int t = axis == 0 ? i : (axis == 1 ? j : k);
+                        if (!((t > 0 && t < n_a) || (t == 0 && lo) || (t == n_a && hi))) continue;
+                        const int ia = i - (axis == 0), ja = j - (axis == 1), ka = k - (axis == 2);
+                        if (!flagged(ia, ja, ka) && !flagged(i, j, k)) continue;
+                        const int f = axis == 0 ? m.xface(i, j, k) : (axis == 1 ? m.yface(i, j, k) : m.zface(i, j, k));
+                        UL[f] = cell_state(ia, ja, ka);
+                        UR[f] = cell_state(i, j, k);
+                    }
+        }
+    }
 }
 
 void MusclReconstruction::reconstruct(Field& UL, Field& UR, const Field& U, int nx, int ny, const Halos& h) const {

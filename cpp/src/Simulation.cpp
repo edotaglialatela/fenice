@@ -475,6 +475,46 @@ void Simulation::setup(const SimParams& params, bool verbose) {
 #endif
     }
 
+    if (p.positivity_fallback) {
+        // opt-in repair of a stage that leaves a cell with density or pressure <= 0: the cell joins the flagged set, the stage is repeated
+        // with first-order faces around the set (Halos::fallback), until no new cell turns up. A run without the key never gets here.
+        fb_cells_.assign(static_cast<size_t>(mesh.num_cells()), 0);
+        fb_active_ = false;
+        fb_repairs_ = fb_flagged_ = 0;
+        fb_guard_.mark = [this](const Field& U) {
+            const int n = static_cast<int>(U.size());
+            bool grew = false;
+            const double p_inf = fluid.type == EOS::Type::StiffenedGas ? fluid.p_inf : 0.0;
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+            for (int c = 0; c < n; ++c) {
+                const State& u = U[c];
+                const double rho = u[0];
+                bool bad = !(rho > 0.0);
+                if (!bad) {
+                    const double ke = 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4]) / rho;
+                    bad = !(fluid.pressure_law().from_internal_energy_density(u[3] - ke) + p_inf > 0.0);
+                }
+                if (bad && !fb_cells_[c]) {
+                    fb_cells_[c] = 1;
+#pragma omp critical(fenice_fallback_grew)
+                    grew = true;
+                }
+            }
+            if (grew) {
+                fb_active_ = true;
+                ++fb_repairs_;
+            }
+            return grew;
+        };
+        fb_guard_.clear = [this]() {
+            if (!fb_active_) return;
+            for (const char c : fb_cells_) fb_flagged_ += c ? 1 : 0;
+            std::fill(fb_cells_.begin(), fb_cells_.end(), char(0));
+            fb_active_ = false;
+        };
+        scheme->set_guard(&fb_guard_);
+    }
+
     if (verbose)
         std::printf("Mesh: %d cells | Riemann: %s | Time: %s | CFL: %g\n", mesh.num_cells(), p.riemann_solver.c_str(),
                     p.time_scheme.c_str(), p.cfl);
@@ -684,7 +724,7 @@ static bool fused_enabled() {
     static const bool off = switch_on("FENICE_NO_FUSED");
     return !off;
 }
-static bool fused_recon(const MusclReconstruction&, bool fourth) { return fused_enabled() && !fourth; }
+static bool fused_recon(const MusclReconstruction&, bool fourth, bool repairing) { return fused_enabled() && !fourth && !repairing; }
 
 // Puts the cells of an in-place forcing back when the residual is done (also when it throws).
 struct Simulation::InPlaceForcing {
@@ -742,6 +782,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     const int Dh = (mu && mu->scheme() == Reconstruction::Weno5) ? 3 : D;
     mh.depth = Dh;
     if (ib && Dh == 3) mh.narrow = &ib->mask();   // faces near the body: the four-cell stencil
+    if (fb_active_) mh.fallback = &fb_cells_;     // positivity_fallback: first-order faces around the flagged cells
     // Periodic axes inside the (sub)domain: wrap-around halos so MUSCL also reconstructs
     // the periodic boundary faces (otherwise they would be a 1st-order seam).
     const bool per_x = bm.type(Face::Left) == BCType::Periodic && bm.type(Face::Right) == BCType::Periodic;
@@ -780,7 +821,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     }
     double S;
     const bool fourth = mu && p.fourth_flux();   // flux_quadrature = fourth: the two-pass path with the transverse correction
-    if (mu && fused_recon(*mu, fourth)) {
+    if (mu && fused_recon(*mu, fourth, fb_active_)) {
         // reconstruction, Riemann solver and flux balance in one pass over rows of faces: the face fluxes are not stored
         ProfileScope ps(Section::Flux);
         S = mu->muscl_residual_2d(riemann, UL_, UR_, *Uc, m, mh, R);
@@ -919,6 +960,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     const int Dh = (mu && mu->scheme() == Reconstruction::Weno5) ? 3 : D;   // WENO5-Z reads three cells
     mh.depth = Dh;
     if (ib && Dh == 3) mh.narrow = &ib->mask();   // faces near the body: the four-cell stencil
+    if (fb_active_) mh.fallback = &fb_cells_;     // positivity_fallback: first-order faces around the flagged cells
     // Periodic axes: wrap-around MUSCL halos (the boundary faces are then 2nd order too)
     const bool per[3] = {bm.type(Face::Left) == BCType::Periodic && bm.type(Face::Right) == BCType::Periodic,
                          bm.type(Face::Bottom) == BCType::Periodic && bm.type(Face::Top) == BCType::Periodic,
@@ -981,7 +1023,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
 
     double S;
     const bool fourth = mu && p.fourth_flux();
-    const bool fused_balance = mu && fused_recon(*mu, fourth);
+    const bool fused_balance = mu && fused_recon(*mu, fourth, fb_active_);
     bool fused_balance_4 = false;
     if (fused_balance) {
         ProfileScope ps(Section::Flux);   // reconstruction, Riemann solver and flux balance in one pass over planes

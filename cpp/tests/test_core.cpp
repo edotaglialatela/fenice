@@ -2231,3 +2231,64 @@ TEST(thread_placement_runs_and_keeps_the_threads_working) {
     omp_set_num_threads(saved);
 #endif
 }
+
+namespace {
+// The Mach 10 cylinder of stress_shocks.py (100 x 150 cells, slip wall, inviscid) as a case file: its wake opens to near vacuum.
+SimParams mach10_cylinder_params(const char* fallback) {
+    std::ifstream in(fs::path(cases_directory()) / "ibm_supersonic_flow_over_cylinder" / "case.toml", std::ios::binary);
+    std::string text((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+    const auto replace = [&](const std::string& a, const std::string& b) {
+        const size_t at = text.find(a);
+        if (at == std::string::npos) throw std::runtime_error("case text changed: " + a);
+        text.replace(at, a.size(), b);
+    };
+    replace("u_in = 2.0", "u_in = 10.0");
+    replace("u = 2.0,", "u = 10.0,");
+    replace("nx = 800", "nx = 100");
+    replace("ny = 1200", "ny = 150");
+    replace("use_mpi = true", "use_mpi = false");
+    const fs::path dir = tmp_dir() / "positivity_cylinder";
+    fs::create_directories(dir);
+    {
+        std::ofstream out(dir / "case.toml", std::ios::binary);
+        out << text;
+    }
+    return params_for((dir / "case.toml").string(), {{"reconstruction", "weno5"}, {"time_scheme", "SSP Runge-Kutta 3"}, {"cfl", "0.3"},
+                                                      {"positivity_fallback", fallback}});
+}
+
+bool admissible(const Field& U, const EOS& eos) {
+    for (const State& u : U) {
+        if (!std::isfinite(u[0]) || !std::isfinite(u[3]) || !(u[0] > 0.0)) return false;
+        const double ke = 0.5 * (u[1] * u[1] + u[2] * u[2]) / u[0];
+        if (!(eos.pressure_law().from_internal_energy_density(u[3] - ke) > 0.0)) return false;
+    }
+    return true;
+}
+}   // namespace
+
+TEST(positivity_fallback_keeps_the_wake_of_a_mach_10_cylinder_admissible) {
+    // WENO5-Z with the ghost wall loses the positivity of the wake cells around step 28 (from positive face states, through the update)
+    // and blows up by step 45. With positivity_fallback the stages that leave the admissible set are repeated with first-order faces
+    // around the offending cells: the run goes on, and the repair is on the record. Without the key nothing changes.
+    constexpr int kSteps = 70;
+    const auto run = [&](const char* fallback, long long* repairs) {
+        Simulation sim;
+        sim.setup(mach10_cylinder_params(fallback), false);
+        sim.initialize_field();
+        const ResidualFn res = [&](const Field& U, Field& R) { return sim.residual(U, R); };
+        double t = 0.0;
+        const double md = std::min(sim.mesh.dx, sim.mesh.dy);
+        for (int k = 0; k < kSteps; ++k) {
+            t += sim.scheme->step(sim.U, res, md, t, 1e9).dt;
+            if (sim.ibm) sim.ibm->apply_solid_reset(sim.U, sim.fluid);
+        }
+        if (repairs) *repairs = sim.positivity_repairs();
+        return admissible(sim.U, sim.fluid);
+    };
+    long long repairs = 0;
+    CHECK(!run("false", nullptr));   // the failure this guards against
+    CHECK(run("true", &repairs));
+    std::printf("    %lld repair passes in %d steps\n", repairs, kSteps);
+    CHECK(repairs > 0);
+}

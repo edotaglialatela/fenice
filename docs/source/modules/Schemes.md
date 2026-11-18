@@ -170,9 +170,11 @@ one-dimensional order; the higher order shows as a smaller error constant.
 <summary>No positivity limiter: the strong-shock and near-vacuum evidence</summary>
 
 There is no positivity limiter. Estimate (2026-11-05, 1-D tubes of `stress_shocks.py` on 400 x 4 cells, HLLC, the suite's CFL): no shock is strong enough to need it. A shock of Mach 30000 into gas at rest (pressure ratio about 1e9) and a 1e10 pressure-ratio Sod tube keep rho and p positive and finite with MUSCL, `weno3` and `weno5` (the smallest pressure is 0.88 of the ambient one, an undershoot of `weno5`). What breaks a WENO scheme is an expansion into near-vacuum, not a shock: for two receding rarefactions with speed +-u, vacuum forms at u = 3.7 (for p = 0.4, rho = 1); `weno3` and MUSCL survive u = 20 (5.3 times that), `weno5` survives u = 8 (2.1 times) and diverges at u = 12 and 20 even at CFL 0.3. The strong-shock suite (Sod with a 1000:1 pressure ratio, the 123 problem, the near-vacuum tube,
-Mach 10, 20 and 100 tubes, the Mach 10 cylinder, the odd-even test) is passed by `weno3` at the suite's CFL (0.4 for the tubes and the odd-even test, the case's own value for the cylinder) and by `weno5` at CFL 0.3.
+Mach 10, 20 and 100 tubes, the Mach 10 cylinder, the odd-even test) is passed by `weno3` at the suite's CFL (0.4 for the tubes and the odd-even test, the case's own value for the cylinder) and by `weno5` at CFL 0.3, except the Mach 10 cylinder with the ghost-cell wall: its wake opens to near vacuum, `weno5` loses the positivity of the wake cells around step 28 and diverges at step 45 (CFL 0.25 diverges as well, at the same time; 0.2 and 0.1 run).
 `weno5` with SSP-RK3 diverges on the near-vacuum tube at CFL 0.4 (it is stable up to 0.3), so
-use a lower CFL for problems that open a vacuum. A run whose state diverges stops with an error naming the step.
+use a lower CFL for problems that open a vacuum, or set `positivity_fallback = true`. A run whose state diverges stops with an error naming the step.
+
+The cells of the wake lose their positivity in the update, not in the reconstruction: the face states around them are still positive when they go negative (HLL does not do it, HLLC does). `positivity_fallback` (off by default) scans each stage's result; where a cell has a density or a pressure of 0 or less, the stage is repeated with the two cell values as the states of every face of that cell, which is the first-order update, and the scan is repeated until nothing new turns up. A run in which no stage leaves the admissible set is bit-identical to one without the key, apart from the scan.
 
 </details>
 

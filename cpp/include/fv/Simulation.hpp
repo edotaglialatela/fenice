@@ -49,6 +49,8 @@ public:
 
     // Full spatial residual R(U) on the serial domain; returns S_max.
     double residual(const Field& U, Field& R);
+    // positivity_fallback: how many repair passes the stages needed so far (0: none, or the key is off).
+    long long positivity_repairs() const { return fb_repairs_; }
     void solve();   // serial uniform mesh or AMR
 #ifdef FV_USE_MPI
     // Full MPI run (all ranks call it): decomposition, scatter, time loop, gather + output on rank 0.
@@ -203,6 +205,12 @@ private:
     PaddedFrame frame_;   // 2-D viscous sweep: ghost ring of the padded state (Upad_ is the 3-D padded state)
     Field perL_, perR_, perB_, perT_, perF_, perK_;   // wrap-around MUSCL halos of periodic axes
     Field ghL_, ghR_, ghB_, ghT_, ghF_, ghK_;         // ghost layers of the physical sides (boundary_order = 2)
+    // positivity_fallback: the flagged cells of the stage being repaired (the residual then takes the two-pass path), the guard that
+    // fills them (installed in the time scheme) and the totals printed at the end of the run
+    std::vector<char> fb_cells_;
+    bool fb_active_ = false;
+    StageGuard fb_guard_;
+    long long fb_repairs_ = 0, fb_flagged_ = 0;
 };
 
 // "12.3s" or "m:ss".

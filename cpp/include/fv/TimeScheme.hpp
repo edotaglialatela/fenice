@@ -25,9 +25,21 @@ enum class TimeSchemeType { ExplicitEuler, SSPRK2, SSPRK3 };
 // Scheme from its GUI label ("SSP Runge-Kutta 2") or alias ("ssprk2").
 TimeSchemeType parse_time_scheme(const std::string& s);
 
+// Opt-in repair of a stage that leaves the admissible set (positivity_fallback). After each stage `mark` scans the new state and
+// adds its cells with density or pressure <= 0 to the set the residual treats with first-order faces; it returns true if the set
+// grew. The stage is then recomputed (the residual reads the set), and scanned again, until nothing new is found; `clear` empties
+// the set before the next stage. A scheme without a guard runs the code it always had.
+struct StageGuard {
+    std::function<bool(const Field& U)> mark;
+    std::function<void()> clear;
+};
+
 // Base class of the time integrators; dt = cfl * min(dx, dy) / S_max.
 class TimeScheme {
 public:
+    // Install (or remove, with nullptr) the guard of the stages; it must outlive the scheme's steps.
+    void set_guard(const StageGuard* g) { guard_ = g; }
+
     // Integrator with CFL number `cfl`.
     explicit TimeScheme(double cfl) : cfl(cfl) {}
     virtual ~TimeScheme() = default;
@@ -64,7 +76,14 @@ public:
     double stage_time = 0.0;
 
 protected:
+    // Repeat a guarded stage while its result has new non-positive cells (at most kMaxRepairs times); `again` recomputes the
+    // candidate `cand` of the stage with the marked cells in force. The set is emptied at the end.
+    void repair(const Field& cand, const std::function<void()>& again);
+    static constexpr int kMaxRepairs = 8;
+
     Field R1_, R2_, R3_, tmp_;
+    Field g_;                            // candidate of a guarded stage (the stage's inputs stay intact for the repeat)
+    const StageGuard* guard_ = nullptr;
 };
 
 // First-order forward Euler: U^{n+1} = U^n + dt R(U^n).
