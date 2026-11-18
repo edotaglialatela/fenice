@@ -47,7 +47,8 @@ The octree reaches finest cell sizes that the uniform solver cannot afford here 
 python cases\validation\amr\octree_q8.py run --include-40                       # 20 and 40 cells per diameter, to t = 30 (1-2 h each at 40)
 python cases\validation\amr\octree_q8.py long                                   # 80 cells per diameter (base 10, 3 levels), Re 20, to t = 60 (hours, 1.9 GB)
 python cases\validation\amr\octree_q8.py long --re 100 --t-end 30 --levels 2    # another Reynolds number, end time or finest level (finest = 10 x 2^levels)
-python cases\validation\amr\octree_sphere.py --docs                              # the figure below, from those runs
+python cases\validation\amr\octree_sphere.py --docs                              # the figures below, from those runs
+python cases\validation\amr\octree_sphere_3d.py --docs                           # the 3-D render (needs pyvista: python prerequisites.py --viz3d)
 ```
 
 The runs are cached by their tag in `results/validation/amr_octree_q8/` (a rerun resumes or reuses them) and use 16 threads; `FENICE_OCTREE_THREADS` sets the count (48 for the table below).
@@ -65,6 +66,12 @@ The 80-cell run was continued to $t = 60$, where $C_d = 3.5517$; its peak memory
 <figcaption>The octree runs (Re 20, <code>cases/validation/amr/octree_sphere.py</code>). Top: drag histories at 20, 40 and 80 cells per diameter (the 80-cell run to $t = 60$), and $C_d$ at $t = 30$ against the finest cell size.
 Bottom: speed on the mid-plane $z = L_z/2$ of the 80-cell run at $t = 60$ (the circle is the sphere), and a zoom around the body with the boundaries between the refinement levels of the leaves (913 236 leaves; the body and its band stay at the finest level).
 The wake is steady and symmetric; the blocks far from the sphere are the coarse leaves.</figcaption>
+</figure>
+
+<figure>
+<img src="{{root}}img/ibm_sphere_octree_3d.png" style="width:100%">
+<figcaption>The same 80-cell run in three dimensions (<code>cases/validation/amr/octree_sphere_3d.py</code>): the speed on the plane $z = L_z/2$ (the sphere is cut by it) and on two cross-sections of the wake at $x = 3.6$ and $5.6$, and streamlines that start upstream of the body.
+The state is the final one, $t = 60$, painted from the leaves of the octree on the grid of the finest cells.</figcaption>
 </figure>
 
 * Over the three meshes at $t = 30$ the observed order is 1.23, far from the formal 2, so $F_s = 3$: fine-grid GCI 0.9 %, extrapolated $C_d$ 3.570.
