@@ -500,3 +500,8 @@ figcaption {
         transition-duration: 0.001ms !important;
     }
 }
+
+/* Collapsible evidence blocks */
+.pdoc details { margin: 1em 0; padding: .4em .9em; border: 1px solid var(--border, #d0d7de); border-radius: 6px; }
+.pdoc details > summary { cursor: pointer; font-weight: 600; }
+.pdoc details[open] > summary { margin-bottom: .5em; }

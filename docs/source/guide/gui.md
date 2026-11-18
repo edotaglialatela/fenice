@@ -43,55 +43,104 @@ unavailable while a solver is running.
 <figure style="flex:1; min-width:300px; margin:0;"><img src="{{root}}img/gui_geometry_amr.png" style="width:100%"><figcaption>The same editor on the AMR airfoil case: the NACA section on the domain, with the inlet and the non-reflecting outlet labelled.</figcaption></figure>
 </div>
 
-* **Geometry** (output: geometry). Its editor keeps the domain, base mesh, immersed body, adaptive mesh and boundary conditions in a
-  scrollable control column beside a larger mesh preview. The initial view and **Show domain** fit the exact simulation domain, without
+### Geometry
+
+Output: geometry. Its editor keeps the domain, base mesh, immersed body, adaptive mesh and boundary conditions in a
+scrollable control column beside a larger mesh preview.
+
+* **Preview.** The initial view and **Show domain** fit the exact simulation domain, without
   displaying space outside the solver mesh. It visualizes the Cartesian mesh, immersed body, side conditions
-  and solid cells. A cylinder, a sphere (cut through its centre in 3-D), a `NACA dddd` section or an airfoil file,
-  placed and rotated as the solver does; the cells whose centre is inside the body are drawn solid, the grid appears when a cell is a few
-  pixels wide (the wheel zooms about the pointer, a drag pans, a double click shows the whole domain), and the *Mesh level* box shows
-  the same body on the finer levels of an AMR run (cells across the chord or diameter, solid cells, the finest cell). The domain
+  and solid cells. The grid appears when a cell is a few
+  pixels wide (the wheel zooms about the pointer, a drag pans, a double click shows the whole domain).
+* **Body.** A cylinder, a sphere (cut through its centre in 3-D), a `NACA dddd` section or an airfoil file,
+  placed and rotated as the solver does; the cells whose centre is inside the body are drawn solid, and the *Mesh level* box shows
+  the same body on the finer levels of an AMR run (cells across the chord or diameter, solid cells, the finest cell).
+* **What is edited here.** The domain
   (`Lx`, `Ly`, `nz`, `Lz`), the adaptive mesh (AMR on or off, the finest and the initial levels, density/velocity/pressure indicators, criterion, refine and join thresholds, smoothing and remesh interval), the base mesh (`nx`, `ny`, with *Apply mesh*, *2×* and *½×*: each doubles or halves `nx` and `ny`, four times
-  or a quarter of the cells in 2-D), the body (shape, radius, centre) and the side conditions are edited here; they are written into the
-  fields of its linked solvers, which each run reads. The node holds its shared geometry (initially from a case's defaults) and can be
-  edited before it is linked; on its first link it adopts the solver's geometry if untouched, then sends its geometry to any additional
-  linked solver. Edits are sent to all linked solvers, and changing the case on any one of them reloads the shared geometry. The AMR
+  or a quarter of the cells in 2-D), the body (shape, radius, centre) and the side conditions.
+* **AMR defaults.** The AMR
   fields start with all three indicator variables ticked, the refine and join thresholds at 0.11 and a remesh every step; a case that
-  sets one of them itself (the airfoil case sets the interval and the indicator) keeps its own value. Choosing *Periodic* on a side sets the opposite side too. Loading another case on the solver reloads the geometry.
-  A geometry value that is not a number is named by the solver's Run, with the advice to correct it in the Geometry node. The shapes come from `fenice.geometry`, which follows the solver's rules;
-  `cases/validation/check_geometry.py` checks that the number of solid cells equals the solver's on every case with a body.
-* **Solver** (input: geometry; outputs: run, results). The setup dialog described below, without the geometry: case, thermodynamics,
-  physics, numerical scheme, output, MPI and hot start (the adaptive mesh is the geometry's). It does not run without a linked geometry. The node itself carries
-  *Run* and *Stop*, the **Low-Mach** slider (inactive / active; a click moves it) (the Riemann solver of the dialog: `HLLC` or `HLLC (Low-Mach Thornber)`; it is
-  disabled when another Riemann solver is chosen in the dialog, and leaves that choice alone) and **Record every** *N* steps (the
-  `monitor_interval` of the next run; *case* keeps the case's own value; each record costs one extra residual evaluation). *Stop*
-  creates a `STOP` file in the output folder: the solver saves its checkpoint and the `.pvd` index, then exits, serial or under MPI. A
-  solver is its own project, so several solvers can sit on the canvas and run at the same time; a running solver cannot be deleted or
-  have its geometry unlinked.
-* **Monitor** (input: run). Four panels share the time axis, the residuals being the largest: the time step $\Delta t$ and the wave
-  speed $S_{\max}$ (small), the residual norms of the density, momentum and energy equations relative to their first value, $R/R_0$
-  (`res_rho`, `res_mom`, `res_E`, log axis with whole decades only, the legend on a translucent white background behind the text only), and one more quantity of your choice (a column of the monitor file, or
-  the number of leaves of an AMR run). When a Monitor is present, the lower panel takes about a third of the work area, capped at half. The name of each panel is written inside its top-left corner and its latest value inside the
+  sets one of them itself (the airfoil case sets the interval and the indicator) keeps its own value.
+* **Side conditions.** Choosing *Periodic* on a side sets the opposite side too.
+
+**Linking.** The edits are written into the
+fields of its linked solvers, which each run reads. The node holds its shared geometry (initially from a case's defaults) and can be
+edited before it is linked; on its first link it adopts the solver's geometry if untouched, then sends its geometry to any additional
+linked solver. Edits are sent to all linked solvers, and changing the case on any one of them reloads the shared geometry. Loading another case on the solver reloads the geometry.
+A geometry value that is not a number is named by the solver's Run, with the advice to correct it in the Geometry node.
+
+The shapes come from `fenice.geometry`, which follows the solver's rules;
+`cases/validation/check_geometry.py` checks that the number of solid cells equals the solver's on every case with a body.
+
+### Solver
+
+Input: geometry; outputs: run, results. The setup dialog described below, without the geometry: case, thermodynamics,
+physics, numerical scheme, output, MPI and hot start (the adaptive mesh is the geometry's). It does not run without a linked geometry.
+
+The node itself carries:
+
+* **Run and Stop.** *Stop*
+  creates a `STOP` file in the output folder: the solver saves its checkpoint and the `.pvd` index, then exits, serial or under MPI.
+* **The Low-Mach slider** (inactive / active; a click moves it): the Riemann solver of the dialog, `HLLC` or `HLLC (Low-Mach Thornber)`; it is
+  disabled when another Riemann solver is chosen in the dialog, and leaves that choice alone.
+* **Record every** *N* steps: the
+  `monitor_interval` of the next run; *case* keeps the case's own value; each record costs one extra residual evaluation.
+
+A
+solver is its own project, so several solvers can sit on the canvas and run at the same time; a running solver cannot be deleted or
+have its geometry unlinked.
+
+### Monitor
+
+Input: run. Four panels share the time axis, the residuals being the largest:
+
+* the time step $\Delta t$ and the wave
+  speed $S_{\max}$ (small);
+* the residual norms of the density, momentum and energy equations relative to their first value, $R/R_0$
+  (`res_rho`, `res_mom`, `res_E`, log axis with whole decades only, the legend on a translucent white background behind the text only);
+* one more quantity of your choice (a column of the monitor file, or
+  the number of leaves of an AMR run).
+
+When a Monitor is present, the lower panel takes about a third of the work area, capped at half.
+
+* **Layout.** The name of each panel is written inside its top-left corner and its latest value inside the
   top-right one, a panel has at most three ticks (two for the small ones), and the vertical range follows the data (a nearly constant quantity is not
-  magnified). The labels are typeset with mathtext (Computer Modern), which needs no TeX installation. The curves are filled from the
+  magnified). The labels are typeset with mathtext (Computer Modern), which needs no TeX installation.
+* **Data.** The curves are filled from the
   progress lines (every `save_interval` steps) and the monitor file: $\Delta t$ is the mean time step between two rows of the monitor
   file, so it is live at that pace, and $S_{\max}$ comes from the progress lines. Above the plots, a bar and a line give the percentage of the
-  physical time, the step, $t$, $\Delta t$, $S_{\max}$ and an estimate of the time left. The **Console** tab shows the solver's output with its original colours plus colour coding for plain lines (step lines with $t$, $\Delta t$, $S_{\max}$ and the leaves in their own colours, section tags, errors in
+  physical time, the step, $t$, $\Delta t$, $S_{\max}$ and an estimate of the time left.
+* **Console tab.** It shows the solver's output with its original colours plus colour coding for plain lines (step lines with $t$, $\Delta t$, $S_{\max}$ and the leaves in their own colours, section tags, errors in
   red, warnings in amber, checkpoints and the end of the run in green); only rank 0 writes under MPI. The console states the total
-  physical time and notes each time the run passes a multiple of 10 % of it. A monitor linked in the middle of a run shows it from its
-  start (the project keeps the history), and every run starts with an empty console and empty plots. *Stop* and *Kill* are here too;
+  physical time and notes each time the run passes a multiple of 10 % of it.
+* **History.** A monitor linked in the middle of a run shows it from its
+  start (the project keeps the history), and every run starts with an empty console and empty plots.
+* ***Stop* and *Kill*** are here too;
   *Kill* ends the solver and every process it started at once.
-* **Postprocessing** (input: results). The snapshot viewer, below, opens the folder the solver reports and follows it while the run goes
-  on; linked after a run, it opens that run's results. It clears the previous snapshot when a new run begins and waits for the new output
-  folder, so results from an earlier run are not left on screen.
-* **Analysis Tools** (input: results). Inspect field statistics and sampled profiles, analyze any numeric monitor signal, compare
-  snapshot modes, and explore parameter sensitivity. The cylinder tools are one example; the controls accept other fields, signals,
-  and sample tables.
 
-The monitor is light on the machine. The monitor file is read incrementally (only the bytes added since the last tick are parsed, so a run of
-hundreds of thousands of rows costs about the same per tick as a short one), a curve of more than about 1500 points is drawn thinned to the
-smallest and largest value of each bucket (no spike is lost), a panel on a tab that is not on show is redrawn only when it comes back, the
-redraw interval grows with its cost (at least one second; the plots take at most about 7 % of a core), and the console writes a burst of
-lines with one repaint. The plots are drawn by the CPU (matplotlib).
+The monitor is light on the machine:
+
+* The monitor file is read incrementally (only the bytes added since the last tick are parsed, so a run of
+  hundreds of thousands of rows costs about the same per tick as a short one).
+* A curve of more than about 1500 points is drawn thinned to the
+  smallest and largest value of each bucket (no spike is lost).
+* A panel on a tab that is not on show is redrawn only when it comes back, the
+  redraw interval grows with its cost (at least one second; the plots take at most about 7 % of a core), and the console writes a burst of
+  lines with one repaint. The plots are drawn by the CPU (matplotlib).
+
+### Postprocessing
+
+Input: results. The snapshot viewer, below, opens the folder the solver reports and follows it while the run goes
+on; linked after a run, it opens that run's results. It clears the previous snapshot when a new run begins and waits for the new output
+folder, so results from an earlier run are not left on screen.
+
+### Analysis Tools module
+
+Input: results. Inspect field statistics and sampled profiles, analyze any numeric monitor signal, compare
+snapshot modes, and explore parameter sensitivity. The cylinder tools are one example; the controls accept other fields, signals,
+and sample tables. The pages are described [below](#analysis-tools).
+
+### Closing and saving
 
 Closing the window with runs going asks whether to stop them (checkpoints saved) or kill them; if the workbench itself is ended (on
 Windows) the solvers and their MPI processes end with it. Modules are files in `gui/modules/`, each defining a `MODULE` record (name,

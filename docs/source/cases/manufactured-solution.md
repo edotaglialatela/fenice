@@ -216,6 +216,9 @@ properties of the solver, not of the test: changing them is a change of the nume
 
 ## Second-order boundary faces
 
+<details markdown="1">
+<summary>The boundary-order study, in detail</summary>
+
 `boundary_order = 2` (the default with a reconstruction) gives the physical sides **ghost layers**: layer $l$ ($l = 0$ next to the boundary) is the
 ghost state of the interior cell $l$ cells from the boundary, which is the extension of the solution across the boundary
 that the boundary condition describes, and the faces on the boundary are reconstructed through them like the interior
@@ -224,6 +227,8 @@ derivatives (for instance $\partial u/\partial x$ on a wall normal to $y$) are t
 cell average) instead of the first-cell value, which is $O(h)$ away from the wall, and the moving-wall viscous ghost keeps the
 interior internal energy (the default copies the total energy without following the momentum). A side that is periodic, an MPI
 interface or non-reflecting is unchanged, and the key is not available with `reconstruction = none` (with AMR it is, for MUSCL and WENO3-Z).
+
+</details>
 
 `cases/validation/verification/mms_boundary.py` repeats the study for the non-periodic solutions (walls, outflow and box, each as Euler and as
 Navier-Stokes, which separates the convective closure from the viscous one) with MUSCL, WENO3-Z and WENO5-Z; the tables
@@ -299,6 +304,9 @@ outlet, and a corner that meets a moving wall.
 
 ### On an adaptive mesh
 
+<details markdown="1">
+<summary>The AMR boundary study, in detail</summary>
+
 `cases/validation/verification/mms_amr_boundary.py` runs the same solutions with `use_amr`, one level of refinement and a refined
 region that does not change in time (`amr_force_box`; the indicator thresholds are set so that nothing else is refined or joined): a
 strip across the domain whose two seams meet the walls (walls solution: in x; outflow: in y), and for the box solution a quarter of the
@@ -307,6 +315,8 @@ with a finer or coarser neighbour along the wall, and a corner. The errors are a
 the base grid 16 → 32 → 64 (the refined part always has twice that resolution); $t = 0.5$. Bands fixed before the first run, for
 `boundary_order = 2` and the finest pair: $L_2$ at least 1.5 and $L_\infty$ at least 1.0 (the uniform bands, 1.7 and 1.3, less an allowance
 for the seam); the first-order columns are the baseline and have no band.
+
+</details>
 
 | Solution | Scheme | Norm | `boundary_order = 1`: orders (16→32→64), finest error | `boundary_order = 2`: orders, finest error | leaves | band |
 |---|---|---|---|---|---|---|
@@ -402,6 +412,9 @@ python cases\validation\verification\mms_weno.py            # up to 64^2 / 48^3 
 python cases\validation\verification\mms_weno.py --full     # up to 128^2 / 96^3, and 256^2 for the diagnostic
 ```
 
+<details markdown="1">
+<summary>The periodic solutions with the other schemes</summary>
+
 The same three periodic solutions (Euler 2-D, Navier-Stokes 2-D and 3-D), grids, final time and error measures as above, with
 `reconstruction = weno3` or `weno5` and SSP-RK3 (the helpers of `mms.py` are reused; the non-periodic solutions are in the
 boundary studies). The bands were fixed in the script before the first run: $L_1$ and $L_2$ orders of the finest pair of grids
@@ -409,6 +422,8 @@ between 1.8 and 2.5, $L_\infty$ between 1.5 and 2.5, in every variable, because 
 at the cell centres and the flux balance uses face-centre values, which makes this test second order whatever the reconstruction
 (the formal orders 3 and 5 are checked on the one-dimensional entropy wave with exact cell averages, see the Schemes page).
 Only an order below the lower bound, or a truncation error from the exact state that stops falling, fails the study.
+
+</details>
 
 | scheme | orders of the finest pair (full grids), all variables, $L_1$ / $L_2$ / $L_\infty$ |
 |---|---|

@@ -153,10 +153,6 @@ one-dimensional order; the higher order shows as a smaller error constant.
 * The stencil is as deep as the MUSCL one for `weno3` (so it runs on MPI ranks, with results identical to the serial run bit
   for bit and independent of the thread count); `weno5` reads three cells on each side and is serial on the uniform mesh (with AMR it runs on MPI ranks).
 * Faces on a non-periodic physical boundary are reconstructed through ghost layers with `boundary_order = 2` (the default; three layers for `weno5`); with 1 they keep the first-order ghost states, as with MUSCL.
-* There is no positivity limiter. Estimate (2026-11-05, 1-D tubes of `stress_shocks.py` on 400 x 4 cells, HLLC, the suite's CFL): no shock is strong enough to need it. A shock of Mach 30000 into gas at rest (pressure ratio about 1e9) and a 1e10 pressure-ratio Sod tube keep rho and p positive and finite with MUSCL, `weno3` and `weno5` (the smallest pressure is 0.88 of the ambient one, an undershoot of `weno5`). What breaks a WENO scheme is an expansion into near-vacuum, not a shock: for two receding rarefactions with speed +-u, vacuum forms at u = 3.7 (for p = 0.4, rho = 1); `weno3` and MUSCL survive u = 20 (5.3 times that), `weno5` survives u = 8 (2.1 times) and diverges at u = 12 and 20 even at CFL 0.3. The strong-shock suite (Sod with a 1000:1 pressure ratio, the 123 problem, the near-vacuum tube,
-  Mach 10, 20 and 100 tubes, the Mach 10 cylinder, the odd-even test) is passed by `weno3` at the suite's CFL (0.4 for the tubes and the odd-even test, the case's own value for the cylinder) and by `weno5` at CFL 0.3.
-  `weno5` with SSP-RK3 diverges on the near-vacuum tube at CFL 0.4 (it is stable up to 0.3), so
-  use a lower CFL for problems that open a vacuum. A run whose state diverges stops with an error naming the step.
 * Neither WENO scheme runs with SSP-RK2 (rejected when the case is read).
 * `weno5` on the adaptive mesh uses its six cells only where they are fluid leaves of the face's level; the faces at and next to a level jump or the
   immersed body use the `weno3` formula on four cells ([AMR]({{root}}modules/AMR.html)).
@@ -170,13 +166,28 @@ one-dimensional order; the higher order shows as a smaller error constant.
   * The transmissive ends of a WENO run leak about 1e-10 of the mass (the tails of the waves), also on a uniform grid.
   * The level-0 mesh equals the uniform solver bit for bit, and the state is the same on any number of ranks.
 
-**Other weights (tried, not adopted).** A search for a better `weno5` weighting (2026-11-17) found no variant that is a general gain. At four to eight
+<details markdown="1">
+<summary>No positivity limiter: the strong-shock and near-vacuum evidence</summary>
+
+There is no positivity limiter. Estimate (2026-11-05, 1-D tubes of `stress_shocks.py` on 400 x 4 cells, HLLC, the suite's CFL): no shock is strong enough to need it. A shock of Mach 30000 into gas at rest (pressure ratio about 1e9) and a 1e10 pressure-ratio Sod tube keep rho and p positive and finite with MUSCL, `weno3` and `weno5` (the smallest pressure is 0.88 of the ambient one, an undershoot of `weno5`). What breaks a WENO scheme is an expansion into near-vacuum, not a shock: for two receding rarefactions with speed +-u, vacuum forms at u = 3.7 (for p = 0.4, rho = 1); `weno3` and MUSCL survive u = 20 (5.3 times that), `weno5` survives u = 8 (2.1 times) and diverges at u = 12 and 20 even at CFL 0.3. The strong-shock suite (Sod with a 1000:1 pressure ratio, the 123 problem, the near-vacuum tube,
+Mach 10, 20 and 100 tubes, the Mach 10 cylinder, the odd-even test) is passed by `weno3` at the suite's CFL (0.4 for the tubes and the odd-even test, the case's own value for the cylinder) and by `weno5` at CFL 0.3.
+`weno5` with SSP-RK3 diverges on the near-vacuum tube at CFL 0.4 (it is stable up to 0.3), so
+use a lower CFL for problems that open a vacuum. A run whose state diverges stops with an error naming the step.
+
+</details>
+
+<details markdown="1">
+<summary>Other weights (tried, not adopted)</summary>
+
+A search for a better `weno5` weighting (2026-11-17) found no variant that is a general gain. At four to eight
 points per wave the present nonlinear weights cost resolution (dissipation -0.19 against -0.13 for the linear fifth-order scheme at $kh = \pi/2$). Ideal weights wherever
 the three Z ratios agree (a hard switch) and TENO5 recover most of it, but a hard switch breaks the time order (about 1 instead of 3 with SSP-RK3, the weights jumping with the
 sensor) and TENO5 overshoots 3-8 times more at discontinuities. A continuous blend of the Z weights into the ideal ones keeps the time order and gains 1-2 % of the Sod error and
 a third of the dissipation at 4-8 points per wave, for 16 % more cost per step and 2-4 % more error on the finest Shu-Osher grid. A fourth, downwind stencil was unstable at
 discontinuities. Bypassing the weights where all sensors agree could save at most 19 % of a step (the linear weights with no sensor at all), less with a real sensor, so it was not built.
 The cost went elsewhere: the vector kernels and the fused residual above.
+
+</details>
 
 ## Fourth-order flux quadrature
 
@@ -220,12 +231,19 @@ Measured on the isentropic vortex with exact cell-averaged initial data (a resta
   sides, so the correction is inactive there and only the conserved reconstruction and its guard act. The density $L_1$ error of the 123 problem
   is larger than with `midpoint` (`weno5` 0.0013 to 0.0029, `weno3` 0.0025 to 0.0037) and that of the Mach 10, 20 and 100 tubes smaller
   (`weno5` 0.0127 to 0.0117, 0.0134 to 0.0123, 0.0136 to 0.0125).
-* Cost: a `fourth` step does more work than a `midpoint` one (the reconstruction of the conserved variables, the point values and the transverse correction, with one Riemann solve per face). The whole step
-  (reconstruction, point values, Riemann solves, correction and flux balance) runs in one pass, over blocks of rows in 2-D and over tiles (a strip of rows times a block of planes, streamed plane by plane) in 3-D, the face states and fluxes kept for a few rows or planes only
-  (`FENICE_NO_FUSED=1` runs the separate passes, with identical bits), so that it scales over threads like the other schemes. Measured on the workstation of the [performance guide]({{root}}guide/performance.html) (`cases/validation/benchmarks/flux_quadrature_cost.py`, vortex and Taylor-Green box, SSP-RK3, ms per step):
-  a `fourth` step takes 1.7 to 2.1 times a `midpoint` step on one thread, and 1.3 to 1.8 times on 16 or 48 threads on the larger meshes ($1024^2$ and above, $128^3$ and $256^3$: 1.33 to 1.83; $2048^2$ 1.56 to 1.62), up to 2.4 times on the small $512^2$ mesh on 48 threads.
-  It scales better than `midpoint`: at $2048^2$ from 1 to 48 threads `fourth` gains 13.6 times with `weno3` and 14.3 with `weno5`, `midpoint` 10.5 and 12.1. For example `weno5` at $2048^2$: 1073 / 105 / 88 ms with `midpoint` and 1987 / 164 / 139 ms with `fourth` on 1 / 16 / 48 threads;
-  at $256^3$: 11.0 / 2.0 / 1.7 s and 19.0 / 3.0 / 2.7 s.
+
+
+<details markdown="1">
+<summary>Cost of the fourth-order flux, measured</summary>
+
+Cost: a `fourth` step does more work than a `midpoint` one (the reconstruction of the conserved variables, the point values and the transverse correction, with one Riemann solve per face). The whole step
+(reconstruction, point values, Riemann solves, correction and flux balance) runs in one pass, over blocks of rows in 2-D and over tiles (a strip of rows times a block of planes, streamed plane by plane) in 3-D, the face states and fluxes kept for a few rows or planes only
+(`FENICE_NO_FUSED=1` runs the separate passes, with identical bits), so that it scales over threads like the other schemes. Measured on the workstation of the [performance guide]({{root}}guide/performance.html) (`cases/validation/benchmarks/flux_quadrature_cost.py`, vortex and Taylor-Green box, SSP-RK3, ms per step):
+a `fourth` step takes 1.7 to 2.1 times a `midpoint` step on one thread, and 1.3 to 1.8 times on 16 or 48 threads on the larger meshes ($1024^2$ and above, $128^3$ and $256^3$: 1.33 to 1.83; $2048^2$ 1.56 to 1.62), up to 2.4 times on the small $512^2$ mesh on 48 threads.
+It scales better than `midpoint`: at $2048^2$ from 1 to 48 threads `fourth` gains 13.6 times with `weno3` and 14.3 with `weno5`, `midpoint` 10.5 and 12.1. For example `weno5` at $2048^2$: 1073 / 105 / 88 ms with `midpoint` and 1987 / 164 / 139 ms with `fourth` on 1 / 16 / 48 threads;
+at $256^3$: 11.0 / 2.0 / 1.7 s and 19.0 / 3.0 / 2.7 s.
+
+</details>
 
 ### References
 

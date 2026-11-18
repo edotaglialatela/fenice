@@ -121,10 +121,26 @@ def restore_math(text: str, store: list) -> str:
     return re.sub(r"\x00MATH(\d+)\x00", lambda m: html.escape(store[int(m.group(1))], quote=False), text)
 
 
+_DETAILS = re.compile(
+    r'<details markdown="1">\n<summary>(.*?)</summary>\n\n(.*?)\n\n</details>', re.S)
+
+
 def render_markdown(text: str):
+    # A collapsible block: its body is Markdown, rendered on its own.
+    blocks = []
+
+    def keep_details(m):
+        blocks.append((m.group(1), render_markdown(m.group(2))[0]))
+        return f"\x00DETAILS{len(blocks) - 1}\x00"
+    text = _DETAILS.sub(keep_details, text)
     text, store = protect_math(text)
     out = markdown2.markdown(text, extras=EXTRAS)
-    return restore_math(str(out), store), restore_math(out.toc_html or "", store)
+    html_out = str(out)
+    for n, (summary, body) in enumerate(blocks):
+        html_out = html_out.replace(
+            f"<p>\x00DETAILS{n}\x00</p>",
+            f"<details>\n<summary>{summary}</summary>\n{body}</details>")
+    return restore_math(html_out, store), restore_math(out.toc_html or "", store)
 
 
 # ---------------------------------------------------------------------------

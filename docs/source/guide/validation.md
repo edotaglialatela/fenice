@@ -248,6 +248,9 @@ benchmarks that have a reference value. A hollow marker has no numerical uncerta
 
 ### Fault injection (`verification/fault_injection.py`)
 
+<details markdown="1">
+<summary>How the checks themselves were checked</summary>
+
 A check that always passes proves nothing, so the checks themselves are tested: twelve known defects are put into the
 sources one at a time, the solver is rebuilt, and six checks are run on it (the regression references serial and on
 4 ranks, the MMS convergence bands, the unit tests, the adaptive 1-7 ranks and restart comparison, the ghost-cell wall
@@ -256,6 +259,8 @@ predictions of which check catches which defect are written in the script before
 below is the observed result (`--list` prints the predictions, `--dry-run` checks that the patches apply). The
 script edits the sources and rebuilds `build/release`, so it refuses to start on uncommitted changes in `cpp/`; run it
 in a disposable checkout. A full run takes about 20 minutes.
+
+</details>
 
 | defect | size | regression (serial / 4 ranks) | MMS bands | unit tests | adaptive 1-7 ranks | ghost wall 1-7 ranks |
 |---|---|---|---|---|---|---|

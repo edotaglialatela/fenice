@@ -139,6 +139,9 @@ identical for any number of ranks (also in 3-D); with AMR the body is kept at th
 * `reconstruction = weno5` on a uniform mesh uses the four-cell WENO3-Z stencil on every face that has a solid cell among its six, as the adaptive mesh does.
 * In 3-D there are no surface samples (`surface_loads` is zero): the monitor loads are the momentum flux into the solid cells, which is dimension independent.
 
+<details markdown="1">
+<summary>Curvature correction (`ibm_curvature`, 2-D slip walls)</summary>
+
 **Curvature correction (`ibm_curvature`, 2-D slip walls).** The zero normal gradient of the pressure is a first-order error on a curved wall, where
 the normal momentum equation gives $\partial p/\partial n = \rho\,\kappa\,u_t^2$ ($\kappa$: curvature of the wall, positive for a convex body; $1/R$ for a
 cylinder, estimated from the turning of the normal over three cells for a polygon). With `ibm_curvature = true` the ghost pressure is
@@ -146,12 +149,19 @@ $p_{\rm image} - \rho\,\kappa\,u_t^2\,(d_{\rm image} + d_{\rm ghost})$, limited 
 balance holds where the flow follows the wall, so the correction is weighted by $\max(0, 1 - |u_n|/(0.2\,|u_t|))$ at the image point: unweighted, the
 bow shock of an impulsively started Mach 2 cylinder stays pinned to the wall. It is opt-in, rejected in 3-D, and leaves flat walls unchanged.
 
+</details>
+
+<details markdown="1">
+<summary>Evidence for the ghost-cell wall</summary>
+
 **Evidence.** Mach 2 flow along a 10 degree wedge (`verification/ibm_wedge.py`, exact oblique shock, faces inclined to the grid): the pressure error of the
 ghost wall is 2.3e-2, 7.7e-4 and 6.3e-5 at 50, 100 and 200 cells per unit length (order 3.6). The supersonic vortex around a cylinder (`verification/ibm_vortex.py`, exact solution): the ghost wall's pressure error
 falls only as $h^1$ (2.3e-2 at 160 cells per radius), with the correction it is 8.7e-4 and falls as $h^{1.5}$. The wall is not
 conservative: in a closed inviscid box the fluid mass grows by about 0.2 % by $t=4$. In 3-D the evidence is the exactness of the
 trilinear image state on a linear field (unit test), the equality of extruded bodies with the 2-D run, bitwise MPI equality, and the self-convergence of
 the sphere's drag (`features/ibm_sphere.py`: Cd 3.46 and 3.51 at 10 and 20 cells per diameter, a change of 1.5 %; weak evidence, with no exact reference).
+
+</details>
 
 ### Loads on the body
 

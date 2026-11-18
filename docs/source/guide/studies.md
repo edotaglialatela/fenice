@@ -35,6 +35,9 @@ Every validation study declares a tier in `cases/validation/run_all.py`: `quick`
 
 ## Strong-shock stress cases
 
+<details markdown="1">
+<summary>What the strong-shock study runs and finds</summary>
+
 `verification/stress_shocks.py` runs 1-D tubes (Sod with a 1000:1 pressure ratio, the 123 problem and a variant that opens a
 vacuum, shock tubes at Mach 10, 20 and 100), Mach 10 flow past the immersed cylinder and Quirk's odd-even test (a Mach 6 shock whose
 centre row starts one cell ahead), each with 1st-order Godunov and with MUSCL (MC) + SSP-RK2, HLLC. The criterion is robustness:
@@ -44,6 +47,8 @@ conserves to $10^{-13}$ or better (the smallest pressure in the vacuum run is $1
 positivity protection at these settings. The odd-even test is the one finding: with first-order HLLC the shock front is kinked,
 its position differing between rows by 9.6 cells (not only in the perturbed row), while with MUSCL the rows agree to 0.2 cells.
 The 16 runs meet the robustness criterion; the odd-even spread is reported, not judged.
+
+</details>
 
 **Positivity.** MUSCL reconstructs the primitive variables with a TVD limiter, so each reconstructed density and pressure lies
 between the two neighbouring cell values: with positive cells the reconstructed face states are positive by construction, and a
@@ -72,31 +77,60 @@ perturbations of the run (6 of 6 with it on; see `cases/blast-waves.md`), so the
 NumPy only; SciPy is optional (Sobol sequences). Each module is verified against exact answers in
 `cases/validation/check_analysis.py`.
 
-* `fenice.uq`: `grid`, `latin_hypercube`, `saltelli` / `sobol_indices` (first-order and total indices; Ishigami function
-  reproduced to 0.03 with 20000 random points, to under 0.001 with Sobol points), `run_sweep` (parallel, cached by the hash of case file,
-  overrides and solver; one `summary.json` per run). A sampler is any function `sampler(n, d, seed) -> array (n, d)`: a sampler from an external UQ package is used by passing
+### `fenice.uq`: sampling and sensitivity
+
+| Function | Purpose |
+|---|---|
+| `grid`, `latin_hypercube` | Parameter samples |
+| `saltelli` / `sobol_indices` | First-order and total indices |
+| `sobol_bootstrap` | Percentile confidence intervals by resampling the base rows |
+| `run_sweep` | Parallel runs, cached by the hash of case file, overrides and solver; one `summary.json` per run |
+
+* **Samplers.** A sampler is any function `sampler(n, d, seed) -> array (n, d)`: a sampler from an external UQ package is used by passing
   that function, and the package itself is never imported or required (the Saltelli estimator is a few lines, checked against the
-  analytic Ishigami indices). `sobol_indices` works on outputs centred by their mean (the first-order estimator is not shift-free at
-  finite sample size), and `sobol_bootstrap` gives percentile confidence intervals by resampling the base rows (the 99 % intervals
-  of the Ishigami indices contain the analytic values). Worked studies: [Sod]({{root}}cases/sod.html) (CFL, resolution, limiter on the L1
+  analytic Ishigami indices).
+* **Centring.** `sobol_indices` works on outputs centred by their mean (the first-order estimator is not shift-free at
+  finite sample size).
+* **Verified.** The Ishigami function is reproduced to 0.03 with 20000 random points, to under 0.001 with Sobol points; the 99 % intervals
+  of the Ishigami indices contain the analytic values.
+* **Worked studies.** [Sod]({{root}}cases/sod.html) (CFL, resolution, limiter on the L1
   error, quick) and [cylinder]({{root}}cases/cylinder.html) (`features/cylinder_sensitivity.py --full`: inlet speed, resolution, limiter on the Re = 40 drag; resolution and Re carry comparable variance at 6-12 cells per diameter).
-* `fenice.modal`: `load_snapshots` (a `.pvd` series of `.vtr` or adaptive `.vtu` files, the latter resampled to the finest
-  level; `tol` and the reported `jitter` for series that are uniform in time only to about $10^{-3}$), `pod` (snapshot method,
-  weighted), `dmd` (exact), `delay_embed` (time-delay DMD of a scalar record such as a lift signal), `export_modes_vtr`. DMD
+
+### `fenice.modal`: POD and DMD
+
+| Function | Purpose |
+|---|---|
+| `load_snapshots` | A `.pvd` series of `.vtr` or adaptive `.vtu` files, the latter resampled to the finest level; `tol` and the reported `jitter` for series that are uniform in time only to about $10^{-3}$ |
+| `pod` | Snapshot method, weighted |
+| `dmd` | Exact DMD |
+| `delay_embed` | Time-delay DMD of a scalar record such as a lift signal |
+| `export_modes_vtr` | Modes as VTK files |
+
+* **Verified.** DMD
   recovers the exponents of a travelling wave, of a damped oscillation and of two damped oscillations in one delay-embedded
-  record to $10^{-14}$; POD recovers the energies of two orthogonal modes to $10^{-15}$. Snapshots must be sampled above the
+  record to $10^{-14}$; POD recovers the energies of two orthogonal modes to $10^{-15}$.
+* **Sampling.** Snapshots must be sampled above the
   Nyquist rate of the dynamics (more than two per period): the application on the cylinder wake
   (`benchmarks/cylinder_modal.py`, [cylinder page]({{root}}cases/cylinder.html)) uses the run with 3.33 snapshots per period.
-* `fenice.spectra`: `psd` (Welch, Hann, detrend) with `peaks` and `strouhal`, `resample_uniform`, `energy_spectrum` (shell
-  averaged, Parseval exact; the Taylor-Green field has all its energy in one shell), `helmholtz` (solenoidal / dilatational split).
-  Derived quantities of a shell spectrum: exact enstrophy, `taylor_microscale`, `integral_scale`, `dissipation_spectrum`, and
-  `numerical_dissipation` ($-dK/dt - 2
-u Z$); on the Taylor-Green initial field they equal the analytic values to $10^{-16}$,
-  and on the exact decaying 2-D solution the numerical dissipation is below $10^{-5}$ of the total. Non-periodic lines:
-  `spectrum_1d` with a Hann window or a mirror extension (the window lowers the leakage above four peak wavenumbers by $10^4$ for a
-  sine of 3.37 periods, the mirror only by a factor 1.4, since it keeps the break of the slope), and adaptive meshes:
-  `resample_amr` to a uniform grid over a region, which reports the cells it makes and the fraction of the region where leaves are
-  coarser than the grid (there the field is a staircase, and its spectrum carries the steps). Application to the solver's output,
+
+### `fenice.spectra`: spectra and dissipation
+
+| Function | Purpose |
+|---|---|
+| `psd` (Welch, Hann, detrend) with `peaks` and `strouhal` | Signal spectra and the Strouhal number |
+| `resample_uniform` | Uniform resampling of a record |
+| `energy_spectrum` | Shell averaged, Parseval exact; the Taylor-Green field has all its energy in one shell |
+| `helmholtz` | Solenoidal / dilatational split |
+| exact enstrophy, `taylor_microscale`, `integral_scale`, `dissipation_spectrum` | Derived quantities of a shell spectrum |
+| `numerical_dissipation` | $-dK/dt - 2\nu Z$ |
+| `spectrum_1d` | Non-periodic lines, with a Hann window or a mirror extension |
+| `resample_amr` | Adaptive meshes: resampling to a uniform grid over a region, which reports the cells it makes and the fraction of the region where leaves are coarser than the grid (there the field is a staircase, and its spectrum carries the steps) |
+
+* **Verified.** On the Taylor-Green initial field the derived quantities equal the analytic values to $10^{-16}$,
+  and on the exact decaying 2-D solution the numerical dissipation is below $10^{-5}$ of the total.
+* **Windows.** The window lowers the leakage above four peak wavenumbers by $10^4$ for a
+  sine of 3.37 periods, the mirror only by a factor 1.4, since it keeps the break of the slope.
+* **Application** to the solver's output,
   with serial and MPI spectra identical: [Taylor-Green 3-D]({{root}}cases/taylor-green-3d.html).
 
 Not provided: spectra written during the run (offline from snapshots is enough).

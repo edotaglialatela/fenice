@@ -229,10 +229,28 @@ by the owner of the fine leaf.
 * The result is identical to the serial run for any number of ranks (1 to 7 are checked in
 `amr_mpi.py --check`, on cases with remeshing, an immersed body, viscosity, a non-reflecting outlet and a time-dependent source).
 
-**Known limits.** The indicator, the flags and the state of the new leaves are local, each rank builds its share of the mesh and the engine tables directly from the leaves near its own (a wider reach is tried if a face reads what the share lacks), and the first mesh is adapted the same way, so no rank builds the engine of the whole mesh or adapts a mesh with faces (the base mesh itself is constructed once at setup, and every rank keeps the leaves and lookups of the whole topology). No rank holds the topology of the whole mesh: the ranks fetch the leaves around their own from the owners, settle the ripple and the merges between them and migrate the new leaves; same result bit for bit). The memory per rank at the end of the run (the largest over the ranks) falls from 424 MB serial to 246 / 178 / 114 / 83 MB on 2 / 4 / 8 / 16 ranks (peak 487 MB serial, 300 / 187 / 114 / 83 MB), and the wall time of the 720×360 airfoil is 5.0 s serial and 3.9 / 2.3 / 1.4 / 0.88 s; on the 1.06 M-leaf airfoil (1440×720) the memory per rank at the end falls from 1315 MB to 897 / 548 / 376 / 268 MB (peak 1566 MB serial, 1033 / 626 / 396 / 273 MB) and the wall time of that memory study (a separate run) goes from 19.5 s to 14.8 / 10.2 / 7.0 / 4.3 s; on 24 and 48 ranks the peak stays at 270 MB (the end falls to 237 and 212 MB). The peak is the remesh and the first share. A checkpoint is written by rank 0 as the leaves of each rank reach it, one rank after the other: it holds its own leaves and those of one other rank, never the whole state. The whole mesh is gathered on rank 0 only for the post-processing outputs (probes, samples, averages) and for `dump_state`. On one node
-OpenMP is the better choice; MPI gives the same result for any rank count and a moderate speed-up. A checkpoint on several ranks is written rank after rank (an `NpzWriter` with reserved entries, zip64 for 4 GB and more), so no rank holds the whole state;
+**Known limits.** The indicator, the flags and the state of the new leaves are local, each rank builds its share of the mesh and the engine tables directly from the leaves near its own (a wider reach is tried if a face reads what the share lacks), and the first mesh is adapted the same way, so no rank builds the engine of the whole mesh or adapts a mesh with faces (the base mesh itself is constructed once at setup, and every rank keeps the leaves and lookups of the whole topology).
+
+* No rank holds the topology of the whole mesh: the ranks fetch the leaves around their own from the owners, settle the ripple and the merges between them and migrate the new leaves; same result bit for bit).
+* **Memory and time per rank** (the largest over the ranks, airfoil with 2 levels, 50 steps; the 1440×720 wall times are from the separate memory study):
+
+  | Ranks | 720×360: end MB | peak MB | wall s | 1440×720 (1.06 M leaves): end MB | peak MB | wall s |
+  |---|---|---|---|---|---|---|
+  | 1 | 424 | 487 | 5.0 | 1315 | 1566 | 19.5 |
+  | 2 | 246 | 300 | 3.9 | 897 | 1033 | 14.8 |
+  | 4 | 178 | 187 | 2.3 | 548 | 626 | 10.2 |
+  | 8 | 114 | 114 | 1.4 | 376 | 396 | 7.0 |
+  | 16 | 83 | 83 | 0.88 | 268 | 273 | 4.3 |
+
+  On 24 and 48 ranks the peak of the large mesh stays at 270 MB (the end falls to 237 and 212 MB).
+* The peak is the remesh and the first share.
+* A checkpoint is written by rank 0 as the leaves of each rank reach it, one rank after the other: it holds its own leaves and those of one other rank, never the whole state.
+* The whole mesh is gathered on rank 0 only for the post-processing outputs (probes, samples, averages) and for `dump_state`.
+* On one node
+OpenMP is the better choice; MPI gives the same result for any rank count and a moderate speed-up.
+* A checkpoint on several ranks is written rank after rank (an `NpzWriter` with reserved entries, zip64 for 4 GB and more), so no rank holds the whole state;
 the final `dump_state` gathers the leaves on rank 0 (a transient copy of the whole state); a restart cuts each rank's share from the leaf list of the checkpoint (three integer arrays) and reads only the state rows of its own leaves and their halo (`NpzFile`), so no rank holds the whole state or mesh; a hot start reads the whole source field.
-At the end of a run the solver prints the resident memory of the ranks (after setup, after the initial adaptation, at the end,
+* At the end of a run the solver prints the resident memory of the ranks (after setup, after the initial adaptation, at the end,
 the peak: minimum / maximum over the ranks) and the size of the tables of a rank: about 1.4 kB per leaf on the airfoil
 (`cases/validation/amr/amr_memory.py` measures it on 1 to 48 ranks; the remesh is distributed as well, see below).
 
@@ -282,11 +300,14 @@ The same airfoil run (720×360 base mesh, 2 levels, 50 steps, 268 299 leaves):
 | MPI, 2 / 4 / 8 / 16 ranks, each rank its share of the mesh | 3.84 / 2.43 / 1.53 / 0.95 s | 1.3 / 2.0 / 3.2 / 5.2 | 1.59 / 1.00 / 0.62 / 0.47 s |
 
 Every final state is bit for bit the serial one (`amr_mpi.py`). Up to 16 workers OpenMP threads are ahead of MPI ranks at every count, and the two meet at 16 (5.6× and 5.2×);
-the uniform solver gains 7.7× on 16 threads and its time stays 15 times higher. The adaptive step parallelises less well than the uniform sweep because its levels are small (loops
+the uniform solver gains 7.7× on 16 threads and its time stays 15 times higher.
+
+* The adaptive step parallelises less well than the uniform sweep because its levels are small (loops
 under 4096 items run on one thread), the remesh scales less than the stepping, and 50 steps are short (the remesh and the setup are a fixed part of them, which a long run
-amortises less than it looks: the remesh stays 17-25 % of the time loop on threads, and 41-49 % on ranks). The remesh of a rank's share costs 0.5-1.6 s against 0.2-0.5 s on threads,
+amortises less than it looks: the remesh stays 17-25 % of the time loop on threads, and 41-49 % on ranks).
+* The remesh of a rank's share costs 0.5-1.6 s against 0.2-0.5 s on threads,
 while the stepping alone scales on ranks as well as on threads, so MPI is for runs that do not fit in the memory of one node, or that go beyond it.
-The larger airfoil (1440×720 base mesh, 1.06 M leaves, 50 steps) takes 19.2 s serial, 3.5 s on 16 threads (5.5×) and 4.3 s on 16 ranks (4.5×), and its best time on MPI is 3.7 s on 48 ranks (5.2×);
+* The larger airfoil (1440×720 base mesh, 1.06 M leaves, 50 steps) takes 19.2 s serial, 3.5 s on 16 threads (5.5×) and 4.3 s on 16 ranks (4.5×), and its best time on MPI is 3.7 s on 48 ranks (5.2×);
 with WENO5-Z the same run takes 37.5 s serial and 4.9 s on 48 ranks (7.7×), and the remesh is a smaller share of it (34 % against 43 % for MUSCL on 48 ranks). The scaling over 1 to 48 workers of this and
 of the other adaptive and uniform cases is on the [Performance]({{root}}guide/performance.html#scaling-on-a-24-core-workstation) page.
 
@@ -298,9 +319,19 @@ for the time stepping alone and with the remesh. Right: time of the uniform solv
 same finest mesh over the time of the adaptive run, on the same number of threads. Every final state is bit for bit the serial one.</figcaption>
 </figure>
 
-The 3-D sphere (octree, 76 k leaves, Re 20, 200 steps from the steady state) takes 29.6 s per unit of physical time on one thread and 9.4 / 7.1 / 4.9 s on 4 / 8 / 16 threads
-(6.0× on 16, no further gain on 24 and 48: 4.9 and 4.8 s); on MPI ranks 19.2 / 11.7 / 7.5 / 5.0 / 5.1 s on 2 / 4 / 8 / 24 / 48 ranks, with the remesh at 8 / 11 / 16 / 30 / 38 % of the time.
-Memory is 111 MB at the end (142 MB at the peak) in the process of 16 threads; per rank 63 MB (peak 77 MB) on 8 ranks, 59 MB (76 MB) on 24 and 65 MB (76 MB) on 48.
+The 3-D sphere (octree, 76 k leaves, Re 20, 200 steps from the steady state), time per unit of physical time:
+
+| Workers | OpenMP threads (s) | MPI ranks (s) | Remesh share (ranks) | MB per rank at the end (peak) |
+|---|---|---|---|---|
+| 1 | 29.6 | | | |
+| 2 | | 19.2 | 8 % | |
+| 4 | 9.4 | 11.7 | 11 % | |
+| 8 | 7.1 | 7.5 | 16 % | 63 (77) |
+| 16 | 4.9 | | | 111 (142), one process of 16 threads |
+| 24 | 4.9 | 5.0 | 30 % | 59 (76) |
+| 48 | 4.8 | 5.1 | 38 % | 65 (76) |
+
+Threads reach 6.0× on 16 and gain nothing more on 24 and 48.
 
 <figure style="margin:1em 0;">
 <img src="{{root}}img/amr_memory.png" style="width:100%">
