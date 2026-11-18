@@ -26,9 +26,8 @@ The study writes its own case file (`results/validation/ibm_sphere/`). The showc
 
 <figure>
 <img src="{{root}}img/ibm_sphere.png" style="width:100%">
-<figcaption>Left: drag history at 10 and 20 cells per diameter. Middle: $C_d$ at $t = 30$ against the cell size.
-Right: speed on the mid-plane $z = L_z/2$ at 20 cells per diameter (the circle is the sphere); the wake is
-steady and symmetric.</figcaption>
+<figcaption>Uniform meshes. Left: drag history at 10 and 20 cells per diameter. Right: $C_d$ at $t = 30$ against the cell size.
+The flow field at 80 cells per diameter is in the figure of the next section.</figcaption>
 </figure>
 
 | $C_d$, 10 cells / D | $C_d$, 20 cells / D | change |
@@ -48,6 +47,7 @@ The octree reaches finest cell sizes that the uniform solver cannot afford here 
 python cases\validation\amr\octree_q8.py run --include-40                       # 20 and 40 cells per diameter, to t = 30 (1-2 h each at 40)
 python cases\validation\amr\octree_q8.py long                                   # 80 cells per diameter (base 10, 3 levels), Re 20, to t = 60 (hours, 1.9 GB)
 python cases\validation\amr\octree_q8.py long --re 100 --t-end 30 --levels 2    # another Reynolds number, end time or finest level (finest = 10 x 2^levels)
+python cases\validation\amr\octree_sphere.py --docs                              # the figure below, from those runs
 ```
 
 The runs are cached by their tag in `results/validation/amr_octree_q8/` (a rerun resumes or reuses them) and use 16 threads; `FENICE_OCTREE_THREADS` sets the count (48 for the table below).
@@ -59,6 +59,13 @@ The runs are cached by their tag in `results/validation/amr_octree_q8/` (a rerun
 | 80 | 10, 3 | 913 236 | 60 | 3.5598 | 28 761 s (66 085 steps) |
 
 The 80-cell run was continued to $t = 60$, where $C_d = 3.5517$; its peak memory is 1.9 GB.
+
+<figure>
+<img src="{{root}}img/ibm_sphere_octree.png" style="width:100%">
+<figcaption>The octree runs (Re 20, <code>cases/validation/amr/octree_sphere.py</code>). Top: drag histories at 20, 40 and 80 cells per diameter (the 80-cell run to $t = 60$), and $C_d$ at $t = 30$ against the finest cell size.
+Bottom: speed on the mid-plane $z = L_z/2$ of the 80-cell run at $t = 60$ (the circle is the sphere), and a zoom around the body with the boundaries between the refinement levels of the leaves (913 236 leaves; the body and its band stay at the finest level).
+The wake is steady and symmetric; the blocks far from the sphere are the coarse leaves.</figcaption>
+</figure>
 
 * Over the three meshes at $t = 30$ the observed order is 1.23, far from the formal 2, so $F_s = 3$: fine-grid GCI 0.9 %, extrapolated $C_d$ 3.570.
 * The finest run is **not settled at $t = 30$**: its drag falls by 0.0027 (0.08 %) every 10 time units, 3.5598 at $t = 30$, 3.5571 at 40, 3.5544 at 50 and 3.5517 at 60, with no sign of slowing,
