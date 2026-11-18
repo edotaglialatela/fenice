@@ -60,6 +60,18 @@ build\release\fenice.exe --case "IBM Airfoil AMR"        # OpenMP threads; write
 python cases\validation\amr\airfoil_amr.py --docs                  # AMR against uniform 192x96 and 768x384
 ```
 
+**The large airfoil.** The scaling and memory tables of the [AMR]({{root}}modules/AMR.html) and [performance]({{root}}guide/performance.html) pages use the same case on a
+720×360 or 1440×720 base mesh (two levels: a finest mesh of 2880×1440 or 5760×2880, 1.06 M leaves for the larger one), 50 steps, no output. Mesh and length are ordinary overrides:
+
+```powershell
+build\release\fenice.exe --case "IBM Airfoil AMR" --set nx=1440 --set ny=720 --set max_steps=50 --set save_interval=1000000000 --threads 16
+mpiexec -n 16 build\release\fenice.exe --case "IBM Airfoil AMR" --set nx=1440 --set ny=720 --set max_steps=50 --set save_interval=1000000000
+$env:FENICE_PROFILE = "1"                                           # also prints the amr: and fetch: sections of the remesh
+python cases\validation\amr\amr_memory.py --only airfoil_1440 --ranks 1 2 4 8 16   # memory and time per rank (the table of the AMR page)
+```
+
+Add `--set reconstruction=weno5 --set "time_scheme=SSP Runge-Kutta 3"` for the WENO5-Z runs. More ranks than physical cores gain little (see the performance guide).
+
 <figure style="margin:1em 0;">
 <img src="{{root}}img/airfoil_amr.png" style="width:100%">
 <figcaption>NACA 0012 at 10°, Re = 1000, up to $t = 6$ (<code>cases/validation/amr/airfoil_amr.py</code>).

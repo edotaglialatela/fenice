@@ -65,8 +65,9 @@ threads.
 * The primitive
 variables share one reciprocal of the density and the divergence multiplies by the reciprocal of the cell area, so the divisions
 per face are few.
-* Measured on a Ryzen 7 7800X3D (ns per cell-stage, 1 / 16 threads): Sod MUSCL 2000x200 53 / 12, first order
-42 / 9, Kelvin-Helmholtz 512^2 56 / 11, viscous Taylor-Green 512^2 107 / 19, 3-D Taylor-Green 64^3 243 / 58.
+* Measured on the workstation (ns per cell-stage, 1 / 16 / 48 threads; $2048^2$ to $4096^2$ and $256^3$ meshes, SSP-RK2 for MUSCL and SSP-RK3 for WENO): MUSCL with the Euler equations 46 / 5.0 / 3.8
+(the convective part of the viscous run), viscous Taylor-Green 66 / 8.4 / 6.9, 3-D viscous Taylor-Green 166 / 31 / 32, WENO3-Z 59 / 6.5 / 5.6, WENO5-Z 85 / 8.4 / 7.0,
+WENO5-Z with the fourth-order flux 158 / 13 / 11. These are the numbers of the estimator below.
 
 **Loop parallelism.** Loops shorter than `kOmpMinWork` (4096 items) run on one thread,
 because OpenMP fork/join would cost more than the work. All reductions, such as the

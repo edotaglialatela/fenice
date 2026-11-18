@@ -44,6 +44,14 @@ steady and symmetric.</figcaption>
 
 The octree reaches finest cell sizes that the uniform solver cannot afford here (80 cells per diameter would be 28 million cells). Workstation, Re 20 (the 80-cell run on 48 threads):
 
+```powershell
+python cases\validation\amr\octree_q8.py run --include-40                       # 20 and 40 cells per diameter, to t = 30 (1-2 h each at 40)
+python cases\validation\amr\octree_q8.py long                                   # 80 cells per diameter (base 10, 3 levels), Re 20, to t = 60 (hours, 1.9 GB)
+python cases\validation\amr\octree_q8.py long --re 100 --t-end 30 --levels 2    # another Reynolds number, end time or finest level (finest = 10 x 2^levels)
+```
+
+The runs are cached by their tag in `results/validation/amr_octree_q8/` (a rerun resumes or reuses them) and use 16 threads; `FENICE_OCTREE_THREADS` sets the count (48 for the table below).
+
 | finest cells / D | base, levels | leaves at the end | run to | $C_d$ at $t = 30$ | time loop |
 |---:|---|---:|---:|---:|---:|
 | 20 | 5, 2 | 76 120 | 30 | 3.5124 | 870 s |
