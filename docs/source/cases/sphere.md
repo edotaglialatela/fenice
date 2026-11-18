@@ -76,14 +76,16 @@ The state is the final one, $t = 60$, painted from the leaves of the octree on t
 
 <figure>
 <img src="{{root}}img/ibm_sphere_octree_vorticity.gif" style="width:100%">
-<figcaption>Volume rendering of the vorticity magnitude of the 80-cell run on a logarithmic scale (from 0.05 to 7 $U/D$) while the camera turns round the sphere. The opacity follows the gradient of the vorticity,
-so the boundary layer on the sphere (the bright shell) and the edge of the wake show and the sphere is seen through them. The wake carries about a tenth of the vorticity of the boundary layer and is steady, with no shedding at Re 20.</figcaption>
+<figcaption>Volume rendering of the vorticity magnitude of the 80-cell run (final state, $t = 60$) on a logarithmic scale, with a fixed camera. The opacity follows the gradient of the vorticity, so the boundary layer on the sphere
+(the bright shell) and the edge of the wake show and the sphere is seen through them. The lowest vorticity shown falls from the boundary layer (about 7 $U/D$) to 0.05, which brings out the wake: it carries about a tenth of the
+vorticity of the boundary layer and is steady, with no shedding at Re 20.</figcaption>
 </figure>
 
 <figure>
 <img src="{{root}}img/ibm_sphere_octree_3d.gif" style="width:100%">
-<figcaption>The same run as nested isosurfaces of the speed at 0.3, 0.6 and 0.85 of the inflow speed (dark to light), smoothed over a few finest cells where the leaves are coarse. Both animations show the final state
-from a turning camera: the flow itself does not change (<code>octree_sphere_3d.py --animation --volume</code>).</figcaption>
+<figcaption>The same state as an isosurface of the speed whose level rises from 0.12 to 0.95 of the inflow speed (fixed camera): the shell grows from the sphere into the wake, which is a long tube that reaches the end of the channel.
+The surface is smoothed over a few finest cells where the leaves are coarse. The flow itself does not change in the two animations, because only the final state is kept: what moves is the threshold
+(<code>octree_sphere_3d.py --animation --volume</code>; <code>--orbit 90</code> turns the camera as well).</figcaption>
 </figure>
 
 * Over the three meshes at $t = 30$ the observed order is 1.23, far from the formal 2, so $F_s = 3$: fine-grid GCI 0.9 %, extrapolated $C_d$ 3.570.
