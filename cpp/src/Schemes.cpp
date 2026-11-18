@@ -546,11 +546,15 @@ void MusclReconstruction::reconstruct_weno(Field& UL, Field& UR, const Field& U,
         const std::vector<char>& fb = *h.fallback;
         if (fb.size() != static_cast<size_t>(nx) * ny * nz) throw std::logic_error("positivity_fallback: the flagged set is not that of the mesh");
         const auto flagged = [&](int i, int j, int k) {
-            const auto fold = [](int c, int n, bool wrap) { return c < 0 || c >= n ? (wrap ? (c + n) % n : -1) : c; };
-            i = fold(i, nx, h.fallback_wrap[0]);
-            j = fold(j, ny, h.fallback_wrap[1]);
-            k = fold(k, nz, h.fallback_wrap[2]);
-            return i >= 0 && j >= 0 && k >= 0 && fb[m.cell(i, j, k)] != 0;
+            // outside the domain along one axis: the other side of a periodic seam (wrap), the flag of the halo cell of an MPI interface
+            // (same layout as the state halos in cell_state), or none (a physical ghost layer, a boundary without halo)
+            if (i < 0 && !h.fallback_wrap[0]) return h.fallback_l && (*h.fallback_l)[(static_cast<size_t>(k) * ny + j) * dh + dh + i][0] != 0;
+            if (i >= nx && !h.fallback_wrap[0]) return h.fallback_r && (*h.fallback_r)[(static_cast<size_t>(k) * ny + j) * dh + i - nx][0] != 0;
+            if (j < 0 && !h.fallback_wrap[1]) return h.fallback_b && (*h.fallback_b)[(static_cast<size_t>(dh + j) * nz + k) * nx + i][0] != 0;
+            if (j >= ny && !h.fallback_wrap[1]) return h.fallback_t && (*h.fallback_t)[(static_cast<size_t>(j - ny) * nz + k) * nx + i][0] != 0;
+            if ((k < 0 || k >= nz) && !h.fallback_wrap[2]) return false;
+            const auto fold = [](int c, int n) { return c < 0 ? c + n : (c >= n ? c - n : c); };
+            return fb[m.cell(fold(i, nx), fold(j, ny), fold(k, nz))] != 0;
         };
         std::fprintf(stderr, "\n");
         for (int axis = 0; axis < (nz > 1 ? 3 : 2); ++axis) {

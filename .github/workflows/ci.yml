@@ -79,6 +79,8 @@ jobs:
         run: python cases/validation/amr/amr_mpi.py --check --ranks 4
       - name: Ghost-cell IBM on 2-7 MPI ranks bitwise equal to serial
         run: python cases/validation/features/ibm_ghost.py --check
+      - name: positivity_fallback on 2-4 MPI ranks bitwise equal to serial
+        run: python cases/validation/features/positivity_mpi.py --check
       - name: Post-processing outputs on 2-7 MPI ranks bitwise equal to serial
         run: python cases/validation/features/postprocess.py --check
       - name: Environment switches (table, code and documentation agree)

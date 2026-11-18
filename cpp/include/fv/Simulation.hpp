@@ -36,6 +36,9 @@ struct StripHalos {
     char dir = 'y';              // decomposition direction
     const Field* lo = nullptr;   // halo from the lower-rank neighbour (nullptr at a physical boundary)
     const Field* hi = nullptr;   // halo from the higher-rank neighbour
+    // positivity_fallback: the flags of the cells of those two halos (slot 0 of each State), exchanged like the states; nullptr when off
+    const Field* flag_lo = nullptr;
+    const Field* flag_hi = nullptr;
 };
 
 // Owns every solver object of a run and drives the time loop (serial, AMR or MPI).
@@ -210,6 +213,7 @@ private:
     std::vector<char> fb_cells_;
     bool fb_active_ = false;
     StageGuard fb_guard_;
+    std::function<bool(bool)> fb_reduce_;   // MPI: the OR of the ranks' "the set grew" (every rank repeats the stage together); empty: serial
     long long fb_repairs_ = 0, fb_flagged_ = 0;
 };
 

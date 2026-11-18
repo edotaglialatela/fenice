@@ -632,7 +632,6 @@ void Simulation::run_mpi(MPI_Comm comm) {
     const bool root = (rank == 0);
 
     setup(p, root);
-    if (p.positivity_fallback) throw std::invalid_argument("positivity_fallback is not available with MPI ranks yet (run it on one rank, with OpenMP threads)");
     MPIDecomposition decomp(p.nx, p.ny, comm, p.nz);
 
     // Layout table
@@ -716,6 +715,11 @@ void Simulation::run_mpi(MPI_Comm comm) {
         if (!(decomp.is_hi_rank && !periodic)) r = BCType::Transmissive;
     }
     BoundaryManager lb(lm, fluid);
+    if (p.positivity_fallback) {
+        // every rank repeats a stage together: the "the set grew" decision is the OR over the ranks; the flags are those of the local strip
+        fb_cells_.assign(static_cast<size_t>(lm.num_cells()), 0);
+        fb_reduce_ = [&decomp](bool grew) { return decomp.allreduce_max(grew ? 1.0 : 0.0) > 0.0; };
+    }
     lb.set_boundary_types(l, r, b, tp);
     lb.set_type(Face::Front, parse_bc(p.bc_front));   // z sides are never split
     lb.set_type(Face::Back, parse_bc(p.bc_back));
@@ -814,7 +818,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
         }
     };
 
-    Field halo_lo, halo_hi, forced;
+    Field halo_lo, halo_hi, forced, flag_field, flag_lo, flag_hi;
     const ResidualFn res = [&](const Field& Uin, Field& R) {
         const Field* Uc = &Uin;
         if (ghost) {
@@ -825,6 +829,15 @@ void Simulation::run_mpi(MPI_Comm comm) {
         bool has_lo, has_hi;
         decomp.exchange_halos(*Uc, periodic, halo_lo, halo_hi, has_lo, has_hi);
         StripHalos h{dir, has_lo ? &halo_lo : nullptr, has_hi ? &halo_hi : nullptr};
+        if (fb_active_) {
+            // positivity_fallback: the flags of the strip's border cells go to the neighbours the way the states do (slot 0 of a State)
+            flag_field.assign(Uc->size(), State{});
+            for (size_t c = 0; c < flag_field.size(); ++c) flag_field[c][0] = fb_cells_[c] ? 1.0 : 0.0;
+            bool flag_has_lo, flag_has_hi;
+            decomp.exchange_halos(flag_field, periodic, flag_lo, flag_hi, flag_has_lo, flag_has_hi);
+            h.flag_lo = flag_has_lo ? &flag_lo : nullptr;
+            h.flag_hi = flag_has_hi ? &flag_hi : nullptr;
+        }
         update_boundary_values(scheme->stage_time, lb);
         const double s = assemble(lm, lb, nullptr, local_muscl.get(), *Uc, R, &h);
         return decomp.allreduce_max(s);
@@ -899,6 +912,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     step = loop.step;
     const double loop_wall = loop.wall;
     const bool interrupted = loop.interrupted;
+    if (root && p.positivity_fallback) std::printf("[POSITIVITY] %lld repair passes (the same on every rank)\n", fb_repairs_);
 
     if (monitoring && step % p.monitor_interval != 0) row(step);
     if (mon) std::fclose(mon);

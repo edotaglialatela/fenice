@@ -145,6 +145,11 @@ struct Halos {
     // Per axis (x, y, z): the halo of that axis is the wrap-around of a periodic axis, so a flagged cell counts on the other side of the
     // seam too (both copies of a seam face must agree). A side without it (physical ghost layer) has no flags beyond the domain.
     bool fallback_wrap[3] = {false, false, false};
+    // The flags of the cells in the halos of an MPI interface, in the layout of the state halos l, r, b, t (slot 0 of each State: 0 or 1).
+    const Field* fallback_l = nullptr;
+    const Field* fallback_r = nullptr;
+    const Field* fallback_b = nullptr;
+    const Field* fallback_t = nullptr;
 };
 class MusclReconstruction {
 public:

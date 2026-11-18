@@ -500,6 +500,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                     grew = true;
                 }
             }
+            if (fb_reduce_) grew = fb_reduce_(grew);   // MPI: every rank takes the same decision, or the collectives of the residual deadlock
             if (grew) {
                 fb_active_ = true;
                 ++fb_repairs_;
@@ -783,6 +784,15 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     mh.depth = Dh;
     if (ib && Dh == 3) mh.narrow = &ib->mask();   // faces near the body: the four-cell stencil
     if (fb_active_) mh.fallback = &fb_cells_;     // positivity_fallback: first-order faces around the flagged cells
+    if (fb_active_ && halos) {                    // the flags of the cells of the MPI halos (the faces of the interface are computed by both ranks)
+        if (halos->dir == 'y') {
+            mh.fallback_b = halos->flag_lo;
+            mh.fallback_t = halos->flag_hi;
+        } else {
+            mh.fallback_l = halos->flag_lo;
+            mh.fallback_r = halos->flag_hi;
+        }
+    }
     // Periodic axes inside the (sub)domain: wrap-around halos so MUSCL also reconstructs
     // the periodic boundary faces (otherwise they would be a 1st-order seam).
     const bool per_x = bm.type(Face::Left) == BCType::Periodic && bm.type(Face::Right) == BCType::Periodic;
@@ -965,6 +975,15 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     mh.depth = Dh;
     if (ib && Dh == 3) mh.narrow = &ib->mask();   // faces near the body: the four-cell stencil
     if (fb_active_) mh.fallback = &fb_cells_;     // positivity_fallback: first-order faces around the flagged cells
+    if (fb_active_ && halos) {                    // the flags of the cells of the MPI halos (the faces of the interface are computed by both ranks)
+        if (halos->dir == 'y') {
+            mh.fallback_b = halos->flag_lo;
+            mh.fallback_t = halos->flag_hi;
+        } else {
+            mh.fallback_l = halos->flag_lo;
+            mh.fallback_r = halos->flag_hi;
+        }
+    }
     // Periodic axes: wrap-around MUSCL halos (the boundary faces are then 2nd order too)
     const bool per[3] = {bm.type(Face::Left) == BCType::Periodic && bm.type(Face::Right) == BCType::Periodic,
                          bm.type(Face::Bottom) == BCType::Periodic && bm.type(Face::Top) == BCType::Periodic,
