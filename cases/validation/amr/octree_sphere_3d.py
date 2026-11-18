@@ -2,16 +2,14 @@
 
     python cases/validation/amr/octree_sphere_3d.py              # results/validation/amr_octree_sphere/
     python cases/validation/amr/octree_sphere_3d.py --docs       # also docs/img/ibm_sphere_octree_3d.png
-    python cases/validation/amr/octree_sphere_3d.py --animation  # also ibm_sphere_octree_3d.gif / .mp4: speed isosurfaces, the level sweeps up
     python cases/validation/amr/octree_sphere_3d.py --volume     # also ibm_sphere_octree_vorticity.gif / .mp4: volume rendering of |omega|, the threshold sweeps down
-    python cases/validation/amr/octree_sphere_3d.py --orbit 90   # the camera of the animations turns by 90 degrees over the animation (default 0: it does not move)
+    python cases/validation/amr/octree_sphere_3d.py --orbit 90   # the camera of the animation turns by 90 degrees over the animation (default 0: it does not move)
     python cases/validation/amr/octree_sphere_3d.py --runs DIR   # the runs of octree_q8.py (default: results/validation/amr_octree_q8/)
 
 Reads the final state of the run `re20_oct_ghost_b10M3_t60` (`octree_q8.py long`, Re 20: the leaves of the octree, t = 60) and paints it on the
 grid of the finest cells. The still shows the sphere, the speed on the plane z = Lz / 2 and on two cross-sections of the wake (x = 3.6 and 5.6), and streamlines that start upstream of the body.
-The state is the final one, so the flow does not change in the animations (a transient needs the snapshots of a run): the camera is fixed and what moves is a threshold.
-Isosurfaces: the speed level rises from 0.12 to 0.95 of the inflow speed, so the shell grows from the sphere into the wake.
-Vorticity: the lowest |omega| shown falls from the boundary layer to the edge of the wake.
+The state is the final one, so the flow does not change in the animation (a transient needs the snapshots of a run): the camera is fixed and what moves is a threshold.
+The lowest |omega| shown falls from the boundary layer to the edge of the wake.
 Needs pyvista (`python prerequisites.py --viz3d`); no solver run.
 """
 import sys
@@ -81,34 +79,6 @@ def orbit(p, k, frames, degrees=0.0, radius=9.6, elevation=24.0):
     p.camera.up = (0.0, 0.0, 1.0)
 
 
-def animation(pts, size, frames, docs, degrees=0.0, lo=0.12, hi=0.95):
-    """Isosurface of the speed, its level rising from `lo` to `hi` of the inflow speed (colour by level), camera fixed; writes ibm_sphere_octree_3d.gif and .mp4."""
-    import matplotlib
-    import pyvista as pv
-    from PIL import Image
-    cmap = matplotlib.colormaps["plasma"]
-    # the far field is painted from coarse leaves (blocks of up to 8 finest cells): smooth the steps of the surfaces, which keeps their volume
-    soft = pts.gaussian_smooth(std_dev=2.5, radius_factor=2.5, scalars="speed")
-    sphere = pv.Sphere(radius=0.5 * D, center=(CX, CY, CZ), theta_resolution=96, phi_resolution=96)
-    box = pv.Box(bounds=(0, LX, 0, LY, 0, LZ)).outline()
-    images = []
-    for k, level in enumerate(np.linspace(lo, hi, frames)):
-        p = pv.Plotter(off_screen=True, window_size=tuple(size))
-        p.set_background("#10141c")
-        p.enable_depth_peeling(number_of_peels=8)
-        iso = soft.contour([float(level)], scalars="speed")
-        if iso.n_points:
-            col = matplotlib.colors.to_hex(cmap(0.15 + 0.7 * (level - lo) / (hi - lo)))
-            p.add_mesh(iso.smooth_taubin(n_iter=60, pass_band=0.05).compute_normals(), color=col, opacity=0.65, smooth_shading=True, specular=0.4)
-        p.add_mesh(sphere, color="#c9d1da", smooth_shading=True, specular=0.4)
-        p.add_mesh(box, color="#6b7685", line_width=1.5)
-        orbit(p, k, frames, degrees)
-        p.add_text(f"speed = {level:.2f} of the inflow speed (Re 20)", position=(0.04, 0.03), viewport=True, font_size=11, color="#c9d1da")
-        images.append(Image.fromarray(p.screenshot(return_img=True)))
-        p.close()
-    save_animation(images, "ibm_sphere_octree_3d", size, docs, duration=80, hold=1500)
-
-
 def vorticity(vel, sigma=2.0, step=2):
     """|omega| (in U / D) of the painted velocity, smoothed over a few finest cells (the coarse leaves are blocks) and kept every `step` cells."""
     from scipy.ndimage import gaussian_filter
@@ -168,10 +138,9 @@ def main():
     ap = study.parser(__doc__.splitlines()[0])
     ap.add_argument("--runs", default=None, help="the folder of the runs of octree_q8.py")
     ap.add_argument("--size", type=int, nargs=2, default=(2000, 1100), metavar=("W", "H"), help="image size in pixels")
-    ap.add_argument("--animation", action="store_true", help="also the animation of the speed isosurfaces (the level sweeps)")
     ap.add_argument("--volume", action="store_true", help="also the volume rendering of the vorticity (the threshold sweeps)")
     ap.add_argument("--frames", type=int, default=60, help="frames of the animation")
-    ap.add_argument("--orbit", type=float, default=0.0, help="degrees the camera of the animations turns over the whole animation (default 0: fixed)")
+    ap.add_argument("--orbit", type=float, default=0.0, help="degrees the camera of the animation turns over the whole animation (default 0: fixed)")
     ap.add_argument("--anim-size", type=int, nargs=2, default=(960, 540), metavar=("W", "H"), help="frame size of the animation")
     args = ap.parse_args()
     import pyvista as pv   # optional: python prerequisites.py --viz3d
@@ -207,8 +176,6 @@ def main():
     print(f"[PLOT] {out}  ({leaves} leaves, speed up to {vmax:.2f})")
     if args.docs:
         study.copy_to_docs(out)
-    if args.animation:
-        animation(pts, args.anim_size, args.frames, args.docs, args.orbit)
     if args.volume:
         volume_animation(vel, args.anim_size, args.frames, args.docs, args.orbit)
 

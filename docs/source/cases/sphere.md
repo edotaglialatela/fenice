@@ -48,7 +48,7 @@ python cases\validation\amr\octree_q8.py run --include-40                       
 python cases\validation\amr\octree_q8.py long                                   # 80 cells per diameter (base 10, 3 levels), Re 20, to t = 60 (hours, 1.9 GB)
 python cases\validation\amr\octree_q8.py long --re 100 --t-end 30 --levels 2    # another Reynolds number, end time or finest level (finest = 10 x 2^levels)
 python cases\validation\amr\octree_sphere.py --docs                              # the figures below, from those runs
-python cases\validation\amr\octree_sphere_3d.py --docs --animation --volume      # the 3-D render and the two animations (needs pyvista: python prerequisites.py --viz3d)
+python cases\validation\amr\octree_sphere_3d.py --docs --volume                  # the 3-D render and the vorticity animation (needs pyvista: python prerequisites.py --viz3d)
 ```
 
 The runs are cached by their tag in `results/validation/amr_octree_q8/` (a rerun resumes or reuses them) and use 16 threads; `FENICE_OCTREE_THREADS` sets the count (48 for the table below).
@@ -78,14 +78,8 @@ The state is the final one, $t = 60$, painted from the leaves of the octree on t
 <img src="{{root}}img/ibm_sphere_octree_vorticity.gif" style="width:100%">
 <figcaption>Volume rendering of the vorticity magnitude of the 80-cell run (final state, $t = 60$) on a logarithmic scale, with a fixed camera. The opacity follows the gradient of the vorticity, so the boundary layer on the sphere
 (the bright shell) and the edge of the wake show and the sphere is seen through them. The lowest vorticity shown falls from the boundary layer (about 7 $U/D$) to 0.05, which brings out the wake: it carries about a tenth of the
-vorticity of the boundary layer and is steady, with no shedding at Re 20.</figcaption>
-</figure>
-
-<figure>
-<img src="{{root}}img/ibm_sphere_octree_3d.gif" style="width:100%">
-<figcaption>The same state as an isosurface of the speed whose level rises from 0.12 to 0.95 of the inflow speed (fixed camera): the shell grows from the sphere into the wake, which is a long tube that reaches the end of the channel.
-The surface is smoothed over a few finest cells where the leaves are coarse. The flow itself does not change in the two animations, because only the final state is kept: what moves is the threshold
-(<code>octree_sphere_3d.py --animation --volume</code>; <code>--orbit 90</code> turns the camera as well).</figcaption>
+vorticity of the boundary layer and is steady, with no shedding at Re 20. Only the final state is kept, so the flow does not change: what moves is the threshold
+(<code>octree_sphere_3d.py --volume</code>; <code>--orbit 90</code> turns the camera as well).</figcaption>
 </figure>
 
 * Over the three meshes at $t = 30$ the observed order is 1.23, far from the formal 2, so $F_s = 3$: fine-grid GCI 0.9 %, extrapolated $C_d$ 3.570.
