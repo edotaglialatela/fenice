@@ -8,7 +8,7 @@ VTK output, `.npz` checkpoints with hot start, a PyQt6 GUI. Entry points: `build
 
 ## Working rules
 
-- Work on `main`; no leftover branches. Commit only when asked. A change that touches no numerics ends its message with `[skip ci]`.
+- Work on `main`; no leftover branches. Commit only when asked. A change that touches no numerics and lies outside `docs/**` and `*.md` ends its message with `[skip ci]`; a docs-only change does not (CI already ignores those paths, and `[skip ci]` would also stop the Docs build). After a `[skip ci]` commit that changed what the docs show (`cases/`, `python/`, `cpp/include/`), run `gh workflow run Docs --ref main`.
 - Keep each file's line endings. Most files are CRLF; Python text-mode writes and `sed` silently flip LF <-> CRLF (use binary mode).
 - Do not name other software (other solvers, codes, tools) in docs, comments or tests.
 - The user chooses numerical methods: diagnose and propose options, do not implement a new method unasked.
