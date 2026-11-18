@@ -110,7 +110,6 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
         // faces with an ordinary WENO stencil (four cells with WENO3-Z, six with WENO5-Z on a wide face, none of them a ghost layer):
         // the face states by the vector kernels, then the Riemann batch above
         int wst4[4 * kChunk], wst6[6 * kChunk], wface4[kChunk], wface6[kChunk], wax4[kChunk], wax6[kChunk];
-        State wUL[kChunk] = {}, wUR[kChunk] = {};
         int nw4 = 0, nw6 = 0;
         const auto flush_weno = [&](bool five) {
             int& nw = five ? nw6 : nw4;
@@ -118,14 +117,15 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
             const int* wst = five ? wst6 : wst4;
             const int* wface = five ? wface6 : wface4;
             const int* wax = five ? wax6 : wax4;
-            muscl_->weno_face_states(five, W_.data(), wst, nw, wUL, wUR);
+            // the face states go straight into the Riemann batch (nw <= kChunk, so after a flush they fit)
+            if (nb + nw > kChunk) flush();
+            muscl_->weno_face_states(five, W_.data(), wst, nw, bUL + nb, bUR + nb);
             for (int k = 0; k < nw; ++k) {
-                bUL[nb] = wUL[k];
-                bUR[nb] = wUR[k];
-                bax[nb] = wax[k];
-                bface[nb] = wface[k];
-                if (++nb == kChunk) flush();
+                bax[nb + k] = wax[k];
+                bface[nb + k] = wface[k];
             }
+            nb += nw;
+            if (nb == kChunk) flush();
             nw = 0;
         };
         const auto flush_muscl = [&]() {
