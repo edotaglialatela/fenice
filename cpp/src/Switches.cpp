@@ -15,6 +15,8 @@ const std::vector<EnvSwitch>& env_switches() {
          "Uniform mesh: reconstruct the face states into arrays and run the Riemann solver on them in a second pass, "
          "instead of the one pass that does both (MusclReconstruction::muscl_residual_2d / _3d; MUSCL, WENO3-Z, WENO5-Z). The results are identical bit for bit; "
          "for A/B timing."},
+        {"FENICE_NO_PIN", "flag", "solver",
+         "Leave the OpenMP threads to the scheduler. By default a run with several threads, no more than the physical cores the process may use, on a machine with SMT, puts one thread on each physical core (about 10 % faster at 8 threads where the scheduler would put two on the siblings of one core). Nothing is placed under MPI, or when OMP_PLACES, OMP_PROC_BIND, GOMP_CPU_AFFINITY or KMP_AFFINITY is set. The results do not depend on the placement; for A/B timing."},
         {"FENICE_FULL_REBUILD", "flag", "solver",
          "AMR: rebuild the faces and the engine tables of every leaf after each adaptation instead of copying those of the leaves "
          "that did not change. The tables are identical; for A/B timing and bisecting."},

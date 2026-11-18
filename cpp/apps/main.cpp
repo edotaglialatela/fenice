@@ -40,6 +40,7 @@
 #include "fv/CaseCheck.hpp"
 #include "fv/Simulation.hpp"
 #include "fv/Switches.hpp"
+#include "fv/ThreadPlacement.hpp"
 
 namespace {
 
@@ -351,6 +352,12 @@ int main(int argc, char** argv) {
 #endif
     std::signal(SIGINT, on_sigint);
     if (logo && rank == 0) fv::print_logo(terminal_colors());
+#ifdef _OPENMP
+    if (size == 1) {   // under MPI the ranks of a node would overlap: left to mpiexec
+        const fv::Placement placement = fv::place_threads(omp_get_max_threads());
+        if (!placement.note.empty()) std::printf("%s\n", placement.note.c_str());
+    }
+#endif
 
     int rc = 0;
     try {

@@ -38,6 +38,7 @@ add_library(fenice_core STATIC
   src/TestCases.cpp
   src/Switches.cpp
   src/Profile.cpp
+  src/ThreadPlacement.cpp
   src/MPIDecomposition.cpp
   src/Simulation.cpp
   src/SimulationRestart.cpp

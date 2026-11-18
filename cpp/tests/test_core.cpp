@@ -5,6 +5,7 @@
 #endif
 #include <cstring>
 #include <map>
+#include "fv/ThreadPlacement.hpp"
 #include "test_common.hpp"
 
 // ---------------------------------------------------------------------------
@@ -2178,5 +2179,55 @@ TEST(weno3_line_batch_equals_the_scalar_function_bit_for_bit) {
             CHECK(different == 0);
         }
     }
+#endif
+}
+
+// ---- thread placement: one thread per physical core ----------------------------------------------------------------
+
+TEST(thread_placement_takes_one_cpu_per_core) {
+    const std::vector<fv::CoreInfo> smt = {{{0, 4}, 0}, {{1, 5}, 0}, {{2, 6}, 0}, {{3, 7}, 0}};
+    const std::vector<int> all = {0, 1, 2, 3, 4, 5, 6, 7};
+    CHECK(fv::choose_thread_cpus(smt, all, 4) == (std::vector<int>{0, 1, 2, 3}));
+    CHECK(fv::choose_thread_cpus(smt, all, 2) == (std::vector<int>{0, 1}));
+    CHECK(fv::choose_thread_cpus(smt, all, 5).empty());   // more threads than cores: left to the scheduler
+    CHECK(fv::choose_thread_cpus(smt, all, 1).empty());
+    CHECK(fv::choose_thread_cpus({}, all, 4).empty());
+}
+
+TEST(thread_placement_leaves_alone_what_it_cannot_improve) {
+    const std::vector<fv::CoreInfo> no_smt = {{{0}, 0}, {{1}, 0}, {{2}, 0}, {{3}, 0}};
+    CHECK(fv::choose_thread_cpus(no_smt, {0, 1, 2, 3}, 4).empty());
+    // a process already restricted to one logical CPU per core (by the user or by mpiexec)
+    const std::vector<fv::CoreInfo> smt = {{{0, 4}, 0}, {{1, 5}, 0}, {{2, 6}, 0}, {{3, 7}, 0}};
+    CHECK(fv::choose_thread_cpus(smt, {0, 1, 2, 3}, 4).empty());
+}
+
+TEST(thread_placement_uses_only_the_allowed_cpus) {
+    const std::vector<fv::CoreInfo> smt = {{{0, 4}, 0}, {{1, 5}, 0}, {{2, 6}, 0}, {{3, 7}, 0}};
+    CHECK(fv::choose_thread_cpus(smt, {2, 3, 6, 7}, 2) == (std::vector<int>{2, 3}));
+    CHECK(fv::choose_thread_cpus(smt, {2, 3, 6, 7}, 3).empty());   // only two cores allowed
+}
+
+TEST(thread_placement_fills_the_fast_cores_first) {
+    // two fast cores with SMT (class 1), then two slow cores without (class 0), listed slow first
+    const std::vector<fv::CoreInfo> hybrid = {{{4}, 0}, {{5}, 0}, {{0, 1}, 1}, {{2, 3}, 1}};
+    const std::vector<int> all = {0, 1, 2, 3, 4, 5};
+    CHECK(fv::choose_thread_cpus(hybrid, all, 2) == (std::vector<int>{0, 2}));
+    CHECK(fv::choose_thread_cpus(hybrid, all, 3) == (std::vector<int>{0, 2, 4}));
+    CHECK(fv::choose_thread_cpus(hybrid, all, 5).empty());
+}
+
+TEST(thread_placement_runs_and_keeps_the_threads_working) {
+#ifdef _OPENMP
+    const int saved = omp_get_max_threads();
+    const int n = std::min(4, saved);
+    omp_set_num_threads(n);
+    const fv::Placement p = fv::place_threads(n);   // may pin or not, depending on the machine: either way a region still runs on n threads
+    long sum = 0;
+#pragma omp parallel for reduction(+ : sum)
+    for (int i = 0; i < 1000; ++i) sum += i;
+    CHECK(sum == 499500);
+    (void)p;
+    omp_set_num_threads(saved);
 #endif
 }

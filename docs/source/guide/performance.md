@@ -182,6 +182,11 @@ The table of every run, with the time split by section, is `results/validation/w
   by default (`vtk_format`); on very large meshes a high `save_interval` still keeps
   output from dominating the run time.
 * `max_steps = N` stops a run after N steps, which is useful for timing.
+* **Thread placement.** With an explicit `--threads N` of at most the physical cores the process may use, on a machine with SMT, the solver puts one thread on each physical core: two threads on the
+  two siblings of one core compete for the same vector units (division, square root) while other cores idle. The cores come from the topology the system reports (Windows and Linux), so no processor is named.
+  Nothing is placed with the default thread count (all logical CPUs), under MPI (the ranks of a node would overlap; leave that to `mpiexec`), when `OMP_PLACES`, `OMP_PROC_BIND`, `GOMP_CPU_AFFINITY` or `KMP_AFFINITY`
+  is set, or with `FENICE_NO_PIN=1`. The results do not depend on the placement. On a desktop with 8 physical cores, 8 threads on a viscous MUSCL run went 4-5 % faster in wall time (the flux and viscous passes about 10 %);
+  the effect on the workstation, whose Linux scheduler already spreads threads, has not been measured.
 
 **Where the time goes.** `FENICE_PROFILE=1` prints the total time step and residual sections on uniform runs, including the time updates, viscous padding and conversion, viscous sweep, IBM forcing, body force and sources.
 
