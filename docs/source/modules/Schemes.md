@@ -222,7 +222,10 @@ Measured on the isentropic vortex with exact cell-averaged initial data (a resta
   (`weno5` 0.0127 to 0.0117, 0.0134 to 0.0123, 0.0136 to 0.0125).
 * Cost: a `fourth` step does more work than a `midpoint` one (the reconstruction of the conserved variables, the point values and the transverse correction, with one Riemann solve per face). The whole step
   (reconstruction, point values, Riemann solves, correction and flux balance) runs in one pass, over blocks of rows in 2-D and over tiles (a strip of rows times a block of planes, streamed plane by plane) in 3-D, the face states and fluxes kept for a few rows or planes only
-  (`FENICE_NO_FUSED=1` runs the separate passes, with identical bits), so that it scales over threads like the other schemes. The cost against `midpoint` is measured by `cases/validation/benchmarks/flux_quadrature_cost.py`.
+  (`FENICE_NO_FUSED=1` runs the separate passes, with identical bits), so that it scales over threads like the other schemes. Measured on the workstation of the [performance guide]({{root}}guide/performance.html) (`cases/validation/benchmarks/flux_quadrature_cost.py`, vortex and Taylor-Green box, SSP-RK3, ms per step):
+  a `fourth` step takes 1.7 to 2.1 times a `midpoint` step on one thread, and 1.3 to 1.8 times on 16 or 48 threads on the larger meshes ($1024^2$ and above, $128^3$ and $256^3$: 1.33 to 1.83; $2048^2$ 1.56 to 1.62), up to 2.4 times on the small $512^2$ mesh on 48 threads.
+  It scales better than `midpoint`: at $2048^2$ from 1 to 48 threads `fourth` gains 13.6 times with `weno3` and 14.3 with `weno5`, `midpoint` 10.5 and 12.1. For example `weno5` at $2048^2$: 1073 / 105 / 88 ms with `midpoint` and 1987 / 164 / 139 ms with `fourth` on 1 / 16 / 48 threads;
+  at $256^3$: 11.0 / 2.0 / 1.7 s and 19.0 / 3.0 / 2.7 s.
 
 ### References
 
