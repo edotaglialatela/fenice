@@ -1292,11 +1292,13 @@ double fourth_order_fluxes(const RiemannSolver& riemann, const EOS& eos, const F
     thread_local std::vector<unsigned char> st_good, st_pt, st_full;
     Field &AL = a_l, &AR = a_r, &Fp = f_p;
     std::vector<unsigned char> &good = st_good, &pt = st_pt, &full = st_full;
-    AL.assign(UL.begin(), UL.end());
-    AR.assign(UR.begin(), UR.end());
-    good.assign(static_cast<size_t>(nf), 0);
-    pt.assign(static_cast<size_t>(nf), 0);
-    full.assign(static_cast<size_t>(nf), 0);
+    // The work arrays keep their size between calls and every face of every family is written below, inside the parallel loops (copy of the
+    // averaged states, flags cleared): a serial assign here was a fifth of the time of a 16-thread run and placed the pages on one thread.
+    if (AL.size() != static_cast<size_t>(nf)) AL.resize(static_cast<size_t>(nf));
+    if (AR.size() != static_cast<size_t>(nf)) AR.resize(static_cast<size_t>(nf));
+    good.resize(static_cast<size_t>(nf));
+    pt.resize(static_cast<size_t>(nf));
+    full.resize(static_cast<size_t>(nf));
     // Every face of every family, one line at a time: fn(a, f0, e0, c) is called per line (f0 the first face, c[1], c[2] its lattice position)
     // and the line loop runs over c0 = 0 .. e0 - 1. Neighbours along the transverse axis t are f -+ stride, wrapped when periodic.
     for (int a = 0; a < nax; ++a) {
@@ -1311,6 +1313,7 @@ double fourth_order_fluxes(const RiemannSolver& riemann, const EOS& eos, const F
             for (int i = 0; i < e[0]; ++i) {
                 lattice(line, i, c);
                 const int f = fbase + line * e[0] + i;
+                good[f] = 0;
                 const int ca = c[a], n_a = dims[a];
                 if (!((ca > 0 && ca < n_a) || (ca == 0 && lo[a]) || (ca == n_a && hi[a]))) continue;
                 if (!positive(UL[f]) || !positive(UR[f])) continue;
@@ -1341,6 +1344,9 @@ double fourth_order_fluxes(const RiemannSolver& riemann, const EOS& eos, const F
             c[2] = line / e[1];
             for (int i = 0; i < e[0]; ++i) {
                 const int f = fbase + line * e[0] + i;
+                AL[f] = UL[f];
+                AR[f] = UR[f];
+                pt[f] = 0;
                 if (!good[f]) continue;
                 c[0] = i;
                 int nb[2][2];
@@ -1389,6 +1395,7 @@ double fourth_order_fluxes(const RiemannSolver& riemann, const EOS& eos, const F
             c[2] = line / e[1];
             for (int i = 0; i < e[0]; ++i) {
                 const int f = fbase + line * e[0] + i;
+                full[f] = 0;
                 if (!pt[f]) continue;
                 c[0] = i;
                 bool ok = true;
