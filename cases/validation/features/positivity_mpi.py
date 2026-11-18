@@ -6,7 +6,9 @@ Two periodic jets collide head on (Mach ~ 90 against a pressure of 0.4: the stag
 first-order faces around the cells that lost density or pressure). The jump sits at a few places around the interface of two
 strips: the flags of the cells across the interface are exchanged like the states, and the "the set grew" decision is the OR over
 the ranks, so the ranks repeat a stage together. Serial and ranks must give the same bits whatever the position of the jump.
+The same on the adaptive mesh (three levels, a forced finest region): there the flags travel along the stage lists of each level.
 """
+import re
 import sys
 
 import numpy as np
@@ -54,26 +56,39 @@ def case_file(axis, jump):
                     px=jump / 400 if x else 0.0, py=0.0 if x else jump / 400, nx_=1.0 if x else 0.0, ny_=0.0 if x else 1.0)
     d = study.study_dir(STUDY) / f"case_{axis}{jump}"
     d.mkdir(parents=True, exist_ok=True)
-    (d / "case.toml").write_text(s, newline="\n") if sys.version_info >= (3, 10) else (d / "case.toml").write_text(s)
+    with open(d / "case.toml", "w", newline="\n") as f:
+        f.write(s)
     return d
+
+
+# the adaptive mesh: three levels, the middle fifth of the strip forced to the finest level (the opening of the vacuum sits in it for
+# the jump at the middle; with the jump at 0.3 / 0.7 of the length the opening is on coarser leaves and a seam of levels)
+AMR = ["use_amr=true", "amr_max_level=2", "amr_force_box=0.4 0.6 0.0 0.01", "cfl=0.95"]
 
 
 def check(ranks):
     ok = True
-    for axis in ("x", "y"):
-        for jump in (133, 198, 199, 200, 201, 202):   # the strips of 2 and 4 ranks meet at 200 and 100 / 300; 3 ranks at 133 / 267
-            folder = case_file(axis, jump)
-            out = study.study_dir(STUDY) / "check" / f"{axis}{jump}"
-            out.mkdir(parents=True, exist_ok=True)
-            fenice.run(str(folder), out_root=out / "serial", dump=out / "serial.npz")
-            ref = fenice.read_dump(out / "serial.npz")["U"]
-            line = f"{axis} jump {jump:3d} serial"
-            for n in range(2, ranks + 1):
-                fenice.run(str(folder), out_root=out / f"np{n}", mpi=n, dump=out / f"np{n}.npz")
-                same = np.array_equal(fenice.read_dump(out / f"np{n}.npz")["U"], ref)
-                ok = ok and same
-                line += f" | np{n} {'==' if same else 'DIFFERS'}"
-            print(line, flush=True)
+    runs = [("x", j, []) for j in (133, 198, 199, 200, 201, 202)]   # the strips of 2 and 4 ranks meet at 200 and 100 / 300; 3 ranks at 133 / 267
+    runs += [("y", j, []) for j in (133, 198, 199, 200, 201, 202)]
+    runs += [("x", j, AMR) for j in (120, 200, 280)]
+    for axis, jump, sets in runs:
+        folder = case_file(axis, jump)
+        tag = f"{axis}{jump}{'_amr' if sets else ''}"
+        out = study.study_dir(STUDY) / "check" / tag
+        out.mkdir(parents=True, exist_ok=True)
+        r = fenice.run(str(folder), *sets, out_root=out / "serial", dump=out / "serial.npz")
+        fired = re.search(r"\[POSITIVITY\] (\d+) repair passes", r.stdout)
+        if not fired or int(fired.group(1)) == 0:   # a run that never repairs proves nothing
+            print(f"{tag}: the repair did not fire")
+            ok = False
+        ref = fenice.read_dump(out / "serial.npz")["U"]
+        line = f"{axis} jump {jump:3d}{' AMR' if sets else '    '} serial"
+        for n in range(2, ranks + 1):
+            fenice.run(str(folder), *sets, out_root=out / f"np{n}", mpi=n, dump=out / f"np{n}.npz")
+            same = np.array_equal(fenice.read_dump(out / f"np{n}.npz")["U"], ref)
+            ok = ok and same
+            line += f" | np{n} {'==' if same else 'DIFFERS'}"
+        print(line, flush=True)
     print("ALL MATCH (bitwise)" if ok else "MISMATCH")
     return 0 if ok else 1
 

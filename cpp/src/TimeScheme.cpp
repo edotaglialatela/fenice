@@ -119,6 +119,15 @@ StepResult ExplicitEuler::step(Field& U, const ResidualFn& res, double min_delta
 
 double ExplicitEuler::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
     const double s = res(U, R1_);
+    if (guard_) {
+        axpy(g_, U, dt, R1_);
+        repair(g_, [&] {
+            res(U, R1_);
+            axpy(g_, U, dt, R1_);
+        });
+        U.swap(g_);
+        return s;
+    }
     axpy(U, U, dt, R1_);
     return s;
 }
@@ -167,7 +176,20 @@ StepResult SSPRK2::step(Field& U, const ResidualFn& res, double min_delta, doubl
 double SSPRK2::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
     const double s = res(U, R1_);
     axpy(tmp_, U, dt, R1_);
+    if (guard_) repair(tmp_, [&] {
+        res(U, R1_);
+        axpy(tmp_, U, dt, R1_);
+    });
     res(tmp_, R2_);
+    if (guard_) {
+        stage_combine(g_, U, 0.5, tmp_, 0.5, dt, R2_);
+        repair(g_, [&] {
+            res(tmp_, R2_);
+            stage_combine(g_, U, 0.5, tmp_, 0.5, dt, R2_);
+        });
+        U.swap(g_);
+        return s;
+    }
     ssp_combine(U, tmp_, dt, R2_);
     return s;
 }
@@ -229,9 +251,31 @@ StepResult SSPRK3::step(Field& U, const ResidualFn& res, double min_delta, doubl
 double SSPRK3::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
     const double s = res(U, R1_);
     axpy(tmp_, U, dt, R1_);
+    if (guard_) repair(tmp_, [&] {
+        res(U, R1_);
+        axpy(tmp_, U, dt, R1_);
+    });
     res(tmp_, R2_);
-    ssp3_combine(tmp_, U, 0.75, tmp_, 0.25, dt, R2_);
+    if (guard_) {
+        stage_combine(g_, U, 0.75, tmp_, 0.25, dt, R2_);
+        repair(g_, [&] {
+            res(tmp_, R2_);
+            stage_combine(g_, U, 0.75, tmp_, 0.25, dt, R2_);
+        });
+        tmp_.swap(g_);
+    } else {
+        ssp3_combine(tmp_, U, 0.75, tmp_, 0.25, dt, R2_);
+    }
     res(tmp_, R3_);
+    if (guard_) {
+        stage_combine(g_, U, 1.0 / 3.0, tmp_, 2.0 / 3.0, dt, R3_);
+        repair(g_, [&] {
+            res(tmp_, R3_);
+            stage_combine(g_, U, 1.0 / 3.0, tmp_, 2.0 / 3.0, dt, R3_);
+        });
+        U.swap(g_);
+        return s;
+    }
     ssp3_combine(U, U, 1.0 / 3.0, tmp_, 2.0 / 3.0, dt, R3_);
     return s;
 }

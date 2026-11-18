@@ -514,6 +514,97 @@ TEST(celladvance_conserves_across_level_jumps_and_the_control_fails) {
     }
 }
 
+// positivity_fallback on the adaptive mesh. Two jets collide head on at Mach ~100 (p = 0.4): WENO3-Z with HLLC at CFL 0.95 leaves cells
+// without density or pressure, so the repair fires. jets_admissible() is the test of Simulation's guard.
+static bool jets_admissible(const EOS& eos, const State& u) {
+    const double rho = u[0];
+    if (!(rho > 0.0)) return false;
+    const double ke = 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4]) / rho;
+    return eos.pressure_law().from_internal_energy_density(u[3] - ke) > 0.0;
+}
+
+static State jets_state(const EOS& eos, double x, double Lx) {
+    return x < 0.5 * Lx ? eos.prim_to_cons({1.0, -80.0, 0.0, 0.4, 0.0}) : eos.prim_to_cons({1.0, 72.0, 0.0, 0.45, 0.0});
+}
+
+TEST(positivity_fallback_level0_steps_equal_the_uniform_steps_bitwise) {
+    // The same fixed dt on both solvers (the time loops differ in the age of the wave-speed bound, so a CFL run is not comparable): the
+    // guarded stages repeat the same way, every state bit for bit, and the repair fires.
+    for (int max_level : {0, 2}) {
+        Simulation sim;
+        sim.setup(cell_flux_params({{"nx", "120"}, {"ny", "4"}, {"bc_left", "periodic"}, {"bc_right", "periodic"}, {"bc_bottom", "periodic"},
+                                    {"bc_top", "periodic"}, {"reconstruction", "weno3"}, {"riemann_solver", "HLLC"},
+                                    {"time_scheme", "SSP Runge-Kutta 3"}, {"positivity_fallback", "true"}, {"use_viscous", "false"}}),
+                  false);
+        const Mesh& u = sim.mesh;
+        CellMesh cm(u.Lx, u.Ly, u.nx, u.ny, max_level, true, true, u.x0, u.y0);
+        Field Uu(static_cast<size_t>(u.num_cells()));
+        for (int j = 0; j < u.ny; ++j)
+            for (int i = 0; i < u.nx; ++i) Uu[j * u.nx + i] = jets_state(sim.fluid, u.xc(i), u.Lx);
+        cm.U.resize(cm.num_leaves());
+        for (int c = 0; c < cm.num_leaves(); ++c) cm.U[c] = Uu[cm.cj[c] * u.nx + cm.ci[c]];
+        CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+        eng.build(cm);
+        std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme("SSP Runge-Kutta 3"), 0.4);
+        CellAdvance adv(cm, eng, *ts);
+        adv.enable_positivity_fallback([&](const State& s) { return jets_admissible(sim.fluid, s); });
+        const double dt = 0.95 * std::min(u.dx, u.dy) / 82.0;
+        const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
+        for (int k = 0; k < 12; ++k) {
+            sim.scheme->advance_fixed_dt(Uu, res, dt);
+            adv.step(dt, k * dt);
+        }
+        bool same = true;
+        for (int c = 0; c < cm.num_leaves(); ++c)
+            for (int q = 0; q < kNVar; ++q) same = same && cm.U[c][q] == Uu[cm.cj[c] * u.nx + cm.ci[c]][q];
+        CHECK(same);
+        CHECK(adv.positivity_repairs() > 0);
+        CHECK(adv.positivity_repairs() == sim.positivity_repairs());
+        if (!same) std::printf("    max_level %d: the guarded steps differ from the uniform ones\n", max_level);
+    }
+}
+
+TEST(positivity_fallback_conserves_across_level_jumps_while_it_repairs) {
+    // Three levels, periodic: a repeated stage replaces its flux-register contribution, so the totals stay constant to roundoff while
+    // the repair fires (a stage that added its registers twice would not conserve). The opening of the vacuum sits in the middle of
+    // the finest level; its coarse-fine faces are far from it for the few steps taken (a coarse leaf that loses positivity next to a
+    // jump keeps the register flux of the fine stage: see CellAdvance::enable_positivity_fallback).
+    CellSetup su(true, Limiter::VanLeer, Reconstruction::Weno3);
+    CellMesh mm(1.2, 0.08, 60, 4, 2, true, true);
+    for (int round = 0; round < 2; ++round) {
+        std::vector<char> r(static_cast<size_t>(mm.num_leaves())), c(static_cast<size_t>(mm.num_leaves()), 0);
+        for (int k = 0; k < mm.num_leaves(); ++k) r[static_cast<size_t>(k)] = std::abs(mm.xc(k) - 0.6) < 0.3 ? 1 : 0;
+        mm.adapt(r, c);
+    }
+    CHECK(mm.level_begin[2] < mm.num_leaves());   // the finest level exists
+    mm.U.resize(mm.num_leaves());
+    for (int c = 0; c < mm.num_leaves(); ++c) mm.U[c] = jets_state(su.eos, mm.xc(c), mm.Lx);
+    CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
+    eng.build(mm);
+    std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme("SSP Runge-Kutta 3"), 0.95);
+    CellAdvance adv(mm, eng, *ts);
+    adv.enable_positivity_fallback([&](const State& s) { return jets_admissible(su.eos, s); });
+    double before[4], mag[4], worst = 0.0;
+    for (int q = 0; q < 4; ++q) {
+        before[q] = cell_total(mm, q);
+        mag[q] = 0.0;
+        for (int c = 0; c < mm.num_leaves(); ++c) mag[q] += std::abs(mm.U[c][q]) * mm.area(c);
+    }
+    double S = 82.0;
+    for (int k = 0; k < 4; ++k) S = std::max(adv.step(0.95 * mm.dx(0) / S, k * 0.001), 1.0);
+    for (int q = 0; q < 4; ++q) {
+        if (mag[q] == 0.0) continue;   // the transverse momentum is zero everywhere
+        const double e = std::abs(cell_total(mm, q) - before[q]) / mag[q];
+        worst = e == e ? std::max(worst, e) : 1e30;   // a NaN is a failure
+    }
+    std::printf("    %lld repair passes, conservation error %.3e\n", adv.positivity_repairs(), worst);
+    CHECK(adv.positivity_repairs() > 0);
+    CHECK(worst < 1e-13);
+    bool admissible = true;
+    for (int c = 0; c < mm.num_leaves(); ++c) admissible = admissible && jets_admissible(su.eos, mm.U[c]);
+    CHECK(admissible);
+}
+
 TEST(celladvance_second_order_wall_faces_conserve_mass_and_energy_in_a_closed_box) {
     // Four slip walls with ghost layers (boundary_order = 2), three levels with jumps that meet the walls: the mirrored face states
     // carry no mass and no energy through a wall, so the totals stay constant to roundoff. Momentum is not conserved (wall pressure).

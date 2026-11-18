@@ -292,6 +292,15 @@ void Simulation::solve_amr() {
     const bool root = rank == 0;
     CellAdvance adv(cm, eng, *scheme);
     if (cell_par) adv.par = cell_par.get();
+    if (p.positivity_fallback) {
+        const double p_inf = fluid.type == EOS::Type::StiffenedGas ? fluid.p_inf : 0.0;
+        adv.enable_positivity_fallback([this, p_inf](const State& u) {
+            const double rho = u[0];
+            if (!(rho > 0.0)) return false;
+            const double ke = 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4]) / rho;
+            return fluid.pressure_law().from_internal_energy_density(u[3] - ke) + p_inf > 0.0;
+        });
+    }
     adv.stage_hook = [this](int, double stage_time) { update_boundary_values(stage_time, boundaries); };
     // each rank keeps only its leaves and their halo (CellParallel::localize), unless FENICE_REPLICATED_REMESH=1
     const bool local_run = cell_par && cell_par->localized();
@@ -597,6 +606,9 @@ void Simulation::solve_amr() {
     } else
         std::printf("[AMR] remesh parts: gather %.2f s, indicator %.2f s, adapt %.2f s, engine build %.2f s, wave-speed bound %.2f s, partition %.2f s\n",
                     t_gather, cell_adaptor->t_indicator, cell_adaptor->t_adapt, cell_adaptor->t_build, t_speed, t_partition);
+    if (root && p.positivity_fallback)
+        std::printf("[POSITIVITY] %lld repair passes (the same on every rank), %lld leaves flagged on rank 0\n", adv.positivity_repairs(),
+                    adv.positivity_flags());
     double lo[4], hi[4];
     for (int q = 0; q < 4; ++q) {
         lo[q] = hi[q] = mem[static_cast<size_t>(q)];

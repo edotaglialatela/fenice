@@ -80,6 +80,8 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
             wr[q] = muscl_->weno5_value(g[q], e[q], d[q], c[q], b[q]);
         }
     };
+    const bool fb_on = fallback_on && static_cast<int>(fallback_flags.size()) == nleaf_;
+    const auto fb_leaf = [&](int code) { return code >= 0 && code < nleaf_ && fallback_flags[static_cast<size_t>(code)] != 0; };
     const auto fluid_leaf_of = [&](int code, int level) {   // a leaf of `level` that is not in the body
         return code >= 0 && code < nleaf_ && m.level[static_cast<size_t>(code)] == level &&
                (solid_.empty() || !solid_[static_cast<size_t>(code)]);
@@ -141,12 +143,14 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
             const int f = faces[static_cast<size_t>(fi)];
             const CellFace& face = m.faces[f];
             State UL, UR;
+            // positivity_fallback: a face next to a flagged leaf is first order (the two leaf values), a boundary face too
+            const bool fb_face = fb_on && (fb_leaf(face.left) || fb_leaf(face.right));
             if (face.kind == CellFaceKind::Boundary) {
                 const bool ghost_right = face.left >= 0;
                 const int c = ghost_right ? face.left : face.right;
                 const State Ui = U[c];
                 int n1 = -1;   // the leaf (or virtual cell) behind the boundary leaf: the second ghost layer mirrors it
-                if (bo2 && side_ok(face.side)) {
+                if (bo2 && side_ok(face.side) && !fb_face) {
                     n1 = nbr_[static_cast<size_t>(ns_) * c + (static_cast<int>(face.side) ^ 1)];
                     if (n1 == kOutside) throw std::logic_error("CellFluxEngine: a boundary face reads a leaf that is not in this rank's partial mesh");
                 }
@@ -188,7 +192,7 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                         roundtrip(UR);
                     }
                 }
-            } else if (!muscl_) {
+            } else if (!muscl_ || fb_face) {
                 UL = U[face.left];
                 UR = U[face.right];
             } else {
@@ -980,6 +984,18 @@ void CellFluxEngine::accumulate_registers(const CellMesh& m, int l, double w) {
             }
         }
     }
+}
+
+void CellFluxEngine::save_registers(int l, Field& conv, Field& visc) const {
+    const auto b = static_cast<size_t>(reg_level_begin_[static_cast<size_t>(l)]), e = static_cast<size_t>(reg_level_begin_[static_cast<size_t>(l) + 1]);
+    conv.assign(reg_.begin() + b, reg_.begin() + e);
+    visc.assign(regv_.begin() + b, regv_.begin() + e);
+}
+
+void CellFluxEngine::restore_registers(int l, const Field& conv, const Field& visc) {
+    const auto b = static_cast<size_t>(reg_level_begin_[static_cast<size_t>(l)]);
+    std::copy(conv.begin(), conv.end(), reg_.begin() + b);
+    std::copy(visc.begin(), visc.end(), regv_.begin() + b);
 }
 
 void CellFluxEngine::solid_reset(const CellMesh& m, Field& U) const {

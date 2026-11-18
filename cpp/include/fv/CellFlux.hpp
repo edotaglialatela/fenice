@@ -140,6 +140,15 @@ public:
     void clear_registers(const CellMesh& mesh, int l);
     // reg += w * F for the coarse-fine faces of level l (call after compute_level_fluxes of that level).
     void accumulate_registers(const CellMesh& mesh, int l, double w);
+    // positivity_fallback: copy the registers of the faces of level l aside / back, so a repeated stage replaces its contribution
+    // instead of adding it twice.
+    void save_registers(int l, Field& conv, Field& visc) const;
+    void restore_registers(int l, const Field& conv, const Field& visc);
+    // positivity_fallback: while `fallback_on`, every face next to a leaf with a nonzero entry of `fallback_flags` (one entry per
+    // leaf of the mesh, the halo leaves included) takes the two leaf values as its states (the first-order flux); the caller
+    // (CellAdvance) sets and clears them around a repeated stage. Off: the face kernels are not touched.
+    bool fallback_on = false;
+    std::vector<char> fallback_flags;
 
     // --- immersed body (no-ops without one) ---
     // Take the body forcing of the whole state U (solid leaves stopped, ghost leaves filled from the fluid); the level pieces read

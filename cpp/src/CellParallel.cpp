@@ -271,6 +271,21 @@ void CellParallel::push_leaves(const Lists& lists) {
 
 void CellParallel::exchange_stage(int level) { push_leaves(stage_[static_cast<size_t>(level)]); }
 
+void CellParallel::exchange_flags(int level, std::vector<char>& flags) {
+    if (comm_.size <= 1) return;
+    const Lists& lists = stage_[static_cast<size_t>(level)];
+    std::vector<std::vector<double>> send(static_cast<size_t>(comm_.size)), recv(static_cast<size_t>(comm_.size));
+    for (int r = 0; r < comm_.size; ++r) {
+        for (const int c : lists.send[static_cast<size_t>(r)]) send[static_cast<size_t>(r)].push_back(flags[static_cast<size_t>(c)] ? 1.0 : 0.0);
+        recv[static_cast<size_t>(r)].resize(lists.recv[static_cast<size_t>(r)].size());
+    }
+    comm_.exchange(send, recv);
+    for (int r = 0; r < comm_.size; ++r) {
+        size_t k = 0;
+        for (const int c : lists.recv[static_cast<size_t>(r)]) flags[static_cast<size_t>(c)] = recv[static_cast<size_t>(r)][k++] != 0.0 ? 1 : 0;
+    }
+}
+
 void CellParallel::exchange_final(int level) { push_leaves(final_[static_cast<size_t>(level)]); }
 
 void CellParallel::exchange_solid() {

@@ -61,11 +61,12 @@ public:
     // The work fields of the scheme (stage residuals, stage state) exchanged with `w`. A caller that advances fields of several
     // sizes in turn (the levels of an adaptive mesh) keeps one set per size: with a single set every change of size would
     // resize the fields, and growing one fills it with zeros on one thread.
-    void swap_work(std::array<Field, 4>& w) {
+    void swap_work(std::array<Field, 5>& w) {
         R1_.swap(w[0]);
         R2_.swap(w[1]);
         R3_.swap(w[2]);
         tmp_.swap(w[3]);
+        g_.swap(w[4]);
     }
 
     double cfl;   // CFL number

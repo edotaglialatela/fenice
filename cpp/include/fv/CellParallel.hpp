@@ -165,6 +165,9 @@ public:
 
     // Push the stage state of the owned leaves of `level` that other ranks read in the faces of that level.
     void exchange_stage(int level);
+    // positivity_fallback: the flags (one entry per leaf of the share) of the owned leaves of `level` to the ranks that hold them as
+    // halo, along the lists of exchange_stage; the halo entries are overwritten.
+    void exchange_flags(int level, std::vector<char>& flags);
     // Push the final state of the owned leaves of `level` to every rank that reads them.
     void exchange_final(int level);
     // Push the owned solid leaves (after the solid reset).

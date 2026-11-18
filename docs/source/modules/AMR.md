@@ -134,6 +134,14 @@ it **replaces** the flux it would have used by that accumulated one (the registe
 coarse cell and the fine cells exchange exactly the same amount. Mass, momentum and energy are
 conserved to roundoff with every time scheme, including the multi-stage ones.
 
+With `positivity_fallback = true` each stage of a level is scanned on its owned leaves; a leaf
+left without density or pressure joins a flagged set and the stage is repeated with first-order
+faces (the two leaf values) around the set, until nothing new turns up. A repeated stage
+replaces the registers it added, so the replacement stays conservative; on MPI ranks the flags
+travel along the stage lists and the ranks repeat a stage together. A coarse leaf that is
+flagged in its own stage repairs its same-level and boundary faces only: its coarse-fine faces
+enter through the register and keep the flux of the fine stage.
+
 ## Error indicator
 
 The indicator looks at the variation of the solution across faces, level by level (`CellIndicator`).

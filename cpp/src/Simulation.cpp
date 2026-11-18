@@ -475,7 +475,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
 #endif
     }
 
-    if (p.positivity_fallback) {
+    if (p.positivity_fallback && !p.use_amr) {
         // opt-in repair of a stage that leaves a cell with density or pressure <= 0: the cell joins the flagged set, the stage is repeated
         // with first-order faces around the set (Halos::fallback), until no new cell turns up. A run without the key never gets here.
         fb_cells_.assign(static_cast<size_t>(mesh.num_cells()), 0);

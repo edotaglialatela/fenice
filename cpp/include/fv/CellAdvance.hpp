@@ -41,6 +41,16 @@ public:
     // Test hook: false makes a coarse cell read the last computed flux of a coarse-fine face instead of the
     // register (the conservation test must then fail).
     bool flux_replacement = true;
+    // positivity_fallback (opt-in): after each stage of a level the new state of the owned leaves is scanned with `admissible`; where
+    // a leaf is not admissible, it joins the flagged set and the stage is repeated with first-order faces around the set (the face
+    // kernels of CellFluxEngine), until no new leaf turns up (TimeScheme::kMaxRepairs). A repeated stage replaces its registers, it
+    // does not add to them, so the flux replacement stays conservative. Without the call nothing is scanned.
+    // A leaf flagged in its own stage repairs its same-level and boundary faces; a coarse-fine face is computed by the finer level
+    // and enters the coarse leaf through the register, so it keeps the flux of the fine stage.
+    void enable_positivity_fallback(std::function<bool(const State&)> admissible);
+    long long positivity_repairs() const { return repairs_; }   // repeated passes, counted on every rank (the same number)
+    long long positivity_flags() const { return flagged_; }     // leaves flagged over the run on this rank (owned leaves)
+    ~CellAdvance();
     // Test hook, called before every stage residual with the level and the stage time set in the scheme.
     std::function<void(int level, double stage_time)> stage_hook;
 
@@ -54,7 +64,14 @@ private:
     // per level: the state of the owned leaves being advanced and the work fields of the scheme (kept between the steps: a
     // level's fields keep their size, nothing is allocated or filled in a step)
     std::vector<Field> ul_;
-    std::vector<std::array<Field, 4>> work_;
+    std::vector<std::array<Field, 5>> work_;
+    // positivity_fallback
+    StageGuard guard_;
+    std::function<bool(const State&)> admissible_;
+    bool repeat_ = false;     // the next residual call repeats the stage just scanned
+    int cur_level_ = 0, cur_b_ = 0;
+    Field reg_conv_, reg_visc_;   // the registers of the level before its current stage
+    long long repairs_ = 0, flagged_ = 0;
 };
 
 }   // namespace fv

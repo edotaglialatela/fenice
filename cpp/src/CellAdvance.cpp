@@ -17,6 +17,47 @@ void copy_states(const State* src, int n, State* dst) {
 
 }   // namespace
 
+void CellAdvance::enable_positivity_fallback(std::function<bool(const State&)> admissible) {
+    admissible_ = std::move(admissible);
+    guard_.mark = [this](const Field& cand) {
+        std::vector<char>& fl = engine_.fallback_flags;
+        if (static_cast<int>(fl.size()) != mesh_.num_leaves()) fl.assign(static_cast<size_t>(mesh_.num_leaves()), 0);
+        const int n = static_cast<int>(cand.size());
+        bool grew = false;
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+        for (int c = 0; c < n; ++c) {
+            const size_t leaf = static_cast<size_t>(cur_b_ + c);
+            if (!fl[leaf] && !admissible_(cand[static_cast<size_t>(c)])) {
+                fl[leaf] = 1;
+#pragma omp critical(fenice_amr_fallback_grew)
+                grew = true;
+            }
+        }
+        // every rank takes the same decision: the stage has collectives (exchange_stage), so the ranks repeat it together
+        if (par) grew = par->reduce_max(grew ? 1.0 : 0.0) > 0.0;
+        if (grew) {
+            if (par) par->exchange_flags(cur_level_, fl);   // the flags of the halo leaves of a face this rank computes too
+            engine_.fallback_on = true;
+            repeat_ = true;
+            ++repairs_;
+        }
+        return grew;
+    };
+    guard_.clear = [this]() {
+        repeat_ = false;
+        if (!engine_.fallback_on) return;
+        std::vector<char>& fl = engine_.fallback_flags;
+        for (int c = engine_.owned_begin(cur_level_); c < engine_.owned_end(cur_level_); ++c) flagged_ += fl[static_cast<size_t>(c)] ? 1 : 0;
+        std::fill(fl.begin(), fl.end(), char(0));
+        engine_.fallback_on = false;
+    };
+    scheme_.set_guard(&guard_);
+}
+
+CellAdvance::~CellAdvance() {
+    if (admissible_) scheme_.set_guard(nullptr);
+}
+
 double CellAdvance::step(double dt, double t) {
     if (static_cast<int>(mesh_.U.size()) != mesh_.num_leaves())
         throw std::logic_error("CellAdvance::step: the mesh has no state");
@@ -58,11 +99,18 @@ double CellAdvance::advance_own(int l, double dt, double t) {
         ul_.assign(static_cast<size_t>(mesh_.max_level) + 1, {});
         work_.assign(static_cast<size_t>(mesh_.max_level) + 1, {});
     }
+    cur_level_ = l;
+    cur_b_ = b;
     Field& Ul = ul_[static_cast<size_t>(l)];
     Ul.resize(static_cast<size_t>(e - b));
     copy_states(mesh_.U.data() + b, e - b, Ul.data());
     const ResidualFn res = [&](const Field& Uin, Field& R) {
-        if (stage >= weights.size()) throw std::logic_error("CellAdvance: the scheme made more stages than it declares");
+        // a stage the guard repeats: the same stage again (same time, same weight), its registers replace the first pass's
+        const bool again = repeat_;
+        repeat_ = false;
+        if (again && stage == 0) throw std::logic_error("CellAdvance: a repeat before the first stage");
+        const size_t st = again ? stage - 1 : stage;
+        if (st >= weights.size()) throw std::logic_error("CellAdvance: the scheme made more stages than it declares");
         ProfileScope ps_stage(Section::AmrStage);
         // this level's stage state, seen by its neighbours (the first stage's is the state the mesh holds already)
         if (&Uin != &Ul) copy_states(Uin.data(), e - b, mesh_.U.data() + b);
@@ -73,7 +121,7 @@ double CellAdvance::advance_own(int l, double dt, double t) {
         }
         ProfileScope ps_time(Section::AmrStage);
         // stage time as TimeScheme::step() sets it
-        const double o = offsets[stage];
+        const double o = offsets[st];
         scheme_.stage_time = o == 0.0 ? t : (o == 1.0 ? t + dt : t + o * dt);
         engine_.stage_time = scheme_.stage_time;
         if (stage_hook) stage_hook(l, scheme_.stage_time);
@@ -85,13 +133,17 @@ double CellAdvance::advance_own(int l, double dt, double t) {
         }
         if (l > 0) {
             ProfileScope ps(Section::AmrRegisters);
-            engine_.accumulate_registers(mesh_, l, 0.5 * weights[stage]);
+            if (admissible_) {
+                if (again) engine_.restore_registers(l, reg_conv_, reg_visc_);
+                else engine_.save_registers(l, reg_conv_, reg_visc_);
+            }
+            engine_.accumulate_registers(mesh_, l, 0.5 * weights[st]);
         }
         {
             ProfileScope ps(Section::AmrGather);
             engine_.gather_level(mesh_, l, flux_replacement, R);
         }
-        ++stage;
+        if (!again) ++stage;
         return s;
     };
     scheme_.swap_work(work_[static_cast<size_t>(l)]);   // the work fields of this level's size

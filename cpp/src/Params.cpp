@@ -411,7 +411,6 @@ SimParams SimParams::from(const Params& p) {
     if (s.positivity_fallback) {
         if (s.reconstruction != "weno3" && s.reconstruction != "weno5")
             throw std::invalid_argument("positivity_fallback needs reconstruction = weno3 or weno5 (the other schemes keep their reconstructed states between the cells)");
-        if (s.use_amr) throw std::invalid_argument("positivity_fallback is not available with use_amr yet");
         if (s.flux_quadrature != "midpoint") throw std::invalid_argument("positivity_fallback needs flux_quadrature = midpoint");
     }
     // a first-order scheme has no reconstruction to extend to the boundary faces: the order is then 1 whatever was asked
