@@ -128,8 +128,13 @@ physical cores up to 24, and the counts above 24 use both hardware threads of a 
 | AMR octree sphere | 4.54 s | 2.5x (16 ranks) | 3.9x (16 threads) | 1.9x (12 x 2) |
 
 <figure>
-<img src="{{root}}img/workstation_scaling.png" alt="Strong scaling on MPI ranks, OpenMP threads and ranks x threads">
-<figcaption>Speed-up (top) and parallel efficiency (bottom) of the six cases on MPI ranks, OpenMP threads and ranks x threads (triangles, at the number of ranks). The grey band marks the counts above the 24 physical cores.</figcaption>
+<img src="{{root}}img/workstation_speedup.png" alt="Speed-up of the six cases on MPI ranks, OpenMP threads and ranks x threads">
+<figcaption>Speed-up of the time loop of the six cases on MPI ranks, OpenMP threads and ranks x threads (triangles, at the number of ranks). The grey band marks the counts above the 24 physical cores.</figcaption>
+</figure>
+
+<figure>
+<img src="{{root}}img/workstation_efficiency.png" alt="Parallel efficiency of the six cases on MPI ranks, OpenMP threads and ranks x threads">
+<figcaption>Parallel efficiency (speed-up divided by the number of workers) of the same runs.</figcaption>
 </figure>
 
 * **The uniform cases stop at 7 to 12 times the single-core speed**, whatever the mix of ranks and threads, and gain little past 16 to 24 workers: the same ceiling for MPI and OpenMP,
