@@ -23,6 +23,7 @@
 #include <tuple>
 #include <vector>
 
+#include "fv/CaseCheck.hpp"
 #include "fv/CellAdvance.hpp"
 #include "fv/CellFlux.hpp"
 #include "fv/CellMesh.hpp"

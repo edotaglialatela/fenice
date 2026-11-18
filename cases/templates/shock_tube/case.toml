@@ -1,0 +1,34 @@
+# Template: a shock tube. Two uniform gas states separated by a diaphragm; open ends, walls above and below.
+# Change the two states, the mesh and t_end; add [numerics] reconstruction = "muscl" for sharper waves.
+[case]
+name = "Shock Tube Template"
+description = "Template: Riemann problem between two uniform states"
+
+[mesh]
+Lx = 1.0         # tube length
+Ly = 0.1         # a thin strip: the flow is one-dimensional
+nx = 200
+ny = 20
+
+[boundaries]
+bc_left = "transmissive"     # waves leave freely
+bc_right = "transmissive"
+bc_bottom = "wall"
+bc_top = "wall"
+
+[numerics]
+reconstruction = "muscl"     # none = first order, muscl, weno3, weno5
+time_scheme = "SSP Runge-Kutta 2"
+
+[run]
+t_end = 0.2
+save_interval = 20           # a snapshot every 20 steps
+
+[initial]
+state = { rho = 0.125, u = 0.0, v = 0.0, p = 0.1 }   # background: the right state
+
+[[initial.region]]           # the left state, where x <= Lx/2
+shape = "halfspace"
+point = ["Lx/2", 0.0]
+normal = [-1.0, 0.0]         # points out of the region
+state = { rho = 1.0, p = 1.0 }

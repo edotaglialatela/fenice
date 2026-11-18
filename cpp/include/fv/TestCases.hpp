@@ -34,6 +34,10 @@ std::string cases_directory();
 // A case file that fails to load is reported on stderr and skipped.
 const std::vector<TestCase>& test_registry();
 
+// Names of the starter templates (the folders of cases_directory()/templates holding a case.toml), sorted.  They are not in the
+// registry: get_test_case("template:NAME") loads one, e.g. as the source of --new-case.
+std::vector<std::string> template_names();
+
 // A case by [case] name, by folder name, or by path to a case folder / case.toml.
 // Throws std::invalid_argument for an unknown case (with a "did you mean" hint) and
 // std::runtime_error for a case file that does not load.

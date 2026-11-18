@@ -42,6 +42,42 @@ def available_cases() -> tuple[str, ...]:
 
 
 @functools.lru_cache(maxsize=None)
+def available_templates() -> tuple[tuple[str, str], ...]:
+    """The starter templates as (name, description); use one as the case ``template:<name>``. Empty if the solver predates them."""
+    try:
+        out = _run("--list-templates")
+    except RuntimeError:
+        return ()
+    rows = (line.split("\t", 1) for line in out.splitlines() if line.strip())
+    return tuple((r[0], r[1] if len(r) > 1 else "") for r in rows)
+
+
+def check_run(params: dict) -> list[tuple[str, str]]:
+    """Problems of the run *params* describes, as (level, message) with level "error" or "warning" (``fenice --check-case``).
+
+    Keys that have no effect and notes are left out: the dialog sends every field, so most switched-off ones would show up.
+    A parameter the solver rejects comes back as an error; an unusable solver gives an empty list.
+    """
+    fd, cfg = tempfile.mkstemp(prefix="fenice_", suffix=".cfg")
+    os.close(fd)
+    try:
+        write_config(params, cfg)
+        res = subprocess.run([solver_exe(), "--config", cfg, "--check-case", "--no-logo"], capture_output=True, text=True)
+    except (SolverNotFound, OSError):
+        return []
+    finally:
+        os.remove(cfg)
+    if res.returncode == 2:
+        return [("error", (res.stderr or res.stdout).strip().replace("[ERROR] ", ""))]
+    found = []
+    for line in res.stdout.splitlines():
+        level, _, message = line.partition(": ")
+        if level in ("error", "warning"):
+            found.append((level, message))
+    return found
+
+
+@functools.lru_cache(maxsize=None)
 def case_defaults(name: str) -> dict[str, str]:
     """Fully resolved parameters (baseline + case DEFAULTS) for test case *name*, as strings."""
     out = _run("--case", name, "--print-config")

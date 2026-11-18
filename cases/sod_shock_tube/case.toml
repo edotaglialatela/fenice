@@ -14,8 +14,6 @@ ny = 20
 [physics]
 use_viscous = false
 use_bodyforce = false
-gx = 0.0
-gy = 0.0
 
 [boundaries]
 bc_left = "transmissive"

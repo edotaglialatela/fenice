@@ -17,8 +17,6 @@ ny = 20
 use_viscous = true
 mu = 0.02
 use_bodyforce = false
-gx = 0.0
-gy = 0.0
 
 [boundaries]
 bc_left = "massflow_inlet"

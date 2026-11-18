@@ -23,7 +23,7 @@ from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QF
                              QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
                              QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
-from gui.solver import ROOT_DIR, amr_gui_defaults, available_cases, case_defaults, save_case
+from gui.solver import ROOT_DIR, amr_gui_defaults, available_cases, available_templates, case_defaults, check_run, save_case
 from gui.theme import COLORS
 
 _BOOL_KEYS = {"use_viscous", "use_bodyforce", "resume", "use_mpi", "use_ibm", "use_hot_start", "use_amr"}
@@ -42,6 +42,16 @@ def _gui_values(params):
             out[key] = value
     return out
 
+
+def _number_or_expression(text):
+    """A number, or the text itself when it is an expression of the other parameters (``0.3*sqrt(gamma*p_out/rho_in)``)."""
+    text = text.strip()
+    try:
+        return float(text)
+    except ValueError:
+        if text:
+            return text
+        raise
 
 class IndicatorBox(QWidget):
     """The variables of the AMR indicator as check boxes; text() / setText() use the solver's string ('density+velocity', in this order)."""
@@ -144,6 +154,10 @@ class SetupDialog(QDialog):
         save_case_btn.setObjectName("secondaryButton")
         save_case_btn.setToolTip("Save this configuration as a new test case under cases/")
         save_case_btn.clicked.connect(self._save_as_case)
+        check_btn = self.buttons.addButton("Check case", QDialogButtonBox.ButtonRole.ActionRole)
+        check_btn.setObjectName("secondaryButton")
+        check_btn.setToolTip("List what is probably wrong with this configuration (an inlet at rest, a body across the edge, ...)")
+        check_btn.clicked.connect(lambda: self._check_case(report_ok=True))
         self.buttons.accepted.connect(self.validate_and_accept)
         self.buttons.rejected.connect(self.reject)
         main_right_layout.addWidget(self.buttons)
@@ -184,6 +198,16 @@ class SetupDialog(QDialog):
         self.check_amr.toggled.connect(self._toggle_amr_inputs)
 
         self._apply_initial_defaults()
+
+    def _fill_case_combo(self):
+        """The cases, then the starter templates (written as ``template:<name>``) below a separator."""
+        self.combo_testcase.addItems(available_cases())
+        templates = available_templates()
+        if templates:
+            self.combo_testcase.insertSeparator(self.combo_testcase.count())
+            for name, description in templates:
+                self.combo_testcase.addItem(f"template:{name}")
+                self.combo_testcase.setItemData(self.combo_testcase.count() - 1, description, Qt.ItemDataRole.ToolTipRole)
 
     def _build_header(self):
         """Title block above the tab strip (app name + one-line purpose)."""
@@ -229,7 +253,7 @@ class SetupDialog(QDialog):
         g0 = QGroupBox("Initial problem")
         f0 = QFormLayout()
         self.combo_testcase = QComboBox()
-        self.combo_testcase.addItems(available_cases())
+        self._fill_case_combo()
         f0.addRow("Test case:", self.combo_testcase)
         g0.setLayout(f0)
         add_group("Case and physics", g0)
@@ -977,7 +1001,7 @@ class SetupDialog(QDialog):
                 'cfl': float(self.input_cfl.text()), 't_end': float(self.input_t_end.text()),
                 'save_interval': int(self.input_save_interval.text()),
                 'use_viscous': self.check_viscous.isChecked(), 'mu': float(self.input_mu.text()),
-                'pr': float(self.input_pr.text()), 'u_in': float(self.input_u_in.text()),
+                'pr': float(self.input_pr.text()), 'u_in': _number_or_expression(self.input_u_in.text()),
                 'rho_in': float(self.input_rho_in.text()), 'p_out': float(self.input_p_out.text()),
                 'use_bodyforce': self.check_bodyforce.isChecked(), 'gx': float(self.input_gx.text()),
                 'gy': float(self.input_gy.text()), 'resume': self.check_resume.isChecked(),
@@ -1040,8 +1064,26 @@ class SetupDialog(QDialog):
             self._error( "Input Error", "Please check all fields.")
             return False
 
+    def _check_case(self, report_ok=False):
+        """Run ``fenice --check-case`` on the form. Returns False if the user stops at the findings."""
+        if not self._collect_params():
+            return False
+        found = check_run(self.sim_params)
+        if not found:
+            if report_ok:
+                QMessageBox.information(self, "Check case", "Nothing found.")
+            return True
+        text = "\n".join(f"- {message}" for _, message in found)
+        if report_ok:
+            QMessageBox.warning(self, "Check case", text)
+            return True
+        box = QMessageBox(QMessageBox.Icon.Warning, "Check case", text + "\n\nRun anyway?", parent=self)
+        box.setStandardButtons(QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.Cancel)
+        box.setDefaultButton(QMessageBox.StandardButton.Cancel)
+        return box.exec() == QMessageBox.StandardButton.Yes
+
     def validate_and_accept(self):
-        if self._collect_params():
+        if self._collect_params() and self._check_case():
             self.accept()
 
     def _save_as_case(self):
@@ -1068,7 +1110,7 @@ class SetupDialog(QDialog):
         current = select or self.combo_testcase.currentText()
         self.combo_testcase.blockSignals(True)
         self.combo_testcase.clear()
-        self.combo_testcase.addItems(available_cases())
+        self._fill_case_combo()
         self.combo_testcase.blockSignals(False)
         idx = self.combo_testcase.findText(current)
         self.combo_testcase.setCurrentIndex(max(idx, 0))

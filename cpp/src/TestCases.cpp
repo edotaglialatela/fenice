@@ -139,21 +139,40 @@ const std::vector<TestCase>& test_registry() {
     return reg;
 }
 
+std::vector<std::string> template_names() {
+    std::vector<std::string> names;
+    std::error_code ec;
+    const fs::path dir = fs::path(cases_directory()) / "templates";
+    if (!fs::is_directory(dir, ec)) return names;
+    for (const auto& entry : fs::directory_iterator(dir, ec))
+        if (entry.is_directory() && fs::exists(entry.path() / "case.toml")) names.push_back(entry.path().filename().string());
+    std::sort(names.begin(), names.end());
+    return names;
+}
+
 const TestCase& get_test_case(const std::string& key) {
     for (const auto& tc : test_registry())
         if (tc.key == key) return tc;
     for (const auto& tc : test_registry())
         if (fs::path(tc.source).parent_path().filename().string() == key) return tc;
 
-    // A case folder / case.toml outside the registry
+    // A starter template ("template:NAME"), or a case folder / case.toml outside the registry
     std::error_code ec;
-    if (fs::exists(fs::path(key), ec)) {
+    const bool is_template = key.rfind("template:", 0) == 0;
+    const std::string target = is_template ? (fs::path(cases_directory()) / "templates" / key.substr(9)).string() : key;
+    if (fs::exists(fs::path(target), ec)) {
         static std::map<std::string, std::unique_ptr<TestCase>> loaded;
-        const std::string id = fs::weakly_canonical(fs::path(key), ec).generic_string();
+        const std::string id = fs::weakly_canonical(fs::path(target), ec).generic_string();
         auto it = loaded.find(id);
         if (it == loaded.end())
-            it = loaded.emplace(id, std::make_unique<TestCase>(make_test_case(load_case_file(key)))).first;
+            it = loaded.emplace(id, std::make_unique<TestCase>(make_test_case(load_case_file(target)))).first;
         return *it->second;
+    }
+    if (is_template) {
+        const std::vector<std::string> names = template_names();
+        std::string list;
+        for (const std::string& n : names) list += (list.empty() ? "" : ", ") + n;
+        throw std::invalid_argument("Unknown template: '" + key.substr(9) + "'. Available: " + (list.empty() ? "none" : list));
     }
 
     std::vector<std::string> names;

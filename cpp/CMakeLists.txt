@@ -15,6 +15,7 @@ option(FV_SANITIZE   "Address and undefined-behaviour checks (GCC / Clang; MSVC:
 
 add_library(fenice_core STATIC
   src/CaseFile.cpp
+  src/CaseCheck.cpp
   src/Core.cpp
   src/Geometry.cpp
   src/Boundaries.cpp

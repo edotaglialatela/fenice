@@ -197,6 +197,16 @@ four general-purpose pages. The cylinder recipes in the case guide are examples 
   A-sample columns in the summary or save them beside it as `a_sample.csv`. Intervals estimate sampling error in the indices; they do not
   include solver discretization error.
 
+## Starting from a template, checking a setup
+
+Below the cases, the test-case list offers the [starter templates]({{root}}guide/writing-cases.html#starter-templates) as
+`template:<name>` (a shock tube, a periodic box, a channel, a body in a stream, a 3-D box). Pick one, change the form, and use
+**Save case…** to keep it as a case of your own.
+
+**Check case** lists what is probably wrong with the form (a `vel_inlet` with no inflow, a body across the domain edge, `cfl` above 1) by
+running `fenice --check-case` on it. **Run simulation** does the same first and asks before it starts if there is anything to report.
+The inlet speed field also takes an expression of the other parameters, such as `0.3*sqrt(gamma*p_out/rho_in)` for Mach 0.3.
+
 ## Saving a case
 
 **Save as case…** (next to *Run Simulation*) saves the configured run as a new test case.

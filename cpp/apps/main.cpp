@@ -37,6 +37,7 @@
 #include <mpi.h>
 #endif
 
+#include "fv/CaseCheck.hpp"
 #include "fv/Simulation.hpp"
 #include "fv/Switches.hpp"
 
@@ -59,7 +60,10 @@ void usage() {
                 "  --print-config     print the resolved parameters and exit\n"
                 "  --print-parameters list every parameter (key, case-file section, baseline default; tab separated) and exit\n"
                 "  --print-case-defaults  print only the test case's own defaults and exit\n"
-                "  --no-logo          do not print the banner\n"
+                "  --list-templates   list the starter templates (use one as --from template:NAME with --new-case)\n"
+                "  --explain          with --print-config: show which layer (baseline, case, config, --set) sets each key\n"
+                "  --check-case       list keys that have no effect or restate the baseline, then exit (1 if there is a warning or an error)\n"
+                "  --no-logo         do not print the banner\n"
                 "  --new-case NAME    create cases/<name>/case.toml from --from CASE (default: --case), then exit\n"
                 "  --from CASE        source case for --new-case\n"
                 "  --save-case TARGET save the resolved run (case + --config + --set) as a new case and exit;\n"
@@ -139,7 +143,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> raw(argv + 1, argv + argc);
     std::string case_name, config_file, save_target, save_name, from_case;
     std::vector<std::string> sets;
-    bool list_gui_cases = false, list_cases = false, print_switches = false, print_parameters = false, print_config = false, print_case_defaults = false, logo = true, mpi_child = false;
+    bool list_gui_cases = false, list_cases = false, print_switches = false, print_parameters = false, print_config = false, print_case_defaults = false, explain = false, check_case = false, list_templates = false, logo = true, mpi_child = false;
     int threads = 0;
 
     for (size_t k = 0; k < raw.size(); ++k) {
@@ -171,6 +175,12 @@ int main(int argc, char** argv) {
             print_parameters = true;
         else if (a == "--print-case-defaults")
             print_case_defaults = true;
+        else if (a == "--list-templates")
+            list_templates = true;
+        else if (a == "--explain")
+            explain = true;
+        else if (a == "--check-case")
+            check_case = true;
         else if (a == "--no-logo")
             logo = false;
         else if (a == "--mpi-child")
@@ -205,6 +215,13 @@ int main(int argc, char** argv) {
             std::printf("%s\t%s\t%s\n", s.key, s.section, s.default_value ? s.default_value : "");
         return 0;
     }
+    if (list_templates) {
+        for (const std::string& n : fv::template_names()) {
+            const fv::TestCase& t = fv::get_test_case("template:" + n);
+            std::printf("%s\t%s\n", n.c_str(), t.description.c_str());
+        }
+        return 0;
+    }
     if (list_cases) {
         for (const auto& tc : fv::test_registry())
             if (!list_gui_cases || tc.gui) std::printf("%s\n", tc.key.c_str());
@@ -221,6 +238,7 @@ int main(int argc, char** argv) {
 
     fv::SimParams sp;
     fv::Params merged;
+    fv::ParamLayers layers;
     try {
         fv::Params cfg, ov;
         if (!config_file.empty()) cfg.load_file(config_file);
@@ -229,7 +247,13 @@ int main(int argc, char** argv) {
         fv::check_parameter_keys(ov, "--set");
         merged = fv::baseline_defaults();
         if (case_name.empty()) case_name = ov.str("test_case", cfg.str("test_case", merged.str("test_case")));
-        merged.merge(fv::get_test_case(case_name).defaults);
+        layers.baseline = merged;
+        layers.case_file = fv::get_test_case(case_name).defaults;
+        layers.requires_3d = fv::get_test_case(case_name).three_d;
+        layers.requires_viscous = fv::get_test_case(case_name).requires_viscosity;
+        layers.config = cfg;
+        layers.overrides = ov;
+        merged.merge(layers.case_file);
         merged.merge(cfg);
         merged.merge(ov);
         merged.set("test_case", case_name);
@@ -243,7 +267,9 @@ int main(int argc, char** argv) {
             const fv::TestCase& src = fv::get_test_case(case_name);
             const std::string file = fv::save_case(src, merged, save_target, save_name);
             std::printf("[CASE] Wrote %s (from '%s')\n", file.c_str(), src.key.c_str());
-            std::printf("[CASE] Edit it, then run: fenice --case \"%s\"\n", fv::load_case_file(file).name.c_str());
+            const std::string name = fv::load_case_file(file).name;
+            std::printf("[CASE] Edit it, check it with: fenice --case \"%s\" --check-case\n", name.c_str());
+            std::printf("[CASE] then run: fenice --case \"%s\"\n", name.c_str());
         } catch (const std::exception& e) {
             std::fprintf(stderr, "[ERROR] %s\n", e.what());
             return 2;
@@ -255,8 +281,21 @@ int main(int argc, char** argv) {
             std::printf("%s = %s\n", kv.first.c_str(), kv.second.c_str());
         return 0;
     }
+    if (check_case) {
+        int warnings = 0, notes = 0;
+        for (const fv::CaseFinding& f : fv::check_case(layers)) {
+            (f.level == fv::CaseFinding::Note ? notes : warnings) += 1;
+            const char* const label[] = {"note", "unused", "warning", "error"};
+            std::printf("%s: %s\n", label[f.level], f.message.c_str());
+        }
+        std::printf("[CHECK] %s: %d warning(s) or error(s), %d note(s)\n", case_name.c_str(), warnings, notes);
+        return warnings > 0 ? 1 : 0;
+    }
     if (print_config) {
-        for (const auto& kv : merged.values()) std::printf("%s = %s\n", kv.first.c_str(), kv.second.c_str());
+        for (const auto& kv : merged.values()) {
+            if (explain) std::printf("%s = %s   # %s\n", kv.first.c_str(), kv.second.c_str(), fv::param_origin(layers, kv.first).c_str());
+            else std::printf("%s = %s\n", kv.first.c_str(), kv.second.c_str());
+        }
         return 0;
     }
 

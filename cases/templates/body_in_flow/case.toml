@@ -1,0 +1,47 @@
+# Template: a solid body in a stream (immersed boundary). A cylinder of diameter 0.2 in a channel, at Re = 100.
+# `reynolds` sets mu = rho_in u_in D / reynolds from the body (D: diameter, or the chord of an airfoil), so the Reynolds number is
+# an input; leave it out and set mu to give the viscosity directly.
+# ibm_shape takes Cylinder, Sphere (3-D), Airfoil (with ibm_file) or NACA dddd (with ibm_chord and ibm_aoa).
+# Add a [[force]] block for the drag and lift, and [amr] use_amr = true to refine around the body and its wake.
+[case]
+name = "Body in Flow Template"
+description = "Template: viscous flow past an immersed cylinder"
+requires_viscous = true
+
+[mesh]
+Lx = 4.0
+Ly = 2.0
+nx = 200
+ny = 100
+
+[physics]
+use_viscous = true
+reynolds = 100
+
+[boundaries]
+bc_left = "vel_inlet"
+bc_right = "transmissive"
+bc_bottom = "wall"
+bc_top = "wall"
+u_in = 1.0
+rho_in = 1.0
+p_out = 7.0                  # sound speed sqrt(gamma p / rho) = 3.1: the inlet is at Mach 0.32
+
+[numerics]
+riemann_solver = "HLLC (Low-Mach Thornber)"
+reconstruction = "muscl"
+time_scheme = "SSP Runge-Kutta 2"
+
+[run]
+t_end = 10.0
+save_interval = 200
+
+[ibm]
+use_ibm = true
+ibm_shape = "Cylinder"
+ibm_radius = 0.1
+ibm_cx = 1.0
+ibm_cy = 1.0
+
+[initial]
+state = { rho = 1.0, u = 1.0, v = 0.0, p = 7.0 }

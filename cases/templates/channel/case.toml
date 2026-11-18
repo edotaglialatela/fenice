@@ -1,0 +1,38 @@
+# Template: viscous flow through a channel. A velocity inlet on the left, an open outlet on the right, no-slip walls.
+# The inlet speed is written as a Mach number: u_in = Mach * sqrt(gamma * p_out / rho_in), here Mach 0.3. Values are expressions of
+# the other parameters. Re = rho u L / mu with L = Ly = 1 gives Re = 100 for mu = 0.0035.
+[case]
+name = "Channel Template"
+description = "Template: Navier-Stokes flow between walls with an inlet and an outlet"
+requires_viscous = true
+
+[mesh]
+Lx = 4.0
+Ly = 1.0
+nx = 160
+ny = 40
+
+[physics]
+use_viscous = true
+mu = 0.0035
+
+[boundaries]
+bc_left = "vel_inlet"
+bc_right = "transmissive"
+bc_bottom = "wall"
+bc_top = "wall"
+u_in = "0.3*sqrt(gamma*p_out/rho_in)"
+rho_in = 1.0
+p_out = 1.0                  # pressure level; the sound speed is sqrt(gamma p_out / rho_in)
+
+[numerics]
+riemann_solver = "HLLC (Low-Mach Thornber)"
+reconstruction = "muscl"
+time_scheme = "SSP Runge-Kutta 2"
+
+[run]
+t_end = 10.0
+save_interval = 200
+
+[initial]
+state = { rho = 1.0, u = "0.3*sqrt(gamma*p_out/rho_in)", v = 0.0, p = "p_out" }   # start from the inlet flow; use u = 0.0 for a start from rest

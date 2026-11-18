@@ -1,0 +1,29 @@
+# Template: a periodic box. A density wave carried by a uniform stream returns to its start after t = Lx / u.
+# Periodic sides come in pairs. Turn on use_viscous and set mu to watch it diffuse.
+[case]
+name = "Periodic Box Template"
+description = "Template: smooth flow in a doubly periodic box"
+
+[mesh]
+Lx = 1.0
+Ly = 1.0
+nx = 64
+ny = 64
+
+[boundaries]
+bc_left = "periodic"
+bc_right = "periodic"
+bc_bottom = "periodic"
+bc_top = "periodic"
+
+[numerics]
+reconstruction = "weno5"
+time_scheme = "SSP Runge-Kutta 3"
+
+[run]
+t_end = 1.0
+save_interval = 20
+
+[initial]
+# expressions may use x, y, z and the mesh and physics parameters (Lx, Ly, gamma, mu, ...)
+state = { rho = "1 + 0.2*sin(2*pi*x/Lx)", u = 1.0, v = 0.0, p = 1.0 }

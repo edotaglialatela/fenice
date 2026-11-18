@@ -43,6 +43,122 @@ TEST(every_parameter_has_a_case_section) {
 
 // WENO5-Z runs with AMR (also on MPI ranks) and SSP-RK3; rejected: SSP-RK2, a periodic axis shorter than three base cells with AMR,
 // MPI ranks on the uniform mesh.
+namespace {
+// The remarks check_case makes about a case that sets `case_keys` (over the baseline), with `overrides` from --set.
+std::vector<CaseFinding> findings(const std::map<std::string, std::string>& case_keys,
+                                  const std::map<std::string, std::string>& overrides = {}) {
+    ParamLayers layers;
+    layers.baseline = baseline_defaults();
+    for (const auto& kv : case_keys) layers.case_file.set(kv.first, kv.second);
+    for (const auto& kv : overrides) layers.overrides.set(kv.first, kv.second);
+    return check_case(layers);
+}
+
+bool mentions(const std::vector<CaseFinding>& f, const std::string& key, CaseFinding::Level level) {
+    for (const CaseFinding& x : f)
+        if (x.key == key && x.level == level) return true;
+    return false;
+}
+}   // namespace
+
+TEST(check_case_flags_keys_without_effect_and_restated_defaults) {
+    // a clean case: nothing to say
+    CHECK(findings({{"nx", "200"}, {"t_end", "0.2"}}).empty());
+    // switched off: the keys behind the switch do nothing
+    auto f = findings({{"gx", "0.5"}, {"mu", "0.01"}, {"amr_max_level", "3"}, {"ibm_radius", "0.3"}, {"n_cpus", "4"}});
+    for (const char* k : {"gx", "mu", "amr_max_level", "ibm_radius", "n_cpus"}) CHECK(mentions(f, k, CaseFinding::Unused));
+    // switched on: no warning
+    f = findings({{"use_viscous", "true"}, {"mu", "0.01"}, {"use_amr", "true"}, {"amr_max_level", "3"}});
+    CHECK(f.empty());
+    // 2-D: the z keys do nothing; 3-D: they do
+    CHECK(mentions(findings({{"Lz", "2.0"}, {"bc_front", "wall"}}), "Lz", CaseFinding::Unused));
+    CHECK(findings({{"nz", "8"}, {"Lz", "2.0"}, {"bc_front", "wall"}, {"bc_back", "wall"}}).empty());
+    // reconstruction-dependent keys
+    CHECK(mentions(findings({{"muscl_limiter", "Minmod"}}), "muscl_limiter", CaseFinding::Unused));
+    CHECK(findings({{"reconstruction", "muscl"}, {"muscl_limiter", "Minmod"}}).empty());
+    CHECK(mentions(findings({{"reconstruction", "muscl"}, {"weno_epsilon", "1e-8"}}), "weno_epsilon", CaseFinding::Unused));
+    // a value equal to the baseline default is a note, numerically ("1.0" is "1.00")
+    f = findings({{"cfl", "0.50"}, {"gamma", "1.4"}});
+    CHECK(mentions(f, "cfl", CaseFinding::Note) && mentions(f, "gamma", CaseFinding::Note));
+    // an explicit mu next to reynolds is overridden
+    CHECK(mentions(findings({{"use_viscous", "true"}, {"reynolds", "100"}, {"mu", "0.01"}}), "mu", CaseFinding::Unused));
+    // inlet at rest, body across the edge or outside, 3-D case on a 2-D mesh, cfl, resolution
+    CHECK(mentions(findings({{"bc_left", "vel_inlet"}}), "u_in", CaseFinding::Warning));
+    CHECK(!mentions(findings({{"bc_left", "vel_inlet"}, {"u_in", "1.0"}}), "u_in", CaseFinding::Warning));
+    CHECK(!mentions(findings({{"bc_left", "vel_inlet"}, {"u_in", "0.3*sqrt(gamma*p_out/rho_in)"}}), "u_in", CaseFinding::Warning));
+    CHECK(mentions(findings({{"use_ibm", "true"}, {"ibm_cx", "2.0"}}), "ibm_cx", CaseFinding::Warning));
+    CHECK(mentions(findings({{"use_ibm", "true"}, {"ibm_cx", "0.05"}}), "ibm_radius", CaseFinding::Warning));
+    CHECK(mentions(findings({{"use_ibm", "true"}, {"ibm_radius", "0.02"}}), "ibm_radius", CaseFinding::Note));   // 4 cells across
+    CHECK(mentions(findings({{"cfl", "1.5"}}), "cfl", CaseFinding::Warning));
+    {
+        ParamLayers l;
+        l.baseline = baseline_defaults();
+        l.requires_3d = true;
+        l.requires_viscous = true;
+        CHECK(mentions(check_case(l), "nz", CaseFinding::Error) && mentions(check_case(l), "use_viscous", CaseFinding::Warning));
+    }
+    // --set is examined too, and the origin of each value is reported
+    CHECK(mentions(findings({}, {{"gx", "1"}}), "gx", CaseFinding::Unused));
+    ParamLayers layers;
+    layers.baseline = baseline_defaults();
+    layers.case_file.set("nx", "50");
+    layers.config.set("ny", "60");
+    layers.overrides.set("nx", "70");
+    CHECK(param_origin(layers, "nx") == "--set" && param_origin(layers, "ny") == "config");
+    CHECK(param_origin(layers, "cfl") == "baseline" && param_origin(layers, "no_such_key").empty());
+}
+
+TEST(shipped_cases_have_no_keys_without_effect) {
+    for (const TestCase& tc : test_registry()) {
+        ParamLayers layers;
+        layers.baseline = baseline_defaults();
+        layers.case_file = tc.defaults;
+        layers.requires_3d = tc.three_d;
+        layers.requires_viscous = tc.requires_viscosity;
+        for (const CaseFinding& f : check_case(layers))
+            if (f.level != CaseFinding::Note) {
+                std::printf("    %s: %s\n", tc.key.c_str(), f.message.c_str());
+                CHECK(false);
+            }
+    }
+}
+
+TEST(starter_templates_load_validate_and_are_clean) {
+    const std::vector<std::string> names = template_names();
+    CHECK(names.size() >= 5);
+    for (const std::string& n : names) {
+        const TestCase& tc = get_test_case("template:" + n);
+        ParamLayers layers;
+        layers.baseline = baseline_defaults();
+        layers.case_file = tc.defaults;
+        layers.requires_3d = tc.three_d;
+        layers.requires_viscous = tc.requires_viscosity;
+        Params run = layers.baseline;
+        run.merge(layers.case_file);
+        run.set("test_case", tc.key);
+        bool valid = true;
+        try {
+            SimParams::from(run);
+        } catch (const std::exception& e) {
+            std::printf("    template %s: %s\n", n.c_str(), e.what());
+            valid = false;
+        }
+        CHECK(valid);
+        CHECK(!tc.description.empty());
+        // a template states the walls and sizes it is built on even where the default would do: notes are fine, warnings are not
+        for (const CaseFinding& f : check_case(layers))
+            if (f.level != CaseFinding::Note) {
+                std::printf("    template %s: %s\n", n.c_str(), f.message.c_str());
+                CHECK(false);
+            }
+    }
+    bool refused = false;
+    try {
+        get_test_case("template:no_such_template");
+    } catch (const std::invalid_argument&) { refused = true; }
+    CHECK(refused);
+}
+
 TEST(weno5_combinations) {
     auto ok = [](std::initializer_list<std::pair<const char*, const char*>> sets) {
         Params p = baseline_defaults();

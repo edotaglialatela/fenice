@@ -1,0 +1,39 @@
+# Template: a three-dimensional box. nz > 1 makes the run 3-D (nz = 1 is 2-D); the z sides take bc_front and bc_back.
+# A high-pressure ball bursts in a quiet gas inside walls. Keep nx, ny, nz small first: the cell count is their product.
+[case]
+name = "Box 3D Template"
+description = "Template: a pressure ball bursting in a closed 3-D box"
+requires_3d = true
+
+[mesh]
+Lx = 1.0
+Ly = 1.0
+Lz = 1.0
+nx = 48
+ny = 48
+nz = 48
+
+[boundaries]
+bc_left = "wall"
+bc_right = "wall"
+bc_bottom = "wall"
+bc_top = "wall"
+bc_front = "wall"
+bc_back = "wall"
+
+[numerics]
+reconstruction = "muscl"
+time_scheme = "SSP Runge-Kutta 2"
+
+[run]
+t_end = 0.2
+save_interval = 20
+
+[initial]
+state = { rho = 1.0, u = 0.0, v = 0.0, w = 0.0, p = 0.1 }
+
+[[initial.region]]           # a sphere (a circle in 2-D)
+shape = "sphere"
+center = ["Lx/2", "Ly/2", "Lz/2"]
+radius = 0.15
+state = { p = 1.0 }

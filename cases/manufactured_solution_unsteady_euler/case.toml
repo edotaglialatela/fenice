@@ -21,8 +21,6 @@ gamma = 1.4
 
 [physics]
 use_viscous = false
-mu = 0.02
-pr = 0.72
 
 [boundaries]
 bc_left = "periodic"

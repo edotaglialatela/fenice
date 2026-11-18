@@ -5,9 +5,10 @@ section: User guide
 order: 20
 ---
 
-> **In short.** A case is a folder `cases/<name>/` with one `case.toml`. Start from an existing one with
-> `fenice --new-case "My Case" --from "Sod Shock Tube"`, edit the file, and run it with `--case`. No C++ and no recompilation are needed.
-> [A complete example](#a-complete-example) comes first; the rest of the page is the reference for each section.
+> **In short.** A case is a folder `cases/<name>/` with one `case.toml`. Start from a [template](#starter-templates) with
+> `fenice --new-case "My Case" --from template:channel`, edit the file, check it with `--check-case`, and run it with `--case`.
+> No C++ and no recompilation are needed. [A complete example](#a-complete-example) comes first; the rest of the page is the
+> reference for each section.
 
 A test case is a folder under `cases/` holding one file, `case.toml`. The file describes
 the mesh, physics, numerics, boundary conditions, run control and initial conditions. The
@@ -32,6 +33,73 @@ build\release\fenice.exe --case "Shock Hot Spot"
 
 In the GUI, configure a run and press **Save as case…**, which does the same with the
 dialog's settings (see [GUI]({{root}}guide/gui.html)).
+
+## Starter templates
+
+`cases/templates/` holds small, commented case files for the usual kinds of run. Each lists the keys that define the run, with the
+walls and sizes written out even where the default would do, so the file reads as a whole. `fenice --list-templates` names them; `--from template:NAME` copies one:
+
+| Template | The run |
+|---|---|
+| `shock_tube` | Two uniform states separated by a diaphragm, open ends, walls on the sides |
+| `periodic_box` | A smooth density wave carried by a stream in a doubly periodic box |
+| `channel` | Viscous flow between walls with a velocity inlet and an open outlet |
+| `body_in_flow` | A cylinder in a stream, immersed boundary, Re = 100 |
+| `box_3d` | A pressure ball bursting inside a closed 3-D box |
+
+```powershell
+build\release\fenice.exe --list-templates
+build\release\fenice.exe --new-case "My Channel" --from template:channel   # writes cases/my_channel/case.toml
+```
+
+Templates are not in the case list or the GUI; the copy is a case like any other. `--check-case` on a template reports notes for the
+defaults it states on purpose; delete those lines in your copy if you prefer a shorter file.
+
+## Setting a case by Mach and Reynolds number
+
+Numeric values in a case file may be expressions of the other parameters, so a flow can be written in the quantities it is defined by
+instead of the raw states:
+
+```toml
+[boundaries]
+u_in = "0.3*sqrt(gamma*p_out/rho_in)"     # inlet at Mach 0.3: u = Mach * c, with c = sqrt(gamma p / rho)
+rho_in = 1.0
+p_out = 1.0
+
+[initial]
+state = { rho = "rho_in", u = "0.3*sqrt(gamma*p_out/rho_in)", v = 0.0, p = "p_out" }   # the same speed, written out
+```
+
+- **Mach number.** Write the speed as `Mach * sqrt(gamma * p / rho)` with the parameters of the same flow (`gamma`, `p_out`, `rho_in`).
+  The expression is evaluated at the start of the run. A key written as an expression is not a variable for other expressions
+  (`u = "u_in"` fails when `u_in` is an expression), so repeat the expression in `[initial]`, as the channel template does.
+- **Reynolds number.** With an immersed body, `reynolds = 100` sets `mu = rho_in * u_in * L / reynolds` (`L` the diameter, or the chord
+  of an airfoil). Without a body, give `mu` from `Re = rho u L / mu` yourself.
+- **Angle of attack.** An airfoil takes `ibm_aoa` in degrees; the stream stays along x.
+
+The [channel and body-in-flow templates](#starter-templates) use both.
+
+## Checking a case
+
+`--check-case` resolves a run the way `--case` does and reports what the case says that is wrong, does nothing, or is not needed:
+
+```text
+> fenice --case "My Channel" --set gx=1 --check-case
+unused: gx is set (--set) but has no effect: use_bodyforce is false
+[CHECK] My Channel: 1 warning(s) or error(s), 0 note(s)
+```
+
+| Level | Meaning | Examples |
+|---|---|---|
+| `error` | The run cannot work as written | a 3-D case on a mesh with `nz = 1` |
+| `warning` | Probably not what was meant | a `vel_inlet` with `u_in = v_in = 0`, a body centred outside the domain or across its edge, `cfl` above 1, a case made for Navier-Stokes run with `use_viscous = false` |
+| `unused` | A key with no effect: its switch is off, or another key overrides it | `mu` without `use_viscous`, `amr_*` without `use_amr`, the z keys in a 2-D run, `muscl_limiter` without `reconstruction = "muscl"`, `mu` next to `reynolds` |
+| `note` | Information | a key set to its baseline default (it can be left out); a body spanning fewer than 10 cells per diameter |
+
+The exit status is 1 for anything but a note. A value the solver rejects (an unknown key, a misspelt choice, a scheme that does not
+combine with another) stops the command with the same message as a run.
+
+`--print-config --explain` lists the resolved parameters with the layer that set each one (`baseline`, `case`, `config` or `--set`).
 
 ## A complete example
 
