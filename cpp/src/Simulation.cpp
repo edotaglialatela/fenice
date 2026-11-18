@@ -982,9 +982,14 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     double S;
     const bool fourth = mu && p.fourth_flux();
     const bool fused_balance = mu && fused_recon(*mu, fourth);
+    bool fused_balance_4 = false;
     if (fused_balance) {
         ProfileScope ps(Section::Flux);   // reconstruction, Riemann solver and flux balance in one pass over planes
         S = mu->muscl_residual_3d(riemann, UL_, UR_, Uv, m, mh, R);
+    } else if (fourth && fused_enabled()) {
+        ProfileScope ps(Section::Flux);   // flux_quadrature = fourth: the whole step in one pass over tiles
+        S = mu->fourth_order_residual_3d(riemann, UL_, UR_, Uv, m, mh, per, R);
+        fused_balance_4 = true;
     } else if (fourth) {
         {
             ProfileScope ps(Section::Reconstruct);
@@ -1002,7 +1007,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     }
 
     ProfileScope divergence_scope(Section::Divergence);
-    if (!fused_balance) {
+    if (!fused_balance && !fused_balance_4) {
     R.resize(Uv.size());
     const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)

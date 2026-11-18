@@ -185,6 +185,10 @@ public:
     // maximum wave speed. UL / UR must hold the faces of the sides (BoundaryManager::apply_boundary_conditions); `periodic` flags the x and y axes.
     double fourth_order_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m, const Halos& h,
                                     const bool periodic[2], Field& R) const;
+    // The same for a 3-D mesh (nz > 1), in tiles (a strip of rows times a block of planes, streamed plane by plane, with a ring of planes for the
+    // transverse correction along z); the balance is ((0 - (Fr Ax - Fl Ax)) - (Ft Ay - Fb Ay)) - (Fk Az - Ff Az)) * (1 / volume). `periodic` flags x, y, z.
+    double fourth_order_residual_3d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m, const Halos& h,
+                                    const bool periodic[3], Field& R) const;
 
     // The WENO3-Z value at the face on the right of c1 from the cells (c0, c1, c2) (the right-hand state of the same face is
     // weno3_value(c3, c2, c1)): the very function the uniform reconstruction calls, so another engine (the adaptive face

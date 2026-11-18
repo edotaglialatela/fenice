@@ -1540,6 +1540,370 @@ double MusclReconstruction::fourth_order_residual_2d(const RiemannSolver& rieman
     return smax_all;
 }
 
+namespace {
+// What the fused 3-D fourth-order residual shares between its tiles (read only).
+struct Fourth3Shared {
+    const RiemannSolver& riemann;
+    const ConservedLines& lines;
+    const Mesh& m;
+    const Field &UL, &UR;   // the faces of the sides, from the boundary condition
+    int n[3];
+    bool lo[3], hi[3], per[3];
+    double sb, g1, gpi;
+
+    bool positive(const State& u) const {
+        return u[0] > 0.0 && g1 * (u[3] * u[0] - 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4])) > gpi * u[0];
+    }
+    double pressure(const State& u) const { return g1 * (u[3] - 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4]) / u[0]) - gpi; }
+    bool quiet(const State& l, const State& r) const {
+        if (!positive(l) || !positive(r)) return false;
+        if (sb > 0.0) {
+            const double pL = pressure(l), pR = pressure(r);
+            if (std::abs(pR - pL) > sb * std::min(pL, pR)) return false;
+        }
+        return true;
+    }
+    // the row (or plane) index that holds the data of an index along `axis`, -1 when it is outside and the axis is not periodic
+    int phys(int axis, int r) const {
+        if (r >= 0 && r < n[axis]) return r;
+        if (!per[axis]) return -1;
+        return ((r % n[axis]) + n[axis]) % n[axis];
+    }
+};
+
+// The storage of one face family in a tile: rows r (global, unwrapped index) of faces i, planes kp in a ring.
+struct Fourth3Fam {
+    int a = 0, L = 0, S5 = 1, S3 = 1, rb = 0, R = 0, H = 0;
+    std::vector<State> UL, UR, Fp, F;
+    std::vector<unsigned char> good, pt;
+    std::vector<int> ax;
+    size_t i5(int kp, int r, int i) const { return (static_cast<size_t>(((kp % S5) + S5) % S5) * R + (r - rb)) * L + i; }
+    size_t i3(int kp, int r, int i) const { return (static_cast<size_t>(((kp % S3) + S3) % S3) * R + (r - rb)) * L + i; }
+};
+
+struct Fourth3Scratch {
+    Fourth3Fam f[3];
+    std::vector<State> al, ar;
+    std::vector<double> sm;
+};
+
+// One tile: the cell rows [jlo, jhi) of the cell planes [K0, K1), streamed plane by plane.
+struct Fourth3Tile {
+    const Fourth3Shared& S;
+    Fourth3Scratch& sc;
+    double& smax;
+    int jlo, jhi, K0, K1;
+
+    void rows(int a, int stage, int& r0, int& r1) const {   // stage 0: states and flags, 1: point values and Fp, 2: flux
+        if (a == 1) {
+            r0 = jlo;
+            r1 = jhi + 1;
+        } else if (stage == 0) {
+            r0 = jlo - 2;
+            r1 = jhi + 2;
+        } else if (stage == 1) {
+            r0 = jlo - 1;
+            r1 = jhi + 1;
+        } else {
+            r0 = jlo;
+            r1 = jhi;
+        }
+    }
+
+    // the states of the faces of plane kp and their flags
+    void recon(int a, int kp) {
+        Fourth3Fam& B = sc.f[a];
+        const int pk = a == 2 ? kp : S.phys(2, kp);
+        if (pk < 0) return;
+        int r0, r1;
+        rows(a, 0, r0, r1);
+        const int nx = S.n[0];
+        for (int r = r0; r < r1; ++r) {
+            const int pr = a == 1 ? r : S.phys(1, r);
+            if (pr < 0) continue;
+            State* ul = &B.UL[B.i5(kp, r, 0)];
+            State* ur = &B.UR[B.i5(kp, r, 0)];
+            unsigned char* gd = &B.good[B.i5(kp, r, 0)];
+            const bool wrote = S.lines.line(a, pr, pk, S.lo[a], S.hi[a], ul, ur);
+            const auto gface = [&](int i) { return a == 0 ? S.m.xface(i, pr, pk) : (a == 1 ? S.m.yface(i, pr, pk) : S.m.zface(i, pr, pk)); };
+            if (a == 0) {
+                const int first = S.lo[0] ? 0 : 1, last = S.hi[0] ? nx : nx - 1;
+                for (int i = 0; i < first; ++i) {
+                    ul[i] = S.UL[gface(i)];
+                    ur[i] = S.UR[gface(i)];
+                }
+                for (int i = last + 1; i <= nx; ++i) {
+                    ul[i] = S.UL[gface(i)];
+                    ur[i] = S.UR[gface(i)];
+                }
+            } else if (!wrote) {
+                for (int i = 0; i < nx; ++i) {
+                    ul[i] = S.UL[gface(i)];
+                    ur[i] = S.UR[gface(i)];
+                }
+            }
+            for (int i = 0; i < B.L; ++i) {
+                gd[i] = 0;
+                const int ca = a == 0 ? i : (a == 1 ? pr : pk);
+                if (!((ca > 0 && ca < S.n[a]) || (ca == 0 && S.lo[a]) || (ca == S.n[a] && S.hi[a]))) continue;
+                gd[i] = S.quiet(ul[i], ur[i]) ? 1 : 0;
+            }
+        }
+    }
+
+    void axes(int a, int& t0, int& t1) const {
+        t0 = a == 0 ? 1 : 0;
+        t1 = a == 2 ? 1 : 2;
+    }
+
+    // the point values of plane kp and the flux of the point values (the averaged states where there are none)
+    void point(int a, int kp) {
+        Fourth3Fam& B = sc.f[a];
+        const int pk = a == 2 ? kp : S.phys(2, kp);
+        if (pk < 0) return;
+        int r0, r1;
+        rows(a, 1, r0, r1);
+        int tax[2];
+        axes(a, tax[0], tax[1]);
+        const int nx = S.n[0];
+        const bool per0 = S.per[0];
+        for (int r = r0; r < r1; ++r) {
+            const int pr = a == 1 ? r : S.phys(1, r);
+            if (pr < 0) continue;
+            const State* ul = &B.UL[B.i5(kp, r, 0)];
+            const State* ur = &B.UR[B.i5(kp, r, 0)];
+            const unsigned char* gd = &B.good[B.i5(kp, r, 0)];
+            unsigned char* pt = &B.pt[B.i3(kp, r, 0)];
+            State *al = sc.al.data(), *ar = sc.ar.data();
+            bool inrow[2], rowok = true;
+            const State *nul[2][2], *nur[2][2];
+            const unsigned char* ng[2][2];
+            for (int u = 0; u < 2; ++u) {
+                inrow[u] = tax[u] == 0;
+                for (int sg = 0; sg < 2; ++sg) {
+                    const int d = sg == 0 ? -1 : 1;
+                    nul[u][sg] = ul;
+                    nur[u][sg] = ur;
+                    ng[u][sg] = gd;
+                    if (inrow[u]) continue;
+                    const int rr = tax[u] == 1 ? r + d : r, kk = tax[u] == 2 ? kp + d : kp;
+                    if (S.phys(tax[u] == 1 ? 1 : 2, tax[u] == 1 ? rr : kk) < 0) {
+                        rowok = false;
+                        continue;
+                    }
+                    nul[u][sg] = &B.UL[B.i5(kk, rr, 0)];
+                    nur[u][sg] = &B.UR[B.i5(kk, rr, 0)];
+                    ng[u][sg] = &B.good[B.i5(kk, rr, 0)];
+                }
+            }
+            for (int i = 0; i < B.L; ++i) {
+                al[i] = ul[i];
+                ar[i] = ur[i];
+                pt[i] = 0;
+                if (!gd[i] || !rowok) continue;
+                int ia[2], ib[2];
+                bool ok = true;
+                for (int u = 0; u < 2 && ok; ++u) {
+                    if (inrow[u]) {
+                        ia[u] = i > 0 ? i - 1 : (per0 ? nx - 1 : -1);
+                        ib[u] = i + 1 < nx ? i + 1 : (per0 ? 0 : -1);
+                        ok = ia[u] >= 0 && ib[u] >= 0 && gd[ia[u]] && gd[ib[u]];
+                    } else {
+                        ia[u] = ib[u] = i;
+                        ok = ng[u][0][i] && ng[u][1][i];
+                    }
+                }
+                if (!ok) continue;
+                State pl = ul[i], pr_ = ur[i];
+                for (int q = 0; q < kNVar; ++q) {
+                    double dl = 0.0, dr = 0.0;
+                    for (int u = 0; u < 2; ++u) {
+                        dl += nul[u][1][ib[u]][q] - 2.0 * ul[i][q] + nul[u][0][ia[u]][q];
+                        dr += nur[u][1][ib[u]][q] - 2.0 * ur[i][q] + nur[u][0][ia[u]][q];
+                    }
+                    pl[q] -= dl / 24.0;
+                    pr_[q] -= dr / 24.0;
+                }
+                if (!S.positive(pl) || !S.positive(pr_)) continue;
+                al[i] = pl;
+                ar[i] = pr_;
+                pt[i] = 1;
+            }
+            S.riemann.face_flux_batch(al, ar, B.ax.data(), B.L, &B.Fp[B.i3(kp, r, 0)], sc.sm.data());
+            for (int i = 0; i < B.L; ++i)
+                if (sc.sm[i] > smax) smax = sc.sm[i];
+        }
+    }
+
+    // the flux of the faces of plane kp (rows of the balance) into B.F
+    void flux(int a, int kp) {
+        Fourth3Fam& B = sc.f[a];
+        int r0, r1;
+        rows(a, 2, r0, r1);
+        int tax[2];
+        axes(a, tax[0], tax[1]);
+        const int nx = S.n[0];
+        const bool per0 = S.per[0];
+        for (int r = r0; r < r1; ++r) {
+            const int pr = a == 1 ? r : S.phys(1, r);
+            if (pr < 0) continue;
+            State* fo = &B.F[(a == 2 ? static_cast<size_t>(kp & 1) * B.H * B.L : 0) + static_cast<size_t>(r - jlo) * B.L];
+            const State* ul = &B.UL[B.i5(kp, r, 0)];
+            const State* ur = &B.UR[B.i5(kp, r, 0)];
+            const unsigned char* pt = &B.pt[B.i3(kp, r, 0)];
+            const State* fp = &B.Fp[B.i3(kp, r, 0)];
+            bool inrow[2], rowok = true;
+            const State* nfp[2][2];
+            const unsigned char* npt[2][2];
+            for (int u = 0; u < 2; ++u) {
+                inrow[u] = tax[u] == 0;
+                for (int sg = 0; sg < 2; ++sg) {
+                    const int d = sg == 0 ? -1 : 1;
+                    nfp[u][sg] = fp;
+                    npt[u][sg] = pt;
+                    if (inrow[u]) continue;
+                    const int rr = tax[u] == 1 ? r + d : r, kk = tax[u] == 2 ? kp + d : kp;
+                    if (S.phys(tax[u] == 1 ? 1 : 2, tax[u] == 1 ? rr : kk) < 0) {
+                        rowok = false;
+                        continue;
+                    }
+                    nfp[u][sg] = &B.Fp[B.i3(kk, rr, 0)];
+                    npt[u][sg] = &B.pt[B.i3(kk, rr, 0)];
+                }
+            }
+            for (int i = 0; i < B.L; ++i) {
+                if (!pt[i]) {
+                    fo[i] = fp[i];
+                    continue;
+                }
+                int ia[2], ib[2];
+                bool ok = rowok;
+                for (int u = 0; u < 2 && ok; ++u) {
+                    if (inrow[u]) {
+                        ia[u] = i > 0 ? i - 1 : (per0 ? nx - 1 : -1);
+                        ib[u] = i + 1 < nx ? i + 1 : (per0 ? 0 : -1);
+                        ok = ia[u] >= 0 && ib[u] >= 0 && pt[ia[u]] && pt[ib[u]];
+                    } else {
+                        ia[u] = ib[u] = i;
+                        ok = npt[u][0][i] && npt[u][1][i];
+                    }
+                }
+                if (ok) {
+                    for (int q = 0; q < kNVar; ++q) {
+                        double d = 0.0;
+                        for (int u = 0; u < 2; ++u) d += nfp[u][1][ib[u]][q] - 2.0 * fp[i][q] + nfp[u][0][ia[u]][q];
+                        fo[i][q] = fp[i][q] + d / 24.0;
+                    }
+                } else {   // a point value without the full correction: back to the flux of the averaged states
+                    double sm = 0.0;
+                    fo[i] = S.riemann.face_flux(ul[i], ur[i], a, sm);
+                }
+            }
+        }
+    }
+};
+}   // namespace
+
+double MusclReconstruction::fourth_order_residual_3d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
+                                                     const Halos& h, const bool periodic[3], Field& R) const {
+    const int nx = m.nx, ny = m.ny, nz = m.nz;
+    const ConservedLines lines(eos_, scheme_, weno_eps_, U, m, h);
+    R.resize(U.size());
+    Fourth3Shared S{riemann, lines, m, UL, UR, {nx, ny, nz},
+                    {h.l != nullptr, h.b != nullptr, h.f != nullptr}, {h.r != nullptr, h.t != nullptr, h.bk != nullptr},
+                    {periodic[0], periodic[1], periodic[2]}, riemann.shock_blend(), eos_.gamma - 1.0,
+                    eos_.type == EOS::Type::IdealGas ? 0.0 : eos_.gamma * eos_.p_inf};
+    const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
+    // tiles: strips of about 24 rows times blocks of planes (every tile repeats the rows and planes around its seams)
+    const int nstrips = std::max(1, ny / 24);
+    int nthreads_max = 1;
+#ifdef _OPENMP
+    nthreads_max = omp_get_max_threads();
+#endif
+    const bool par = nx * ny * nz >= kOmpMinWork;
+    const int zblocks = std::max(1, std::min((3 * nthreads_max + nstrips - 1) / nstrips, nz / 16));
+    const int ntiles = nstrips * zblocks;
+    double smax_all = 0.0;
+#pragma omp parallel if (par)
+    {
+        double local = 0.0;
+        thread_local Fourth3Scratch sc;
+#pragma omp for schedule(dynamic, 1) nowait
+        for (int tile = 0; tile < ntiles; ++tile) {
+            const int s = tile % nstrips, b = tile / nstrips;
+            const int jlo = static_cast<int>(static_cast<long long>(ny) * s / nstrips), jhi = static_cast<int>(static_cast<long long>(ny) * (s + 1) / nstrips);
+            const int K0 = static_cast<int>(static_cast<long long>(nz) * b / zblocks), K1 = static_cast<int>(static_cast<long long>(nz) * (b + 1) / zblocks);
+            const int Hs = jhi - jlo;
+            const int Ls[3] = {nx + 1, nx, nx};
+            const int Rs[3] = {Hs + 4, Hs + 1, Hs + 4};
+            const int rbs[3] = {jlo - 2, jlo, jlo - 2};
+            const int S5[3] = {5, 5, 1}, S3[3] = {3, 3, 1};
+            int maxL = 0;
+            for (int a = 0; a < 3; ++a) {
+                Fourth3Fam& B = sc.f[a];
+                B.a = a;
+                B.L = Ls[a];
+                B.R = Rs[a];
+                B.rb = rbs[a];
+                B.S5 = S5[a];
+                B.S3 = S3[a];
+                B.H = Hs + (a == 1 ? 1 : 0);
+                const size_t n5 = static_cast<size_t>(B.S5) * B.R * B.L, n3 = static_cast<size_t>(B.S3) * B.R * B.L;
+                B.UL.resize(n5);
+                B.UR.resize(n5);
+                B.good.resize(n5);
+                B.Fp.resize(n3);
+                B.pt.resize(n3);
+                B.F.resize(static_cast<size_t>(a == 2 ? 2 : 1) * B.H * B.L);
+                B.ax.assign(static_cast<size_t>(B.L), a);
+                maxL = std::max(maxL, B.L);
+            }
+            sc.al.resize(maxL);
+            sc.ar.resize(maxL);
+            sc.sm.resize(maxL);
+            Fourth3Tile T{S, sc, local, jlo, jhi, K0, K1};
+            int xr = K0 - 3, xp = K0 - 2;   // the last plane of the state / point value stages done (x and y faces)
+            T.recon(2, K0);
+            T.point(2, K0);
+            T.flux(2, K0);
+            for (int k = K0; k < K1; ++k) {
+                while (xr < k + 2) {
+                    ++xr;
+                    T.recon(0, xr);
+                    T.recon(1, xr);
+                }
+                while (xp < k + 1) {
+                    ++xp;
+                    T.point(0, xp);
+                    T.point(1, xp);
+                }
+                T.flux(0, k);
+                T.flux(1, k);
+                T.recon(2, k + 1);
+                T.point(2, k + 1);
+                T.flux(2, k + 1);
+                const Fourth3Fam &Fx = sc.f[0], &Fy = sc.f[1], &Fz = sc.f[2];
+                const size_t zk = static_cast<size_t>(k & 1) * Fz.H * Fz.L, zk1 = static_cast<size_t>((k + 1) & 1) * Fz.H * Fz.L;
+                for (int j = jlo; j < jhi; ++j)
+                    for (int i = 0; i < nx; ++i) {
+                        const State& fl = Fx.F[static_cast<size_t>(j - jlo) * Fx.L + i];
+                        const State& fr = Fx.F[static_cast<size_t>(j - jlo) * Fx.L + i + 1];
+                        const State& fb = Fy.F[static_cast<size_t>(j - jlo) * Fy.L + i];
+                        const State& ft = Fy.F[static_cast<size_t>(j - jlo + 1) * Fy.L + i];
+                        const State& ff = Fz.F[zk + static_cast<size_t>(j - jlo) * Fz.L + i];
+                        const State& fk = Fz.F[zk1 + static_cast<size_t>(j - jlo) * Fz.L + i];
+                        State& r = R[m.cell(i, j, k)];
+                        for (int q = 0; q < kNVar; ++q)
+                            r[q] = (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) * inv_vol;
+                    }
+            }
+        }
+#pragma omp critical(fv_fourth_residual_max)
+        if (local > smax_all) smax_all = local;
+    }
+    return smax_all;
+}
+
 double fourth_order_fluxes(const RiemannSolver& riemann, const EOS& eos, const Field& UL, const Field& UR, const Mesh& m, const Halos& h,
                            const bool periodic[3], Field& F) {
     const int nx = m.nx, ny = m.ny, nz = m.nz;

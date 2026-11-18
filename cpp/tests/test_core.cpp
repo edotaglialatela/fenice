@@ -850,6 +850,120 @@ TEST(fused_fourth_order_residual_equals_the_two_pass_residual_bit_for_bit) {
     CHECK(corrected > 1000);   // the correction was exercised (the fourth-order fluxes differ from those of the averaged states on many faces)
 }
 
+TEST(fused_fourth_order_residual_3d_equals_the_two_pass_residual_bit_for_bit) {
+    // the same for a 3-D mesh: tiles (strips of rows times blocks of planes, with the repeated rows and planes at their seams) give what
+    // reconstruct_conserved, fourth_order_fluxes and the divergence of the face fluxes give, for any thread count, with walls, outflow and
+    // periodic axes (seams that wrap in the row, in the plane and across the tiles), noise and a pressure jump
+    const EOS eos = EOS::ideal(1.4);
+    const double pi = 3.14159265358979323846;
+    unsigned seed = 4242u;
+    const auto rnd = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<double>(seed >> 8) / 16777216.0;
+    };
+    const Mesh m = generate_cartesian_mesh_3d(1.0, 0.8, 0.6, 13, 70, 50);
+    const int nx = m.nx, ny = m.ny, nz = m.nz;
+    Field U(m.num_cells());
+    for (int k = 0; k < nz; ++k)
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i) {
+                const double ph = 2.0 * pi * ((i + 0.5) / nx + (j + 0.5) / ny + (k + 0.5) / nz);
+                double p = 1.0 + 0.1 * std::sin(ph + 1.0) + 0.01 * (rnd() - 0.5);
+                if (j >= 30 && j < 36 && k >= 20 && k < 27) p *= 4.0;   // a pressure jump
+                U[m.cell(i, j, k)] = eos.prim_to_cons({1.0 + 0.2 * std::sin(ph) + 0.01 * (rnd() - 0.5), 0.5 + 0.1 * std::cos(ph),
+                                                       0.3 * std::sin(ph), p, 0.2 * std::cos(ph + 0.5)});
+            }
+    constexpr int D = 3;
+    long long corrected = 0;
+    for (const Reconstruction rec : {Reconstruction::Weno3, Reconstruction::Weno5}) {
+        const MusclReconstruction mu(eos, Limiter::VanLeer, rec, 1e-6);
+        const RiemannSolver rs(eos, RiemannType::HLLC, 0.2);
+        for (int variant = 0; variant < 2; ++variant) {
+            const bool pa[3] = {variant == 1, variant == 0, variant == 0};
+            BoundaryManager bm(m, eos);
+            const Face faces[6] = {Face::Left, Face::Right, Face::Bottom, Face::Top, Face::Front, Face::Back};
+            for (int f = 0; f < 6; ++f) bm.set_type(faces[f], pa[f / 2] ? BCType::Periodic : (f % 2 == 0 ? BCType::Wall : BCType::Transmissive));
+            Field hl, hr, hb, ht, hf, hk;
+            Halos h;
+            h.depth = D;
+            if (pa[0]) {
+                hl.resize(static_cast<size_t>(ny) * nz * D);
+                hr.resize(hl.size());
+                for (int k = 0; k < nz; ++k)
+                    for (int j = 0; j < ny; ++j)
+                        for (int d = 0; d < D; ++d) {
+                            hl[(k * ny + j) * D + d] = U[m.cell(nx - D + d, j, k)];
+                            hr[(k * ny + j) * D + d] = U[m.cell(d, j, k)];
+                        }
+                h.l = &hl;
+                h.r = &hr;
+            }
+            if (pa[1]) {
+                hb.resize(static_cast<size_t>(D) * nz * nx);
+                ht.resize(hb.size());
+                for (int d = 0; d < D; ++d)
+                    for (int k = 0; k < nz; ++k)
+                        for (int i = 0; i < nx; ++i) {
+                            hb[(d * nz + k) * nx + i] = U[m.cell(i, ny - D + d, k)];
+                            ht[(d * nz + k) * nx + i] = U[m.cell(i, d, k)];
+                        }
+                h.b = &hb;
+                h.t = &ht;
+            }
+            if (pa[2]) {
+                hf.resize(static_cast<size_t>(D) * ny * nx);
+                hk.resize(hf.size());
+                for (int d = 0; d < D; ++d)
+                    for (int j = 0; j < ny; ++j)
+                        for (int i = 0; i < nx; ++i) {
+                            hf[(d * ny + j) * nx + i] = U[m.cell(i, j, nz - D + d)];
+                            hk[(d * ny + j) * nx + i] = U[m.cell(i, j, d)];
+                        }
+                h.f = &hf;
+                h.bk = &hk;
+            }
+            // two passes
+            Field UL, UR, F, F0, R2;
+            bm.apply_boundary_conditions(U, UL, UR);
+            mu.reconstruct_conserved(UL, UR, U, m, h);
+            rs.compute_flux(UL, UR, m, F0);
+            const double s2 = fourth_order_fluxes(rs, eos, UL, UR, m, h, pa, F);
+            R2.resize(U.size());
+            const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
+            for (int k = 0; k < nz; ++k)
+                for (int j = 0; j < ny; ++j)
+                    for (int i = 0; i < nx; ++i)
+                        for (int q = 0; q < kNVar; ++q) {
+                            const State &fl = F[m.xface(i, j, k)], &fr = F[m.xface(i + 1, j, k)], &fb = F[m.yface(i, j, k)],
+                                        &ft = F[m.yface(i, j + 1, k)], &ff = F[m.zface(i, j, k)], &fk = F[m.zface(i, j, k + 1)];
+                            R2[m.cell(i, j, k)][q] =
+                                (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) * inv_vol;
+                        }
+            for (size_t f = 0; f < F.size(); ++f)
+                for (int q = 0; q < kNVar; ++q) corrected += F[f][q] != F0[f][q];
+            // the fused pass, from the first-order states of the sides only
+            Field ULs, URs;
+            bm.apply_boundary_conditions(U, ULs, URs, nullptr, false);
+            for (const int threads : {1, 3, 7}) {
+#ifdef _OPENMP
+                omp_set_num_threads(threads);
+#endif
+                Field R1;
+                const double s1 = mu.fourth_order_residual_3d(rs, ULs, URs, U, m, h, pa, R1);
+                CHECK(s1 == s2);
+                bool same = R1.size() == R2.size();
+                for (size_t c = 0; same && c < R1.size(); ++c)
+                    for (int q = 0; q < kNVar; ++q) same = same && R1[c][q] == R2[c][q];
+                CHECK(same);
+            }
+        }
+    }
+#ifdef _OPENMP
+    omp_set_num_threads(omp_get_num_procs());
+#endif
+    CHECK(corrected > 1000);
+}
+
 TEST(viscous_uniform_zero_and_couette) {
     const EOS eos = EOS::ideal(1.4);
     const Mesh m = generate_cartesian_mesh(1.0, 1.0, 6, 10);

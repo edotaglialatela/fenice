@@ -220,9 +220,9 @@ Measured on the isentropic vortex with exact cell-averaged initial data (a resta
   sides, so the correction is inactive there and only the conserved reconstruction and its guard act. The density $L_1$ error of the 123 problem
   is larger than with `midpoint` (`weno5` 0.0013 to 0.0029, `weno3` 0.0025 to 0.0037) and that of the Mach 10, 20 and 100 tubes smaller
   (`weno5` 0.0127 to 0.0117, 0.0134 to 0.0123, 0.0136 to 0.0125).
-* Cost: a `fourth` step does more work than a `midpoint` one (the reconstruction of the conserved variables, the point values and the transverse correction, with one Riemann solve per face). On 2-D meshes the whole step
-  (reconstruction, point values, Riemann solves, correction and flux balance) runs in one pass over blocks of rows, the face states and fluxes kept for a few rows only (`FENICE_NO_FUSED=1` runs the separate passes, with identical bits), so that it scales over
-  threads like the other schemes. The cost against `midpoint` is measured by `cases/validation/benchmarks/flux_quadrature_cost.py`; 3-D meshes use the separate passes.
+* Cost: a `fourth` step does more work than a `midpoint` one (the reconstruction of the conserved variables, the point values and the transverse correction, with one Riemann solve per face). The whole step
+  (reconstruction, point values, Riemann solves, correction and flux balance) runs in one pass, over blocks of rows in 2-D and over tiles (a strip of rows times a block of planes, streamed plane by plane) in 3-D, the face states and fluxes kept for a few rows or planes only
+  (`FENICE_NO_FUSED=1` runs the separate passes, with identical bits), so that it scales over threads like the other schemes. The cost against `midpoint` is measured by `cases/validation/benchmarks/flux_quadrature_cost.py`.
 
 ### References
 

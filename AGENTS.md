@@ -68,7 +68,7 @@ MPI needs the MS-MPI SDK; without it the build is OpenMP-only. `build.ps1 -MpiSd
 - **2-D stays bit-identical through the 3-D code.** `assemble` and `assemble_3d` are separate paths; keep 2-D expressions (`min(dx,dy)`, VTK layout) verbatim.
 - **MPI == serial** bit for bit. Any new stencil that crosses a rank interface needs a halo (padded state, `CrossGhosts`, IBM halos, mass-flow average all-reduced).
   Local meshes use the exact global `dx/dy`. Strips need >= 2 cells; z is never split.
-- **Fused paths agree.** The fused uniform residual (also the 2-D fourth-order one, `fourth_order_residual_2d`) and the two-pass path (`FENICE_NO_FUSED=1`) give identical bits; anything the residual reads goes in both.
+- **Fused paths agree.** The fused uniform residual (also the fourth-order ones, `fourth_order_residual_2d` / `_3d`) and the two-pass path (`FENICE_NO_FUSED=1`) give identical bits; anything the residual reads goes in both.
   The fused 2-D viscous residual equals the gradient version `viscous_residual` (kept as the test reference).
 - **Periodic seams are exact** (wrap-around halos, `CrossGhosts::periodic_*`); `periodic_translation_invariance` guards it.
 - **3-D tests** (extrusion equals 2-D per layer; rotated-plane, axis permutation, translation invariance) must keep passing when touching 3-D stencils.
