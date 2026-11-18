@@ -176,8 +176,11 @@ Copy an existing case, edit it, run it:
 
 ```bash
 ./build/release/fenice --new-case "Shock Hot Spot" --from "Sod Shock Tube"   # -> cases/shock_hot_spot/case.toml
+./build/release/fenice --case "Shock Hot Spot" --check-case   # flags keys without effect and likely mistakes
 ./build/release/fenice --case "Shock Hot Spot"
 ```
+
+`--list-templates` names the starter templates (`--from template:channel`).
 
 Initial conditions are a background state plus geometric regions (box, half-space, sphere, cylinder), and any value can be an
 expression of `x`, `y`, `z` and the run parameters. Mistakes are caught when the file loads, with the line and a suggestion. The format

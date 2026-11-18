@@ -38,7 +38,8 @@ extruded unchanged along z. With periodic (default) front/back sides, every z-la
 reproduces the 2-D solution, which `fenice_tests` checks.
 
 `fenice --list-cases` prints the registry, and
-`fenice --case NAME --print-case-defaults` prints a case's own parameters. The tables on
+`fenice --case NAME --print-case-defaults` prints a case's own parameters. `get_test_case("template:NAME")` loads a starter template
+(`template_names()` lists them); templates are not in the registry. The tables on
 the case pages are generated from that output.
 
 A few analytic initial fields stay in C++ as **profiles** (`find_profile`), which a case
@@ -46,8 +47,8 @@ file selects with `[initial] profile = "NAME"`: `taylor_green`, `isentropic_vort
 `taylor_green_3d`. Everything else (uniform states, regions, analytic expressions) is
 written in the case file.
 
-**Adding a case.** Copy an existing one, `fenice --new-case NAME --from CASE`, then edit
-`cases/<name>/case.toml`. No C++ or rebuild is needed, and the case appears in `--list-cases`
+**Adding a case.** Copy an existing one or a starter template (`cases/templates/`, `--from template:NAME`),
+`fenice --new-case NAME --from CASE`, then edit `cases/<name>/case.toml` and check it with `--check-case`. No C++ or rebuild is needed, and the case appears in `--list-cases`
 and in the GUI. A new initial field that cannot be written as regions and expressions can
 be added as a profile in `cpp/src/TestCases.cpp`.
 

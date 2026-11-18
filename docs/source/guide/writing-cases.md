@@ -377,6 +377,9 @@ printed. `--case` on that case shows the error.
 | `--save-case TARGET` | Save the resolved run (case + `--config` + `--set`) as a new case. `TARGET` is a name (written under `cases/`) or a folder path |
 | `--case-name NAME` | `[case] name` for `--save-case` (default: from `TARGET`) |
 | `--list-cases` | List all cases in order |
+| `--list-templates` | List the starter templates (`--from template:NAME` copies one) |
+| `--check-case` | Report what is wrong, unused or restated in the resolved run; exit status 1 unless there are only notes |
+| `--print-config --explain` | The resolved parameters with the layer that set each one |
 
 Saving never overwrites an existing case. A saved case keeps the parameters its source sets
 plus every parameter you changed, and copies the source's initial conditions.

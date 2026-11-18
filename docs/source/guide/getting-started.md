@@ -74,6 +74,9 @@ build\release\fenice.exe --config run.cfg --threads 8
 | `--list-gui-cases` | List the ones the GUI offers |
 | `--print-config` | Print the fully resolved parameters and exit |
 | `--print-case-defaults` | Print only the test case's own defaults and exit |
+| `--explain` | With `--print-config`: show which layer (baseline, case, config, `--set`) sets each value |
+| `--check-case` | Report errors, warnings, unused keys and baseline restatements of the resolved run and exit ([Checking a case]({{root}}guide/writing-cases.html#checking-a-case)) |
+| `--list-templates` | List the starter templates; `--new-case NAME --from template:NAME` copies one |
 | `--no-logo` | Do not print the banner (coloured on a terminal; set `NO_COLOR=1` for plain text) |
 | `--new-case NAME --from CASE` | Copy a case to `cases/<name>/case.toml` and exit |
 | `--save-case TARGET` | Save the resolved run as a new case and exit (`--case-name` sets its name) |
