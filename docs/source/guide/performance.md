@@ -118,6 +118,19 @@ SSP-RK3, 40 steps), the 3-D Taylor-Green vortex on $256^3$ (MUSCL, 10 steps), th
 and the octree sphere of the [sphere case]({{root}}cases/sphere.html) (60 steps). The speed-up is the time loop on one rank (or one thread) over the time loop of the run; ranks are bound to
 physical cores up to 24, and the counts above 24 use both hardware threads of a core.
 
+The speed-up compares a run with the same case on one core, so it says how well a case parallelises, not what it costs. The adaptive cases parallelise less (their levels are small and the remesh
+is a fixed part of the step) but they start from far less work. On the same finest mesh the adaptive time loop is the shorter one at every worker count, and the adaptive airfoil on **one** thread
+(4.9 s) is faster than the uniform run on 16 threads (13.6 s):
+
+| same finest mesh, time loop | uniform | adaptive | adaptive / uniform |
+|---|---:|---:|---:|
+| 2-D airfoil, Re 1000, 2 levels, 1 thread | 104.6 s | 5.0 s | 0.048 (21x faster) |
+| 2-D airfoil, 16 threads | 13.6 s | 0.9 s | 0.067 (15x faster) |
+| 3-D octree sphere, Re 20, 2 levels, 1 thread | - | - | 0.34-0.42 (2.4-2.9x faster) |
+| 3-D octree sphere, 16 threads | - | - | 0.27-0.30 (3.4-3.7x faster) |
+
+The measurements, and the error each pair reaches, are on the [AMR]({{root}}modules/AMR.html#against-the-uniform-solver-on-the-same-finest-mesh) page; the table of speed-ups below is therefore read for the scaling of each case, not for the ranking of the cases.
+
 | Case | 1 rank | best MPI | best OpenMP | best ranks x threads |
 |---|---:|---:|---:|---:|
 | uniform 2-D MUSCL $4096^2$ | 89.1 s | 10.1x (48 ranks) | 9.6x (48 threads) | 11.8x (6 x 8) |
@@ -139,6 +152,7 @@ physical cores up to 24, and the counts above 24 use both hardware threads of a 
 
 * **The uniform cases stop at 7 to 12 times the single-core speed**, whatever the mix of ranks and threads, and gain little past 16 to 24 workers: the same ceiling for MPI and OpenMP,
   as expected of passes over the whole array that are limited by the memory of the node. The hybrid runs (6 ranks of 8 threads, 4 of 12, 12 of 4) are 8 to 17 % faster than the best pure mode on the uniform meshes.
+* **The adaptive cases scale less, and stay ahead in time.** The speed-ups of 4.8 to 7.7 (airfoil) and 1.9 to 3.9 (octree sphere) are against a run that is already 2.4 to 21 times shorter than the uniform one (table above); the part that limits them is the remesh, measured below.
 * **MPI against OpenMP** is close on the uniform cases (ranks ahead on the 3-D mesh, 7.3x against 5.4x on 16 workers). On the adaptive meshes OpenMP is ahead up to 16 workers, and the remesh grows with the ranks:
   on the octree sphere 16 ranks take 1.79 s with 1.23 s in the remesh, 48 ranks take 2.9 s with 2.4 s in it, and 16 threads take 1.16 s. Use MPI to go beyond one node; on one node prefer threads, or a few ranks of several threads.
 * **`weno5` scales better than MUSCL on the adaptive airfoil** (7.7x against 5.2x on 48 ranks): the larger arithmetic cost per cell hides part of the remesh (34 % of the time loop against 43 % for MUSCL on 48 ranks). On the uniform meshes the schemes differ little (10.1x for MUSCL and 10.8x for `weno3` on 48 ranks).
