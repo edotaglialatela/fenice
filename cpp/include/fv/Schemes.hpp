@@ -142,6 +142,9 @@ struct Halos {
     // WENO only, two-pass path (positivity_fallback): cells (row-major, 1 = flagged) whose update left the admissible set. Every face with
     // a flagged cell on one side takes the two cell values as its states (first order). Null: nothing is overridden.
     const std::vector<char>* fallback = nullptr;
+    // Per axis (x, y, z): the halo of that axis is the wrap-around of a periodic axis, so a flagged cell counts on the other side of the
+    // seam too (both copies of a seam face must agree). A side without it (physical ghost layer) has no flags beyond the domain.
+    bool fallback_wrap[3] = {false, false, false};
 };
 class MusclReconstruction {
 public:

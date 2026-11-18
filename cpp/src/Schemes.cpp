@@ -546,8 +546,13 @@ void MusclReconstruction::reconstruct_weno(Field& UL, Field& UR, const Field& U,
         const std::vector<char>& fb = *h.fallback;
         if (fb.size() != static_cast<size_t>(nx) * ny * nz) throw std::logic_error("positivity_fallback: the flagged set is not that of the mesh");
         const auto flagged = [&](int i, int j, int k) {
-            return i >= 0 && i < nx && j >= 0 && j < ny && k >= 0 && k < nz && fb[m.cell(i, j, k)] != 0;
+            const auto fold = [](int c, int n, bool wrap) { return c < 0 || c >= n ? (wrap ? (c + n) % n : -1) : c; };
+            i = fold(i, nx, h.fallback_wrap[0]);
+            j = fold(j, ny, h.fallback_wrap[1]);
+            k = fold(k, nz, h.fallback_wrap[2]);
+            return i >= 0 && j >= 0 && k >= 0 && fb[m.cell(i, j, k)] != 0;
         };
+        std::fprintf(stderr, "\n");
         for (int axis = 0; axis < (nz > 1 ? 3 : 2); ++axis) {
             const bool lo = axis == 0 ? h.l != nullptr : (axis == 1 ? h.b != nullptr : h.f != nullptr);
             const bool hi = axis == 0 ? h.r != nullptr : (axis == 1 ? h.t != nullptr : h.bk != nullptr);

@@ -804,6 +804,10 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         mh.b = &perB_;
         mh.t = &perT_;
     }
+    if (fb_active_) {   // positivity_fallback: a wrap-around halo is the other side of the seam, flags included
+        mh.fallback_wrap[0] = mh.l == &perL_ && mh.r == &perR_;
+        mh.fallback_wrap[1] = mh.b == &perB_ && mh.t == &perT_;
+    }
     // boundary_order = 2: the physical sides get ghost layers (the BC's own even / odd extension), so that the faces on
     // the boundary are reconstructed like the interior ones. A side that is periodic, an MPI interface (halo already
     // set) or non-reflecting keeps its first-order face states.
@@ -1001,6 +1005,11 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
                     }
             mh.f = &perF_;
             mh.bk = &perK_;
+        }
+        if (fb_active_) {   // positivity_fallback: a wrap-around halo is the other side of the seam, flags included
+            mh.fallback_wrap[0] = mh.l == &perL_ && mh.r == &perR_;
+            mh.fallback_wrap[1] = mh.b == &perB_ && mh.t == &perT_;
+            mh.fallback_wrap[2] = mh.f == &perF_ && mh.bk == &perK_;
         }
         // boundary_order = 2: the physical sides get ghost layers (the BC's own even / odd extension), so that the faces on
         // the boundary are reconstructed like the interior ones. A side that is periodic, an MPI interface (halo already

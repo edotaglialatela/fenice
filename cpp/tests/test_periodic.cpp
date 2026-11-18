@@ -576,3 +576,103 @@ TEST(taylor_green_3d_initial_dissipation) {
     CHECK(std::abs(ke_mean(a.initial_field()) - 0.125) < 2e-3);
 }
 
+
+TEST(positivity_fallback_is_exact_across_a_periodic_seam) {
+    // Two jets move apart at +-20 (p = 0.4, rho = 1: vacuum forms at +-3.7) and meet again on the other side of the box, so WENO5-Z
+    // loses positivity in the opening and the repair has to fire. Rolled by half the box the opening sits on the periodic seam instead
+    // of in the interior: both copies of a seam face must take the first-order states, or the two runs differ (and mass is made).
+    const int nx = 200, ny = 8, steps = 40;
+    const SimParams sp = params_for("Taylor-Green Vortex", {{"nx", "200"}, {"ny", "8"}, {"reconstruction", "weno5"}, {"riemann_solver", "HLLC"},
+                                                              {"time_scheme", "SSP Runge-Kutta 3"}, {"cfl", "0.3"}, {"use_viscous", "false"},
+                                                              {"positivity_fallback", "true"}});
+    Simulation s;
+    s.setup(sp, false);
+    Field U(nx * ny);
+    for (int j = 0; j < ny; ++j)
+        for (int i = 0; i < nx; ++i) U[j * nx + i] = s.fluid.prim_to_cons({1.0, i < nx / 2 ? 20.0 : -20.0, 0.0, 0.4});
+    const auto run = [&](Field U0, long long* repairs) {
+        Simulation sim;
+        sim.setup(sp, false);
+        sim.U = std::move(U0);
+        const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
+        const double md = std::min(sim.mesh.dx, sim.mesh.dy);
+        double t = 0.0;
+        for (int k = 0; k < steps; ++k) t += sim.scheme->step(sim.U, res, md, t, 1e9).dt;
+        *repairs = sim.positivity_repairs();
+        return sim.U;
+    };
+    long long ra = 0, rb = 0;
+    const Field A = run(U, &ra);
+    const Field B = run(roll(U, nx, ny, nx / 2, 0), &rb);
+    const Field Ar = roll(A, nx, ny, nx / 2, 0);
+    double diff = 0.0;
+    for (size_t c = 0; c < B.size(); ++c)
+        for (int q = 0; q < kNVar; ++q) diff = std::max(diff, std::abs(Ar[c][q] - B[c][q]) / (1.0 + std::abs(B[c][q])));
+    std::printf("    repair passes: %lld (opening on the seam), %lld (opening inside); max rolled difference %.3e\n", ra, rb, diff);
+    CHECK(ra > 0 && rb > 0);
+    CHECK(diff < 1e-12);
+}
+
+TEST(positivity_fallback_extruded_3d_equals_2d) {
+    // The jets of the seam test (vacuum opening, repair firing) in 2-D and extruded along a periodic z: every layer of the 3-D run must
+    // be the 2-D run, bit for bit up to roundoff, and the 3-D run must repair too (the 3-D override of the faces is the code under test).
+    // The jets are not symmetric (+20 / -16, p 0.40 / 0.45): with a symmetric pair of cells across the seam, roundoff alone decides which
+    // of the two goes negative first, the two runs then repair different cells, and the comparison means nothing.
+    const int nx = 100, ny = 8, nz = 3, steps = 25;
+    const auto make = [&](bool three, const char* fb = "true") {
+        std::vector<std::pair<const char*, const char*>> kv = {{"nx", "100"}, {"ny", "8"}, {"reconstruction", "weno5"}, {"riemann_solver", "HLLC"},
+                                                                 {"time_scheme", "SSP Runge-Kutta 3"}, {"cfl", "0.3"}, {"use_viscous", "false"},
+                                                                 {"positivity_fallback", fb}};
+        if (three) {
+            kv.push_back({"nz", "3"});
+            kv.push_back({"Lz", "3.0e5"});   // deep cells: dz must not set the step
+        }
+        Params pr = baseline_defaults();
+        pr.merge(get_test_case("Taylor-Green Vortex").defaults);
+        pr.set("test_case", "Taylor-Green Vortex");
+        pr.set("output_root", tmp_dir().string());
+        for (const auto& e : kv) pr.set(e.first, e.second);
+        return SimParams::from(pr);
+    };
+    const auto run = [&](const SimParams& sp, int layers, long long* repairs, double* md, int nsteps) {
+        Simulation sim;
+        sim.setup(sp, false);
+        sim.U.resize(static_cast<size_t>(nx) * ny * layers);
+        for (int k = 0; k < layers; ++k)
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i)
+                    sim.U[(static_cast<size_t>(k) * ny + j) * nx + i] = sim.fluid.prim_to_cons({1.0, i < nx / 2 ? 20.0 : -16.0, 0.0, i < nx / 2 ? 0.4 : 0.45, 0.0});
+        const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
+        if (layers == 1) *md = std::min(sim.mesh.dx, sim.mesh.dy);
+        double t = 0.0;
+        for (int k = 0; k < nsteps; ++k) t += sim.scheme->step(sim.U, res, *md, t, 1e9).dt;
+        *repairs = sim.positivity_repairs();
+        return sim.U;
+    };
+    long long r2 = 0, r3 = 0;
+    double md = 0.0;
+    {   // before any vacuum opens (key off, 5 steps) the two runs agree: the discrepancy, if any, is not the fallback's
+        const Field A0 = run(make(false, "false"), 1, &r2, &md, 5);
+        const Field B0 = run(make(true, "false"), nz, &r3, &md, 5);
+        double d0 = 0.0;
+        for (int k = 0; k < nz; ++k)
+            for (int c = 0; c < nx * ny; ++c)
+                for (int q = 0; q < 4; ++q) d0 = std::max(d0, std::abs(B0[static_cast<size_t>(k) * nx * ny + c][q] - A0[c][q]) / (1.0 + std::abs(A0[c][q])));
+        std::printf("    without the key, 5 steps: max layer difference %.3e\n", d0);
+        CHECK(d0 < 1e-10);
+    }
+    const Field A = run(make(false), 1, &r2, &md, steps);
+    const Field B = run(make(true), nz, &r3, &md, steps);
+    double diff = 0.0, wmax = 0.0;
+    for (int k = 0; k < nz; ++k)
+        for (int c = 0; c < nx * ny; ++c) {
+            State s3 = B[static_cast<size_t>(k) * nx * ny + c];
+            wmax = std::max(wmax, std::abs(s3[4]));
+            s3[4] = 0.0;
+            for (int q = 0; q < kNVar; ++q) diff = std::max(diff, std::abs(s3[q] - A[c][q]) / (1.0 + std::abs(A[c][q])));
+        }
+    std::printf("    repair passes: %lld (2-D), %lld (3-D); max layer difference %.3e, max |rho w| %.2e\n", r2, r3, diff, wmax);
+    CHECK(r2 > 0 && r3 > 0);
+    CHECK(diff < 1e-10);
+    CHECK(wmax < 1e-12);
+}
