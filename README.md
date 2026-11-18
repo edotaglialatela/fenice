@@ -161,7 +161,7 @@ conditions, so adding a case needs no C++ and no recompilation. The shipped case
 
 Adaptive mesh refinement is judged by the time to a given error, not by the cost per step. On the
 airfoil, AMR on a 192×96 base mesh with two levels reaches the loads of the 768×384 uniform mesh (8 % of its
-cells) in 7 s against 190 s on 16 OpenMP threads, and it beats the uniform 384×192 mesh in both time and error
+cells) in 13.6 s against 200 s on the workstation, and it beats the uniform 384×192 mesh in both time and error
 (one run each, an impulsive start rather than a steady flow; see the
 [airfoil page](docs/source/cases/airfoil.md)).
 

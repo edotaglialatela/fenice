@@ -388,11 +388,12 @@ of the uniform base mesh.
   error made at the seam from the error transported), and WENO3-Z shows it more than MUSCL because its own smooth error is smaller.
   After the first run the ratio to the uniform base mesh was made a reported column and not a failure of the study; the decision was
   taken after the result. Tables: `results/validation/mms_amr_weno/mms_amr_weno.md` and `mms_amr_weno_regions.md`.
-* **WENO5-Z** (six cells where they are leaves of the face's level, the WENO3-Z stencil at the seam; grids 16→32→64). $L_2$ orders
-  1.84, 1.71 (Navier-Stokes) and 1.97, 1.99 (Euler); $L_\infty$ 1.75, 1.13 (Euler) and 1.48, **0.68** (Navier-Stokes, pressure), below
-  its band on these grids already: the smooth error is smaller, so the seam shows in the maximum one grid earlier than for the other two
-  schemes. The finest $L_2$ density error is $6.3\cdot10^{-4}$ against $8.1\cdot10^{-4}$ for WENO3-Z on the same mesh, and about three
-  times that of the uniform WENO5-Z run on $n$ cells. The row is kept with a floor of 0.5 (decided after the result; the band is not moved).
+* **WENO5-Z** (six cells where they are leaves of the face's level, the WENO3-Z stencil at the seam; grids 16→32→64→128). $L_2$ orders
+  1.84, 1.71, **1.26** (Navier-Stokes) and 1.86, 2.11, 1.56 (Euler); $L_\infty$ 1.25, 1.17, **0.72** (Navier-Stokes, density) and 0.68, 1.19,
+  **0.59** (Euler, velocity). The $L_2$ order of the finest pair of the Navier-Stokes solution is below its band, and the $L_\infty$ orders are below
+  theirs on the finest pair: the smooth error is smaller, so the seam shows in the maximum earlier than for the other two schemes. The finest $L_2$
+  density error is $2.6\cdot10^{-4}$ against $2.8\cdot10^{-4}$ for WENO3-Z and for MUSCL on the same mesh, so the fifth-order stencil buys nothing there, and
+  3 to 5 times that of the uniform WENO5-Z run on $n$ cells. The $L_\infty$ rows are kept with a floor of 0.5 (decided after the result; the band is not moved).
 
 ## WENO-Z reconstruction on the periodic cases
 

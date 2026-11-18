@@ -17,6 +17,7 @@ between two meshes.
 
 ```powershell
 python cases\validation\features\ibm_sphere.py --docs      # 10 and 20 cells per diameter
+python cases\validation\amr\octree_q8.py long              # 80 cells per diameter on the octree, to t = 60 (hours)
 ```
 
 The study writes its own case file (`results/validation/ibm_sphere/`). The showcase case `cases/ibm_sphere` (`fenice --case "IBM Sphere"`, also in the GUI) is the Re = 100 flow on the octree, 20 cells per diameter, snapshots every 0.5.
@@ -38,6 +39,23 @@ steady and symmetric.</figcaption>
 * The drag still moves upward with refinement, by 1.5 %. Two meshes are not a convergence proof: a third mesh would be needed to
   say where it is going. The study's band (a change of at most 3 %) is a regression guard set after the run.
 * The serial and distributed runs of the sphere agree bit for bit (`ibm_ghost.py --check`, 2 to 7 ranks).
+
+### Finer meshes on the octree
+
+The octree reaches finest cell sizes that the uniform solver cannot afford here (80 cells per diameter would be 28 million cells). Workstation, Re 20 (the 80-cell run on 48 threads):
+
+| finest cells / D | base, levels | leaves at the end | run to | $C_d$ at $t = 30$ | time loop |
+|---:|---|---:|---:|---:|---:|
+| 20 | 5, 2 | 76 120 | 30 | 3.5124 | 870 s |
+| 40 | 10, 2 | 283 544 | 30 | 3.5456 | 10 980 s |
+| 80 | 10, 3 | 913 236 | 60 | 3.5598 | 28 761 s (66 085 steps) |
+
+The 80-cell run was continued to $t = 60$, where $C_d = 3.5517$; its peak memory is 1.9 GB.
+
+* Over the three meshes at $t = 30$ the observed order is 1.23, far from the formal 2, so $F_s = 3$: fine-grid GCI 0.9 %, extrapolated $C_d$ 3.570.
+* The finest run is **not settled at $t = 30$**: its drag falls by 0.0027 (0.08 %) every 10 time units, 3.5598 at $t = 30$, 3.5571 at 40, 3.5544 at 50 and 3.5517 at 60, with no sign of slowing,
+  so the 0.23 % between $t = 30$ and $t = 60$ is as large as the GCI above. The two coarser runs stop at $t = 30$ and may drift in the same way, so the
+  extrapolated value is indicative; a longer run would be needed to say where the drag at 80 cells per diameter settles.
 
 On the adaptive octree (`cases/validation/amr/octree_q8.py`) the same sphere at an equal finest resolution of 20 cells per diameter gives $C_d$ within about 0.1 % of the uniform solver (Re 20 and 100), in 0.3-0.5 of the time (whole runs on 16 threads) and with 76 k leaves against 432 k cells; see [AMR]({{root}}modules/AMR.html).
 
