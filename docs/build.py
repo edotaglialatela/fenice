@@ -465,7 +465,9 @@ def case_defaults_md(case: str) -> str:
     out = subprocess.run([solver, "--case", case, "--print-case-defaults"], capture_output=True, text=True,
                          check=True).stdout
     rows = [line.split(" = ", 1) for line in out.splitlines() if " = " in line]
-    return "| Parameter | Default |\n|---|---|\n" + "\n".join(f"| `{k}` | `{v}` |" for k, v in rows)
+    table = "| Parameter | Default |\n|---|---|\n" + "\n".join(f"| `{k}` | `{v}` |" for k, v in rows)
+    return (f'<details markdown="1">\n<summary>Default parameters: {case} ({len(rows)} values)</summary>\n\n'
+            f"{table}\n\n</details>")
 
 
 def switches_md() -> str:
