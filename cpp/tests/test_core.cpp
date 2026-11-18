@@ -1,5 +1,8 @@
 // EOS, Riemann solvers, boundary conditions, residual, time schemes, IBM, mapping and I/O, behavioural checks
 // Part of the unit tests: see test_common.hpp for the harness; test_main.cpp holds main().
+#ifdef _OPENMP
+#include <omp.h>
+#endif
 #include <cstring>
 #include <map>
 #include "test_common.hpp"
@@ -750,6 +753,101 @@ TEST(fourth_order_flux_properties) {
         for (const State& s : F4)
             for (int q = 0; q < kNVar; ++q) CHECK(std::isfinite(s[q]));
     }
+}
+
+TEST(fused_fourth_order_residual_equals_the_two_pass_residual_bit_for_bit) {
+    // flux_quadrature = fourth on a 2-D mesh: the pass over blocks of rows (reconstruction, point values, Riemann solves, correction and balance)
+    // gives what reconstruct_conserved, fourth_order_fluxes and the divergence of the face fluxes give, for any thread count (the blocks and
+    // their repeated seam rows change, the values do not), with walls, outflow and periodic seams, a smooth field with noise and a pressure jump
+    // (the shock sensor and the positivity fallbacks fire on part of the faces)
+    const EOS eos = EOS::ideal(1.4);
+    const double pi = 3.14159265358979323846;
+    unsigned seed = 777u;
+    const auto rnd = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<double>(seed >> 8) / 16777216.0;
+    };
+    const Mesh m = generate_cartesian_mesh(1.0, 0.8, 23, 53);
+    const int nx = m.nx, ny = m.ny;
+    Field U(m.num_cells());
+    for (int j = 0; j < ny; ++j)
+        for (int i = 0; i < nx; ++i) {
+            const double ph = 2.0 * pi * ((i + 0.5) / nx + (j + 0.5) / ny);
+            double p = 1.0 + 0.1 * std::sin(ph + 1.0) + 0.01 * (rnd() - 0.5);
+            if (j >= 20 && j < 26 && i > 8) p *= 4.0;   // a pressure jump
+            U[j * nx + i] = eos.prim_to_cons({1.0 + 0.2 * std::sin(ph) + 0.01 * (rnd() - 0.5), 0.5 + 0.1 * std::cos(ph), 0.3 * std::sin(ph), p, 0.0});
+        }
+    constexpr int D = 3;
+    long long corrected = 0;
+    for (const Reconstruction rec : {Reconstruction::Weno3, Reconstruction::Weno5}) {
+        const MusclReconstruction mu(eos, Limiter::VanLeer, rec, 1e-6);
+        for (const RiemannType rt : {RiemannType::HLLC, RiemannType::LowMachHLLC}) {
+            const RiemannSolver rs(eos, rt, 0.2);
+            for (const bool per_x : {false, true}) {
+                BoundaryManager bm(m, eos);
+                if (per_x)
+                    bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Wall, BCType::Transmissive);
+                else
+                    bm.set_boundary_types(BCType::Wall, BCType::Transmissive, BCType::Periodic, BCType::Periodic);
+                // wrap-around halos on the periodic axis, as Simulation::assemble builds them
+                Field perL, perR, perB, perT;
+                Halos h;
+                h.depth = D;
+                if (per_x) {
+                    perL.resize(static_cast<size_t>(ny) * D);
+                    perR.resize(perL.size());
+                    for (int j = 0; j < ny; ++j)
+                        for (int d = 0; d < D; ++d) {
+                            perL[j * D + d] = U[j * nx + nx - D + d];
+                            perR[j * D + d] = U[j * nx + d];
+                        }
+                    h.l = &perL;
+                    h.r = &perR;
+                } else {
+                    perB.assign(U.end() - static_cast<std::ptrdiff_t>(D) * nx, U.end());
+                    perT.assign(U.begin(), U.begin() + static_cast<std::ptrdiff_t>(D) * nx);
+                    h.b = &perB;
+                    h.t = &perT;
+                }
+                const bool per3[3] = {per_x, !per_x, false}, per2[2] = {per_x, !per_x};
+                // two passes
+                Field UL, UR, F, F0, R2;
+                bm.apply_boundary_conditions(U, UL, UR);
+                mu.reconstruct_conserved(UL, UR, U, m, h);
+                rs.compute_flux(UL, UR, m, F0);
+                const double s2 = fourth_order_fluxes(rs, eos, UL, UR, m, h, per3, F);
+                R2.resize(U.size());
+                const double inv_area = 1.0 / m.cell_area(), dxl = m.dx, dyl = m.dy;
+                for (int j = 0; j < ny; ++j)
+                    for (int i = 0; i < nx; ++i)
+                        for (int q = 0; q < kNVar; ++q) {
+                            const State &fl = F[m.xface(i, j)], &fr = F[m.xface(i + 1, j)], &fb = F[m.yface(i, j)], &ft = F[m.yface(i, j + 1)];
+                            R2[j * nx + i][q] = ((0.0 - (fr[q] * dyl - fl[q] * dyl)) - (ft[q] * dxl - fb[q] * dxl)) * inv_area;
+                        }
+                for (size_t f = 0; f < F.size(); ++f)
+                    for (int q = 0; q < kNVar; ++q) corrected += F[f][q] != F0[f][q];
+                // the fused pass, from the first-order states of the sides only
+                Field ULs, URs;
+                bm.apply_boundary_conditions(U, ULs, URs, nullptr, false);
+                for (const int threads : {1, 2, 3, 7}) {
+#ifdef _OPENMP
+                    omp_set_num_threads(threads);
+#endif
+                    Field R1;
+                    const double s1 = mu.fourth_order_residual_2d(rs, ULs, URs, U, m, h, per2, R1);
+                    CHECK(s1 == s2);
+                    bool same = R1.size() == R2.size();
+                    for (size_t c = 0; same && c < R1.size(); ++c)
+                        for (int q = 0; q < kNVar; ++q) same = same && R1[c][q] == R2[c][q];
+                    CHECK(same);
+                }
+            }
+        }
+    }
+#ifdef _OPENMP
+    omp_set_num_threads(omp_get_num_procs());
+#endif
+    CHECK(corrected > 1000);   // the correction was exercised (the fourth-order fluxes differ from those of the averaged states on many faces)
 }
 
 TEST(viscous_uniform_zero_and_couette) {

@@ -220,10 +220,9 @@ Measured on the isentropic vortex with exact cell-averaged initial data (a resta
   sides, so the correction is inactive there and only the conserved reconstruction and its guard act. The density $L_1$ error of the 123 problem
   is larger than with `midpoint` (`weno5` 0.0013 to 0.0029, `weno3` 0.0025 to 0.0037) and that of the Mach 10, 20 and 100 tubes smaller
   (`weno5` 0.0127 to 0.0117, 0.0134 to 0.0123, 0.0136 to 0.0125).
-* Cost (workstation of the [performance guide]({{root}}guide/performance.html), isentropic vortex, SSP-RK3, `cases/validation/benchmarks/flux_quadrature_cost.py`): a `fourth` step takes
-  2.3 to 2.8 times a `midpoint` step on one thread (`weno5` 2.3-2.4, `weno3` 2.7-2.8), and 4.1 to 5.6 times on 16 or 48 threads at $2048^2$ (6.6 to 10.5 times at $512^2$): from 1 to 48 threads `fourth` gains
-  5.2 to 5.9 times where `midpoint` gains 10.8 to 12.1, and at $512^2$ it is slower on 48 threads than on 16 (38.9 against 31.5 ms for `weno3`). A step of `weno5` at $2048^2$ takes 1066 / 106 / 88 ms
-  with `midpoint` and 2406 / 434 / 405 ms with `fourth` on 1 / 16 / 48 threads. The scaling has not been profiled.
+* Cost: a `fourth` step does more work than a `midpoint` one (the reconstruction of the conserved variables, the point values and the transverse correction, with one Riemann solve per face). On 2-D meshes the whole step
+  (reconstruction, point values, Riemann solves, correction and flux balance) runs in one pass over blocks of rows, the face states and fluxes kept for a few rows only (`FENICE_NO_FUSED=1` runs the separate passes, with identical bits), so that it scales over
+  threads like the other schemes. The cost against `midpoint` is measured by `cases/validation/benchmarks/flux_quadrature_cost.py`; 3-D meshes use the separate passes.
 
 ### References
 

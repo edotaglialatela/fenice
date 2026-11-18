@@ -784,6 +784,11 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         // reconstruction, Riemann solver and flux balance in one pass over rows of faces: the face fluxes are not stored
         ProfileScope ps(Section::Flux);
         S = mu->muscl_residual_2d(riemann, UL_, UR_, *Uc, m, mh, R);
+    } else if (fourth && fused_enabled()) {
+        // flux_quadrature = fourth: reconstruction, point values, Riemann solves, correction and balance in one pass over rows
+        ProfileScope ps(Section::Flux);
+        const bool per[2] = {per_x, per_y};
+        S = mu->fourth_order_residual_2d(riemann, UL_, UR_, *Uc, m, mh, per, R);
     } else if (!mu && fused_enabled()) {
         ProfileScope ps(Section::Flux);   // first order: the same pass, the states of the faces are the cells
         S = riemann.first_order_residual_2d(UL_, UR_, *Uc, m, R);

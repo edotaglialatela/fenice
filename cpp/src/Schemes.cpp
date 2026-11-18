@@ -1152,126 +1152,392 @@ double RiemannSolver::first_order_residual_2d(const Field& UL, const Field& UR, 
     return fused_residual_2d(g, m, R);
 }
 
-void MusclReconstruction::reconstruct_conserved(Field& UL, Field& UR, const Field& U, const Mesh& m, const Halos& h) const {
-    const bool five = scheme_ == Reconstruction::Weno5;
-    const int pad = five ? 3 : kHaloDepth;
-    if ((h.l || h.r || h.b || h.t || h.f || h.bk) && h.depth < pad)
-        throw std::logic_error(five ? "WENO5-Z needs halos three cells deep" : "WENO3-Z needs halos two cells deep");
-    const int nx = m.nx, ny = m.ny, nz = m.nz;
-    thread_local std::vector<double> W_scratch;
-    std::vector<double>& Wp = W_scratch;   // the master's buffer: the worker threads read it through this name
-    int PX, PY, zp;
-    pad_primitives(eos_, U, m, h, Wp, PX, PY, zp, pad, false);
-    const size_t plane = Wp.size() / 5;
-    const double* const W = Wp.data();
-    const double* const pl[kNVar] = {W, W + plane, W + 2 * plane, W + 3 * plane, W + 4 * plane};
-    const double we = weno_eps_;
+namespace {
+std::vector<double>& conserved_scratch() {
+    thread_local std::vector<double> w;
+    return w;
+}
+
+// The WENO3-Z / WENO5-Z reconstruction of the conserved cell averages, one line of faces at a time (shared by reconstruct_conserved, which fills
+// UL / UR, and the fused fourth-order residual, which keeps a few lines). The padded primitive copy is made once, by the thread that builds this.
+struct ConservedLines {
+    bool five;
+    int pad, PX, PY, zp, nx, ny, nz;
+    double we, g1, gp;
+    const double* pl[kNVar];
+    bool vec;
+
+    ConservedLines(const EOS& eos, Reconstruction scheme, double weno_eps, const Field& U, const Mesh& m, const Halos& h)
+        : five(scheme == Reconstruction::Weno5), pad(five ? 3 : kHaloDepth), nx(m.nx), ny(m.ny), nz(m.nz), we(weno_eps) {
+        if ((h.l || h.r || h.b || h.t || h.f || h.bk) && h.depth < pad)
+            throw std::logic_error(five ? "WENO5-Z needs halos three cells deep" : "WENO3-Z needs halos two cells deep");
+        std::vector<double>& Wp = conserved_scratch();
+        pad_primitives(eos, U, m, h, Wp, PX, PY, zp, pad, false);
+        const size_t plane = Wp.size() / 5;
+        const double* const W = Wp.data();
+        for (int q = 0; q < kNVar; ++q) pl[q] = W + static_cast<size_t>(q) * plane;
 #ifdef FV_SIMD
-    const bool vec = detail::simd_available();
+        vec = detail::simd_available();
 #else
-    const bool vec = false;   // (read only by the vector branch below)
-    (void)vec;
+        vec = false;   // (read only by the vector branch below)
 #endif
-    UL.resize(m.num_faces());
-    UR.resize(m.num_faces());
-    // conserved reconstruction can give a negative pressure (or density) where the primitive one cannot: such a face takes the first-order states,
-    // the two cells next to it (positive by induction)
-    const double g1 = eos_.gamma - 1.0, gp = eos_.type == EOS::Type::IdealGas ? 0.0 : eos_.gamma * eos_.p_inf;
-    const auto positive = [&](const State& u) {
+        // conserved reconstruction can give a negative pressure (or density) where the primitive one cannot: such a face takes the first-order states,
+        // the two cells next to it (positive by induction)
+        g1 = eos.gamma - 1.0;
+        gp = eos.type == EOS::Type::IdealGas ? 0.0 : eos.gamma * eos.p_inf;
+    }
+
+    bool positive(const State& u) const {
         return u[0] > 0.0 && g1 * (u[3] * u[0] - 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4])) > gp * u[0];
-    };
-    const auto sweep = [&](int axis, bool has_lo, bool has_hi) {
+    }
+
+    // The faces of the line (axis, j, k) with a full stencil go to ul / ur (the first face of the line); returns false, and writes nothing, when the
+    // line has none (a physical side without a ghost layer).
+    bool line(int axis, int j, int k, bool has_lo, bool has_hi, State* ul, State* ur) const {
         const int n_a = axis == 0 ? nx : (axis == 1 ? ny : nz);
         const size_t stride = axis == 0 ? 1 : (axis == 1 ? static_cast<size_t>(PX) : static_cast<size_t>(PX) * PY);
+        const int t_line = axis == 1 ? j : k;
+        int first, last;   // the faces of the line with a full stencil
+        if (axis == 0) {
+            first = has_lo ? 0 : 1;
+            last = has_hi ? nx : nx - 1;
+        } else if ((t_line > 0 && t_line < n_a) || (t_line == 0 && has_lo) || (t_line == n_a && has_hi)) {
+            first = 0;
+            last = nx - 1;
+        } else {
+            return false;
+        }
+        const auto base_of = [&](int i) {
+            return (static_cast<size_t>(axis == 2 ? k : k + zp) * PY + (axis == 1 ? j : j + pad)) * PX + (axis == 0 ? i : i + pad);
+        };
+        int done = 0;
+        [[maybe_unused]] const int cnt = last - first + 1;
+#ifdef FV_SIMD
+        if (vec) {
+            done = cnt & ~3;
+            if (done > 0) {
+                if (five)
+                    detail::weno5_line_cons_simd(we, pl, base_of(first), stride, done, &ul[first], &ur[first]);
+                else
+                    detail::weno3_line_cons_simd(we, pl, base_of(first), stride, done, &ul[first], &ur[first]);
+            }
+        }
+#endif
+        for (int i = first + done; i <= last; ++i) {
+            const size_t base = base_of(i);
+            State wl, wr;
+            for (int q = 0; q < kNVar; ++q) {
+                const double* c = pl[q] + base;
+                if (five) {
+                    wl[q] = weno5z(c[0], c[stride], c[2 * stride], c[3 * stride], c[4 * stride], we);
+                    wr[q] = weno5z(c[5 * stride], c[4 * stride], c[3 * stride], c[2 * stride], c[stride], we);
+                } else {
+                    wl[q] = weno3z(c[0], c[stride], c[2 * stride], we);
+                    wr[q] = weno3z(c[3 * stride], c[2 * stride], c[stride], we);
+                }
+            }
+            ul[i] = wl;
+            ur[i] = wr;
+        }
+        // the faces of the line whose states are not admissible: the cells on both sides (padded positions 2 and 3 of the six, 1 and 2 of
+        // the four)
+        const int left = five ? 2 : 1, ncell = five ? 6 : 4;
+        const auto prs = [&](const State& u) { return g1 * (u[3] - 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4]) / u[0]) - gp; };
+        for (int i = first; i <= last; ++i) {
+            const size_t base = base_of(i);
+            // admissible: positive, and the density and the pressure inside the range of the stencil cells (a wild overshoot at a face)
+            bool ok = positive(ul[i]) && positive(ur[i]);
+            if (ok) {
+                double rlo = 1e300, rhi = -1e300, plo = 1e300, phi = -1e300;
+                for (int c = 0; c < ncell; ++c) {
+                    State u;
+                    for (int q = 0; q < kNVar; ++q) u[q] = pl[q][base + c * stride];
+                    const double pc = prs(u);
+                    rlo = std::min(rlo, u[0]);
+                    rhi = std::max(rhi, u[0]);
+                    plo = std::min(plo, pc);
+                    phi = std::max(phi, pc);
+                }
+                // a smooth extremum puts the face value a little beyond the cell averages: the range is widened by its own width
+                const double rw = rhi - rlo, pw = phi - plo;
+                rlo -= rw;
+                rhi += rw;
+                plo -= pw;
+                phi += pw;
+                for (const State* st : {&ul[i], &ur[i]}) {
+                    const double pf = prs(*st);
+                    ok = ok && (*st)[0] >= rlo && (*st)[0] <= rhi && pf >= plo && pf <= phi;
+                }
+            }
+            if (ok) continue;
+            for (int q = 0; q < kNVar; ++q) {
+                ul[i][q] = pl[q][base + left * stride];
+                ur[i][q] = pl[q][base + (left + 1) * stride];
+            }
+        }
+        return true;
+    }
+};
+}   // namespace
+
+void MusclReconstruction::reconstruct_conserved(Field& UL, Field& UR, const Field& U, const Mesh& m, const Halos& h) const {
+    const int nx = m.nx, ny = m.ny, nz = m.nz;
+    const ConservedLines lines(eos_, scheme_, weno_eps_, U, m, h);
+    UL.resize(m.num_faces());
+    UR.resize(m.num_faces());
+    const auto sweep = [&](int axis, bool has_lo, bool has_hi) {
         const int nj = axis == 1 ? ny + 1 : ny, nk = axis == 2 ? nz + 1 : nz;
-#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
+        const bool par = nx * ny * nz >= kOmpMinWork;
+#pragma omp parallel for schedule(static) if (par)
         for (int kj = 0; kj < nk * nj; ++kj) {
             const int j = kj % nj, k = kj / nj;
-            const int t_line = axis == 1 ? j : k;
-            int first, last;   // the faces of the line with a full stencil
-            if (axis == 0) {
-                first = has_lo ? 0 : 1;
-                last = has_hi ? nx : nx - 1;
-            } else if ((t_line > 0 && t_line < n_a) || (t_line == 0 && has_lo) || (t_line == n_a && has_hi)) {
-                first = 0;
-                last = nx - 1;
-            } else {
-                continue;
-            }
             const int f0 = axis == 0 ? m.xface(0, j, k) : (axis == 1 ? m.yface(0, j, k) : m.zface(0, j, k));
-            const auto base_of = [&](int i) {
-                return (static_cast<size_t>(axis == 2 ? k : k + zp) * PY + (axis == 1 ? j : j + pad)) * PX + (axis == 0 ? i : i + pad);
-            };
-            int done = 0;
-            [[maybe_unused]] const int cnt = last - first + 1;
-#ifdef FV_SIMD
-            if (vec) {
-                done = cnt & ~3;
-                if (done > 0) {
-                    if (five)
-                        detail::weno5_line_cons_simd(we, pl, base_of(first), stride, done, &UL[f0 + first], &UR[f0 + first]);
-                    else
-                        detail::weno3_line_cons_simd(we, pl, base_of(first), stride, done, &UL[f0 + first], &UR[f0 + first]);
-                }
-            }
-#endif
-            for (int i = first + done; i <= last; ++i) {
-                const size_t base = base_of(i);
-                State wl, wr;
-                for (int q = 0; q < kNVar; ++q) {
-                    const double* c = pl[q] + base;
-                    if (five) {
-                        wl[q] = weno5z(c[0], c[stride], c[2 * stride], c[3 * stride], c[4 * stride], we);
-                        wr[q] = weno5z(c[5 * stride], c[4 * stride], c[3 * stride], c[2 * stride], c[stride], we);
-                    } else {
-                        wl[q] = weno3z(c[0], c[stride], c[2 * stride], we);
-                        wr[q] = weno3z(c[3 * stride], c[2 * stride], c[stride], we);
-                    }
-                }
-                UL[f0 + i] = wl;
-                UR[f0 + i] = wr;
-            }
-            // the faces of the line whose states are not admissible: the cells on both sides (padded positions 2 and 3 of the six, 1 and 2 of
-            // the four)
-            const int left = five ? 2 : 1, ncell = five ? 6 : 4;
-            const auto prs = [&](const State& u) { return g1 * (u[3] - 0.5 * (u[1] * u[1] + u[2] * u[2] + u[4] * u[4]) / u[0]) - gp; };
-            for (int i = first; i <= last; ++i) {
-                const size_t base = base_of(i);
-                // admissible: positive, and the density and the pressure inside the range of the stencil cells (a wild overshoot at a face)
-                bool ok = positive(UL[f0 + i]) && positive(UR[f0 + i]);
-                if (ok) {
-                    double rlo = 1e300, rhi = -1e300, plo = 1e300, phi = -1e300;
-                    for (int c = 0; c < ncell; ++c) {
-                        State u;
-                        for (int q = 0; q < kNVar; ++q) u[q] = pl[q][base + c * stride];
-                        const double pc = prs(u);
-                        rlo = std::min(rlo, u[0]);
-                        rhi = std::max(rhi, u[0]);
-                        plo = std::min(plo, pc);
-                        phi = std::max(phi, pc);
-                    }
-                    // a smooth extremum puts the face value a little beyond the cell averages: the range is widened by its own width
-                    const double rw = rhi - rlo, pw = phi - plo;
-                    rlo -= rw;
-                    rhi += rw;
-                    plo -= pw;
-                    phi += pw;
-                    for (const State* st : {&UL[f0 + i], &UR[f0 + i]}) {
-                        const double pf = prs(*st);
-                        ok = ok && (*st)[0] >= rlo && (*st)[0] <= rhi && pf >= plo && pf <= phi;
-                    }
-                }
-                if (ok) continue;
-                for (int q = 0; q < kNVar; ++q) {
-                    UL[f0 + i][q] = pl[q][base + left * stride];
-                    UR[f0 + i][q] = pl[q][base + (left + 1) * stride];
-                }
-            }
+            lines.line(axis, j, k, has_lo, has_hi, &UL[f0], &UR[f0]);
         }
     };
     sweep(0, h.l != nullptr, h.r != nullptr);
     sweep(1, h.b != nullptr, h.t != nullptr);
     if (nz > 1) sweep(2, h.f != nullptr, h.bk != nullptr);
+}
+
+namespace {
+// The rows a thread keeps in the fused fourth-order residual (reused between calls).
+struct FourthScratch {
+    std::vector<State> xUL, xUR, xAL, xAR, xFp, xF;           // x faces: 5 rows of reconstructed states, 3 rows of point values / fluxes, one flux row
+    std::vector<unsigned char> xgood, xpt;                      // 5 rows of flags, 3 rows of flags
+    std::vector<State> yUL, yUR, yAL, yAR, yFp, yF;            // y faces: one row at a time, two rows of fluxes
+    std::vector<unsigned char> ygood, ypt;
+    std::vector<int> ax;
+    std::vector<double> sm;
+};
+}   // namespace
+
+double MusclReconstruction::fourth_order_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
+                                                     const Halos& h, const bool periodic[2], Field& R) const {
+    const int nx = m.nx, ny = m.ny;
+    const ConservedLines lines(eos_, scheme_, weno_eps_, U, m, h);
+    R.resize(U.size());
+    const bool lo[2] = {h.l != nullptr, h.b != nullptr}, hi[2] = {h.r != nullptr, h.t != nullptr};
+    const bool per_x = periodic[0], per_y = periodic[1];
+    const double sb = riemann.shock_blend();
+    const double g1 = eos_.gamma - 1.0, gpi = eos_.type == EOS::Type::IdealGas ? 0.0 : eos_.gamma * eos_.p_inf;
+    const auto m2 = [](const State& u) { return u[1] * u[1] + u[2] * u[2] + u[4] * u[4]; };
+    // the same tests as fourth_order_fluxes
+    const auto positive = [&](const State& u) { return u[0] > 0.0 && g1 * (u[3] * u[0] - 0.5 * m2(u)) > gpi * u[0]; };
+    const auto pressure = [&](const State& u) { return g1 * (u[3] - 0.5 * m2(u) / u[0]) - gpi; };
+    // good: positive states, the shock sensor quiet (the position tests are made by the caller)
+    const auto quiet = [&](const State& l, const State& r) {
+        if (!positive(l) || !positive(r)) return false;
+        if (sb > 0.0) {
+            const double pL = pressure(l), pR = pressure(r);
+            if (std::abs(pR - pL) > sb * std::min(pL, pR)) return false;
+        }
+        return true;
+    };
+    const double inv_area = 1.0 / m.cell_area(), dxl = m.dx, dyl = m.dy;
+    const int nxf = nx + 1;
+    // a row index of the x faces (c[1] in fourth_order_fluxes) as the row that holds its data, -1 when it is outside and not periodic
+    const auto phys = [&](int r) {
+        if (r >= 0 && r < ny) return r;
+        if (!per_y) return -1;
+        return ((r % ny) + ny) % ny;
+    };
+    const auto slot5 = [](int r) { return ((r % 5) + 5) % 5; };
+    const auto slot3 = [](int r) { return ((r % 3) + 3) % 3; };
+    double smax_all = 0.0;
+    // one block of consecutive rows per thread (at least 16 rows: every block repeats the four rows around its seams)
+    const bool par = nx * ny >= kOmpMinWork;
+#pragma omp parallel if (par)
+    {
+        double local = 0.0;
+        thread_local FourthScratch sc;
+        int nthreads = 1, tid = 0;
+#ifdef _OPENMP
+        nthreads = omp_get_num_threads();
+        tid = omp_get_thread_num();
+#endif
+        const int nblocks = std::max(1, std::min(nthreads, ny / 16));
+        if (tid < nblocks) {
+            const int J0 = static_cast<int>(static_cast<long long>(ny) * tid / nblocks);
+            const int J1 = static_cast<int>(static_cast<long long>(ny) * (tid + 1) / nblocks);
+            const size_t W = static_cast<size_t>(nxf);
+            sc.xUL.resize(5 * W);
+            sc.xUR.resize(5 * W);
+            sc.xgood.resize(5 * W);
+            sc.xAL.resize(3 * W);
+            sc.xAR.resize(3 * W);
+            sc.xFp.resize(3 * W);
+            sc.xpt.resize(3 * W);
+            sc.xF.resize(W);
+            sc.yUL.resize(nx);
+            sc.yUR.resize(nx);
+            sc.yAL.resize(nx);
+            sc.yAR.resize(nx);
+            sc.yFp.resize(nx);
+            sc.yF.resize(2 * static_cast<size_t>(nx));
+            sc.ygood.resize(nx);
+            sc.ypt.resize(nx);
+            sc.ax.assign(W, 0);
+            sc.sm.resize(W);
+            std::vector<int> ones(static_cast<size_t>(nx), 1);
+
+            // the states of the faces of row r (unwrapped index) and their flags
+            const auto recon_x = [&](int r) {
+                const int pr = phys(r);
+                if (pr < 0) return;
+                State* ul = &sc.xUL[slot5(r) * W];
+                State* ur = &sc.xUR[slot5(r) * W];
+                unsigned char* gd = &sc.xgood[slot5(r) * W];
+                lines.line(0, pr, 0, lo[0], hi[0], ul, ur);
+                const int first = lo[0] ? 0 : 1, last = hi[0] ? nx : nx - 1;
+                for (int i = 0; i < first; ++i) {
+                    ul[i] = UL[m.xface(i, pr, 0)];
+                    ur[i] = UR[m.xface(i, pr, 0)];
+                }
+                for (int i = last + 1; i <= nx; ++i) {
+                    ul[i] = UL[m.xface(i, pr, 0)];
+                    ur[i] = UR[m.xface(i, pr, 0)];
+                }
+                for (int i = 0; i <= nx; ++i) {
+                    gd[i] = 0;
+                    if (!((i > 0 && i < nx) || (i == 0 && lo[0]) || (i == nx && hi[0]))) continue;
+                    gd[i] = quiet(ul[i], ur[i]) ? 1 : 0;
+                }
+            };
+            // the point values of row r, and the flux of the point values (or of the averages where there are none)
+            const auto point_x = [&](int r) {
+                const int s5 = slot5(r), s3 = slot3(r);
+                const State *ul = &sc.xUL[s5 * W], *ur = &sc.xUR[s5 * W];
+                const unsigned char* gd = &sc.xgood[s5 * W];
+                State *al = &sc.xAL[s3 * W], *ar = &sc.xAR[s3 * W], *fp = &sc.xFp[s3 * W];
+                unsigned char* pt = &sc.xpt[s3 * W];
+                const bool nb = phys(r - 1) >= 0 && phys(r + 1) >= 0;
+                const State *ulm = nb ? &sc.xUL[slot5(r - 1) * W] : nullptr, *ulp = nb ? &sc.xUL[slot5(r + 1) * W] : nullptr;
+                const State *urm = nb ? &sc.xUR[slot5(r - 1) * W] : nullptr, *urp = nb ? &sc.xUR[slot5(r + 1) * W] : nullptr;
+                const unsigned char *gm = nb ? &sc.xgood[slot5(r - 1) * W] : nullptr, *gq = nb ? &sc.xgood[slot5(r + 1) * W] : nullptr;
+                for (int i = 0; i <= nx; ++i) {
+                    al[i] = ul[i];
+                    ar[i] = ur[i];
+                    pt[i] = 0;
+                    if (!nb || !gd[i] || !gm[i] || !gq[i]) continue;
+                    State pl = ul[i], pr_ = ur[i];
+                    for (int q = 0; q < kNVar; ++q) {
+                        double dl = 0.0, dr = 0.0;
+                        dl += ulp[i][q] - 2.0 * ul[i][q] + ulm[i][q];
+                        dr += urp[i][q] - 2.0 * ur[i][q] + urm[i][q];
+                        pl[q] -= dl / 24.0;
+                        pr_[q] -= dr / 24.0;
+                    }
+                    if (!positive(pl) || !positive(pr_)) continue;
+                    al[i] = pl;
+                    ar[i] = pr_;
+                    pt[i] = 1;
+                }
+                riemann.face_flux_batch(al, ar, sc.ax.data(), nxf, fp, sc.sm.data());
+                for (int i = 0; i <= nx; ++i)
+                    if (sc.sm[i] > local) local = sc.sm[i];
+            };
+            // the flux of the x faces of row j into sc.xF
+            const auto flux_x = [&](int j) {
+                const int s5 = slot5(j), s3 = slot3(j);
+                const State *ul = &sc.xUL[s5 * W], *ur = &sc.xUR[s5 * W];
+                const State* fp = &sc.xFp[s3 * W];
+                const unsigned char* pt = &sc.xpt[s3 * W];
+                const bool nb = phys(j - 1) >= 0 && phys(j + 1) >= 0;
+                const State *fpm = nb ? &sc.xFp[slot3(j - 1) * W] : nullptr, *fpp = nb ? &sc.xFp[slot3(j + 1) * W] : nullptr;
+                const unsigned char *ptm = nb ? &sc.xpt[slot3(j - 1) * W] : nullptr, *ptp = nb ? &sc.xpt[slot3(j + 1) * W] : nullptr;
+                for (int i = 0; i <= nx; ++i) {
+                    if (pt[i] && nb && ptm[i] && ptp[i]) {
+                        for (int q = 0; q < kNVar; ++q) {
+                            double d = 0.0;
+                            d += fpp[i][q] - 2.0 * fp[i][q] + fpm[i][q];
+                            sc.xF[i][q] = fp[i][q] + d / 24.0;
+                        }
+                    } else if (pt[i]) {   // a point value without the full correction: back to the flux of the averaged states
+                        double sm = 0.0;
+                        sc.xF[i] = riemann.face_flux(ul[i], ur[i], 0, sm);
+                    } else {
+                        sc.xF[i] = fp[i];
+                    }
+                }
+            };
+            // the fluxes of the y faces of row ry (all of it: the transverse neighbours are in the row) into slot ry mod 2 of sc.yF
+            const auto row_y = [&](int ry) {
+                State *ul = sc.yUL.data(), *ur = sc.yUR.data(), *al = sc.yAL.data(), *ar = sc.yAR.data(), *fp = sc.yFp.data();
+                State* fo = &sc.yF[(ry & 1) * static_cast<size_t>(nx)];
+                unsigned char *gd = sc.ygood.data(), *pt = sc.ypt.data();
+                if (!lines.line(1, ry, 0, lo[1], hi[1], ul, ur))
+                    for (int i = 0; i < nx; ++i) {
+                        ul[i] = UL[m.yface(i, ry, 0)];
+                        ur[i] = UR[m.yface(i, ry, 0)];
+                    }
+                const bool row_in = (ry > 0 && ry < ny) || (ry == 0 && lo[1]) || (ry == ny && hi[1]);
+                for (int i = 0; i < nx; ++i) gd[i] = row_in && quiet(ul[i], ur[i]) ? 1 : 0;
+                const auto left = [&](int i) { return i > 0 ? i - 1 : (per_x ? nx - 1 : -1); };
+                const auto right = [&](int i) { return i + 1 < nx ? i + 1 : (per_x ? 0 : -1); };
+                for (int i = 0; i < nx; ++i) {
+                    al[i] = ul[i];
+                    ar[i] = ur[i];
+                    pt[i] = 0;
+                    if (!gd[i]) continue;
+                    const int a = left(i), b = right(i);
+                    if (a < 0 || b < 0 || !gd[a] || !gd[b]) continue;
+                    State pl = ul[i], pr_ = ur[i];
+                    for (int q = 0; q < kNVar; ++q) {
+                        double dl = 0.0, dr = 0.0;
+                        dl += ul[b][q] - 2.0 * ul[i][q] + ul[a][q];
+                        dr += ur[b][q] - 2.0 * ur[i][q] + ur[a][q];
+                        pl[q] -= dl / 24.0;
+                        pr_[q] -= dr / 24.0;
+                    }
+                    if (!positive(pl) || !positive(pr_)) continue;
+                    al[i] = pl;
+                    ar[i] = pr_;
+                    pt[i] = 1;
+                }
+                riemann.face_flux_batch(al, ar, ones.data(), nx, fp, sc.sm.data());
+                for (int i = 0; i < nx; ++i)
+                    if (sc.sm[i] > local) local = sc.sm[i];
+                for (int i = 0; i < nx; ++i) {
+                    const int a = left(i), b = right(i);
+                    if (pt[i] && a >= 0 && b >= 0 && pt[a] && pt[b]) {
+                        for (int q = 0; q < kNVar; ++q) {
+                            double d = 0.0;
+                            d += fp[b][q] - 2.0 * fp[i][q] + fp[a][q];
+                            fo[i][q] = fp[i][q] + d / 24.0;
+                        }
+                    } else if (pt[i]) {
+                        double sm = 0.0;
+                        fo[i] = riemann.face_flux(ul[i], ur[i], 1, sm);
+                    } else {
+                        fo[i] = fp[i];
+                    }
+                }
+            };
+
+            int xr = J0 - 3, xp = J0 - 2, yr = J0 - 1;   // the last row of each stage done
+            for (int j = J0; j < J1; ++j) {
+                while (xr < j + 2) recon_x(++xr);
+                while (xp < j + 1) {
+                    ++xp;
+                    if (phys(xp) >= 0) point_x(xp);
+                }
+                while (yr < j + 1) row_y(++yr);
+                flux_x(j);
+                const State* fb = &sc.yF[(j & 1) * static_cast<size_t>(nx)];
+                const State* ft = &sc.yF[((j + 1) & 1) * static_cast<size_t>(nx)];
+                for (int i = 0; i < nx; ++i) {
+                    const State &fl = sc.xF[i], &fr = sc.xF[i + 1];
+                    State& r = R[j * nx + i];
+                    for (int q = 0; q < kNVar; ++q)
+                        r[q] = ((0.0 - (fr[q] * dyl - fl[q] * dyl)) - (ft[i][q] * dxl - fb[i][q] * dxl)) * inv_area;
+                }
+            }
+        }
+#pragma omp critical(fv_fourth_residual_max)
+        if (local > smax_all) smax_all = local;
+    }
+    return smax_all;
 }
 
 double fourth_order_fluxes(const RiemannSolver& riemann, const EOS& eos, const Field& UL, const Field& UR, const Mesh& m, const Halos& h,

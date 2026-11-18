@@ -179,6 +179,13 @@ public:
     // reconstructions (three cells deep with WENO5-Z). Scalar.
     void reconstruct_conserved(Field& UL, Field& UR, const Field& U, const Mesh& m, const Halos& h) const;
 
+    // The flux balance of a 2-D mesh with flux_quadrature = fourth in one pass over rows (a block of rows per thread): the conserved reconstruction, the
+    // point values, the Riemann solves and the transverse correction of fourth_order_fluxes, then the divergence, with the face states and fluxes kept
+    // for a few rows only. R gets what reconstruct_conserved, fourth_order_fluxes and the divergence of the face fluxes give, bit for bit; returns the
+    // maximum wave speed. UL / UR must hold the faces of the sides (BoundaryManager::apply_boundary_conditions); `periodic` flags the x and y axes.
+    double fourth_order_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m, const Halos& h,
+                                    const bool periodic[2], Field& R) const;
+
     // The WENO3-Z value at the face on the right of c1 from the cells (c0, c1, c2) (the right-hand state of the same face is
     // weno3_value(c3, c2, c1)): the very function the uniform reconstruction calls, so another engine (the adaptive face
     // list) gets the same bits. `weno_eps`: the relative regularisation of the scheme.
