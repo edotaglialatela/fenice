@@ -382,6 +382,35 @@ void CellFluxEngine::predict_level(const CellMesh& m, const Field& U, int l, dou
     fluxes(m, lface_[sl], u_target);
     fluxes(m, cfup_[sl], u_target);
     collect_ = false;
+    // the body force and the sources of the owned leaves at the middle of the step (the terms in the order of the uniform solver, from zero)
+    const bool has_src = phys_.body || phys_.source || phys_.rhs_sources;
+    if (has_src) {
+        const int sb = lown_b_[sl], se = lown_e_[sl];
+        if (hsrc_.size() != static_cast<size_t>(nleaf_)) hsrc_.assign(static_cast<size_t>(nleaf_), State{});
+        if (phys_.source && phys_.source_unsteady) update_source(m, sb, se);
+        Field Rt(static_cast<size_t>(se - sb), State{});
+        const Field& Us = *us_;
+        if (phys_.rhs_sources) {
+            phys_.rhs_sources->apply_adaptive(m, Us, Rt, sb, se, stage_time, phys_.source ? &src_ : nullptr);
+        } else {
+            for (int c = sb; c < se; ++c) {
+                State& r = Rt[static_cast<size_t>(c - sb)];
+                if (phys_.body) {
+                    const ConstantBodyForce& bf = *phys_.body;
+                    r[1] += Us[c][0] * bf.gx;
+                    r[2] += Us[c][0] * bf.gy;
+                    r[3] += Us[c][1] * bf.gx + Us[c][2] * bf.gy;
+                    if (bf.gz != 0.0) {
+                        r[3] += Us[c][4] * bf.gz;
+                        r[4] += Us[c][0] * bf.gz;
+                    }
+                }
+                if (phys_.source)
+                    for (int q = 0; q < kNVar; ++q) r[q] += src_[static_cast<size_t>(c)][q];
+            }
+        }
+        for (int c = sb; c < se; ++c) hsrc_[static_cast<size_t>(c)] = Rt[static_cast<size_t>(c - sb)];
+    }
     // each owned leaf takes its four side states from its faces, predicts them and puts them back on all the faces of the side
     // (hx = half_dt / dx as the uniform solver's predictor, so a level-0 mesh gets its bits)
     const double hx = half_dt / m.dx(l), hy = half_dt / m.dy(l);
@@ -395,7 +424,8 @@ void CellFluxEngine::predict_level(const CellMesh& m, const Field& U, int l, dou
             const int fi = m.side_face[static_cast<size_t>(m.side_ptr[static_cast<size_t>(4 * c + s)])];
             st[s] = (s & 1) ? PL_[static_cast<size_t>(fi)] : PR_[static_cast<size_t>(fi)];   // the high side of a leaf is the left of its face
         }
-        reverted += MusclReconstruction::hancock_cell_2d(eos_, hx, hy, half_dt, nullptr, st[0], st[1], st[2], st[3]);
+        reverted += MusclReconstruction::hancock_cell_2d(eos_, hx, hy, half_dt, has_src ? &hsrc_[static_cast<size_t>(c)] : nullptr, st[0], st[1],
+                                                         st[2], st[3]);
         for (int s = 0; s < 4; ++s)
             for (int k = m.side_ptr[static_cast<size_t>(4 * c + s)]; k < m.side_ptr[static_cast<size_t>(4 * c + s + 1)]; ++k) {
                 const size_t fi = static_cast<size_t>(m.side_face[static_cast<size_t>(k)]);
@@ -900,11 +930,15 @@ double CellFluxEngine::viscous_speed_3d(const CellMesh& m, int cb, int ce) const
     return s_max;
 }
 
-void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Field& R) {
+void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Field& R, bool predicted) {
     R.resize(static_cast<size_t>(ce - cb));
     const bool visc = phys_.ns != nullptr;
     const Field& U = *us_;
-    if (phys_.source && phys_.source_unsteady) update_source(m, cb, ce);
+    const bool has_src = phys_.body || phys_.source || phys_.rhs_sources;
+    if (predicted && dim_ != 2) throw std::logic_error("CellFluxEngine::gather: MUSCL-Hancock is not available on the octree yet");
+    if (predicted && has_src && hsrc_.size() != static_cast<size_t>(nleaf_))
+        throw std::logic_error("CellFluxEngine::gather: the sources of the predictor were not evaluated");
+    if (!predicted && phys_.source && phys_.source_unsteady) update_source(m, cb, ce);
     if (dim_ == 3) {   // convective, viscous, body force, sources (the 2-D order of the terms)
 #pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
         for (int c = cb; c < ce; ++c) {
@@ -984,6 +1018,11 @@ void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Fie
         for (int q = 0; q < kNVar; ++q) r[q] = ((0.0 - (G[1][q] - G[0][q])) - (G[3][q] - G[2][q])) * inv_area;
         if (visc)
             for (int q = 0; q < kNVar; ++q) r[q] += ((0.0 + (H[1][q] - H[0][q])) + (H[3][q] - H[2][q])) * inv_area;
+        if (predicted) {
+            if (has_src)
+                for (int q = 0; q < kNVar; ++q) r[q] = r[q] + hsrc_[static_cast<size_t>(c)][q];
+            continue;
+        }
         if (!phys_.rhs_sources && phys_.body) {
             const ConstantBodyForce& bf = *phys_.body;
             r[1] += U[c][0] * bf.gx;
@@ -997,7 +1036,7 @@ void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Fie
         if (!phys_.rhs_sources && phys_.source)
             for (int q = 0; q < kNVar; ++q) r[q] += src_[c][q];
     }
-    if (phys_.rhs_sources)
+    if (phys_.rhs_sources && !predicted)
         phys_.rhs_sources->apply_adaptive(m, U, R, cb, ce, stage_time, phys_.source ? &src_ : nullptr);
 }
 
@@ -1049,8 +1088,8 @@ double CellFluxEngine::compute_level_fluxes(const CellMesh& m, const Field& U, i
     return s;
 }
 
-void CellFluxEngine::gather_level(const CellMesh& m, int l, bool replace, Field& Rl) {
-    gather(m, lown_b_[static_cast<size_t>(l)], lown_e_[static_cast<size_t>(l)], replace, Rl);
+void CellFluxEngine::gather_level(const CellMesh& m, int l, bool replace, Field& Rl, bool predicted) {
+    gather(m, lown_b_[static_cast<size_t>(l)], lown_e_[static_cast<size_t>(l)], replace, Rl, predicted);
 }
 
 void CellFluxEngine::clear_registers(const CellMesh& /*m*/, int l) {

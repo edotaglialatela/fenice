@@ -391,11 +391,16 @@ TEST(celladvance_level0_hancock_steps_match_uniform_steps_bitwise) {
     for (int big = 0; big < 2; ++big)
         for (const BCs& bc : sets)
             for (const char* bo : {"1", "2"})
-                for (const char* visc : {"false", "true"}) {
+                for (int vs = 0; vs < 4; ++vs) {   // viscous / body force and a time-dependent source (both reach the predictor)
+                    const char* visc = (vs & 1) ? "true" : "false";
+                    const char* force = (vs & 2) ? "true" : "false";
                     Simulation sim;
                     sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_left", bc.l}, {"bc_right", bc.r},
                                                 {"bc_bottom", bc.b}, {"bc_top", bc.t}, {"boundary_order", bo}, {"use_viscous", visc},
-                                                {"mu", "0.02"}, {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"}}),
+                                                {"mu", "0.02"}, {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"},
+                                                {"use_bodyforce", force}, {"gx", "0.3"}, {"gy", "-0.7"},
+                                                {"source_rho", (vs & 2) ? "0.05*sin(2*x)*cos(y)" : "0"},
+                                                {"source_mx", (vs & 2) ? "0.1*cos(t + x)" : "0"}, {"source_E", (vs & 2) ? "0.2*x*y" : "0"}}),
                               false);
                     const Mesh& u = sim.mesh;
                     const bool px = sim.boundaries.type(Face::Left) == BCType::Periodic;
@@ -408,7 +413,9 @@ TEST(celladvance_level0_hancock_steps_match_uniform_steps_bitwise) {
                         cm.U.resize(cm.num_leaves());
                         for (int c = 0; c < cm.num_leaves(); ++c) cm.U[c] = Uu[cm.cj[c] * u.nx + cm.ci[c]];
                         CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
-                        eng.set_physics(physics_of(sim));
+                        CellPhysics ph = physics_of(sim);
+                        ph.rhs_sources = sim.rhs_sources.empty() ? nullptr : &sim.rhs_sources;   // the ordered terms, as a run has them
+                        eng.set_physics(ph);
                         eng.build(cm);
                         std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme("MUSCL-Hancock"), 0.4);
                         CellAdvance adv(cm, eng, *ts);

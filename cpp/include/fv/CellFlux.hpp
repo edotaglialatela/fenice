@@ -137,6 +137,7 @@ public:
     // kernels, so the special faces, the ghost layers of boundary_order = 2 and the coarse sides of a level jump are as in a plain residual) are
     // advanced by half_dt times the leaf's own flux difference and kept per face side; the leaves of the level above it that touch a coarse-fine
     // face read the coarse side from here, at the time the coarse level predicted it (the coarse leaf's prediction serves both fine sub-steps).
+    // The body force and the sources (at engine.stage_time, the middle of the step) also advance the predicted states.
     // A leaf of the body is not predicted. Call it for a level before that level or a finer one computes its fluxes `predicted`.
     void predict_level(const CellMesh& mesh, const Field& U, int l, double half_dt);
     // Predicted states left as they were (not admissible) since the engine was built, on this rank.
@@ -144,7 +145,9 @@ public:
     // R of the leaves of level l (Rl[k] is leaf level_begin[l] + k).  A face of level l + 1 on a side of such a leaf
     // is a coarse-fine face seen from its coarse side: with `replace` it contributes the time-averaged flux of the
     // register, without it the flux of the last compute_level_fluxes (test hook: breaks conservation).
-    void gather_level(const CellMesh& mesh, int l, bool replace, Field& Rl);
+    // With `predicted` (MUSCL-Hancock) the body force and the sources are the ones predict_level evaluated at the middle of the step (and used in
+    // the predictor), added after the viscous term; nothing is evaluated again.
+    void gather_level(const CellMesh& mesh, int l, bool replace, Field& Rl, bool predicted = false);
     // Zero the registers of the faces of level l.
     void clear_registers(const CellMesh& mesh, int l);
     // reg += w * F for the coarse-fine faces of level l (call after compute_level_fluxes of that level).
@@ -268,7 +271,7 @@ private:
     void cell_quantities_3d(const CellMesh& m, const std::vector<int>& cells);
     void viscous_fluxes_3d(const CellMesh& m, const std::vector<int>& faces);
     double viscous_speed_3d(const CellMesh& m, int cb, int ce) const;
-    void gather(const CellMesh& m, int cb, int ce, bool replace, Field& R);
+    void gather(const CellMesh& m, int cb, int ce, bool replace, Field& R, bool predicted = false);
     void update_source(const CellMesh& m, int cb, int ce);
 
     EOS eos_;
@@ -339,6 +342,7 @@ private:
     // ghost state). Work arrays: sized by predict_level, never persisted. fluxes() with collect_ stores the states of the leaves of level
     // collect_level_ (and the ghost sides) instead of solving the Riemann problems.
     Field PL_, PR_;
+    Field hsrc_;   // per leaf: the body force and sources (dU/dt) of the predictor, the owned leaves of the levels predicted
     bool collect_ = false;
     int collect_level_ = 0;
     long long hancock_reverted_ = 0;
