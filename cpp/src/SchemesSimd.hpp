@@ -41,9 +41,10 @@ void muscl_cell_states_line_simd(const EOS& eos, Limiter lim, const double* W, s
                                  bool planar, State* lo, State* hi);
 // The MUSCL-Hancock predictor of the cells k = 0 .. n-1 (n a multiple of 4): the four states of cell k, xl[k] / xr[k] on its low / high side
 // along x and yb[k] / yt[k] along y, advanced in place by hx * (F_x(xr) - F_x(xl)) + hy * (F_y(yt) - F_y(yb)) unless the result has a
-// density or pressure that is not positive; `stayed` receives how many states were left as they were. Bit-identical to the scalar
-// hancock_cell of Schemes.cpp.
-void hancock_cells_simd(const EOS& eos, double hx, double hy, State* xl, State* xr, State* yb, State* yt, int n, int* stayed);
+// density or pressure that is not positive; `stayed` receives how many states were left as they were. With `src` (the cell source dU/dt of
+// cells 0 .. n-1, null: none) the advance is also by half_dt * src[k]. Bit-identical to the scalar hancock_cell of Schemes.cpp.
+void hancock_cells_simd(const EOS& eos, double hx, double hy, double half_dt, const State* src, State* xl, State* xr, State* yb, State* yt, int n,
+                        int* stayed);
 // Primitive states (EOS::cons_to_prim) of the cells U[0 .. n-1] (n a multiple of 4), the variable q at out[q][k].
 void cons_to_prim_planes_simd(const EOS& eos, const State* U, int n, double* const* out);
 // The same for WENO3-Z (weno3z of Schemes.cpp): four cells per face, planes[q][base + k + s * stride], s = 0 .. 3.

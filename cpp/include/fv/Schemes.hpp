@@ -139,6 +139,9 @@ struct Halos {
     // WENO5-Z only: cells (row-major, 1 = solid cell of an immersed body). A face with such a cell among its six takes the
     // four-cell WENO3-Z stencil: the wall's ghost cells are two deep, the third cell would be a cell at rest inside the body.
     const std::vector<char>* narrow = nullptr;
+    // MUSCL-Hancock only: cells (row-major, 1 = solid cell of an immersed body, ghost cells included) whose face states are not predicted: the
+    // flux difference of a cell inside the body says nothing about the flow, so its states stay as reconstructed. Null: every cell is predicted.
+    const std::vector<char>* solid = nullptr;
     // WENO only, two-pass path (positivity_fallback): cells (row-major, 1 = flagged) whose update left the admissible set. Every face with
     // a flagged cell on one side takes the two cell values as its states (first order). Null: nothing is overridden.
     const std::vector<char>* fallback = nullptr;
@@ -189,17 +192,22 @@ public:
     // (its side of the two x faces and the two y faces) are advanced by `half_dt` with the cell's own flux difference,
     // U -= half_dt * ((F(right) - F(left)) / dx + (F(top) - F(bottom)) / dy). A state that would leave the admissible set (density or pressure
     // not positive) stays as it was. The ghost side of a boundary face is not predicted; `periodic_x` / `periodic_y` (wrap-around halos in
-    // use) copy the predicted state to the second copy of the seam face. Returns the number of states left as they were.
-    int hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y) const;
+    // use) copy the predicted state to the second copy of the seam face. The cells of `solid` (Halos::solid; null: none) are not predicted.
+    // `source` (null: none) is the cell field dU/dt of the terms that are not in the face fluxes (viscous, body force, sources): the states
+    // also move by half_dt * source, so a steady balance of flux divergence and source leaves them where they were. Returns the number of
+    // states left as they were.
+    int hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y,
+                        const std::vector<char>* solid = nullptr, const Field* source = nullptr) const;
 
     // MUSCL-Hancock residual of a 2-D mesh in one pass over rows (a block of rows per thread), the face states and fluxes kept for a few
     // rows only: R gets what reconstruct, hancock_predict, RiemannSolver::compute_flux and the divergence of the face fluxes give, bit for
     // bit (the face states of a cell come from the vector kernels where the CPU has them). UL / UR must hold the faces of the sides
     // (BoundaryManager::apply_boundary_conditions) and `h` the halos as for muscl_residual_2d; `periodic_x` / `periodic_y` as for
-    // hancock_predict. `reverted` (if not null) receives the number of states hancock_predict would have left unpredicted. Returns the
-    // maximum wave speed.
+    // hancock_predict, with the same `source`. `reverted` (if not null) receives the number of states hancock_predict would have left
+    // unpredicted. Returns the maximum wave speed.
     double hancock_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m, const Halos& h,
-                               double half_dt, bool periodic_x, bool periodic_y, Field& R, long long* reverted = nullptr) const;
+                               double half_dt, bool periodic_x, bool periodic_y, Field& R, long long* reverted = nullptr,
+                               const Field* source = nullptr) const;
 
     // WENO3-Z / WENO5-Z of the CONSERVED cell averages (not the primitives) on the faces with a full stencil of a uniform mesh (2-D when nz = 1): the
     // face-averaged states of the fourth-order flux (flux_quadrature = fourth). The other faces keep what UL / UR hold. Halos as for the other

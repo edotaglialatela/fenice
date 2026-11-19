@@ -770,6 +770,7 @@ struct FusedGrid {
     int weno;                // 0 MUSCL (or first order), 3 WENO3-Z, 5 WENO5-Z (the states come from weno_line_states)
     double weno_eps;         // relative regularisation of the WENO smoothness indicators
     const char* solid;       // WENO5-Z with an immersed body: the solid cells on the padded layout (null: none)
+    const std::vector<char>* hsolid;   // MUSCL-Hancock with an immersed body: the solid cells, not predicted (Halos::solid; null: none)
     size_t P(int ii, int jj, int kk) const { return (static_cast<size_t>(kk) * PY + jj) * PX + ii; }
 };
 
@@ -2138,11 +2139,14 @@ bool admissible_state(const EOS& eos, const State& U) {
 
 // The four limited states of one cell (low / high side along x, then along y) advanced by half a step with the cell's own flux
 // difference; a state that would leave the admissible set stays as it was. Returns how many stayed.
-int hancock_cell(const EOS& eos, double hx, double hy, State& xl, State& xr, State& yb, State& yt) {
+// With a cell source `src` (the viscous, body-force and source terms, dU/dt) the states also move by half_dt * src.
+int hancock_cell(const EOS& eos, double hx, double hy, double half_dt, const State* src, State& xl, State& xr, State& yb, State& yt) {
     const State fxl = euler_flux_axis(eos, xl, 0), fxr = euler_flux_axis(eos, xr, 0);
     const State fyb = euler_flux_axis(eos, yb, 1), fyt = euler_flux_axis(eos, yt, 1);
     State d;
     for (int q = 0; q < kNVar; ++q) d[q] = hx * (fxr[q] - fxl[q]) + hy * (fyt[q] - fyb[q]);
+    if (src)
+        for (int q = 0; q < kNVar; ++q) d[q] = d[q] - half_dt * (*src)[q];
     int stayed = 0;
     for (State* s : {&xl, &xr, &yb, &yt}) {
         State n;
@@ -2220,7 +2224,7 @@ struct HancockScratch {
 
 // Predicted states of the cells of row j; returns how many states stayed unpredicted. The sides without a ghost layer give the cell the
 // first-order state of the arrays UL / UR through the round trip, as the two-pass reconstruction does.
-int hancock_row(const FusedGrid& g, double hx, double hy, int j, HancockRow& r) {
+int hancock_row(const FusedGrid& g, double hx, double hy, double half_dt, const Field* source, int j, HancockRow& r) {
     const int nx = g.nx, ny = g.ny, pad = g.pad;
     const Mesh& m = *g.m;
     const size_t base = g.P(pad, j + pad, 0);
@@ -2233,13 +2237,25 @@ int hancock_row(const FusedGrid& g, double hx, double hy, int j, HancockRow& r) 
     if (j == ny - 1 && !g.halo_hi[1])
         for (int i = 0; i < nx; ++i) r.yt[i] = round_trip(g, (*g.UL)[m.yface(i, ny)]);
     int stayed = 0, done = 0;
+    const char* solid_row = nullptr;   // a row with a cell of the body: the cells are taken one by one, the solid ones left as reconstructed
+    if (g.hsolid) {
+        const char* row = g.hsolid->data() + static_cast<size_t>(j) * nx;
+        for (int i = 0; i < nx && !solid_row; ++i)
+            if (row[i]) solid_row = row;
+    }
 #ifdef FV_SIMD
-    if (detail::simd_available()) {
+    if (!solid_row && detail::simd_available()) {
         done = nx & ~3;
-        if (done > 0) detail::hancock_cells_simd(*g.eos, hx, hy, r.xl.data(), r.xr.data(), r.yb.data(), r.yt.data(), done, &stayed);
+        if (done > 0)
+            detail::hancock_cells_simd(*g.eos, hx, hy, half_dt, source ? source->data() + static_cast<size_t>(j) * nx : nullptr, r.xl.data(),
+                                       r.xr.data(), r.yb.data(), r.yt.data(), done, &stayed);
     }
 #endif
-    for (int i = done; i < nx; ++i) stayed += hancock_cell(*g.eos, hx, hy, r.xl[i], r.xr[i], r.yb[i], r.yt[i]);
+    for (int i = done; i < nx; ++i) {
+        if (solid_row && solid_row[i]) continue;
+        stayed += hancock_cell(*g.eos, hx, hy, half_dt, source ? &(*source)[static_cast<size_t>(j) * nx + i] : nullptr, r.xl[i], r.xr[i], r.yb[i],
+                               r.yt[i]);
+    }
     return stayed;
 }
 
@@ -2289,7 +2305,8 @@ void hancock_yfaces(const FusedGrid& g, bool per_y, int f, const HancockRow* low
 
 // The row-pipelined MUSCL-Hancock residual: a block of consecutive rows per thread; the predicted states of a row are made once (the rows at
 // the seam of two blocks by both threads, the same bits), its x faces and the y faces above it are solved and the cells balanced at once.
-double hancock_residual_2d_impl(const FusedGrid& g, const Mesh& m, double half_dt, bool per_x, bool per_y, Field& R, long long& reverted) {
+double hancock_residual_2d_impl(const FusedGrid& g, const Mesh& m, double half_dt, const Field* source, bool per_x, bool per_y, Field& R,
+                                long long& reverted) {
     const int nx = g.nx, ny = g.ny;
     const double inv_area = 1.0 / m.cell_area(), dxl = m.dx, dyl = m.dy;
     const double hx = half_dt / m.dx, hy = half_dt / m.dy;
@@ -2312,15 +2329,15 @@ double hancock_residual_2d_impl(const FusedGrid& g, const Mesh& m, double half_d
             HancockRow *cur = &ra, *next = &rb;
             const HancockRow* low = nullptr;   // the row below the block (the last row across a periodic seam)
             if (j0 > 0 || per_y) {
-                hancock_row(g, hx, hy, j0 > 0 ? j0 - 1 : ny - 1, rl);
+                hancock_row(g, hx, hy, half_dt, source, j0 > 0 ? j0 - 1 : ny - 1, rl);
                 low = &rl;
             }
-            rev += hancock_row(g, hx, hy, j0, *cur);
+            rev += hancock_row(g, hx, hy, half_dt, source, j0, *cur);
             hancock_yfaces(g, per_y, j0, low, cur, s.below.data(), local, s);
             for (int j = j0; j < j1; ++j) {
                 const HancockRow* up = nullptr;
                 if (j + 1 < ny || per_y) {
-                    const int stayed = hancock_row(g, hx, hy, j + 1 < ny ? j + 1 : 0, *next);
+                    const int stayed = hancock_row(g, hx, hy, half_dt, source, j + 1 < ny ? j + 1 : 0, *next);
                     if (j + 1 < j1) rev += stayed;   // the rows of the block only
                     up = next;
                 }
@@ -2348,7 +2365,8 @@ double hancock_residual_2d_impl(const FusedGrid& g, const Mesh& m, double half_d
 
 double MusclReconstruction::hancock_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
                                                 const Halos& h, double half_dt, bool periodic_x, bool periodic_y, Field& R,
-                                                long long* reverted) const {
+                                                long long* reverted, const Field* source) const {
+    if (source && source->size() != U.size()) throw std::logic_error("MUSCL-Hancock: the source field is not that of the mesh");
     if (scheme_ != Reconstruction::Muscl || m.is3d()) throw std::logic_error("hancock_residual_2d: MUSCL on a 2-D mesh only");
     thread_local std::vector<double> W_pad;
     thread_local std::vector<char> S_pad;
@@ -2356,13 +2374,16 @@ double MusclReconstruction::hancock_residual_2d(const RiemannSolver& riemann, co
     pad_primitives(eos_, U, m, h, W_pad, PX, PY, zp, kHaloDepth);
     R.resize(U.size());
     long long rev = 0;
-    const double s = hancock_residual_2d_impl(make_grid(riemann, eos_, lim_, scheme_, weno_eps_, W_pad, S_pad, UL, UR, m, h, PX, PY, zp, kHaloDepth),
-                                              m, half_dt, periodic_x, periodic_y, R, rev);
+    FusedGrid g = make_grid(riemann, eos_, lim_, scheme_, weno_eps_, W_pad, S_pad, UL, UR, m, h, PX, PY, zp, kHaloDepth);
+    if (h.solid && h.solid->size() != static_cast<size_t>(m.nx) * m.ny) throw std::logic_error("MUSCL-Hancock: the solid mask is not that of the mesh");
+    g.hsolid = h.solid;
+    const double s = hancock_residual_2d_impl(g, m, half_dt, source, periodic_x, periodic_y, R, rev);
     if (reverted) *reverted = rev;
     return s;
 }
 
-int MusclReconstruction::hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y) const {
+int MusclReconstruction::hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y,
+                                         const std::vector<char>* solid, const Field* source) const {
     const int nx = m.nx, ny = m.ny, nxf = m.num_xfaces();
     const double hx = half_dt / m.dx, hy = half_dt / m.dy;
     int reverted = 0;
@@ -2370,9 +2391,11 @@ int MusclReconstruction::hancock_predict(Field& UL, Field& UR, const Mesh& m, do
 #pragma omp parallel for schedule(static) reduction(+ : reverted) if (nx * ny >= kOmpMinWork)
     for (int j = 0; j < ny; ++j)
         for (int i = 0; i < nx; ++i) {
+            if (solid && (*solid)[static_cast<size_t>(j) * nx + i]) continue;
             const int xl = j * (nx + 1) + i, xr = xl + 1;
             const int yb = nxf + j * nx + i, yt = nxf + (j + 1) * nx + i;
-            reverted += hancock_cell(eos_, hx, hy, UR[xl], UL[xr], UR[yb], UL[yt]);
+            reverted += hancock_cell(eos_, hx, hy, half_dt, source ? &(*source)[static_cast<size_t>(j) * nx + i] : nullptr, UR[xl], UL[xr],
+                                     UR[yb], UL[yt]);
         }
     // the two copies of a periodic seam face hold the states of the cells on either side: the cell that owns a state predicted it
     if (periodic_x)

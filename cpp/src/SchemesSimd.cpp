@@ -378,9 +378,10 @@ void muscl_cell_states_line_simd(const EOS& eos, Limiter lim, const double* W, s
     end_batch();
 }
 
-void hancock_cells_simd(const EOS& eos, double hx, double hy, State* xl, State* xr, State* yb, State* yt, int n, int* stayed) {
+void hancock_cells_simd(const EOS& eos, double hx, double hy, double half_dt, const State* src, State* xl, State* xr, State* yb, State* yt, int n,
+                        int* stayed) {
     const VEos E(eos);
-    const V vhx = set1(hx), vhy = set1(hy), zero = set1(0.0), half = set1(0.5);
+    const V vhx = set1(hx), vhy = set1(hy), vhh = set1(half_dt), zero = set1(0.0), half = set1(0.5);
     int left = 0;
     for (int k = 0; k < n; k += 4) {
         // the states in the order of hancock_cell: x low, x high, y low, y high
@@ -397,6 +398,10 @@ void hancock_cells_simd(const EOS& eos, double hx, double hy, State* xl, State* 
         }
         V d[5];
         for (int q = 0; q < 5; ++q) d[q] = add(mul(vhx, sub(f[1].q[q], f[0].q[q])), mul(vhy, sub(f[3].q[q], f[2].q[q])));
+        if (src) {
+            const Vec5 Q = load4(src + k);
+            for (int q = 0; q < 5; ++q) d[q] = sub(d[q], mul(vhh, Q.q[q]));
+        }
         State* const dst[4] = {xl + k, xr + k, yb + k, yt + k};
         for (int a = 0; a < 4; ++a) {
             Vec5 nw;
