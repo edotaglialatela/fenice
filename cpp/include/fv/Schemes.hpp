@@ -151,6 +151,11 @@ struct Halos {
     const std::vector<char>* solid = nullptr;
     // MUSCL-Hancock only, MPI strips: the exchange of the predicted states across the interfaces (empty: none)
     FaceExchange exchange_faces;
+    // MUSCL-Hancock only: the sides (Face order: left, right, bottom, top, front, back) that are a reflecting wall of this (sub)domain, and the ghost
+    // state the wall condition makes of a cell state. The cell next to such a side is predicted, so its ghost is built from the predicted state: the
+    // flux through the wall is then the wall's pressure alone, and a closed box keeps its mass and energy.
+    bool wall_side[6] = {false, false, false, false, false, false};
+    std::function<State(int side, const State& inner)> wall_ghost;
     // WENO only, two-pass path (positivity_fallback): cells (row-major, 1 = flagged) whose update left the admissible set. Every face with
     // a flagged cell on one side takes the two cell values as its states (first order). Null: nothing is overridden.
     const std::vector<char>* fallback = nullptr;
@@ -209,6 +214,14 @@ public:
     // on the faces of the interfaces.
     int hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y,
                         const std::vector<char>* solid = nullptr, const Field* source = nullptr, const FaceExchange* exchange = nullptr) const;
+    // After hancock_predict / hancock_predict_3d: the ghost side of the faces on the sides h.wall_side marks is made again from the predicted state of
+    // the cell next to it (h.wall_ghost).
+    void hancock_wall_ghosts(Field& UL, Field& UR, const Mesh& m, const Halos& h) const;
+    // The predictor of one cell of a 2-D mesh: its limited states on the low / high side along x and along y (conservative), each advanced by
+    // half_dt times the cell's own flux difference (the expression hancock_predict uses, with hx = half_dt / dx, hy = half_dt / dy) and by
+    // half_dt * src (the cell's body force and sources dU/dt; null: none). A state that would leave the admissible set stays as it was.
+    // Returns how many stayed. The cell-based AMR calls it per leaf, so a level-0 mesh gets the bits of the uniform solver.
+    static int hancock_cell_2d(const EOS& eos, double hx, double hy, double half_dt, const State* src, State& xl, State& xr, State& yb, State& yt);
     // The same on a 3-D mesh (a flux difference per axis, the sum taken as (x + y) + z); `periodic` per axis x, y, z. The exchange swaps planes
     // of nx * nz states (index k * nx + i) across the interfaces of strips along y.
     int hancock_predict_3d(Field& UL, Field& UR, const Mesh& m, double half_dt, const bool periodic[3], const std::vector<char>* solid = nullptr,

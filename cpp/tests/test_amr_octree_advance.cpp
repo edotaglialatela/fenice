@@ -541,7 +541,7 @@ struct WaveErrors {
     double all, near, far;
     int leaves;
 };
-WaveErrors wave_errors(int dim, int n, bool refine, double t_end) {
+WaveErrors wave_errors(int dim, int n, bool refine, double t_end, bool hancock = false) {
     const std::string ns = std::to_string(n);
     Simulation sim;
     if (dim == 2)
@@ -581,7 +581,7 @@ WaveErrors wave_errors(int dim, int n, bool refine, double t_end) {
     }
     CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
     eng.build(m);
-    std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4);
+    std::unique_ptr<TimeScheme> ts = make_time_scheme(hancock ? TimeSchemeType::MusclHancock : TimeSchemeType::SSPRK2, 0.4);
     CellAdvance adv(m, eng, *ts);
     double S = eng.wave_speed(m, m.U), t = 0.0;
     while (t < t_end) {
@@ -643,4 +643,28 @@ TEST(celladvance3d_near_jump_time_study) {
     CHECK(order(amr[1][1].all, amr[1][2].all) >= order(amr[0][1].all, amr[0][2].all) - 0.3);
     CHECK(order(amr[1][1].near, amr[1][2].near) >= order(amr[0][1].near, amr[0][2].near) - 0.3);
     CHECK(amr[1][2].all / uni[1][2].all <= 1.2 * amr[0][2].all / uni[0][2].all);
+}
+
+TEST(celladvance_hancock_near_jump_time_study) {
+    // The same advected density wave through a box refined one level (2-D), run with MUSCL-Hancock: the coarse leaf's prediction by half of its own
+    // step serves both sub-steps of the fine leaves across a jump. Bands fixed before the first run (the SSP-RK2 run of the test above gives
+    // orders 1.74 / 1.75 / 1.83 and an adaptive / uniform ratio of 0.87): the uniform order (16 -> 32) >= 1.5, the adaptive order of the whole domain
+    // >= 1.5, near the jump >= 1.3, and the adaptive error at n = 32 no larger than the uniform one (it has finer leaves in the box).
+    const int ns[3] = {8, 16, 32};
+    double uni[3], all[3], near[3];
+    for (int k = 0; k < 3; ++k) {
+        uni[k] = wave_errors(2, ns[k], false, 0.25, true).all;
+        const WaveErrors a = wave_errors(2, ns[k], true, 0.25, true);
+        all[k] = a.all;
+        near[k] = a.near;
+    }
+    const auto order = [](double a, double b) { return std::log2(a / b); };
+    std::printf("    Hancock, 2-D wave: uniform %.3e %.3e %.3e (orders %.2f %.2f); adaptive %.3e %.3e %.3e (orders %.2f %.2f), near %.3e %.3e %.3e "
+                "(orders %.2f %.2f); adaptive / uniform at 32: %.3f\n",
+                uni[0], uni[1], uni[2], order(uni[0], uni[1]), order(uni[1], uni[2]), all[0], all[1], all[2], order(all[0], all[1]),
+                order(all[1], all[2]), near[0], near[1], near[2], order(near[0], near[1]), order(near[1], near[2]), all[2] / uni[2]);
+    CHECK(order(uni[1], uni[2]) >= 1.5);
+    CHECK(order(all[1], all[2]) >= 1.5);
+    CHECK(order(near[1], near[2]) >= 1.3);
+    CHECK(all[2] <= uni[2]);
 }

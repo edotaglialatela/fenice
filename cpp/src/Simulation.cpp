@@ -845,6 +845,15 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         if (halos->solid) mh.solid = halos->solid;
         mh.exchange_faces = halos->exchange_faces;
     }
+    if (mu && predictor_dt > 0.0) {   // the walls of this (sub)domain: their ghost is made of the predicted state of the cell next to them
+        const bool iface[4] = {halos && halos->dir == 'x' && halos->lo, halos && halos->dir == 'x' && halos->hi,
+                               halos && halos->dir == 'y' && halos->lo, halos && halos->dir == 'y' && halos->hi};
+        for (int s = 0; s < 4; ++s) {
+            const BCType bt = bm.type(static_cast<Face>(s));
+            mh.wall_side[s] = !iface[s] && (bt == BCType::Wall || bt == BCType::NoSlip || bt == BCType::MovingWall);
+        }
+        mh.wall_ghost = [&bm](int side, const State& inner) { return bm.ghost_state(static_cast<Face>(side), inner, 0.0); };
+    }
     // the viscous residual, added to `Rt` (it is the 2-D solver's: rows, padded ring, strip halos)
     const auto viscous_into = [&](Field& Rt) -> double {
         ProfileScope ps(Section::Viscous);
@@ -930,6 +939,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         if (predictor_dt > 0.0) {
             ProfileScope ps(Section::Reconstruct);
             hancock_reverted_ += static_cast<long long>(mu->hancock_predict(UL_, UR_, m, predictor_dt, wrap_x, wrap_y, mh.solid, hsrc, &mh.exchange_faces));
+            mu->hancock_wall_ghosts(UL_, UR_, m, mh);
         }
         {
             ProfileScope ps(Section::Flux);
@@ -1093,6 +1103,15 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         if (halos->solid) mh.solid = halos->solid;
         mh.exchange_faces = halos->exchange_faces;
     }
+    if (mu && predictor_dt > 0.0) {   // the walls of this (sub)domain: their ghost is made of the predicted state of the cell next to them
+        const bool iface[6] = {halos && halos->dir == 'x' && halos->lo, halos && halos->dir == 'x' && halos->hi,
+                               halos && halos->dir == 'y' && halos->lo, halos && halos->dir == 'y' && halos->hi, false, false};
+        for (int s = 0; s < 6; ++s) {
+            const BCType bt = bm.type(static_cast<Face>(s));
+            mh.wall_side[s] = !iface[s] && (bt == BCType::Wall || bt == BCType::NoSlip || bt == BCType::MovingWall);
+        }
+        mh.wall_ghost = [&bm](int side, const State& inner) { return bm.ghost_state(static_cast<Face>(side), inner, 0.0); };
+    }
     const bool wrap[3] = {mh.l == &perL_ && mh.r == &perR_, mh.b == &perB_ && mh.t == &perT_, mh.f == &perF_ && mh.bk == &perK_};
     // the viscous residual, added to `Rt`
     const auto viscous_into = [&](Field& Rt) -> double {
@@ -1172,6 +1191,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         if (predictor_dt > 0.0) {
             ProfileScope ps(Section::Reconstruct);
             hancock_reverted_ += static_cast<long long>(mu->hancock_predict_3d(UL_, UR_, m, predictor_dt, wrap, mh.solid, hsrc, &mh.exchange_faces));
+            mu->hancock_wall_ghosts(UL_, UR_, m, mh);
         }
         ProfileScope ps(Section::Flux);
         S = riemann.compute_flux(UL_, UR_, m, F_);

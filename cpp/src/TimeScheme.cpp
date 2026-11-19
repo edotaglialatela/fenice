@@ -309,10 +309,6 @@ StepResult MusclHancock::step(Field& U, const ResidualFn& res, double min_delta,
     return {dt, s};
 }
 
-double MusclHancock::advance_fixed_dt(Field&, const ResidualFn&, double) {
-    throw std::logic_error("MUSCL-Hancock has no fixed-step (adaptive mesh) form");
-}
-
 std::unique_ptr<TimeScheme> make_time_scheme(TimeSchemeType type, double cfl) {
     switch (type) {
     case TimeSchemeType::MusclHancock: return std::make_unique<MusclHancock>(cfl);

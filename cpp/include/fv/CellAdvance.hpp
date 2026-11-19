@@ -28,7 +28,7 @@ class CellAdvance {
 public:
     // The mesh, engine (built for this mesh) and scheme must outlive the object.  Explicit schemes only.
     CellAdvance(CellMesh& mesh, CellFluxEngine& engine, TimeScheme& scheme)
-        : mesh_(mesh), engine_(engine), scheme_(scheme) {}
+        : mesh_(mesh), engine_(engine), scheme_(scheme), hancock_(dynamic_cast<const MusclHancock*>(&scheme)) {}
 
     // Advance the whole hierarchy by dt from time t (dt is never split unevenly: clamp it before the call);
     // returns the largest wave speed seen by the first stage of every level.
@@ -61,6 +61,7 @@ private:
     CellMesh& mesh_;
     CellFluxEngine& engine_;
     TimeScheme& scheme_;
+    const MusclHancock* hancock_;   // non-null: each level is predicted before it advances (CellFluxEngine::predict_level)
     // per level: the state of the owned leaves being advanced and the work fields of the scheme (kept between the steps: a
     // level's fields keep their size, nothing is allocated or filled in a step)
     std::vector<Field> ul_;

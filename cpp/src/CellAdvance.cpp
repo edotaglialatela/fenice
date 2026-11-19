@@ -75,6 +75,15 @@ double CellAdvance::advance(int l, double dt, double t) {
     // a level that exists on any rank is advanced by every rank (the exchanges are collective): the whole mesh decides, not the
     // leaves a rank keeps
     const auto present = [&](int k) { return par ? par->level_present(k) : mesh_.level_begin[k + 1] > mesh_.level_begin[k]; };
+    if (hancock_ && present(l)) {
+        // MUSCL-Hancock: this level's leaves are predicted by half of their own step from the state of the start of the step, before the finer
+        // levels move (they read the coarse side of their jump from here, in both of their sub-steps)
+        ProfileScope ps(Section::AmrFluxes);
+        scheme_.stage_time = t + 0.5 * dt;
+        engine_.stage_time = scheme_.stage_time;
+        if (stage_hook) stage_hook(l, scheme_.stage_time);
+        engine_.predict_level(mesh_, mesh_.U, l, 0.5 * dt);
+    }
     if (l < max_l && present(l + 1)) {
         {
             ProfileScope ps(Section::AmrRegisters);
@@ -129,7 +138,7 @@ double CellAdvance::advance_own(int l, double dt, double t) {
         double s;
         {
             ProfileScope ps(Section::AmrFluxes);
-            s = engine_.compute_level_fluxes(mesh_, mesh_.U, l);
+            s = engine_.compute_level_fluxes(mesh_, mesh_.U, l, hancock_ != nullptr);
         }
         if (l > 0) {
             ProfileScope ps(Section::AmrRegisters);

@@ -24,6 +24,11 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
     const Field& U = *us_;
     const Limiter lim = muscl_ ? muscl_->limiter() : Limiter::Minmod;
     if (F_.size() != m.faces.size()) F_.resize(m.faces.size());
+    const bool collect = collect_;
+    if (collect && PL_.size() != m.faces.size()) {
+        PL_.resize(m.faces.size());
+        PR_.resize(m.faces.size());
+    }
     double smax_all = 0.0;
     auto roundtrip = [&](State& u) { u = eos.prim_to_cons(eos.cons_to_prim(u)); };
     // non-reflecting ghost of leaf c across `side`: central differences along the other axis from the neighbour codes
@@ -293,7 +298,7 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                     wface4[nw4] = f;
                     if (++nw4 == kChunk) flush_weno(false);
                     continue;
-                } else if (wall) {   // a face with a ghost layer: the same four cells, the scalar reconstruction
+                } else if (wall || collect) {   // a face with a ghost layer (or the predictor's states): the same four cells, scalar
                     recon4(w0, w1, w2, w3, wl, wr);
                 } else {
                     for (int k = 0; k < 4; ++k) mst[4 * nm + k] = s[k];
@@ -304,6 +309,11 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
                 }
                 UL = eos.prim_to_cons(wl);
                 UR = eos.prim_to_cons(wr);
+            }
+            if (collect) {   // the states of the leaves of the level being predicted, and the ghost side of a boundary face
+                if (face.left < 0 || m.level[static_cast<size_t>(face.left)] == collect_level_) PL_[static_cast<size_t>(f)] = UL;
+                if (face.right < 0 || m.level[static_cast<size_t>(face.right)] == collect_level_) PR_[static_cast<size_t>(f)] = UR;
+                continue;
             }
             bUL[nb] = UL;
             bUR[nb] = UR;
@@ -319,6 +329,87 @@ double CellFluxEngine::fluxes(const CellMesh& m, const std::vector<int>& faces, 
         if (local > smax_all) smax_all = local;
     }
     return smax_all;
+}
+
+double CellFluxEngine::predicted_fluxes(const CellMesh& m, const std::vector<int>& faces) {
+    const int nlist = static_cast<int>(faces.size());
+    if (F_.size() != m.faces.size()) F_.resize(m.faces.size());
+    double smax_all = 0.0;
+#pragma omp parallel if (nlist >= kOmpMinWork)
+    {
+        double local = 0.0;
+        constexpr int kChunk = 256;
+        State bUL[kChunk] = {}, bUR[kChunk] = {}, bF[kChunk];
+        int bax[kChunk] = {}, bface[kChunk];
+        double bsm[kChunk];
+        int nb = 0;
+        const auto flush = [&]() {
+            riemann_.face_flux_batch(bUL, bUR, bax, nb, bF, bsm);
+            for (int k = 0; k < nb; ++k) {
+                F_[static_cast<size_t>(bface[k])] = bF[k];
+                if (bsm[k] > local) local = bsm[k];
+            }
+            nb = 0;
+        };
+#pragma omp for schedule(static) nowait
+        for (int fi = 0; fi < nlist; ++fi) {
+            const int f = faces[static_cast<size_t>(fi)];
+            bUL[nb] = PL_[static_cast<size_t>(f)];
+            bUR[nb] = PR_[static_cast<size_t>(f)];
+            bax[nb] = m.faces[static_cast<size_t>(f)].axis;
+            bface[nb] = f;
+            if (++nb == kChunk) flush();
+        }
+        flush();
+#pragma omp critical(fv_cellflux_max)
+        if (local > smax_all) smax_all = local;
+    }
+    return smax_all;
+}
+
+void CellFluxEngine::predict_level(const CellMesh& m, const Field& U, int l, double half_dt) {
+    if (!muscl_) throw std::logic_error("CellFluxEngine::predict_level: the predictor needs a reconstruction");
+    if (dim_ != 2) throw std::logic_error("CellFluxEngine::predict_level: MUSCL-Hancock is not available on the octree yet");
+    if (m.num_leaves() != nleaf_ || static_cast<int>(stencil_.size()) != static_cast<int>(m.faces.size()))
+        throw std::logic_error("CellFluxEngine: build() was not called for this mesh");
+    if (!hlists_ok_) make_hancock_lists(m);
+    const size_t sl = static_cast<size_t>(l);
+    prepare(m, U, l, &hneed_[sl]);
+    double u_target[6];
+    mass_flow_targets(m, u_target);
+    collect_ = true;
+    collect_level_ = l;
+    fluxes(m, lface_[sl], u_target);
+    fluxes(m, cfup_[sl], u_target);
+    collect_ = false;
+    // each owned leaf takes its four side states from its faces, predicts them and puts them back on all the faces of the side
+    // (hx = half_dt / dx as the uniform solver's predictor, so a level-0 mesh gets its bits)
+    const double hx = half_dt / m.dx(l), hy = half_dt / m.dy(l);
+    const int cb = lown_b_[sl], ce = lown_e_[sl];
+    long long reverted = 0;
+#pragma omp parallel for schedule(static) reduction(+ : reverted) if (ce - cb >= kOmpMinWork)
+    for (int c = cb; c < ce; ++c) {
+        if (!solid_.empty() && solid_[static_cast<size_t>(c)]) continue;
+        State st[4];
+        for (int s = 0; s < 4; ++s) {
+            const int fi = m.side_face[static_cast<size_t>(m.side_ptr[static_cast<size_t>(4 * c + s)])];
+            st[s] = (s & 1) ? PL_[static_cast<size_t>(fi)] : PR_[static_cast<size_t>(fi)];   // the high side of a leaf is the left of its face
+        }
+        reverted += MusclReconstruction::hancock_cell_2d(eos_, hx, hy, half_dt, nullptr, st[0], st[1], st[2], st[3]);
+        for (int s = 0; s < 4; ++s)
+            for (int k = m.side_ptr[static_cast<size_t>(4 * c + s)]; k < m.side_ptr[static_cast<size_t>(4 * c + s + 1)]; ++k) {
+                const size_t fi = static_cast<size_t>(m.side_face[static_cast<size_t>(k)]);
+                ((s & 1) ? PL_[fi] : PR_[fi]) = st[s];
+                // a reflecting wall: its ghost is the mirror of the predicted state (the flux through the wall is the pressure alone)
+                const CellFace& cf = m.faces[fi];
+                if (cf.kind == CellFaceKind::Boundary) {
+                    const BCType bt = bc_.type(cf.side);
+                    if (bt == BCType::Wall || bt == BCType::NoSlip || bt == BCType::MovingWall)
+                        ((s & 1) ? PR_[fi] : PL_[fi]) = bc_.ghost_state(cf.side, st[s], 0.0);
+                }
+            }
+    }
+    hancock_reverted_ += reverted;
 }
 
 void viscous_cell_quantities(const EOS& eos, const State& Ui, const State& n0, const State& n1, const State& n2, const State& n3,
@@ -936,16 +1027,16 @@ double CellFluxEngine::wave_speed(const CellMesh& m, const Field& U) {
     return s;
 }
 
-double CellFluxEngine::compute_level_fluxes(const CellMesh& m, const Field& U, int l) {
+double CellFluxEngine::compute_level_fluxes(const CellMesh& m, const Field& U, int l, bool predicted) {
     if (m.num_leaves() != nleaf_ || static_cast<int>(stencil_.size()) != static_cast<int>(m.faces.size()))
         throw std::logic_error("CellFluxEngine: build() was not called for this mesh");
     ProfileScope ps_prep(Section::AmrPrepare);
-    prepare(m, U, l);
+    prepare(m, U, l, nullptr, !predicted);
     ps_prep.stop();
     double u_target[6];
     mass_flow_targets(m, u_target);
     ProfileScope ps_conv(Section::AmrConvective);
-    double s = fluxes(m, lface_[static_cast<size_t>(l)], u_target);
+    double s = predicted ? predicted_fluxes(m, lface_[static_cast<size_t>(l)]) : fluxes(m, lface_[static_cast<size_t>(l)], u_target);
     ps_conv.stop();
     if (phys_.ns) {
         ProfileScope ps_cells(Section::AmrViscousCells);
