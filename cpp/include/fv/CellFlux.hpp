@@ -133,7 +133,7 @@ public:
     // from U, the state of every leaf (the other levels as they are); returns their largest wave speed.
     // With `predicted` (MUSCL-Hancock) the Riemann problems are solved on the face states predict_level left, with no reconstruction.
     double compute_level_fluxes(const CellMesh& mesh, const Field& U, int l, bool predicted = false);
-    // MUSCL-Hancock predictor of the leaves of level l (2-D): the limited states of each owned leaf on its sides (the reconstruction of the face
+    // MUSCL-Hancock predictor of the leaves of level l (quadtree or octree): the limited states of each owned leaf on its sides (the reconstruction of the face
     // kernels, so the special faces, the ghost layers of boundary_order = 2 and the coarse sides of a level jump are as in a plain residual) are
     // advanced by half_dt times the leaf's own flux difference and kept per face side; the leaves of the level above it that touch a coarse-fine
     // face read the coarse side from here, at the time the coarse level predicted it (the coarse leaf's prediction serves both fine sub-steps).

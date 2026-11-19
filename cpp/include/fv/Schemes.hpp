@@ -217,6 +217,9 @@ public:
     // After hancock_predict / hancock_predict_3d: the ghost side of the faces on the sides h.wall_side marks is made again from the predicted state of
     // the cell next to it (h.wall_ghost).
     void hancock_wall_ghosts(Field& UL, Field& UR, const Mesh& m, const Halos& h) const;
+    // The same for a cell of a 3-D mesh: the six limited states (low / high side along x, y, z) and the flux differences added as (x + y) + z.
+    static int hancock_cell_3d(const EOS& eos, double hx, double hy, double hz, double half_dt, const State* src, State& xl, State& xr, State& yb,
+                               State& yt, State& zf, State& zk);
     // The predictor of one cell of a 2-D mesh: its limited states on the low / high side along x and along y (conservative), each advanced by
     // half_dt times the cell's own flux difference (the expression hancock_predict uses, with hx = half_dt / dx, hy = half_dt / dy) and by
     // half_dt * src (the cell's body force and sources dU/dt; null: none). A state that would leave the admissible set stays as it was.
