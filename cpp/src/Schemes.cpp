@@ -2170,8 +2170,8 @@ State euler_flux_axis3(const EOS& eos, const State& U, int a) {
     return {U[0] * un, U[1] * un + (a == 0 ? p : 0.0), U[2] * un + (a == 1 ? p : 0.0), (U[3] + p) * un, U[4] * un + (a == 2 ? p : 0.0)};
 }
 
-int hancock_cell_3d(const EOS& eos, double hx, double hy, double hz, double half_dt, const State* src, State& xl, State& xr, State& yb,
-                    State& yt, State& zf, State& zk) {
+int hancock_cell_3d_impl(const EOS& eos, double hx, double hy, double hz, double half_dt, const State* src, State& xl, State& xr, State& yb,
+                         State& yt, State& zf, State& zk) {
     const State fxl = euler_flux_axis3(eos, xl, 0), fxr = euler_flux_axis3(eos, xr, 0);
     const State fyb = euler_flux_axis3(eos, yb, 1), fyt = euler_flux_axis3(eos, yt, 1);
     const State fzf = euler_flux_axis3(eos, zf, 2), fzk = euler_flux_axis3(eos, zk, 2);
@@ -2406,6 +2406,11 @@ int MusclReconstruction::hancock_cell_2d(const EOS& eos, double hx, double hy, d
     return hancock_cell(eos, hx, hy, half_dt, src, xl, xr, yb, yt);
 }
 
+int MusclReconstruction::hancock_cell_3d(const EOS& eos, double hx, double hy, double hz, double half_dt, const State* src, State& xl, State& xr,
+                                         State& yb, State& yt, State& zf, State& zk) {
+    return hancock_cell_3d_impl(eos, hx, hy, hz, half_dt, src, xl, xr, yb, yt, zf, zk);
+}
+
 double MusclReconstruction::hancock_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
                                                 const Halos& h, double half_dt, bool periodic_x, bool periodic_y, Field& R,
                                                 long long* reverted, const Field* source) const {
@@ -2514,7 +2519,7 @@ int MusclReconstruction::hancock_predict_3d(Field& UL, Field& UR, const Mesh& m,
         for (int i = 0; i < nx; ++i) {
             const int c = m.cell(i, j, k);
             if (solid && (*solid)[static_cast<size_t>(c)]) continue;
-            reverted += hancock_cell_3d(eos_, hx, hy, hz, half_dt, source ? &(*source)[static_cast<size_t>(c)] : nullptr, UR[m.xface(i, j, k)],
+            reverted += hancock_cell_3d_impl(eos_, hx, hy, hz, half_dt, source ? &(*source)[static_cast<size_t>(c)] : nullptr, UR[m.xface(i, j, k)],
                                         UL[m.xface(i + 1, j, k)], UR[m.yface(i, j, k)], UL[m.yface(i, j + 1, k)], UR[m.zface(i, j, k)],
                                         UL[m.zface(i, j, k + 1)]);
         }

@@ -409,7 +409,6 @@ SimParams SimParams::from(const Params& p) {
     }
     if (const std::string ts = lower(s.time_scheme); ts == "muscl-hancock" || ts == "hancock") {
         const char* why = s.reconstruction != "muscl" ? "needs reconstruction = muscl"
-                          : s.use_amr && s.nz > 1     ? "is not available on the octree yet"
                           : s.use_amr && s.use_mpi    ? "is not available with AMR on MPI ranks yet"
                           : s.use_amr && s.positivity_fallback ? "is not available with positivity_fallback"
                                                       : nullptr;

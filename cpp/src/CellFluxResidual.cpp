@@ -369,7 +369,6 @@ double CellFluxEngine::predicted_fluxes(const CellMesh& m, const std::vector<int
 
 void CellFluxEngine::predict_level(const CellMesh& m, const Field& U, int l, double half_dt) {
     if (!muscl_) throw std::logic_error("CellFluxEngine::predict_level: the predictor needs a reconstruction");
-    if (dim_ != 2) throw std::logic_error("CellFluxEngine::predict_level: MUSCL-Hancock is not available on the octree yet");
     if (m.num_leaves() != nleaf_ || static_cast<int>(stencil_.size()) != static_cast<int>(m.faces.size()))
         throw std::logic_error("CellFluxEngine: build() was not called for this mesh");
     if (!hlists_ok_) make_hancock_lists(m);
@@ -413,21 +412,22 @@ void CellFluxEngine::predict_level(const CellMesh& m, const Field& U, int l, dou
     }
     // each owned leaf takes its four side states from its faces, predicts them and puts them back on all the faces of the side
     // (hx = half_dt / dx as the uniform solver's predictor, so a level-0 mesh gets its bits)
-    const double hx = half_dt / m.dx(l), hy = half_dt / m.dy(l);
-    const int cb = lown_b_[sl], ce = lown_e_[sl];
+    const double hx = half_dt / m.dx(l), hy = half_dt / m.dy(l), hz = dim_ == 3 ? half_dt / m.dz(l) : 0.0;
+    const int ns = ns_, cb = lown_b_[sl], ce = lown_e_[sl];
     long long reverted = 0;
 #pragma omp parallel for schedule(static) reduction(+ : reverted) if (ce - cb >= kOmpMinWork)
     for (int c = cb; c < ce; ++c) {
         if (!solid_.empty() && solid_[static_cast<size_t>(c)]) continue;
-        State st[4];
-        for (int s = 0; s < 4; ++s) {
-            const int fi = m.side_face[static_cast<size_t>(m.side_ptr[static_cast<size_t>(4 * c + s)])];
+        State st[6];
+        for (int s = 0; s < ns; ++s) {
+            const int fi = m.side_face[static_cast<size_t>(m.side_ptr[static_cast<size_t>(ns * c + s)])];
             st[s] = (s & 1) ? PL_[static_cast<size_t>(fi)] : PR_[static_cast<size_t>(fi)];   // the high side of a leaf is the left of its face
         }
-        reverted += MusclReconstruction::hancock_cell_2d(eos_, hx, hy, half_dt, has_src ? &hsrc_[static_cast<size_t>(c)] : nullptr, st[0], st[1],
-                                                         st[2], st[3]);
-        for (int s = 0; s < 4; ++s)
-            for (int k = m.side_ptr[static_cast<size_t>(4 * c + s)]; k < m.side_ptr[static_cast<size_t>(4 * c + s + 1)]; ++k) {
+        const State* src = has_src ? &hsrc_[static_cast<size_t>(c)] : nullptr;
+        reverted += dim_ == 2 ? MusclReconstruction::hancock_cell_2d(eos_, hx, hy, half_dt, src, st[0], st[1], st[2], st[3])
+                              : MusclReconstruction::hancock_cell_3d(eos_, hx, hy, hz, half_dt, src, st[0], st[1], st[2], st[3], st[4], st[5]);
+        for (int s = 0; s < ns; ++s)
+            for (int k = m.side_ptr[static_cast<size_t>(ns * c + s)]; k < m.side_ptr[static_cast<size_t>(ns * c + s + 1)]; ++k) {
                 const size_t fi = static_cast<size_t>(m.side_face[static_cast<size_t>(k)]);
                 ((s & 1) ? PL_[fi] : PR_[fi]) = st[s];
                 // a reflecting wall: its ghost is the mirror of the predicted state (the flux through the wall is the pressure alone)
@@ -935,7 +935,6 @@ void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Fie
     const bool visc = phys_.ns != nullptr;
     const Field& U = *us_;
     const bool has_src = phys_.body || phys_.source || phys_.rhs_sources;
-    if (predicted && dim_ != 2) throw std::logic_error("CellFluxEngine::gather: MUSCL-Hancock is not available on the octree yet");
     if (predicted && has_src && hsrc_.size() != static_cast<size_t>(nleaf_))
         throw std::logic_error("CellFluxEngine::gather: the sources of the predictor were not evaluated");
     if (!predicted && phys_.source && phys_.source_unsteady) update_source(m, cb, ce);
@@ -972,6 +971,11 @@ void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Fie
             if (visc)   // NavierStokes::viscous_residual_3d, accumulated
                 for (int q = 0; q < kNVar; ++q)
                     r[q] += (((0.0 + (H[1][q] - H[0][q])) + (H[3][q] - H[2][q])) + (H[5][q] - H[4][q])) * inv_vol;
+            if (predicted) {
+                if (has_src)
+                    for (int q = 0; q < kNVar; ++q) r[q] = r[q] + hsrc_[static_cast<size_t>(c)][q];
+                continue;
+            }
             if (!phys_.rhs_sources && phys_.body) {
                 const ConstantBodyForce& bf = *phys_.body;
                 r[1] += U[c][0] * bf.gx;
@@ -985,7 +989,7 @@ void CellFluxEngine::gather(const CellMesh& m, int cb, int ce, bool replace, Fie
             if (!phys_.rhs_sources && phys_.source)
                 for (int q = 0; q < kNVar; ++q) r[q] += src_[c][q];
         }
-        if (phys_.rhs_sources) phys_.rhs_sources->apply_adaptive(m, U, R, cb, ce, stage_time, phys_.source ? &src_ : nullptr);
+        if (phys_.rhs_sources && !predicted) phys_.rhs_sources->apply_adaptive(m, U, R, cb, ce, stage_time, phys_.source ? &src_ : nullptr);
         return;
     }
 #pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)

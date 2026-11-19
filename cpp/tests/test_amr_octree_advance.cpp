@@ -107,6 +107,49 @@ TEST(celladvance3d_level0_steps_match_uniform_steps_bitwise) {
     }
 }
 
+TEST(celladvance3d_level0_hancock_steps_match_uniform_steps_bitwise) {
+    // MUSCL-Hancock on a level-0 octree (max_level 0, and 2: the recursion with nothing to recurse into) against the 3-D uniform solver's own
+    // predictor-corrector, bit for bit (state and returned speed): walls and open sides, boundary_order 1 / 2, viscous.
+    const BCs sets[] = {{"wall", "outlet", "no_slip", "moving_wall", "transmissive", "wall"},
+                        {"periodic", "periodic", "wall", "wall", "transmissive", "no_slip"},
+                        {"vel_inlet", "transmissive", "periodic", "periodic", "periodic", "periodic"}};
+    int n_cases = 0;
+    for (const BCs& bc : sets)
+        for (const char* bo : {"1", "2"})
+            for (const char* visc : {"false", "true"})
+                for (int max_level : {0, 2}) {
+                    Simulation sim;
+                    setup_3d(sim, bc, {{"reconstruction", "muscl"}, {"boundary_order", bo}, {"time_scheme", "MUSCL-Hancock"}, {"use_viscous", visc},
+                                       {"mu", "0.02"}});
+                    Field Uu;
+                    CellMesh cm = octree_of(sim, 0);
+                    level0_pair(sim, max_level, Uu, cm);
+                    CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+                    eng.set_physics(physics_of(sim));
+                    eng.build(cm);
+                    std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme("MUSCL-Hancock"), 0.4);
+                    CellAdvance adv(cm, eng, *ts);
+                    const double dt = 2e-3;
+                    const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
+                    double Su = 0.0, Sc = 0.0;
+                    for (int k = 0; k < 3; ++k) {
+                        sim.scheme->predictor_half_dt = 0.5 * dt;
+                        sim.scheme->stage_time = k * dt + 0.5 * dt;
+                        Su = sim.scheme->advance_fixed_dt(Uu, res, dt);
+                        sim.scheme->predictor_half_dt = 0.0;
+                        Sc = adv.step(dt, k * dt);
+                    }
+                    const Mesh& u = sim.mesh;
+                    bool same = Su == Sc;
+                    for (int c = 0; c < cm.num_leaves(); ++c)
+                        for (int q = 0; q < kNVar; ++q) same = same && cm.U[c][q] == Uu[u.cell(cm.ci[c], cm.cj[c], cm.ck[c])][q];
+                    CHECK(same);
+                    if (!same) std::printf("    bc %s/%s/%s/%s/%s/%s bo %s visc %s max_level %d\n", bc[0], bc[1], bc[2], bc[3], bc[4], bc[5], bo, visc, max_level);
+                    ++n_cases;
+                }
+    CHECK(n_cases == 24);
+}
+
 TEST(celladvance3d_fully_refined_mesh_equals_the_finer_uniform_mesh) {
     // Every leaf at level 1 (level 0 empty): the same arithmetic as the level-0 octree of 2n^3 stepped with two substeps of dt / 2.
     struct Cfg {
@@ -158,10 +201,11 @@ TEST(celladvance3d_conserves_across_level_jumps_and_the_control_fails) {
         const char* recon;
         int sc;
     };
-    const Cfg cfgs[] = {{"none", 0}, {"muscl", 0}, {"muscl", 1}, {"muscl", 2}, {"weno3", 2}};
+    const Cfg cfgs[] = {{"none", 0}, {"muscl", 0}, {"muscl", 1}, {"muscl", 2}, {"weno3", 2}, {"muscl", 3}};   // 3: MUSCL-Hancock
+    const auto sname = [](int sc) { return sc == 3 ? "MUSCL-Hancock" : kSchemeNames[sc]; };
     for (const Cfg& cf : cfgs) {
         Simulation sim;
-        const CellMesh m = periodic_octree(sim, cf.recon, kSchemeNames[cf.sc], 41u + static_cast<unsigned>(cf.sc));
+        const CellMesh m = periodic_octree(sim, cf.recon, sname(cf.sc), 41u + static_cast<unsigned>(cf.sc));
         CHECK(m.level_begin[1] > 0 && m.level_begin[2] > m.level_begin[1] && m.level_begin[3] > m.level_begin[2]);   // three levels
         std::printf("    levels: %d %d %d of %d leaves; coarse-fine faces x/y/z %d %d %d\n", m.level_begin[1] - m.level_begin[0],
                     m.level_begin[2] - m.level_begin[1], m.level_begin[3] - m.level_begin[2], m.num_leaves(), coarse_fine_faces(m, 0),
@@ -173,7 +217,7 @@ TEST(celladvance3d_conserves_across_level_jumps_and_the_control_fails) {
             for (int c = 0; c < mm.num_leaves(); ++c) mm.U[c] = test_state3(sim.fluid, mm.xc(c), mm.yc(c), mm.zc(c));
             CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
             eng.build(mm);
-            std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[cf.sc]), 0.4);
+            std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(sname(cf.sc)), 0.4);
             CellAdvance adv(mm, eng, *ts);
             adv.flux_replacement = replace;
             double S = eng.wave_speed(mm, mm.U), before[kNVar], mag[kNVar], worst = 0.0;
@@ -188,7 +232,7 @@ TEST(celladvance3d_conserves_across_level_jumps_and_the_control_fails) {
         const double with = run(true), without = run(false);
         CHECK(with < 1e-13);
         CHECK(without > 1e-8);   // the register is what conserves
-        std::printf("    %s %s: conservation error with replacement %.3e, without %.3e\n", cf.recon, kSchemeNames[cf.sc], with, without);
+        std::printf("    %s %s: conservation error with replacement %.3e, without %.3e\n", cf.recon, sname(cf.sc), with, without);
     }
 }
 
