@@ -141,6 +141,13 @@ void MPIDecomposition::exchange_halos(const Field& U, bool periodic, Field& lo, 
                     send_hi[(k * ny + j) * D + d] = U[(k * ny + j) * nl + nl - D + d];
                 }
     }
+    exchange_rows(send_lo, send_hi, periodic, lo, hi, has_lo, has_hi);
+}
+
+void MPIDecomposition::exchange_rows(const Field& send_lo, const Field& send_hi, bool periodic, Field& lo, Field& hi, bool& has_lo,
+                                     bool& has_hi) const {
+    has_lo = has_hi = false;
+    if (n_ranks == 1) return;
     lo.resize(send_lo.size());
     hi.resize(send_lo.size());
     const int cnt = static_cast<int>(send_lo.size()) * kDoublesPerCell;
@@ -149,18 +156,18 @@ void MPIDecomposition::exchange_halos(const Field& U, bool periodic, Field& lo, 
     int nreq = 0;
     // Upward / rightward (tag 10)
     if (!is_hi_rank)
-        MPI_Isend(send_hi.data()->data(), cnt, MPI_DOUBLE, rank + 1, kTagUp, comm, &reqs[nreq++]);
+        MPI_Isend(const_cast<State*>(send_hi.data())->data(), cnt, MPI_DOUBLE, rank + 1, kTagUp, comm, &reqs[nreq++]);
     else if (periodic)
-        MPI_Isend(send_hi.data()->data(), cnt, MPI_DOUBLE, 0, kTagUp, comm, &reqs[nreq++]);
+        MPI_Isend(const_cast<State*>(send_hi.data())->data(), cnt, MPI_DOUBLE, 0, kTagUp, comm, &reqs[nreq++]);
     if (!is_lo_rank)
         MPI_Irecv(lo.data()->data(), cnt, MPI_DOUBLE, rank - 1, kTagUp, comm, &reqs[nreq++]);
     else if (periodic)
         MPI_Irecv(lo.data()->data(), cnt, MPI_DOUBLE, n_ranks - 1, kTagUp, comm, &reqs[nreq++]);
     // Downward / leftward (tag 20)
     if (!is_lo_rank)
-        MPI_Isend(send_lo.data()->data(), cnt, MPI_DOUBLE, rank - 1, kTagDown, comm, &reqs[nreq++]);
+        MPI_Isend(const_cast<State*>(send_lo.data())->data(), cnt, MPI_DOUBLE, rank - 1, kTagDown, comm, &reqs[nreq++]);
     else if (periodic)
-        MPI_Isend(send_lo.data()->data(), cnt, MPI_DOUBLE, n_ranks - 1, kTagDown, comm, &reqs[nreq++]);
+        MPI_Isend(const_cast<State*>(send_lo.data())->data(), cnt, MPI_DOUBLE, n_ranks - 1, kTagDown, comm, &reqs[nreq++]);
     if (!is_hi_rank)
         MPI_Irecv(hi.data()->data(), cnt, MPI_DOUBLE, rank + 1, kTagDown, comm, &reqs[nreq++]);
     else if (periodic)

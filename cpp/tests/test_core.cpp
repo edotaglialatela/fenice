@@ -584,9 +584,23 @@ TEST(fused_hancock_residual_equals_the_two_pass_residual_bit_for_bit) {
                     body[c] = rnd() < 0.1 ? 1 : 0;
                     for (int q = 0; q < kNVar; ++q) src[c][q] = (rnd() - 0.5) * (q == 3 ? 4.0 : 1.0);
                 }
-                for (int extra = 0; extra < 4; ++extra) {
+                // bit 4: an MPI neighbour on both sides supplies the predicted states across the interfaces (ghost-layer halos only)
+                Field from_lo(m.nx), from_hi(m.nx), sent_lo, sent_hi;
+                for (int i = 0; i < m.nx; ++i) {
+                    from_lo[i] = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, ps * (0.4 + rnd()), 0.0});
+                    from_hi[i] = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, ps * (0.4 + rnd()), 0.0});
+                }
+                for (int extra = 0; extra < 8; ++extra) {
+                if ((extra & 4) && (cfg != 3 || m.ny < 2)) continue;
                 h.solid = (extra & 1) ? &body : nullptr;
                 const Field* source = (extra & 2) ? &src : nullptr;
+                h.exchange_faces = (extra & 4) ? FaceExchange([&](const Field& to_lo, const Field& to_hi, Field& lo, Field& hi) {
+                                                     sent_lo = to_lo;
+                                                     sent_hi = to_hi;
+                                                     lo = from_lo;
+                                                     hi = from_hi;
+                                                 })
+                                               : FaceExchange();
                 for (const RiemannType rt : {RiemannType::HLLC, RiemannType::LowMachHLLC}) {
                     const RiemannSolver rs(eos, rt, 0.2);
                     for (const Limiter lim : {Limiter::Minmod, Limiter::VanLeer, Limiter::MC, Limiter::Koren})
@@ -597,13 +611,15 @@ TEST(fused_hancock_residual_equals_the_two_pass_residual_bit_for_bit) {
                             // two passes
                             Field UL = ULs, UR = URs, F2;
                             mu.reconstruct(UL, UR, U, m.nx, m.ny, h);
-                            const int stayed2 = mu.hancock_predict(UL, UR, m, half, px, py, h.solid, source);
+                            const int stayed2 = mu.hancock_predict(UL, UR, m, half, px, py, h.solid, source, (extra & 4) ? &h.exchange_faces : nullptr);
+                            const Field two_lo = sent_lo, two_hi = sent_hi;
                             const double s2 = rs.compute_flux(UL, UR, m, F2);
                             // one pass
                             Field R1;
                             long long stayed1 = -1;
                             const double s1 = mu.hancock_residual_2d(rs, ULs, URs, U, m, h, half, px, py, R1, &stayed1, source);
                             CHECK(s1 == s2);
+                            if (extra & 4) CHECK(sent_lo == two_lo && sent_hi == two_hi);
                             CHECK(stayed1 == stayed2);
                             stayed_total += stayed2;
                             const double inv_area = 1.0 / m.cell_area();

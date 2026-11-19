@@ -1,6 +1,8 @@
 // Spatial schemes: HLLC-family Riemann solvers, TVD limiters, MUSCL reconstruction.
 #pragma once
 
+#include <functional>
+
 #include "fv/Core.hpp"
 
 namespace fv {
@@ -128,6 +130,11 @@ constexpr int kHaloDepth = 2;
 //   f / bk : front / back   [ (d*ny + j)*nx + i ]          (3-D only)
 // With nz = 1 these reduce to the 2-D layouts [d*nx + i] and [j*kHaloDepth + d]. `depth` is the number of slices of
 // every halo supplied (kHaloDepth for MUSCL and WENO3-Z, 3 for WENO5-Z, which reads its ghost cells from them).
+// MUSCL-Hancock under MPI (strips along y): the two ranks of an interface each predict their own cells, so the rank hands the predicted
+// states of its two edge rows to the neighbours: `to_lo` = the states on the low side of the faces of its first row (one State per column),
+// `to_hi` = those on the high side of the faces of its last row; `from_lo` / `from_hi` receive the neighbours' states across its lower /
+// upper interface (empty where there is no neighbour). Called once per residual by every rank.
+using FaceExchange = std::function<void(const Field& to_lo, const Field& to_hi, Field& from_lo, Field& from_hi)>;
 struct Halos {
     int depth = kHaloDepth;
     const Field* b = nullptr;    // below
@@ -142,6 +149,8 @@ struct Halos {
     // MUSCL-Hancock only: cells (row-major, 1 = solid cell of an immersed body, ghost cells included) whose face states are not predicted: the
     // flux difference of a cell inside the body says nothing about the flow, so its states stay as reconstructed. Null: every cell is predicted.
     const std::vector<char>* solid = nullptr;
+    // MUSCL-Hancock only, MPI strips: the exchange of the predicted states across the interfaces (empty: none)
+    FaceExchange exchange_faces;
     // WENO only, two-pass path (positivity_fallback): cells (row-major, 1 = flagged) whose update left the admissible set. Every face with
     // a flagged cell on one side takes the two cell values as its states (first order). Null: nothing is overridden.
     const std::vector<char>* fallback = nullptr;
@@ -196,8 +205,10 @@ public:
     // `source` (null: none) is the cell field dU/dt of the terms that are not in the face fluxes (viscous, body force, sources): the states
     // also move by half_dt * source, so a steady balance of flux divergence and source leaves them where they were. Returns the number of
     // states left as they were.
+    // `exchange` (null: none) swaps the predicted states of the edge rows with the neighbours (Halos::exchange_faces) and puts the received ones
+    // on the faces of the interfaces.
     int hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y,
-                        const std::vector<char>* solid = nullptr, const Field* source = nullptr) const;
+                        const std::vector<char>* solid = nullptr, const Field* source = nullptr, const FaceExchange* exchange = nullptr) const;
 
     // MUSCL-Hancock residual of a 2-D mesh in one pass over rows (a block of rows per thread), the face states and fluxes kept for a few
     // rows only: R gets what reconstruct, hancock_predict, RiemannSolver::compute_flux and the divergence of the face fluxes give, bit for

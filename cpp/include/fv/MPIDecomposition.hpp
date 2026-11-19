@@ -28,6 +28,11 @@ public:
     void exchange_halos(const Field& U_local, bool periodic, Field& halo_lo, Field& halo_hi, bool& has_lo,
                         bool& has_hi) const;
 
+    // The same point-to-point exchange for buffers the caller has packed: `send_lo` goes to the lower neighbour (or, periodic, the last
+    // rank), `send_hi` to the higher one; `halo_lo` / `halo_hi` receive what they sent (same size as `send_lo`).
+    void exchange_rows(const Field& send_lo, const Field& send_hi, bool periodic, Field& halo_lo, Field& halo_hi, bool& has_lo,
+                       bool& has_hi) const;
+
     // Global maximum of v over all ranks.
     double allreduce_max(double v) const;
 

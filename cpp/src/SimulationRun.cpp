@@ -781,6 +781,11 @@ void Simulation::run_mpi(MPI_Comm comm) {
     }
     MPI_Bcast(&t, 1, MPI_DOUBLE, 0, comm);
     MPI_Bcast(&start, 1, MPI_INT, 0, comm);
+    {   // a resumed MUSCL-Hancock run: the lagged wave speed read by rank 0 is the step of every rank
+        double lagged = scheme->lagged_speed();
+        MPI_Bcast(&lagged, 1, MPI_DOUBLE, 0, comm);
+        scheme->set_lagged_speed(lagged);
+    }
 
     Field U_local = decomp.scatter(U_global);
     // Ghost-cell wall: the ghost table of the whole mesh (same on every rank); each rank fills its own ghost cells and fetches
@@ -831,6 +836,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
     };
 
     Field halo_lo, halo_hi, forced, flag_field, flag_lo, flag_hi;
+    const bool hancock = dynamic_cast<const MusclHancock*>(scheme.get()) != nullptr;
+    if (hancock && dir != 'y') throw std::runtime_error("time_scheme = MUSCL-Hancock on MPI needs strips along y (this mesh is cut along x)");
     const ResidualFn res = [&](const Field& Uin, Field& R) {
         const Field* Uc = &Uin;
         if (ghost) {
@@ -841,6 +848,15 @@ void Simulation::run_mpi(MPI_Comm comm) {
         bool has_lo, has_hi;
         decomp.exchange_halos(*Uc, periodic, halo_lo, halo_hi, has_lo, has_hi);
         StripHalos h{dir, has_lo ? &halo_lo : nullptr, has_hi ? &halo_hi : nullptr};
+        if (hancock) {
+            h.solid = p.use_ibm ? &local_ibm->mask() : nullptr;
+            h.exchange_faces = [&](const Field& to_lo, const Field& to_hi, Field& from_lo, Field& from_hi) {
+                bool a = false, b = false;
+                decomp.exchange_rows(to_lo, to_hi, periodic, from_lo, from_hi, a, b);
+                if (!a) from_lo.clear();
+                if (!b) from_hi.clear();
+            };
+        }
         if (fb_active_) {
             // positivity_fallback: the flags of the strip's border cells go to the neighbours the way the states do (slot 0 of a State)
             flag_field.assign(Uc->size(), State{});

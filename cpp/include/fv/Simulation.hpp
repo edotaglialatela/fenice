@@ -39,6 +39,9 @@ struct StripHalos {
     // positivity_fallback: the flags of the cells of those two halos (slot 0 of each State), exchanged like the states; nullptr when off
     const Field* flag_lo = nullptr;
     const Field* flag_hi = nullptr;
+    // MUSCL-Hancock: the cells of an immersed body of the strip (not predicted) and the exchange of the predicted states of the edge rows
+    const std::vector<char>* solid = nullptr;
+    FaceExchange exchange_faces;
 };
 
 // Owns every solver object of a run and drives the time loop (serial, AMR or MPI).
