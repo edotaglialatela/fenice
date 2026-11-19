@@ -202,7 +202,7 @@ public:
     // U -= half_dt * ((F(right) - F(left)) / dx + (F(top) - F(bottom)) / dy). A state that would leave the admissible set (density or pressure
     // not positive) stays as it was. The ghost side of a boundary face is not predicted; `periodic_x` / `periodic_y` (wrap-around halos in
     // use) copy the predicted state to the second copy of the seam face. The cells of `solid` (Halos::solid; null: none) are not predicted.
-    // `source` (null: none) is the cell field dU/dt of the terms that are not in the face fluxes (viscous, body force, sources): the states
+    // `source` (null: none) is the cell field dU/dt of the body force and the sources (not the viscous term, which only the corrector sees): the states
     // also move by half_dt * source, so a steady balance of flux divergence and source leaves them where they were. Returns the number of
     // states left as they were.
     // `exchange` (null: none) swaps the predicted states of the edge rows with the neighbours (Halos::exchange_faces) and puts the received ones
