@@ -48,9 +48,11 @@ double tgv_velocity_error(const Field& U, const Mesh& m, const EOS& eos, double 
 }
 
 // L1 density error of the isentropic vortex at time t on an n x n mesh.
-double vortex_density_error(int n, double t_end) {
-    const SimParams sp =
-        params_for("Isentropic Vortex", {{"nx", std::to_string(n).c_str()}, {"ny", std::to_string(n).c_str()}});
+double vortex_density_error(int n, double t_end, const char* time_scheme = "SSP Runge-Kutta 2") {
+    const SimParams sp = params_for("Isentropic Vortex", {{"nx", std::to_string(n).c_str()},
+                                                          {"ny", std::to_string(n).c_str()},
+                                                          {"reconstruction", "muscl"},
+                                                          {"time_scheme", time_scheme}});
     Simulation init;
     init.setup(sp, false);
     const Field U =
@@ -276,6 +278,114 @@ TEST(isentropic_vortex_convergence) {
     const double o1 = std::log2(e20 / e40), o2 = std::log2(e40 / e80);
     std::printf("    L1 density errors %.3e %.3e %.3e, observed orders %.2f %.2f\n", e20, e40, e80, o1, o2);
     CHECK(o2 > 1.7);
+}
+
+TEST(muscl_hancock_vortex_convergence) {
+    // The same smooth advection with the one-residual predictor-corrector: second order, and an error of the size of SSP-RK2's
+    const double e20 = vortex_density_error(20, 1.0, "MUSCL-Hancock"), e40 = vortex_density_error(40, 1.0, "MUSCL-Hancock"),
+                 e80 = vortex_density_error(80, 1.0, "MUSCL-Hancock");
+    const double r80 = vortex_density_error(80, 1.0);
+    const double o1 = std::log2(e20 / e40), o2 = std::log2(e40 / e80);
+    std::printf("    Hancock L1 density errors %.3e %.3e %.3e, orders %.2f %.2f; SSP-RK2 at 80: %.3e\n", e20, e40, e80, o1, o2, r80);
+    CHECK(o2 > 1.7);
+    CHECK(e80 < 2.0 * r80);
+}
+
+TEST(muscl_hancock_periodic_translation_invariance) {
+    // The seam faces carry two copies of a predicted state: shifting the field by whole cells must still shift the solution exactly
+    const int nx = 16, ny = 12, sx = 5, sy = 3;
+    const SimParams sp = params_for("Taylor-Green Vortex",
+                                    {{"nx", "16"}, {"ny", "12"}, {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"},
+                                     {"use_viscous", "true"}, {"mu", "0.05"}});
+    Simulation s;
+    s.setup(sp, false);
+    Field U(nx * ny);
+    for (int j = 0; j < ny; ++j)
+        for (int i = 0; i < nx; ++i) {
+            const double x = 2 * kPi * (i + 0.5) / nx, y = 2 * kPi * (j + 0.5) / ny;
+            U[j * nx + i] = s.fluid.prim_to_cons({1.0 + 0.1 * std::sin(x + 0.3) * std::cos(y), 0.3 * std::sin(y + 1.0),
+                                                  0.2 * std::cos(x - 0.5) + 0.1 * std::sin(2 * y), 100.0 + 2.0 * std::cos(x + y)});
+        }
+    const Field A = run_to(sp, U, 1e9, 6);
+    const Field B = run_to(sp, roll(U, nx, ny, sx, sy), 1e9, 6);
+    const Field Ar = roll(A, nx, ny, sx, sy);
+    double diff = 0.0;
+    for (size_t c = 0; c < B.size(); ++c)
+        for (int q = 0; q < kNVar; ++q) diff = std::max(diff, std::abs(Ar[c][q] - B[c][q]) / (1.0 + std::abs(B[c][q])));
+    std::printf("    max shifted difference %.3e\n", diff);
+    CHECK(diff < 1e-13);
+}
+
+TEST(muscl_hancock_resume_equals_the_uninterrupted_run_bit_for_bit) {
+    // The step is taken from the previous step's wave speed: a checkpoint carries it, so a resumed run takes the steps of the original
+    const auto root = tmp_dir() / "hancock_resume";
+    std::filesystem::remove_all(root);
+    const std::string rs = root.string();
+    const auto make = [&](bool resume) {
+        return params_for("Taylor-Green Vortex", {{"nx", "24"}, {"ny", "20"}, {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"},
+                                                  {"use_viscous", "true"}, {"mu", "0.05"}, {"resume", resume ? "true" : "false"},
+                                                  {"output_root", rs.c_str()}});
+    };
+    const auto advance = [](Simulation& s, int from, int to) {
+        const ResidualFn res = [&](const Field& U, Field& R) { return s.residual(U, R); };
+        for (int k = from; k < to; ++k) s.t += s.scheme->step(s.U, res, s.dt_length, s.t, 1e9).dt;
+    };
+    Simulation a;
+    a.setup(make(false), false);
+    a.initialize_field();
+    advance(a, 0, 12);
+    Simulation b;
+    b.setup(make(false), false);
+    b.initialize_field();
+    advance(b, 0, 5);
+    b.save_checkpoint(5);
+    CHECK(read_npz(b.checkpoint_path()).count("S") == 1);
+    Simulation c;
+    c.setup(make(true), false);
+    c.initialize_field();
+    CHECK(c.start_step == 5 && c.t == b.t && c.U == b.U);
+    advance(c, 5, 12);
+    CHECK(c.t == a.t);
+    CHECK(c.U == a.U);
+}
+
+TEST(muscl_hancock_predictor_kernel) {
+    // One cell of a 4 x 3 mesh: the four states move by half_dt * (dFx / dx + dFy / dy); an inadmissible result is left as it was
+    const EOS eos = EOS::ideal(1.4);
+    const MusclReconstruction mu(eos, Limiter::Minmod);
+    const Mesh m = generate_cartesian_mesh(4.0, 3.0, 4, 3);   // dx = dy = 1
+    const State a = eos.prim_to_cons({1.0, 0.5, -0.25, 1.0, 0.0}), b = eos.prim_to_cons({1.2, 5.0, -0.2, 1.3, 0.0});
+    Field UL(m.num_faces(), a), UR(m.num_faces(), a);
+    const int i = 1, j = 1, xl = j * 5 + i, xr = xl + 1, yb = m.yface(i, j), yt = m.yface(i, j + 1);
+    UR[xl] = a;
+    UL[xr] = b;
+    UR[yb] = a;
+    UL[yt] = b;
+    const Field UL0 = UL, UR0 = UR;
+    const double h = 1e-3;
+    CHECK(mu.hancock_predict(UL, UR, m, h, false, false) == 0);
+    // the right x state: F_x(b) - F_x(a) and F_y(b) - F_y(a) of this cell, by hand
+    const auto fx = [&](const State& U) {
+        const State W = eos.cons_to_prim(U);
+        return State{U[0] * W[1], U[1] * W[1] + W[3], U[2] * W[1], (U[3] + W[3]) * W[1], 0.0};
+    };
+    const auto fy = [&](const State& U) {
+        const State W = eos.cons_to_prim(U);
+        return State{U[0] * W[2], U[1] * W[2], U[2] * W[2] + W[3], (U[3] + W[3]) * W[2], 0.0};
+    };
+    for (int q = 0; q < kNVar; ++q) {
+        const double d = h * ((fx(b)[q] - fx(a)[q]) + (fy(b)[q] - fy(a)[q]));
+        CHECK_NEAR(UL[xr][q], UL0[xr][q] - d, 1e-14);
+        CHECK_NEAR(UR[xl][q], UR0[xl][q] - d, 1e-14);
+        CHECK_NEAR(UL[yt][q], UL0[yt][q] - d, 1e-14);
+        CHECK_NEAR(UR[yb][q], UR0[yb][q] - d, 1e-14);
+    }
+    // a huge step takes the density of every state of the cell below zero: all four stay as they were
+    UL = UL0;
+    UR = UR0;
+    CHECK(mu.hancock_predict(UL, UR, m, 50.0, false, false) == 4);
+    for (int f : {xr, yt}) CHECK(UL[f] == UL0[f]);
+    for (int f : {xl, yb}) CHECK(UR[f] == UR0[f]);
 }
 
 // ---------------------------------------------------------------------------

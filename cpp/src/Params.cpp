@@ -407,6 +407,15 @@ SimParams SimParams::from(const Params& p) {
         if (s.use_mpi) throw std::invalid_argument("flux_quadrature = fourth is serial yet (its corrections read faces two cells across a rank interface)");
         if (s.use_ibm) throw std::invalid_argument("flux_quadrature = fourth is not available with an immersed body yet");
     }
+    if (const std::string ts = lower(s.time_scheme); ts == "muscl-hancock" || ts == "hancock") {
+        const char* why = s.reconstruction != "muscl" ? "needs reconstruction = muscl"
+                          : s.use_amr                 ? "is not available with AMR yet"
+                          : s.use_mpi                 ? "is serial yet (the predictor of a halo cell needs the transverse faces across the interface)"
+                          : s.use_ibm                 ? "is not available with an immersed body yet"
+                          : s.nz > 1                  ? "is 2-D yet"
+                                                      : nullptr;
+        if (why) throw std::invalid_argument(std::string("time_scheme = MUSCL-Hancock ") + why);
+    }
     if (s.boundary_order != 1 && s.boundary_order != 2) throw std::invalid_argument("boundary_order must be 1 or 2");
     if (s.positivity_fallback) {
         if (s.reconstruction != "weno3" && s.reconstruction != "weno5")

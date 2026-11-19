@@ -33,6 +33,17 @@ void muscl_riemann_batch_simd(const EOS& eos, RiemannType type, double sb, Limit
 // W + q * plane), face k of the batch has its stencil at the indices base + k + point * stride, point 0 .. 3. n a multiple of 4.
 void muscl_riemann_line_simd(const EOS& eos, RiemannType type, double sb, Limiter lim, const double* W, size_t plane, size_t base,
                              size_t stride, int axis, int n, State* F, double* smax, bool planar);
+// The two limited face states of the cells of one line, as conservative variables (the MUSCL-Hancock predictor starts from them): cell k of
+// the batch (n a multiple of 4) has its neighbours at W[q * plane + base + k +- stride]; hi[k] is the state on its high side,
+// prim_to_cons of c + 0.5 phi(c - cm, cp - c), lo[k] the one on its low side, prim_to_cons of c - 0.5 phi(cp - c, c - cm) (the wl / wr
+// of muscl_riemann_line_simd, argument order included), bit-identical to the scalar loop of muscl_cell_states_line (Schemes.cpp).
+void muscl_cell_states_line_simd(const EOS& eos, Limiter lim, const double* W, size_t plane, size_t base, size_t stride, int n,
+                                 bool planar, State* lo, State* hi);
+// The MUSCL-Hancock predictor of the cells k = 0 .. n-1 (n a multiple of 4): the four states of cell k, xl[k] / xr[k] on its low / high side
+// along x and yb[k] / yt[k] along y, advanced in place by hx * (F_x(xr) - F_x(xl)) + hy * (F_y(yt) - F_y(yb)) unless the result has a
+// density or pressure that is not positive; `stayed` receives how many states were left as they were. Bit-identical to the scalar
+// hancock_cell of Schemes.cpp.
+void hancock_cells_simd(const EOS& eos, double hx, double hy, State* xl, State* xr, State* yb, State* yt, int n, int* stayed);
 // Primitive states (EOS::cons_to_prim) of the cells U[0 .. n-1] (n a multiple of 4), the variable q at out[q][k].
 void cons_to_prim_planes_simd(const EOS& eos, const State* U, int n, double* const* out);
 // The same for WENO3-Z (weno3z of Schemes.cpp): four cells per face, planes[q][base + k + s * stride], s = 0 .. 3.

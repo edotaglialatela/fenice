@@ -80,6 +80,7 @@ TimeSchemeType parse_time_scheme(const std::string& s_in) {
     if (s == "explicit euler" || s == "euler" || s == "explicit_euler") return TimeSchemeType::ExplicitEuler;
     if (s == "ssp runge-kutta 2" || s == "ssprk2" || s == "rk2") return TimeSchemeType::SSPRK2;
     if (s == "ssp runge-kutta 3" || s == "ssprk3" || s == "rk3") return TimeSchemeType::SSPRK3;
+    if (s == "muscl-hancock" || s == "hancock") return TimeSchemeType::MusclHancock;
     throw std::invalid_argument("Unknown time scheme: '" + s_in + "'");
 }
 
@@ -280,8 +281,41 @@ double SSPRK3::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
     return s;
 }
 
+// ---------------------------------------------------------------------------
+// MUSCL-Hancock: one residual (with the half-step predictor of the face states) per step
+// ---------------------------------------------------------------------------
+
+StepResult MusclHancock::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max) {
+    if (!(s_prev_ > 0.0)) {   // no wave speed yet: one plain residual (no predictor) gives it
+        stage_time = t;
+        predictor_half_dt = 0.0;
+        s_prev_ = res(U, R1_);
+    }
+    double dt = cfl * min_delta / (s_prev_ + kDtEps);
+    dt = std::min(dt, t_max - t);
+    if (dt_max > 0.0) dt = std::min(dt, dt_max);
+    stage_time = t + 0.5 * dt;   // time-dependent sources are centred in the step
+    predictor_half_dt = 0.5 * dt;
+    double s = 0.0;
+    try {
+        s = res(U, R1_);
+    } catch (...) {
+        predictor_half_dt = 0.0;
+        throw;
+    }
+    predictor_half_dt = 0.0;
+    axpy(U, U, dt, R1_);
+    s_prev_ = s;
+    return {dt, s};
+}
+
+double MusclHancock::advance_fixed_dt(Field&, const ResidualFn&, double) {
+    throw std::logic_error("MUSCL-Hancock has no fixed-step (adaptive mesh) form");
+}
+
 std::unique_ptr<TimeScheme> make_time_scheme(TimeSchemeType type, double cfl) {
     switch (type) {
+    case TimeSchemeType::MusclHancock: return std::make_unique<MusclHancock>(cfl);
     case TimeSchemeType::SSPRK2: return std::make_unique<SSPRK2>(cfl);
     case TimeSchemeType::SSPRK3: return std::make_unique<SSPRK3>(cfl);
     default: return std::make_unique<ExplicitEuler>(cfl);

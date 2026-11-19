@@ -837,7 +837,16 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     }
     double S;
     const bool fourth = mu && p.fourth_flux();   // flux_quadrature = fourth: the two-pass path with the transverse correction
-    if (mu && fused_recon(*mu, fourth, fb_active_)) {
+    // MUSCL-Hancock: the face states are advanced by half a step between the reconstruction and the Riemann solves (two-pass path)
+    const double predictor_dt = (mu && scheme) ? scheme->predictor_half_dt : 0.0;
+    const bool wrap_x = mh.l == &perL_ && mh.r == &perR_, wrap_y = mh.b == &perB_ && mh.t == &perT_;
+    if (mu && predictor_dt > 0.0 && fused_recon(*mu, fourth, fb_active_)) {
+        // MUSCL-Hancock in one pass over rows: states, predictor, Riemann solves and flux balance (the two-pass path below gives the same bits)
+        ProfileScope ps(Section::Flux);
+        long long stayed = 0;
+        S = mu->hancock_residual_2d(riemann, UL_, UR_, *Uc, m, mh, predictor_dt, wrap_x, wrap_y, R, &stayed);
+        hancock_reverted_ += stayed;
+    } else if (mu && predictor_dt == 0.0 && fused_recon(*mu, fourth, fb_active_)) {
         // reconstruction, Riemann solver and flux balance in one pass over rows of faces: the face fluxes are not stored
         ProfileScope ps(Section::Flux);
         S = mu->muscl_residual_2d(riemann, UL_, UR_, *Uc, m, mh, R);
@@ -862,6 +871,10 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         if (mu) {
             ProfileScope ps(Section::Reconstruct);
             mu->reconstruct(UL_, UR_, *Uc, nx, ny, mh);
+        }
+        if (predictor_dt > 0.0) {
+            ProfileScope ps(Section::Reconstruct);
+            hancock_reverted_ += static_cast<long long>(mu->hancock_predict(UL_, UR_, m, predictor_dt, wrap_x, wrap_y));
         }
         {
             ProfileScope ps(Section::Flux);

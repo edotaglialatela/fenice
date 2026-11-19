@@ -11,6 +11,8 @@
 
 #ifdef FV_SIMD
 
+#include <cstring>
+
 #include "SimdOps.hpp"
 
 
@@ -355,6 +357,69 @@ void muscl_riemann_line_simd(const EOS& eos, RiemannType type, double sb, Limite
         eos, type, sb, lim, n, F, smax, planar,
         [&](int k, int point, int q) { return load(W + q * plane + base + k + point * stride); },
         [&](int) { return ax; });
+}
+
+void muscl_cell_states_line_simd(const EOS& eos, Limiter lim, const double* W, size_t plane, size_t base, size_t stride, int n,
+                                 bool planar, State* lo, State* hi) {
+    const VEos E(eos);
+    const V half = set1(0.5);
+    for (int k = 0; k < n; k += 4) {
+        Vec5 wl, wr;
+        if (planar) wl.q[4] = wr.q[4] = set1(0.0);   // rho w = 0 in 2-D: the limited reconstruction of +0 is +0
+        for (int q = 0; q < (planar ? 4 : kNVar); ++q) {
+            const double* p = W + q * plane + base + k;
+            const V cm = load(p - stride), c = load(p), cp = load(p + stride);
+            wl.q[q] = add(c, mul(half, vlimiter(lim, sub(c, cm), sub(cp, c))));
+            wr.q[q] = sub(c, mul(half, vlimiter(lim, sub(cp, c), sub(c, cm))));
+        }
+        store4(hi + k, E.prim_to_cons(wl));
+        store4(lo + k, E.prim_to_cons(wr));
+    }
+    end_batch();
+}
+
+void hancock_cells_simd(const EOS& eos, double hx, double hy, State* xl, State* xr, State* yb, State* yt, int n, int* stayed) {
+    const VEos E(eos);
+    const V vhx = set1(hx), vhy = set1(hy), zero = set1(0.0), half = set1(0.5);
+    int left = 0;
+    for (int k = 0; k < n; k += 4) {
+        // the states in the order of hancock_cell: x low, x high, y low, y high
+        Vec5 s[4] = {load4(xl + k), load4(xr + k), load4(yb + k), load4(yt + k)};
+        Vec5 f[4];   // euler_flux_axis of each: axis 0 for the first two, axis 1 for the others
+        for (int a = 0; a < 4; ++a) {
+            const Vec5 W = E.cons_to_prim(s[a]);
+            const V un = a < 2 ? W.q[1] : W.q[2], p = W.q[3];
+            f[a].q[0] = mul(s[a].q[0], un);
+            f[a].q[1] = add(mul(s[a].q[1], un), a < 2 ? p : zero);
+            f[a].q[2] = add(mul(s[a].q[2], un), a < 2 ? zero : p);
+            f[a].q[3] = mul(add(s[a].q[3], p), un);
+            f[a].q[4] = mul(s[a].q[4], un);
+        }
+        V d[5];
+        for (int q = 0; q < 5; ++q) d[q] = add(mul(vhx, sub(f[1].q[q], f[0].q[q])), mul(vhy, sub(f[3].q[q], f[2].q[q])));
+        State* const dst[4] = {xl + k, xr + k, yb + k, yt + k};
+        for (int a = 0; a < 4; ++a) {
+            Vec5 nw;
+            for (int q = 0; q < 5; ++q) nw.q[q] = sub(s[a].q[q], d[q]);
+            // admissible_state: density above the floor, pressure + p_inf above zero (a NaN fails both comparisons)
+            const V ke = dv(mul(half, add(add(mul(nw.q[1], nw.q[1]), mul(nw.q[2], nw.q[2])), mul(nw.q[4], nw.q[4]))), nw.q[0]);
+            const V rho_e = sub(nw.q[3], ke);
+            const V p = E.ideal ? mul(E.gm1, rho_e) : sub(mul(E.gm1, rho_e), E.gpinf);
+            const V ok = band(lt(E.eps, nw.q[0]), lt(zero, add(p, E.pinf)));
+            Vec5 out;
+            for (int q = 0; q < 5; ++q) out.q[q] = blend(s[a].q[q], nw.q[q], ok);
+            store4(dst[a], out);
+            double t[4];
+            store(t, ok);
+            for (int i = 0; i < 4; ++i) {
+                std::uint64_t bits;
+                std::memcpy(&bits, &t[i], sizeof bits);
+                if (bits == 0) ++left;
+            }
+        }
+    }
+    *stayed = left;
+    end_batch();
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
