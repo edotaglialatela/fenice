@@ -771,6 +771,8 @@ struct FusedGrid {
     double weno_eps;         // relative regularisation of the WENO smoothness indicators
     const char* solid;       // WENO5-Z with an immersed body: the solid cells on the padded layout (null: none)
     const std::vector<char>* hsolid;   // MUSCL-Hancock with an immersed body: the solid cells, not predicted (Halos::solid; null: none)
+    const State* iface_lo;   // MUSCL-Hancock on MPI strips: the neighbours' predicted states across the lower / upper interface (null: none)
+    const State* iface_hi;
     size_t P(int ii, int jj, int kk) const { return (static_cast<size_t>(kk) * PY + jj) * PX + ii; }
 };
 
@@ -2294,10 +2296,12 @@ void hancock_yfaces(const FusedGrid& g, bool per_y, int f, const HancockRow* low
         s.ul[i] = f > 0                 ? lower->yt[i]
                   : !g.halo_lo[1]       ? round_trip(g, (*g.UL)[g.m->yface(i, 0)])
                   : per_y               ? lower->yt[i]
+                  : g.iface_lo          ? g.iface_lo[i]
                                         : stencil_face_state(g, g.P(i + pad, 0, 0), stride, true);
         s.ur[i] = f < ny                ? upper->yb[i]
                   : !g.halo_hi[1]       ? round_trip(g, (*g.UR)[g.m->yface(i, ny)])
                   : per_y               ? upper->yb[i]
+                  : g.iface_hi          ? g.iface_hi[i]
                                         : stencil_face_state(g, g.P(i + pad, ny, 0), stride, false);
     }
     hancock_solve(g, nx, 1, F, local, s);
@@ -2377,13 +2381,26 @@ double MusclReconstruction::hancock_residual_2d(const RiemannSolver& riemann, co
     FusedGrid g = make_grid(riemann, eos_, lim_, scheme_, weno_eps_, W_pad, S_pad, UL, UR, m, h, PX, PY, zp, kHaloDepth);
     if (h.solid && h.solid->size() != static_cast<size_t>(m.nx) * m.ny) throw std::logic_error("MUSCL-Hancock: the solid mask is not that of the mesh");
     g.hsolid = h.solid;
+    g.iface_lo = g.iface_hi = nullptr;
+    Field from_lo, from_hi;
+    if (h.exchange_faces) {
+        // the interface faces need the neighbours' predicted states: the two edge rows are predicted first (the same bits as in the pass below)
+        const int nx = m.nx, ny = m.ny;
+        const double hx = half_dt / m.dx, hy = half_dt / m.dy;
+        HancockRow first(nx), last(nx);
+        hancock_row(g, hx, hy, half_dt, source, 0, first);
+        hancock_row(g, hx, hy, half_dt, source, ny - 1, last);
+        h.exchange_faces(first.yb, last.yt, from_lo, from_hi);
+        if (h.b && static_cast<int>(from_lo.size()) == nx) g.iface_lo = from_lo.data();
+        if (h.t && static_cast<int>(from_hi.size()) == nx) g.iface_hi = from_hi.data();
+    }
     const double s = hancock_residual_2d_impl(g, m, half_dt, source, periodic_x, periodic_y, R, rev);
     if (reverted) *reverted = rev;
     return s;
 }
 
 int MusclReconstruction::hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y,
-                                         const std::vector<char>* solid, const Field* source) const {
+                                         const std::vector<char>* solid, const Field* source, const FaceExchange* exchange) const {
     const int nx = m.nx, ny = m.ny, nxf = m.num_xfaces();
     const double hx = half_dt / m.dx, hy = half_dt / m.dy;
     int reverted = 0;
@@ -2408,6 +2425,18 @@ int MusclReconstruction::hancock_predict(Field& UL, Field& UR, const Mesh& m, do
             UL[nxf + i] = UL[nxf + ny * nx + i];
             UR[nxf + ny * nx + i] = UR[nxf + i];
         }
+    if (exchange && *exchange) {
+        Field to_lo(nx), to_hi(nx), from_lo, from_hi;
+        for (int i = 0; i < nx; ++i) {
+            to_lo[i] = UR[nxf + i];
+            to_hi[i] = UL[nxf + ny * nx + i];
+        }
+        (*exchange)(to_lo, to_hi, from_lo, from_hi);
+        for (int i = 0; i < nx; ++i) {
+            if (static_cast<int>(from_lo.size()) == nx) UL[nxf + i] = from_lo[i];
+            if (static_cast<int>(from_hi.size()) == nx) UR[nxf + ny * nx + i] = from_hi[i];
+        }
+    }
     return reverted;
 }
 

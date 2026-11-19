@@ -841,6 +841,10 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     const double predictor_dt = (mu && scheme) ? scheme->predictor_half_dt : 0.0;
     const bool wrap_x = mh.l == &perL_ && mh.r == &perR_, wrap_y = mh.b == &perB_ && mh.t == &perT_;
     if (ib && predictor_dt > 0.0) mh.solid = &ib->mask();   // MUSCL-Hancock: the cells of the body are not predicted
+    if (halos && predictor_dt > 0.0) {                      // MPI strips: the body of the strip, and the neighbours' predicted states
+        if (halos->solid) mh.solid = halos->solid;
+        mh.exchange_faces = halos->exchange_faces;
+    }
     // the viscous residual, added to `Rt` (it is the 2-D solver's: rows, padded ring, strip halos)
     const auto viscous_into = [&](Field& Rt) -> double {
         ProfileScope ps(Section::Viscous);
@@ -927,7 +931,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         }
         if (predictor_dt > 0.0) {
             ProfileScope ps(Section::Reconstruct);
-            hancock_reverted_ += static_cast<long long>(mu->hancock_predict(UL_, UR_, m, predictor_dt, wrap_x, wrap_y, mh.solid, hsrc));
+            hancock_reverted_ += static_cast<long long>(mu->hancock_predict(UL_, UR_, m, predictor_dt, wrap_x, wrap_y, mh.solid, hsrc, &mh.exchange_faces));
         }
         {
             ProfileScope ps(Section::Flux);
