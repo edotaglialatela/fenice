@@ -132,6 +132,9 @@ CASES = {
     "hancock_taylor_green": ("Taylor-Green Vortex", dict(nx=32, ny=32, t_end=0.5, mu=0.05, reconstruction="muscl", time_scheme="MUSCL-Hancock")),
     "hancock_sod":         ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.05, reconstruction="muscl", time_scheme="MUSCL-Hancock")),
     "hancock_cylinder":    ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False, time_scheme="MUSCL-Hancock")),
+    "hancock_tgv3d":       ("Taylor-Green Vortex 3D", dict(nx=16, ny=24, nz=16, t_end=0.5, mu=0.01, reconstruction="muscl", time_scheme="MUSCL-Hancock")),
+    "hancock_sphere3d":    ("IBM Flow over Cylinder", dict(nx=48, ny=24, nz=12, Lz=1.0, t_end=0.03, use_mpi=False, ibm_shape="Sphere", ibm_cz=0.5,
+                                                         ibm_radius=0.3, bc_front="wall", bc_back="wall", time_scheme="MUSCL-Hancock")),
     "vortex_thin_xdecomp": ("Isentropic Vortex", dict(nx=64, ny=6, t_end=0.5)),
     # 3-D (added 2026-10-20; C++ references validated by the fenice_tests 3-D checks)
     "tgv3d_16":            ("Taylor-Green Vortex 3D", dict(nx=16, ny=16, nz=16, t_end=0.5, mu=0.01)),
@@ -210,7 +213,7 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk3_visc", "cavity_periodi
              "cylinder_ibm_source", "amr_cylinder_source", "taylor_green_visc", "isentropic_vortex", "vortex_thin_xdecomp",
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc",
-             "hancock_taylor_green", "hancock_sod", "hancock_cylinder",
+             "hancock_taylor_green", "hancock_sod", "hancock_cylinder", "hancock_tgv3d", "hancock_sphere3d",
              "cylinder_ibm_ghost", "supersonic_ibm_ghost", "naca0012_ibm_ghost", "sphere3d_ibm_ghost",
              "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_square_rk3", "amr_weno3_rk3", "amr_bo2_walls", "amr_bo2_weno3", "amr_weno5_rk3", "amr_bo2_weno5", "amr_cavity_b2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "amr_hot_start_from_amr", "hot_start_from_amr", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
