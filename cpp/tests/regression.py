@@ -133,6 +133,15 @@ CASES = {
     "hancock_sod":         ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.05, reconstruction="muscl", time_scheme="MUSCL-Hancock")),
     "hancock_cylinder":    ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False, time_scheme="MUSCL-Hancock")),
     "hancock_tgv3d":       ("Taylor-Green Vortex 3D", dict(nx=16, ny=24, nz=16, t_end=0.5, mu=0.01, reconstruction="muscl", time_scheme="MUSCL-Hancock")),
+    # MUSCL-Hancock on the adaptive mesh (serial yet): a closed box with walls (the coarse leaf's prediction serves both fine sub-steps of a jump)
+    # and viscous walls with a moving lid
+    "amr_hancock_walls":   ("Sod Shock Tube", dict(Lx=1.0, Ly=1.0, nx=32, ny=32, t_end=0.4, use_amr=True, bc_left="wall", bc_right="wall",
+                                                   bc_bottom="wall", bc_top="wall", amr_max_level=3, amr_refine_every=2,
+                                                   amr_init_levels=1, reconstruction="muscl", boundary_order=2,
+                                                   time_scheme="MUSCL-Hancock", use_mpi=False)),
+    "amr_hancock_cavity":  ("Lid Driven Cavity", dict(nx=16, ny=16, t_end=0.3, use_amr=True, amr_max_level=2, amr_refine_every=3,
+                                                   amr_init_levels=1, reconstruction="muscl", boundary_order=1,
+                                                   time_scheme="MUSCL-Hancock", use_mpi=False)),
     "hancock_sphere3d":    ("IBM Flow over Cylinder", dict(nx=48, ny=24, nz=12, Lz=1.0, t_end=0.03, use_mpi=False, ibm_shape="Sphere", ibm_cz=0.5,
                                                          ibm_radius=0.3, bc_front="wall", bc_back="wall", time_scheme="MUSCL-Hancock")),
     "vortex_thin_xdecomp": ("Isentropic Vortex", dict(nx=64, ny=6, t_end=0.5)),

@@ -128,13 +128,13 @@ public:
 // MUSCL-Hancock: one residual per step. The residual advances the limited face states of every cell by half a step with the cell's own
 // flux difference (predictor, `predictor_half_dt`), solves the Riemann problems on those, and U^{n+1} = U^n + dt R. The step is known
 // before the residual runs, so it comes from the wave speed of the previous step (the first step seeds it with one plain residual);
-// a step is therefore not a function of the state alone, so the speed is part of a checkpoint (lagged_speed). Uniform 2-D, MUSCL,
-// serial only (Params rejects the rest); it has no stage weights, so the adaptive mesh cannot use it.
+// a step is therefore not a function of the state alone, so the speed is part of a checkpoint (lagged_speed). On the adaptive mesh the step
+// is an imposed one (advance_fixed_dt: the residual of a level at t + dt / 2, weight 1) and the mesh's own wave-speed bound plays the lag.
 class MusclHancock : public TimeScheme {
 public:
     using TimeScheme::TimeScheme;
     StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max = 0.0) override;
-    double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
+    std::vector<double> stage_offsets() const override { return {0.5}; }
     double lagged_speed() const override { return s_prev_; }
     void set_lagged_speed(double s) override { s_prev_ = s; }
 

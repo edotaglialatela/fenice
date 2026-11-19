@@ -771,6 +771,7 @@ struct FusedGrid {
     double weno_eps;         // relative regularisation of the WENO smoothness indicators
     const char* solid;       // WENO5-Z with an immersed body: the solid cells on the padded layout (null: none)
     const std::vector<char>* hsolid;   // MUSCL-Hancock with an immersed body: the solid cells, not predicted (Halos::solid; null: none)
+    const Halos* hal;        // MUSCL-Hancock: the wall sides and their ghost state (Halos::wall_side / wall_ghost)
     const State* iface_lo;   // MUSCL-Hancock on MPI strips: the neighbours' predicted states across the lower / upper interface (null: none)
     const State* iface_hi;
     size_t P(int ii, int jj, int kk) const { return (static_cast<size_t>(kk) * PY + jj) * PX + ii; }
@@ -2305,14 +2306,16 @@ void hancock_xfaces(const FusedGrid& g, bool per_x, int j, const HancockRow& r, 
         s.ul[i] = r.xr[i - 1];
         s.ur[i] = r.xl[i];
     }
-    s.ul[0] = !g.halo_lo[0] ? round_trip(g, (*g.UL)[g.m->xface(0, j)])
-              : per_x       ? r.xr[nx - 1]
-                            : stencil_face_state(g, g.P(0, j + g.pad, 0), 1, true);
+    s.ul[0] = g.hal->wall_side[0] ? g.hal->wall_ghost(0, r.xl[0])   // a wall: the mirror of the predicted state
+              : !g.halo_lo[0]     ? round_trip(g, (*g.UL)[g.m->xface(0, j)])
+              : per_x             ? r.xr[nx - 1]
+                                  : stencil_face_state(g, g.P(0, j + g.pad, 0), 1, true);
     s.ur[0] = r.xl[0];
     s.ul[nx] = r.xr[nx - 1];
-    s.ur[nx] = !g.halo_hi[0] ? round_trip(g, (*g.UR)[g.m->xface(nx, j)])
-               : per_x       ? r.xl[0]
-                             : stencil_face_state(g, g.P(nx, j + g.pad, 0), 1, false);
+    s.ur[nx] = g.hal->wall_side[1] ? g.hal->wall_ghost(1, r.xr[nx - 1])
+               : !g.halo_hi[0]     ? round_trip(g, (*g.UR)[g.m->xface(nx, j)])
+               : per_x             ? r.xl[0]
+                                   : stencil_face_state(g, g.P(nx, j + g.pad, 0), 1, false);
     hancock_solve(g, nx + 1, 0, F, local, s);
 }
 
@@ -2323,11 +2326,13 @@ void hancock_yfaces(const FusedGrid& g, bool per_y, int f, const HancockRow* low
     const size_t stride = static_cast<size_t>(g.PX);
     for (int i = 0; i < nx; ++i) {
         s.ul[i] = f > 0                 ? lower->yt[i]
+                  : g.hal->wall_side[2] ? g.hal->wall_ghost(2, upper->yb[i])
                   : !g.halo_lo[1]       ? round_trip(g, (*g.UL)[g.m->yface(i, 0)])
                   : per_y               ? lower->yt[i]
                   : g.iface_lo          ? g.iface_lo[i]
                                         : stencil_face_state(g, g.P(i + pad, 0, 0), stride, true);
         s.ur[i] = f < ny                ? upper->yb[i]
+                  : g.hal->wall_side[3] ? g.hal->wall_ghost(3, lower->yt[i])
                   : !g.halo_hi[1]       ? round_trip(g, (*g.UR)[g.m->yface(i, ny)])
                   : per_y               ? upper->yb[i]
                   : g.iface_hi          ? g.iface_hi[i]
@@ -2396,6 +2401,11 @@ double hancock_residual_2d_impl(const FusedGrid& g, const Mesh& m, double half_d
 }
 }   // namespace
 
+int MusclReconstruction::hancock_cell_2d(const EOS& eos, double hx, double hy, double half_dt, const State* src, State& xl, State& xr, State& yb,
+                                         State& yt) {
+    return hancock_cell(eos, hx, hy, half_dt, src, xl, xr, yb, yt);
+}
+
 double MusclReconstruction::hancock_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
                                                 const Halos& h, double half_dt, bool periodic_x, bool periodic_y, Field& R,
                                                 long long* reverted, const Field* source) const {
@@ -2410,6 +2420,7 @@ double MusclReconstruction::hancock_residual_2d(const RiemannSolver& riemann, co
     FusedGrid g = make_grid(riemann, eos_, lim_, scheme_, weno_eps_, W_pad, S_pad, UL, UR, m, h, PX, PY, zp, kHaloDepth);
     if (h.solid && h.solid->size() != static_cast<size_t>(m.nx) * m.ny) throw std::logic_error("MUSCL-Hancock: the solid mask is not that of the mesh");
     g.hsolid = h.solid;
+    g.hal = &h;
     g.iface_lo = g.iface_hi = nullptr;
     Field from_lo, from_hi;
     if (h.exchange_faces) {
@@ -2467,6 +2478,29 @@ int MusclReconstruction::hancock_predict(Field& UL, Field& UR, const Mesh& m, do
         }
     }
     return reverted;
+}
+
+void MusclReconstruction::hancock_wall_ghosts(Field& UL, Field& UR, const Mesh& m, const Halos& h) const {
+    if (!h.wall_ghost) return;
+    const int nx = m.nx, ny = m.ny, nz = m.is3d() ? m.nz : 1;
+    for (int k = 0; k < nz; ++k) {
+        for (int j = 0; j < ny; ++j) {
+            if (h.wall_side[0]) UL[m.is3d() ? m.xface(0, j, k) : m.xface(0, j)] = h.wall_ghost(0, UR[m.is3d() ? m.xface(0, j, k) : m.xface(0, j)]);
+            if (h.wall_side[1])
+                UR[m.is3d() ? m.xface(nx, j, k) : m.xface(nx, j)] = h.wall_ghost(1, UL[m.is3d() ? m.xface(nx, j, k) : m.xface(nx, j)]);
+        }
+        for (int i = 0; i < nx; ++i) {
+            if (h.wall_side[2]) UL[m.is3d() ? m.yface(i, 0, k) : m.yface(i, 0)] = h.wall_ghost(2, UR[m.is3d() ? m.yface(i, 0, k) : m.yface(i, 0)]);
+            if (h.wall_side[3])
+                UR[m.is3d() ? m.yface(i, ny, k) : m.yface(i, ny)] = h.wall_ghost(3, UL[m.is3d() ? m.yface(i, ny, k) : m.yface(i, ny)]);
+        }
+    }
+    if (m.is3d())
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i) {
+                if (h.wall_side[4]) UL[m.zface(i, j, 0)] = h.wall_ghost(4, UR[m.zface(i, j, 0)]);
+                if (h.wall_side[5]) UR[m.zface(i, j, nz)] = h.wall_ghost(5, UL[m.zface(i, j, nz)]);
+            }
 }
 
 int MusclReconstruction::hancock_predict_3d(Field& UL, Field& UR, const Mesh& m, double half_dt, const bool periodic[3],

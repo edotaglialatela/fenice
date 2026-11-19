@@ -131,7 +131,16 @@ public:
     // --- per-level pieces for the subcycled advance (CellAdvance) ---
     // Fluxes of the faces of level l (all of them: interior, coarse-fine whose fine side is level l, boundary), read
     // from U, the state of every leaf (the other levels as they are); returns their largest wave speed.
-    double compute_level_fluxes(const CellMesh& mesh, const Field& U, int l);
+    // With `predicted` (MUSCL-Hancock) the Riemann problems are solved on the face states predict_level left, with no reconstruction.
+    double compute_level_fluxes(const CellMesh& mesh, const Field& U, int l, bool predicted = false);
+    // MUSCL-Hancock predictor of the leaves of level l (2-D): the limited states of each owned leaf on its sides (the reconstruction of the face
+    // kernels, so the special faces, the ghost layers of boundary_order = 2 and the coarse sides of a level jump are as in a plain residual) are
+    // advanced by half_dt times the leaf's own flux difference and kept per face side; the leaves of the level above it that touch a coarse-fine
+    // face read the coarse side from here, at the time the coarse level predicted it (the coarse leaf's prediction serves both fine sub-steps).
+    // A leaf of the body is not predicted. Call it for a level before that level or a finer one computes its fluxes `predicted`.
+    void predict_level(const CellMesh& mesh, const Field& U, int l, double half_dt);
+    // Predicted states left as they were (not admissible) since the engine was built, on this rank.
+    long long hancock_reverted() const { return hancock_reverted_; }
     // R of the leaves of level l (Rl[k] is leaf level_begin[l] + k).  A face of level l + 1 on a side of such a leaf
     // is a coarse-fine face seen from its coarse side: with `replace` it contributes the time-averaged flux of the
     // register, without it the flux of the last compute_level_fluxes (test hook: breaks conservation).
@@ -243,11 +252,15 @@ public:
 private:
     State eval(const Field& U, int code) const;
     State cell_state(int code) const;   // conservative state of a leaf or virtual cell (of the forced state)
-    void prepare(const CellMesh& m, const Field& U, int level);   // level < 0: everything
+    // level < 0: everything. `need` replaces the list of W_ entries refreshed for a level, `refresh` false leaves W_ alone (the predicted
+    // fluxes read none)
+    void prepare(const CellMesh& m, const Field& U, int level, const std::vector<int>* need = nullptr, bool refresh = true);
     void refresh_all(int N);
     void refresh_some(int N, const std::vector<int>& idx);
     void mass_flow_targets(const CellMesh& m, double* u_target) const;
     double fluxes(const CellMesh& m, const std::vector<int>& faces, const double* u_target);
+    double predicted_fluxes(const CellMesh& m, const std::vector<int>& faces);   // the Riemann problems on PL_ / PR_
+    void make_hancock_lists(const CellMesh& m);
     void cell_quantities(const CellMesh& m, const std::vector<int>& cells);
     void viscous_fluxes(const CellMesh& m, const std::vector<int>& faces);
     double viscous_speed(const CellMesh& m, int cb, int ce) const;
@@ -322,6 +335,17 @@ private:
     Field Vc_;                    // conservative state of the virtual cells
     // primitive state of leaves + virtual cells; face fluxes (convective per unit length, viscous times length);
     // coarse-fine time-averaged fluxes (convective, viscous)
+    // MUSCL-Hancock: the predicted state of each face's two sides (left / right leaf; the ghost side of a boundary face is the unpredicted
+    // ghost state). Work arrays: sized by predict_level, never persisted. fluxes() with collect_ stores the states of the leaves of level
+    // collect_level_ (and the ghost sides) instead of solving the Riemann problems.
+    Field PL_, PR_;
+    bool collect_ = false;
+    int collect_level_ = 0;
+    long long hancock_reverted_ = 0;
+    // per level l: the coarse-fine faces of level l + 1 (their coarse leaf is of level l) and the W_ entries the predictor of level l reads (the
+    // stencils of its own faces and of those); rebuilt lazily after every build / partition (hlists_ok_)
+    std::vector<std::vector<int>> cfup_, hneed_;
+    bool hlists_ok_ = false;
     Field W_, F_, Fv_, reg_, regv_;   // Fv_ only with viscous terms; reg_ / regv_ one entry per coarse-fine face (reg_slot_)
     std::vector<int> reg_slot_;          // per face: its register entry (-1 unless coarse-fine)
     std::vector<int> reg_level_begin_;   // register entries of the coarse-fine faces of level l: [l], [l + 1]

@@ -563,7 +563,34 @@ void sort_unique(std::vector<int>& v, std::vector<char>& seen) {
 }
 }   // namespace
 
+void CellFluxEngine::make_hancock_lists(const CellMesh& m) {
+    const size_t L = static_cast<size_t>(m.max_level) + 1;
+    cfup_.assign(L, {});
+    hneed_.assign(L, {});
+    std::vector<char> seen(static_cast<size_t>(nleaf_) + vroot_.size() + interp_.size() + 1, 0);
+    for (size_t l = 0; l < L; ++l) {
+        if (l + 1 < L)
+            for (const int f : lface_[l + 1])
+                if (m.faces[static_cast<size_t>(f)].kind == CellFaceKind::CoarseFine) cfup_[l].push_back(f);
+        std::vector<int>& v = hneed_[l];
+        v = need_[l];
+        for (const int f : cfup_[l]) {
+            const std::array<int, 4>& st = stencil_[static_cast<size_t>(f)];
+            v.insert(v.end(), st.begin(), st.end());
+            if (coarse_side_second_order) {
+                const CellFace& face = m.faces[static_cast<size_t>(f)];
+                const int C = m.level[static_cast<size_t>(face.left)] > m.level[static_cast<size_t>(face.right)] ? st[3] : st[0];
+                for (int s = 0; s < ns_; ++s)
+                    if (nbr_raw_[static_cast<size_t>(ns_) * C + s] >= 0) v.push_back(nbr_raw_[static_cast<size_t>(ns_) * C + s]);
+            }
+        }
+        sort_unique(v, seen);
+    }
+    hlists_ok_ = true;
+}
+
 void CellFluxEngine::rebuild_lists(const CellMesh& m, const Partition* part) {
+    hlists_ok_ = false;
     if (!part) {
         rebuild_lists_whole(m);
         return;
@@ -629,6 +656,7 @@ void CellFluxEngine::rebuild_lists(const CellMesh& m, const Partition* part) {
 }
 
 void CellFluxEngine::rebuild_lists_whole(const CellMesh& m) {
+    hlists_ok_ = false;
     // rebuild_lists without a partition, in parallel: every leaf is owned and held, every face active, so the leaf and face
     // lists of a level are its ranges; need_ and vcells_ are sets (sorted, distinct), marked from the faces and compacted.
     const int ncode = nleaf_ + static_cast<int>(vroot_.size() + interp_.size());
@@ -727,6 +755,7 @@ int copy_tree(const std::vector<std::array<int, 8>>& vnode, int nch, const std::
 }   // namespace
 
 void CellFluxEngine::localize(const CellMesh& m, const std::vector<int>& leaf_map, const std::vector<int>& face_map) {
+    hlists_ok_ = false;
     const int old_n = nleaf_, new_n = m.num_leaves();
     if (static_cast<int>(leaf_map.size()) != old_n || face_map.size() != stencil_.size() || lface_.empty())
         throw std::logic_error("CellFluxEngine::localize: the maps do not match the build / the partition");
@@ -1183,7 +1212,7 @@ std::array<double, 3> CellFluxEngine::ghost_loads(const Field& U, double mu, dou
                                          eos_, mu, cx, cy);
 }
 
-void CellFluxEngine::prepare(const CellMesh& m, const Field& U, int level) {
+void CellFluxEngine::prepare(const CellMesh& m, const Field& U, int level, const std::vector<int>* need, bool refresh) {
     if (has_body()) {
         if (level < 0)
             force_all(m, U);
@@ -1200,11 +1229,11 @@ void CellFluxEngine::prepare(const CellMesh& m, const Field& U, int level) {
     double u_target[6] = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};   // mass-flow inlets: the ghost of a coarse leaf on such a side
     if (!interp_.empty() && muscl_ && bc_.params().boundary_order == 2) mass_flow_targets(m, u_target);
     eval_interp(u_target);
-    if (muscl_) {
+    if (muscl_ && refresh) {
         if (level < 0)
             refresh_all(nleaf_);
         else
-            refresh_some(nleaf_, need_[static_cast<size_t>(level)]);
+            refresh_some(nleaf_, need ? *need : need_[static_cast<size_t>(level)]);
     }
 }
 

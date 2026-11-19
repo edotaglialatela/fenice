@@ -382,6 +382,55 @@ TEST(celladvance_level0_second_order_boundary_steps_match_uniform_steps_bitwise)
             }
 }
 
+TEST(celladvance_level0_hancock_steps_match_uniform_steps_bitwise) {
+    struct BCs {
+        const char *l, *r, *b, *t;
+    };
+    const BCs sets[] = {{"wall", "outlet", "no_slip", "moving_wall"}, {"periodic", "periodic", "wall", "wall"},
+                        {"transmissive", "vel_inlet", "periodic", "periodic"}, {"massflow_inlet", "outlet", "wall", "no_slip"}};
+    for (int big = 0; big < 2; ++big)
+        for (const BCs& bc : sets)
+            for (const char* bo : {"1", "2"})
+                for (const char* visc : {"false", "true"}) {
+                    Simulation sim;
+                    sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_left", bc.l}, {"bc_right", bc.r},
+                                                {"bc_bottom", bc.b}, {"bc_top", bc.t}, {"boundary_order", bo}, {"use_viscous", visc},
+                                                {"mu", "0.02"}, {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"}}),
+                              false);
+                    const Mesh& u = sim.mesh;
+                    const bool px = sim.boundaries.type(Face::Left) == BCType::Periodic;
+                    const bool py = sim.boundaries.type(Face::Bottom) == BCType::Periodic;
+                    for (int max_level : {0, 2}) {   // 2: the recursion with nothing to recurse into
+                        CellMesh cm(u.Lx, u.Ly, u.nx, u.ny, max_level, px, py, u.x0, u.y0);
+                        Field Uu(static_cast<size_t>(u.num_cells()));
+                        for (int j = 0; j < u.ny; ++j)
+                            for (int i = 0; i < u.nx; ++i) Uu[j * u.nx + i] = test_state(sim.fluid, u.xc(i), u.yc(j));
+                        cm.U.resize(cm.num_leaves());
+                        for (int c = 0; c < cm.num_leaves(); ++c) cm.U[c] = Uu[cm.cj[c] * u.nx + cm.ci[c]];
+                        CellFluxEngine eng(sim.fluid, sim.riemann, sim.muscl.get(), sim.boundaries);
+                        eng.set_physics(physics_of(sim));
+                        eng.build(cm);
+                        std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme("MUSCL-Hancock"), 0.4);
+                        CellAdvance adv(cm, eng, *ts);
+                        const double dt = 2e-3;
+                        const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
+                        bool same = true;
+                        for (int k = 0; k < 4; ++k) {
+                            sim.scheme->predictor_half_dt = 0.5 * dt;   // the step the uniform loop takes
+                            sim.scheme->stage_time = k * dt + 0.5 * dt;
+                            sim.scheme->advance_fixed_dt(Uu, res, dt);
+                            sim.scheme->predictor_half_dt = 0.0;
+                            adv.step(dt, k * dt);
+                        }
+                        for (int c = 0; c < cm.num_leaves(); ++c)
+                            for (int q = 0; q < kNVar; ++q) same = same && cm.U[c][q] == Uu[cm.cj[c] * u.nx + cm.ci[c]][q];
+                        CHECK(same);
+                        if (!same)
+                            std::printf("    %s/%s/%s/%s big %d bo %s visc %s max_level %d\n", bc.l, bc.r, bc.b, bc.t, big, bo, visc, max_level);
+                    }
+                }
+}
+
 TEST(celladvance_level0_weno3_steps_match_uniform_steps_bitwise) {
     struct BCs {
         const char *l, *r, *b, *t;
@@ -480,8 +529,10 @@ TEST(celladvance_level0_weno5_steps_match_uniform_steps_bitwise) {
     CHECK(cases == 32);
 }
 
+static const char* const kSchemeNamesHancock[4] = {kSchemeNames[0], kSchemeNames[1], kSchemeNames[2], "MUSCL-Hancock"};
+
 TEST(celladvance_conserves_across_level_jumps_and_the_control_fails) {
-    for (int sc = 0; sc < 3; ++sc) {
+    for (int sc = 0; sc < 4; ++sc) {
         CellSetup su(true);
         CellMesh m = random_adapted_mesh(true, true, 41u + static_cast<unsigned>(sc), 6);
         CHECK(m.level_begin[3] < m.num_leaves());   // three levels in play
@@ -491,7 +542,7 @@ TEST(celladvance_conserves_across_level_jumps_and_the_control_fails) {
             for (int c = 0; c < mm.num_leaves(); ++c) mm.U[c] = test_state(su.eos, mm.xc(c), mm.yc(c));
             CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
             eng.build(mm);
-            std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.4);
+            std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNamesHancock[sc]), 0.4);
             CellAdvance adv(mm, eng, *ts);
             adv.flux_replacement = replace;
             Field R;
@@ -510,7 +561,7 @@ TEST(celladvance_conserves_across_level_jumps_and_the_control_fails) {
         CHECK(with < 1e-13);
         CHECK(without > 1e-8);   // negative control: the register is what conserves
         if (!(with < 1e-13) || !(without > 1e-8))
-            std::printf("    %s: conservation error with replacement %.3e, without %.3e\n", kSchemeNames[sc], with, without);
+            std::printf("    %s: conservation error with replacement %.3e, without %.3e\n", kSchemeNamesHancock[sc], with, without);
     }
 }
 
@@ -737,7 +788,7 @@ TEST(cellflux_weno5_seam_faces_equal_weno3) {
 }
 
 TEST(celladvance_free_stream_and_stage_times) {
-    for (int sc = 0; sc < 3; ++sc) {
+    for (int sc = 0; sc < 4; ++sc) {
         CellSetup su(true);
         CellMesh m = random_adapted_mesh(true, true, 77u, 6);
         CHECK(m.level_begin[3] < m.num_leaves());
@@ -745,7 +796,7 @@ TEST(celladvance_free_stream_and_stage_times) {
         const Field U0 = m.U;
         CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
         eng.build(m);
-        std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNames[sc]), 0.4);
+        std::unique_ptr<TimeScheme> ts = make_time_scheme(parse_time_scheme(kSchemeNamesHancock[sc]), 0.4);
         CellAdvance adv(m, eng, *ts);
         std::vector<std::pair<int, double>> seen;
         adv.stage_hook = [&](int l, double st) { seen.push_back({l, st}); };
@@ -754,7 +805,7 @@ TEST(celladvance_free_stream_and_stage_times) {
         double drift = 0.0;
         for (int c = 0; c < m.num_leaves(); ++c)
             for (int q = 0; q < kNVar; ++q) drift = std::max(drift, std::abs(m.U[c][q] - U0[c][q]));
-        if (sc < 2)
+        if (sc < 2 || sc == 3)
             CHECK(drift == 0.0);   // zero residual in every stage: bitwise unchanged
         else
             CHECK(drift < 1e-14);   // the stage weights of SSP-RK3 sum to 1 only up to rounding
@@ -762,6 +813,8 @@ TEST(celladvance_free_stream_and_stage_times) {
         const std::vector<double> off = ts->stage_offsets();
         std::vector<std::pair<int, double>> want;
         std::function<void(int, double, double)> emit = [&](int l, double d, double t) {
+            // MUSCL-Hancock predicts a level, at the middle of its step, before the finer levels do their sub-steps
+            if (sc == 3 && m.level_begin[l + 1] > m.level_begin[l]) want.push_back({l, t + 0.5 * d});
             if (l < m.max_level && m.level_begin[l + 2] > m.level_begin[l + 1])
                 for (int sub = 0; sub < 2; ++sub) emit(l + 1, d / 2, t + sub * (d / 2));
             if (m.level_begin[l + 1] > m.level_begin[l])
@@ -842,6 +895,82 @@ TEST(celladvance_sod_on_a_static_refined_band) {
     run(200, 0, false, 0.2, 0.92, &w_fine, &unused);
     run(50, 0, false, 0.2, 0.92, &w_coarse, &unused);
     std::printf("    Sod, waves crossing the jumps: L1 (a) %.4e (%d cells), (b) %.4e (%d cells); error in [0.55, 0.75]: (a) %.4e, (b) %.4e, "
+                "uniform 200 %.4e, uniform 50 %.4e\n",
+                a.first, a.second, b.first, b.second, w_a, w_b, w_fine, w_coarse);
+    CHECK(a.first < coarse.first && b.first < coarse.first);
+    CHECK(w_a < w_coarse);
+    CHECK(w_b < 1.6 * w_fine);
+}
+
+TEST(celladvance_hancock_sod_on_a_static_refined_band) {
+    // Bands fixed before the first run: the adaptive run (base 50, two levels, equivalent to 200) is within
+    // 1.6 x of the uniform 200 error against the exact density, and below half the uniform 50 error.
+    CellSetup su(false);
+    const auto run = [&](int nx, int max_level, bool band, double xlo = 0.2, double xhi = 0.92,
+                         double* win_err = nullptr, double* rho_max_out = nullptr) {
+        CellMesh m(1.0, 0.08, nx, nx / 12 > 0 ? std::max(4, nx / 12) : 4, max_level);   // square cells
+        if (band)
+            for (int pass = 0; pass < max_level; ++pass) {
+                std::vector<char> r(m.num_leaves(), 0);
+                for (int c = 0; c < m.num_leaves(); ++c) r[c] = m.xc(c) > xlo && m.xc(c) < xhi;
+                m.adapt(r);
+            }
+        m.U.resize(m.num_leaves());
+        for (int c = 0; c < m.num_leaves(); ++c)
+            m.U[c] = m.xc(c) < 0.5 ? su.eos.prim_to_cons({1.0, 0.0, 0.0, 1.0}) : su.eos.prim_to_cons({0.125, 0.0, 0.0, 0.1});
+        CellFluxEngine eng(su.eos, su.rs, &su.mu, su.bm);
+        eng.build(m);
+        std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::MusclHancock, 0.4);
+        CellAdvance adv(m, eng, *ts);
+        const double mass0 = cell_total(m, 0);
+        Field R;
+        double S = eng.residual(m, m.U, R), t = 0.0;
+        while (t < 0.2) {
+            const double dt = std::min(0.4 * m.dx(0) / S, 0.2 - t);
+            S = adv.step(dt, t);
+            t += dt;
+        }
+        CHECK_NEAR(cell_total(m, 0), mass0, 1e-12 * mass0);
+        double err = 0.0, area = 0.0, rho_min = 1e9, rho_max = 0.0, werr = 0.0, warea = 0.0;
+        for (int c = 0; c < m.num_leaves(); ++c) {
+            rho_min = std::min(rho_min, m.U[c][0]);
+            rho_max = std::max(rho_max, m.U[c][0]);
+            if (m.xc(c) > 0.55 && m.xc(c) < 0.75) {
+                werr += std::abs(m.U[c][0] - sod_exact_density(m.xc(c), 0.2)) * m.area(c);
+                warea += m.area(c);
+            }
+            err += std::abs(m.U[c][0] - sod_exact_density(m.xc(c), 0.2)) * m.area(c);
+            area += m.area(c);
+        }
+        CHECK(rho_min > 0.1 && std::isfinite(err));
+        if (win_err) *win_err = werr / warea;
+        if (rho_max_out) {
+            *rho_max_out = rho_max;
+            *win_err = werr / warea;
+            CHECK(rho_min > 0.125 - 0.01 && rho_max < 1.0 + 0.01);   // TVD: no overshoot born at a jump
+        }
+        return std::make_pair(err / area, m.num_leaves());
+    };
+    const auto coarse = run(50, 0, false), fine = run(200, 0, false), amr = run(50, 2, true);
+    std::printf("    Hancock Sod L1(rho): uniform 50 %.4e (%d cells), uniform 200 %.4e (%d), AMR %.4e (%d)\n", coarse.first,
+                coarse.second, fine.first, fine.second, amr.first, amr.second);
+    CHECK(amr.first < 1.6 * fine.first);
+    CHECK(amr.first < 0.5 * coarse.first);
+    CHECK(amr.second < fine.second);
+
+    // Narrow bands, so that waves cross the coarse-fine jumps (mass to 1e-12 is checked in run; density in
+    // [0.115, 1.01], i.e. no overshoot born at a jump; global error below the uniform-50 error).
+    //  (a) band [0.55, 0.75], fixed first: the shock enters it at t ~ 0.03 and leaves at ~ 0.14, the contact
+    //      enters at ~ 0.05 after being smeared on the coarse grid, the rarefaction stays coarse. Window error
+    //      in [0.55, 0.75] required below the uniform-50 one (the contact smear made on the coarse grid stays).
+    //  (b) band [0.4, 0.8], the contact is fine from t = 0 and the rarefaction head (t ~ 0.085) and the shock
+    //      (t ~ 0.17) cross the jumps moving out: window error within 1.6 x of the uniform-200 one there.
+    double w_a = 0.0, w_b = 0.0, w_fine = 0.0, w_coarse = 0.0, rmax = 0.0, unused = 0.0;
+    const auto a = run(50, 2, true, 0.55, 0.75, &w_a, &rmax);
+    const auto b = run(50, 2, true, 0.4, 0.8, &w_b, &unused);
+    run(200, 0, false, 0.2, 0.92, &w_fine, &unused);
+    run(50, 0, false, 0.2, 0.92, &w_coarse, &unused);
+    std::printf("    Hancock Sod, waves crossing the jumps: L1 (a) %.4e (%d cells), (b) %.4e (%d cells); error in [0.55, 0.75]: (a) %.4e, (b) %.4e, "
                 "uniform 200 %.4e, uniform 50 %.4e\n",
                 a.first, a.second, b.first, b.second, w_a, w_b, w_fine, w_coarse);
     CHECK(a.first < coarse.first && b.first < coarse.first);

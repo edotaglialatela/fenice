@@ -616,6 +616,39 @@ TEST(periodic_translation_invariance_3d) {
     CHECK(diff < 1e-13);
 }
 
+TEST(muscl_hancock_conserves_mass_and_energy_in_a_closed_box) {
+    // The ghost side of a wall face is made of the predicted state of the cell next to it, so the flux through the wall is its pressure alone.
+    // A wall ghost built from the unpredicted cell leaked 4.5e-4 of the mass of a Sod tube by t = 0.2.
+    for (const int nz : {1, 4})
+        for (const char* bo : {"1", "2"}) {
+            std::vector<std::pair<const char*, const char*>> ov = {{"nx", "40"}, {"ny", "8"}, {"bc_left", "wall"}, {"bc_right", "wall"},
+                                                                  {"bc_bottom", "wall"}, {"bc_top", "wall"}, {"boundary_order", bo},
+                                                                  {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"}};
+            if (nz > 1) {
+                ov.push_back({"nz", "4"});
+                ov.push_back({"Lz", "0.4"});
+                ov.push_back({"bc_front", "wall"});
+                ov.push_back({"bc_back", "wall"});
+            }
+            Params pr = baseline_defaults();
+            pr.merge(get_test_case("Sod Shock Tube").defaults);
+            pr.set("test_case", "Sod Shock Tube");
+            pr.set("output_root", tmp_dir().string());
+            for (const auto& kv : ov) pr.set(kv.first, kv.second);
+            const SimParams sp = SimParams::from(pr);
+            const Simulation a = run_case(sp, 0), b = run_case(sp, 40);
+            for (int q : {0, 3}) {
+                double ta = 0.0, tb = 0.0;
+                for (size_t c = 0; c < a.U.size(); ++c) {
+                    ta += a.U[c][q];
+                    tb += b.U[c][q];
+                }
+                std::printf("    nz %d boundary_order %s, variable %d: relative change %.2e\n", nz, bo, q, (tb - ta) / ta);
+                CHECK(std::abs(tb - ta) < 1e-12 * std::abs(ta));
+            }
+        }
+}
+
 TEST(muscl_hancock_3d_invariances) {
     const std::vector<std::pair<const char*, const char*>> hancock = {{"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"}};
     // a 2-D case extruded along a periodic z gives the 2-D solution in every layer (viscous, walls, immersed body)
