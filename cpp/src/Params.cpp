@@ -411,7 +411,6 @@ SimParams SimParams::from(const Params& p) {
         const char* why = s.reconstruction != "muscl" ? "needs reconstruction = muscl"
                           : s.use_amr                 ? "is not available with AMR yet"
                           : s.use_mpi                 ? "is serial yet (the predictor of a halo cell needs the transverse faces across the interface)"
-                          : s.use_ibm                 ? "is not available with an immersed body yet"
                           : s.nz > 1                  ? "is 2-D yet"
                                                       : nullptr;
         if (why) throw std::invalid_argument(std::string("time_scheme = MUSCL-Hancock ") + why);

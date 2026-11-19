@@ -577,6 +577,16 @@ TEST(fused_hancock_residual_equals_the_two_pass_residual_bit_for_bit) {
                     if (bm.fill_ghost_slab(U, Face::Top, D, ghT)) h.t = &ghT;
                 }
                 const bool px = h.l == &perL && h.r == &perR, py = h.b == &perB && h.t == &perT;
+                // 0: plain; 1: some cells of a body are not predicted; 2: a cell source moves the states; 3: both
+                std::vector<char> body(m.num_cells(), 0);
+                Field src(m.num_cells());
+                for (int c = 0; c < m.num_cells(); ++c) {
+                    body[c] = rnd() < 0.1 ? 1 : 0;
+                    for (int q = 0; q < kNVar; ++q) src[c][q] = (rnd() - 0.5) * (q == 3 ? 4.0 : 1.0);
+                }
+                for (int extra = 0; extra < 4; ++extra) {
+                h.solid = (extra & 1) ? &body : nullptr;
+                const Field* source = (extra & 2) ? &src : nullptr;
                 for (const RiemannType rt : {RiemannType::HLLC, RiemannType::LowMachHLLC}) {
                     const RiemannSolver rs(eos, rt, 0.2);
                     for (const Limiter lim : {Limiter::Minmod, Limiter::VanLeer, Limiter::MC, Limiter::Koren})
@@ -587,12 +597,12 @@ TEST(fused_hancock_residual_equals_the_two_pass_residual_bit_for_bit) {
                             // two passes
                             Field UL = ULs, UR = URs, F2;
                             mu.reconstruct(UL, UR, U, m.nx, m.ny, h);
-                            const int stayed2 = mu.hancock_predict(UL, UR, m, half, px, py);
+                            const int stayed2 = mu.hancock_predict(UL, UR, m, half, px, py, h.solid, source);
                             const double s2 = rs.compute_flux(UL, UR, m, F2);
                             // one pass
                             Field R1;
                             long long stayed1 = -1;
-                            const double s1 = mu.hancock_residual_2d(rs, ULs, URs, U, m, h, half, px, py, R1, &stayed1);
+                            const double s1 = mu.hancock_residual_2d(rs, ULs, URs, U, m, h, half, px, py, R1, &stayed1, source);
                             CHECK(s1 == s2);
                             CHECK(stayed1 == stayed2);
                             stayed_total += stayed2;
@@ -609,6 +619,7 @@ TEST(fused_hancock_residual_equals_the_two_pass_residual_bit_for_bit) {
                             CHECK(same);
                             compared += static_cast<long long>(U.size());
                         }
+                }
                 }
             }
         }

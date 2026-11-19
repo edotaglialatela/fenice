@@ -840,63 +840,9 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     // MUSCL-Hancock: the face states are advanced by half a step between the reconstruction and the Riemann solves (two-pass path)
     const double predictor_dt = (mu && scheme) ? scheme->predictor_half_dt : 0.0;
     const bool wrap_x = mh.l == &perL_ && mh.r == &perR_, wrap_y = mh.b == &perB_ && mh.t == &perT_;
-    if (mu && predictor_dt > 0.0 && fused_recon(*mu, fourth, fb_active_)) {
-        // MUSCL-Hancock in one pass over rows: states, predictor, Riemann solves and flux balance (the two-pass path below gives the same bits)
-        ProfileScope ps(Section::Flux);
-        long long stayed = 0;
-        S = mu->hancock_residual_2d(riemann, UL_, UR_, *Uc, m, mh, predictor_dt, wrap_x, wrap_y, R, &stayed);
-        hancock_reverted_ += stayed;
-    } else if (mu && predictor_dt == 0.0 && fused_recon(*mu, fourth, fb_active_)) {
-        // reconstruction, Riemann solver and flux balance in one pass over rows of faces: the face fluxes are not stored
-        ProfileScope ps(Section::Flux);
-        S = mu->muscl_residual_2d(riemann, UL_, UR_, *Uc, m, mh, R);
-    } else if (fourth && fused_enabled()) {
-        // flux_quadrature = fourth: reconstruction, point values, Riemann solves, correction and balance in one pass over rows
-        ProfileScope ps(Section::Flux);
-        const bool per[2] = {per_x, per_y};
-        S = mu->fourth_order_residual_2d(riemann, UL_, UR_, *Uc, m, mh, per, R);
-    } else if (!mu && fused_enabled()) {
-        ProfileScope ps(Section::Flux);   // first order: the same pass, the states of the faces are the cells
-        S = riemann.first_order_residual_2d(UL_, UR_, *Uc, m, R);
-    } else {
-        if (fourth) {
-            {
-                ProfileScope ps(Section::Reconstruct);
-                mu->reconstruct_conserved(UL_, UR_, *Uc, m, mh);
-            }
-            ProfileScope ps(Section::Flux);
-            const bool per[3] = {per_x, per_y, false};
-            S = fourth_order_fluxes(riemann, fluid, UL_, UR_, m, mh, per, F_);
-        } else {
-        if (mu) {
-            ProfileScope ps(Section::Reconstruct);
-            mu->reconstruct(UL_, UR_, *Uc, nx, ny, mh);
-        }
-        if (predictor_dt > 0.0) {
-            ProfileScope ps(Section::Reconstruct);
-            hancock_reverted_ += static_cast<long long>(mu->hancock_predict(UL_, UR_, m, predictor_dt, wrap_x, wrap_y));
-        }
-        {
-            ProfileScope ps(Section::Flux);
-            S = riemann.compute_flux(UL_, UR_, m, F_);
-        }
-        }
-        ProfileScope ps(Section::Divergence);
-        R.resize(Uc->size());
-        const double inv_area = 1.0 / m.cell_area(), dxl = m.dx, dyl = m.dy;
-#pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
-        for (int j = 0; j < ny; ++j)
-            for (int i = 0; i < nx; ++i) {
-                const State& fl = F_[j * (nx + 1) + i];
-                const State& fr = F_[j * (nx + 1) + i + 1];
-                const State& fb = F_[nxf + j * nx + i];
-                const State& ft = F_[nxf + (j + 1) * nx + i];
-                State& r = R[j * nx + i];
-                for (int q = 0; q < kNVar; ++q)
-                    r[q] = ((0.0 - (fr[q] * dyl - fl[q] * dyl)) - (ft[q] * dxl - fb[q] * dxl)) * inv_area;
-            }
-    }
-    if (ns) {
+    if (ib && predictor_dt > 0.0) mh.solid = &ib->mask();   // MUSCL-Hancock: the cells of the body are not predicted
+    // the viscous residual, added to `Rt` (it is the 2-D solver's: rows, padded ring, strip halos)
+    const auto viscous_into = [&](Field& Rt) -> double {
         ProfileScope ps(Section::Viscous);
         {
             // the ghost ring of the padded state only: the interior is the cell field, which the viscous sweep reads in place
@@ -936,11 +882,86 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
                 cg.hi_b = hi_b.data();
             }
         }
-        const double s_visc = ns->viscous_residual_rows(*Uc, frame_, m, R, &cg, true);
+        return ns->viscous_residual_rows(*Uc, frame_, m, Rt, &cg, true);
+    };
+    // MUSCL-Hancock: the predictor advances the face states also by the terms outside the face fluxes, so they are computed first
+    const Field* hsrc = nullptr;
+    double s_visc_early = 0.0;
+    if (predictor_dt > 0.0 && (ns || !rhs_sources.empty())) {
+        hsrc_.assign(Uc->size(), State{});
+        if (ns) s_visc_early = viscous_into(hsrc_);
+        if (!rhs_sources.empty()) rhs_sources.apply_uniform(m, *Uc, hsrc_, scheme->stage_time);
+        hsrc = &hsrc_;
+    }
+    if (mu && predictor_dt > 0.0 && fused_recon(*mu, fourth, fb_active_)) {
+        // MUSCL-Hancock in one pass over rows: states, predictor, Riemann solves and flux balance (the two-pass path below gives the same bits)
+        ProfileScope ps(Section::Flux);
+        long long stayed = 0;
+        S = mu->hancock_residual_2d(riemann, UL_, UR_, *Uc, m, mh, predictor_dt, wrap_x, wrap_y, R, &stayed, hsrc);
+        hancock_reverted_ += stayed;
+    } else if (mu && predictor_dt == 0.0 && fused_recon(*mu, fourth, fb_active_)) {
+        // reconstruction, Riemann solver and flux balance in one pass over rows of faces: the face fluxes are not stored
+        ProfileScope ps(Section::Flux);
+        S = mu->muscl_residual_2d(riemann, UL_, UR_, *Uc, m, mh, R);
+    } else if (fourth && fused_enabled()) {
+        // flux_quadrature = fourth: reconstruction, point values, Riemann solves, correction and balance in one pass over rows
+        ProfileScope ps(Section::Flux);
+        const bool per[2] = {per_x, per_y};
+        S = mu->fourth_order_residual_2d(riemann, UL_, UR_, *Uc, m, mh, per, R);
+    } else if (!mu && fused_enabled()) {
+        ProfileScope ps(Section::Flux);   // first order: the same pass, the states of the faces are the cells
+        S = riemann.first_order_residual_2d(UL_, UR_, *Uc, m, R);
+    } else {
+        if (fourth) {
+            {
+                ProfileScope ps(Section::Reconstruct);
+                mu->reconstruct_conserved(UL_, UR_, *Uc, m, mh);
+            }
+            ProfileScope ps(Section::Flux);
+            const bool per[3] = {per_x, per_y, false};
+            S = fourth_order_fluxes(riemann, fluid, UL_, UR_, m, mh, per, F_);
+        } else {
+        if (mu) {
+            ProfileScope ps(Section::Reconstruct);
+            mu->reconstruct(UL_, UR_, *Uc, nx, ny, mh);
+        }
+        if (predictor_dt > 0.0) {
+            ProfileScope ps(Section::Reconstruct);
+            hancock_reverted_ += static_cast<long long>(mu->hancock_predict(UL_, UR_, m, predictor_dt, wrap_x, wrap_y, mh.solid, hsrc));
+        }
+        {
+            ProfileScope ps(Section::Flux);
+            S = riemann.compute_flux(UL_, UR_, m, F_);
+        }
+        }
+        ProfileScope ps(Section::Divergence);
+        R.resize(Uc->size());
+        const double inv_area = 1.0 / m.cell_area(), dxl = m.dx, dyl = m.dy;
+#pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i) {
+                const State& fl = F_[j * (nx + 1) + i];
+                const State& fr = F_[j * (nx + 1) + i + 1];
+                const State& fb = F_[nxf + j * nx + i];
+                const State& ft = F_[nxf + (j + 1) * nx + i];
+                State& r = R[j * nx + i];
+                for (int q = 0; q < kNVar; ++q)
+                    r[q] = ((0.0 - (fr[q] * dyl - fl[q] * dyl)) - (ft[q] * dxl - fb[q] * dxl)) * inv_area;
+            }
+    }
+    if (ns && !hsrc) {
+        const double s_visc = viscous_into(R);
         S = std::max(S, s_visc);
     }
 
-    if (!rhs_sources.empty()) rhs_sources.apply_uniform(m, *Uc, R, scheme ? scheme->stage_time : 0.0);
+    if (hsrc) {
+        S = std::max(S, s_visc_early);
+        // MUSCL-Hancock: the viscous, body-force and source terms were computed before the predictor; they join the convective balance here
+#pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
+        for (int c = 0; c < nx * ny; ++c)
+            for (int q = 0; q < kNVar; ++q) R[c][q] = R[c][q] + (*hsrc)[c][q];
+    } else if (!rhs_sources.empty())
+        rhs_sources.apply_uniform(m, *Uc, R, scheme ? scheme->stage_time : 0.0);
     return S;
 }
 
