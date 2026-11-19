@@ -185,6 +185,22 @@ public:
     double muscl_residual_3d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
                              const Halos& h, Field& R) const;
 
+    // MUSCL-Hancock predictor of a 2-D mesh (nz = 1) on the face states that `reconstruct` left in UL / UR: the four states of every cell
+    // (its side of the two x faces and the two y faces) are advanced by `half_dt` with the cell's own flux difference,
+    // U -= half_dt * ((F(right) - F(left)) / dx + (F(top) - F(bottom)) / dy). A state that would leave the admissible set (density or pressure
+    // not positive) stays as it was. The ghost side of a boundary face is not predicted; `periodic_x` / `periodic_y` (wrap-around halos in
+    // use) copy the predicted state to the second copy of the seam face. Returns the number of states left as they were.
+    int hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y) const;
+
+    // MUSCL-Hancock residual of a 2-D mesh in one pass over rows (a block of rows per thread), the face states and fluxes kept for a few
+    // rows only: R gets what reconstruct, hancock_predict, RiemannSolver::compute_flux and the divergence of the face fluxes give, bit for
+    // bit (the face states of a cell come from the vector kernels where the CPU has them). UL / UR must hold the faces of the sides
+    // (BoundaryManager::apply_boundary_conditions) and `h` the halos as for muscl_residual_2d; `periodic_x` / `periodic_y` as for
+    // hancock_predict. `reverted` (if not null) receives the number of states hancock_predict would have left unpredicted. Returns the
+    // maximum wave speed.
+    double hancock_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m, const Halos& h,
+                               double half_dt, bool periodic_x, bool periodic_y, Field& R, long long* reverted = nullptr) const;
+
     // WENO3-Z / WENO5-Z of the CONSERVED cell averages (not the primitives) on the faces with a full stencil of a uniform mesh (2-D when nz = 1): the
     // face-averaged states of the fourth-order flux (flux_quadrature = fourth). The other faces keep what UL / UR hold. Halos as for the other
     // reconstructions (three cells deep with WENO5-Z). Scalar.

@@ -20,7 +20,7 @@ struct StepResult {
 };
 
 // Available time integrators.
-enum class TimeSchemeType { ExplicitEuler, SSPRK2, SSPRK3 };
+enum class TimeSchemeType { ExplicitEuler, SSPRK2, SSPRK3, MusclHancock };
 
 // Scheme from its GUI label ("SSP Runge-Kutta 2") or alias ("ssprk2").
 TimeSchemeType parse_time_scheme(const std::string& s);
@@ -76,6 +76,15 @@ public:
     // read it; the fixed-dt path of the AMR subcycling does not set it.
     double stage_time = 0.0;
 
+    // Half of the time step the residual about to be evaluated belongs to, when it must advance its face states by it before the Riemann
+    // solves (the predictor of MusclHancock); 0 for every other scheme and stage, which then run the code they always had.
+    double predictor_half_dt = 0.0;
+
+    // The wave speed the next step's dt is taken from when it is not a function of the state alone (MusclHancock: the previous step's), 0
+    // for a scheme that takes it from its own residual. A checkpoint carries it (key S), so a resumed run takes the steps it would have taken.
+    virtual double lagged_speed() const { return 0.0; }
+    virtual void set_lagged_speed(double) {}
+
 protected:
     // Repeat a guarded stage while its result has new non-positive cells (at most kMaxRepairs times); `again` recomputes the
     // candidate `cand` of the stage with the marked cells in force. The set is emptied at the end.
@@ -114,6 +123,23 @@ public:
     double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
     std::vector<double> stage_weights() const override { return {1.0 / 6.0, 1.0 / 6.0, 2.0 / 3.0}; }
     std::vector<double> stage_offsets() const override { return {0.0, 1.0, 0.5}; }
+};
+
+// MUSCL-Hancock: one residual per step. The residual advances the limited face states of every cell by half a step with the cell's own
+// flux difference (predictor, `predictor_half_dt`), solves the Riemann problems on those, and U^{n+1} = U^n + dt R. The step is known
+// before the residual runs, so it comes from the wave speed of the previous step (the first step seeds it with one plain residual);
+// a step is therefore not a function of the state alone, so the speed is part of a checkpoint (lagged_speed). Uniform 2-D, MUSCL,
+// serial only (Params rejects the rest); it has no stage weights, so the adaptive mesh cannot use it.
+class MusclHancock : public TimeScheme {
+public:
+    using TimeScheme::TimeScheme;
+    StepResult step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max = 0.0) override;
+    double advance_fixed_dt(Field& U, const ResidualFn& res, double dt) override;
+    double lagged_speed() const override { return s_prev_; }
+    void set_lagged_speed(double s) override { s_prev_ = s; }
+
+private:
+    double s_prev_ = 0.0;   // wave speed of the previous step (0: none yet)
 };
 
 // Factory: the integrator for `type`.

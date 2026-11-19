@@ -13,7 +13,7 @@ const std::vector<EnvSwitch>& env_switches() {
          "the vector kernels or to check the equivalence."},
         {"FENICE_NO_FUSED", "flag", "solver", "developer",
          "Uniform mesh: reconstruct the face states into arrays and run the Riemann solver on them in a second pass, "
-         "instead of the one pass that does both (MusclReconstruction::muscl_residual_2d / _3d; MUSCL, WENO3-Z, WENO5-Z). The results are identical bit for bit; "
+         "instead of the one pass that does both (MusclReconstruction::muscl_residual_2d / _3d; MUSCL, WENO3-Z, WENO5-Z; hancock_residual_2d for MUSCL-Hancock). The results are identical bit for bit; "
          "for A/B timing."},
         {"FENICE_NO_PIN", "flag", "solver", "developer",
          "Leave the OpenMP threads to the scheduler. By default a run with several threads, no more than the physical cores the process may use, on a machine with SMT, puts one thread on each physical core (about 10 % faster at 8 threads where the scheduler would put two on the siblings of one core). Nothing is placed under MPI, or when OMP_PLACES, OMP_PROC_BIND, GOMP_CPU_AFFINITY or KMP_AFFINITY is set. The results do not depend on the placement; for A/B timing."},

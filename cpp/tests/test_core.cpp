@@ -524,6 +524,98 @@ TEST(fused_residual_passes_equal_the_two_pass_residual_bit_for_bit) {
     std::printf("    %lld face fluxes compared\n", compared);
 }
 
+// The MUSCL-Hancock residual in one pass over rows gives, bit for bit, what the arrays of face states, the predictor, the Riemann solver
+// and the divergence give (the path of FENICE_NO_FUSED = 1): physical sides with and without ghost layers, wrap-around halos, every
+// limiter and Riemann solver, ideal and stiffened gas, a step small enough to keep every state and one that does not, and meshes
+// whose rows are not a multiple of four, one row high, and large enough for the threads.
+TEST(fused_hancock_residual_equals_the_two_pass_residual_bit_for_bit) {
+    unsigned seed = 777u;
+    const auto rnd = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<double>(seed >> 8) / 16777216.0;
+    };
+    long long compared = 0, stayed_total = 0;
+    struct Dim { int nx, ny; };
+    for (const EOS eos : {EOS::ideal(1.4), EOS::stiffened(4.4, 100.0)})
+        for (const Dim d : {Dim{19, 11}, Dim{6, 1}, Dim{5, 7}, Dim{72, 66}}) {
+            const Mesh m = generate_cartesian_mesh(1.0, 0.8, d.nx, d.ny);
+            Field U(m.num_cells());
+            const double ps = eos.type == EOS::Type::IdealGas ? 1.0 : 200.0;
+            for (auto& u : U) u = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, ps * (0.4 + rnd()), 0.0});
+            // 0: walls and transmissive sides; 1: periodic in y; 2: periodic in both; 3: ghost layers on every side
+            for (int cfg = 0; cfg < 4; ++cfg) {
+                BoundaryManager bm(m, eos);
+                if (cfg == 0) bm.set_boundary_types(BCType::Wall, BCType::Transmissive, BCType::Transmissive, BCType::Wall);
+                if (cfg == 1) bm.set_boundary_types(BCType::Wall, BCType::Transmissive, BCType::Periodic, BCType::Periodic);
+                if (cfg == 2) bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Periodic, BCType::Periodic);
+                if (cfg == 3) bm.set_boundary_types(BCType::Wall, BCType::Transmissive, BCType::Wall, BCType::Transmissive);
+                const int D = kHaloDepth;
+                Field perL, perR, perB, perT, ghL, ghR, ghB, ghT;
+                Halos h;
+                const bool wrap_x = cfg == 2, wrap_y = cfg == 1 || cfg == 2;
+                if (wrap_x && m.nx >= D) {
+                    perL.resize(static_cast<size_t>(m.ny) * D);
+                    perR.resize(static_cast<size_t>(m.ny) * D);
+                    for (int j = 0; j < m.ny; ++j)
+                        for (int k = 0; k < D; ++k) {
+                            perL[j * D + k] = U[j * m.nx + m.nx - D + k];
+                            perR[j * D + k] = U[j * m.nx + k];
+                        }
+                    h.l = &perL;
+                    h.r = &perR;
+                }
+                if (wrap_y && m.ny >= D) {
+                    perB.assign(U.end() - static_cast<std::ptrdiff_t>(D) * m.nx, U.end());
+                    perT.assign(U.begin(), U.begin() + static_cast<std::ptrdiff_t>(D) * m.nx);
+                    h.b = &perB;
+                    h.t = &perT;
+                }
+                if (cfg == 3) {
+                    if (bm.fill_ghost_slab(U, Face::Left, D, ghL)) h.l = &ghL;
+                    if (bm.fill_ghost_slab(U, Face::Right, D, ghR)) h.r = &ghR;
+                    if (bm.fill_ghost_slab(U, Face::Bottom, D, ghB)) h.b = &ghB;
+                    if (bm.fill_ghost_slab(U, Face::Top, D, ghT)) h.t = &ghT;
+                }
+                const bool px = h.l == &perL && h.r == &perR, py = h.b == &perB && h.t == &perT;
+                for (const RiemannType rt : {RiemannType::HLLC, RiemannType::LowMachHLLC}) {
+                    const RiemannSolver rs(eos, rt, 0.2);
+                    for (const Limiter lim : {Limiter::Minmod, Limiter::VanLeer, Limiter::MC, Limiter::Koren})
+                        for (const double half : {0.002, 0.06}) {
+                            const MusclReconstruction mu(eos, lim);
+                            Field ULs, URs;
+                            bm.apply_boundary_conditions(U, ULs, URs, nullptr, false);
+                            // two passes
+                            Field UL = ULs, UR = URs, F2;
+                            mu.reconstruct(UL, UR, U, m.nx, m.ny, h);
+                            const int stayed2 = mu.hancock_predict(UL, UR, m, half, px, py);
+                            const double s2 = rs.compute_flux(UL, UR, m, F2);
+                            // one pass
+                            Field R1;
+                            long long stayed1 = -1;
+                            const double s1 = mu.hancock_residual_2d(rs, ULs, URs, U, m, h, half, px, py, R1, &stayed1);
+                            CHECK(s1 == s2);
+                            CHECK(stayed1 == stayed2);
+                            stayed_total += stayed2;
+                            const double inv_area = 1.0 / m.cell_area();
+                            const int nxf = m.num_xfaces();
+                            bool same = R1.size() == U.size();
+                            for (int j = 0; same && j < m.ny; ++j)
+                                for (int i = 0; i < m.nx; ++i)
+                                    for (int q = 0; q < kNVar; ++q) {
+                                        const double fl = F2[j * (m.nx + 1) + i][q], fr = F2[j * (m.nx + 1) + i + 1][q];
+                                        const double fb = F2[nxf + j * m.nx + i][q], ft = F2[nxf + (j + 1) * m.nx + i][q];
+                                        same = same && R1[j * m.nx + i][q] == ((0.0 - (fr * m.dy - fl * m.dy)) - (ft * m.dx - fb * m.dx)) * inv_area;
+                                    }
+                            CHECK(same);
+                            compared += static_cast<long long>(U.size());
+                        }
+                }
+            }
+        }
+    std::printf("    %lld cells compared, %lld states left unpredicted in the large steps\n", compared, stayed_total);
+    CHECK(stayed_total > 0);   // the fallback is exercised
+}
+
 TEST(fused_weno_fluxes_equal_the_two_pass_fluxes_bit_for_bit) {
     const EOS eos = EOS::ideal(1.4);
     unsigned seed = 4242u;

@@ -67,6 +67,7 @@ NpzArchive Simulation::checkpoint_header(int step) const {
     }
     NpzArchive a;
     if (cells) a["S"] = NpyArray::from_double(cell_speed_);   // the wave-speed bound the next time step is taken from
+    else if (scheme && scheme->lagged_speed() > 0.0) a["S"] = NpyArray::from_double(scheme->lagged_speed());   // MUSCL-Hancock: the same
     a["format_version"] = NpyArray::from_int(kCheckpointFormat);
     a["t"] = NpyArray::from_double(t);
     a["step"] = NpyArray::from_int(step);
@@ -263,6 +264,7 @@ int Simulation::load_checkpoint() {
         cell_speed_ = a.count("S") ? a.at("S").scalar() : 0.0;
     } else {
         U = npy_to_field(a.at("U"));
+        if (scheme && a.count("S")) scheme->set_lagged_speed(a.at("S").scalar());   // a checkpoint of another scheme has none: the first step seeds it
     }
     t = a.at("t").scalar();
     const int step = static_cast<int>(a.at("step").scalar());
