@@ -150,7 +150,7 @@ double CellAdvance::advance_own(int l, double dt, double t) {
         }
         {
             ProfileScope ps(Section::AmrGather);
-            engine_.gather_level(mesh_, l, flux_replacement, R);
+            engine_.gather_level(mesh_, l, flux_replacement, R, hancock_ != nullptr);
         }
         if (!again) ++stage;
         return s;
