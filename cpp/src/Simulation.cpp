@@ -888,13 +888,11 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         }
         return ns->viscous_residual_rows(*Uc, frame_, m, Rt, &cg, true);
     };
-    // MUSCL-Hancock: the predictor advances the face states also by the terms outside the face fluxes, so they are computed first
+    // MUSCL-Hancock: the predictor advances the face states also by the body force and the sources (not the viscous term), so they are computed first
     const Field* hsrc = nullptr;
-    double s_visc_early = 0.0;
-    if (predictor_dt > 0.0 && (ns || !rhs_sources.empty())) {
+    if (predictor_dt > 0.0 && !rhs_sources.empty()) {
         hsrc_.assign(Uc->size(), State{});
-        if (ns) s_visc_early = viscous_into(hsrc_);
-        if (!rhs_sources.empty()) rhs_sources.apply_uniform(m, *Uc, hsrc_, scheme->stage_time);
+        rhs_sources.apply_uniform(m, *Uc, hsrc_, scheme->stage_time);
         hsrc = &hsrc_;
     }
     if (mu && predictor_dt > 0.0 && fused_recon(*mu, fourth, fb_active_)) {
@@ -953,14 +951,13 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
                     r[q] = ((0.0 - (fr[q] * dyl - fl[q] * dyl)) - (ft[q] * dxl - fb[q] * dxl)) * inv_area;
             }
     }
-    if (ns && !hsrc) {
+    if (ns) {
         const double s_visc = viscous_into(R);
         S = std::max(S, s_visc);
     }
 
     if (hsrc) {
-        S = std::max(S, s_visc_early);
-        // MUSCL-Hancock: the viscous, body-force and source terms were computed before the predictor; they join the convective balance here
+        // MUSCL-Hancock: the body-force and source terms were computed before the predictor; they join the balance after the viscous term
 #pragma omp parallel for schedule(static) if (nx * ny >= kOmpMinWork)
         for (int c = 0; c < nx * ny; ++c)
             for (int q = 0; q < kNVar; ++q) R[c][q] = R[c][q] + (*hsrc)[c][q];
@@ -1144,11 +1141,9 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         return ns->viscous_residual_3d(Uv, m, Upad_, Rt, &cg, dt_length, true);
     };
     const Field* hsrc = nullptr;
-    double s_visc_early = 0.0;
-    if (predictor_dt > 0.0 && (ns || !rhs_sources.empty())) {
+    if (predictor_dt > 0.0 && !rhs_sources.empty()) {
         hsrc_.assign(Uv.size(), State{});
-        if (ns) s_visc_early = viscous_into(hsrc_);
-        if (!rhs_sources.empty()) rhs_sources.apply_uniform(m, Uv, hsrc_, scheme->stage_time);
+        rhs_sources.apply_uniform(m, Uv, hsrc_, scheme->stage_time);
         hsrc = &hsrc_;
     }
     double S;
@@ -1205,14 +1200,13 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     }
 
     divergence_scope.stop();
-    if (ns && !hsrc) {
+    if (ns) {
         const double s_visc = viscous_into(R);
         S = std::max(S, s_visc);
     }
 
     if (hsrc) {
-        // MUSCL-Hancock: the viscous, body-force and source terms were computed before the predictor; they join the convective balance here
-        S = std::max(S, s_visc_early);
+        // MUSCL-Hancock: the body-force and source terms were computed before the predictor; they join the balance after the viscous term
 #pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
         for (int c = 0; c < nx * ny * nz; ++c)
             for (int q = 0; q < kNVar; ++q) R[c][q] = R[c][q] + (*hsrc)[c][q];

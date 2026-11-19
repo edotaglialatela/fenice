@@ -218,7 +218,7 @@ private:
     StageGuard fb_guard_;
     std::function<bool(bool)> fb_reduce_;   // MPI: the OR of the ranks' "the set grew" (every rank repeats the stage together); empty: serial
     long long fb_repairs_ = 0, fb_flagged_ = 0;
-    Field hsrc_;   // MUSCL-Hancock: viscous + body-force + source terms of the stage, computed before the predictor
+    Field hsrc_;   // MUSCL-Hancock: body-force + source terms of the stage, computed before the predictor
     long long hancock_reverted_ = 0;   // MUSCL-Hancock: predicted face states left unpredicted because they were inadmissible (total of the run)
 };
 
