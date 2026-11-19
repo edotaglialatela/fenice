@@ -616,6 +616,111 @@ TEST(periodic_translation_invariance_3d) {
     CHECK(diff < 1e-13);
 }
 
+TEST(muscl_hancock_3d_invariances) {
+    const std::vector<std::pair<const char*, const char*>> hancock = {{"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"}};
+    // a 2-D case extruded along a periodic z gives the 2-D solution in every layer (viscous, walls, immersed body)
+    struct Case {
+        const char* name;
+        std::vector<std::pair<const char*, const char*>> ov;
+        int steps;
+    };
+    const std::vector<Case> cases = {
+        {"Sod Shock Tube", {{"nx", "40"}, {"ny", "4"}}, 15},
+        {"Lid Driven Cavity", {{"nx", "12"}, {"ny", "12"}}, 20},
+        {"IBM Flow over Cylinder", {{"nx", "40"}, {"ny", "20"}, {"use_mpi", "false"}}, 10},
+        {"IBM Supersonic Flow over Cylinder", {{"nx", "40"}, {"ny", "40"}, {"use_mpi", "false"}}, 10},
+        {"Isentropic Vortex", {{"nx", "20"}, {"ny", "20"}}, 10},
+    };
+    for (const Case& c : cases) {
+        Params p2 = baseline_defaults();
+        p2.merge(get_test_case(c.name).defaults);
+        p2.set("test_case", c.name);
+        p2.set("output_root", tmp_dir().string());
+        for (const auto& kv : c.ov) p2.set(kv.first, kv.second);
+        for (const auto& kv : hancock) p2.set(kv.first, kv.second);
+        Params p3 = p2;
+        p3.set("nz", "3");
+        p3.set("Lz", "3.0e5");
+        const Simulation a = run_case(SimParams::from(p2), c.steps);
+        const Simulation b = run_case(SimParams::from(p3), c.steps, a.dt_length);
+        double diff = 0.0, wmax = 0.0;
+        for (int k = 0; k < 3; ++k)
+            for (int c2 = 0; c2 < a.mesh.num_cells(); ++c2) {
+                State s3 = b.U[k * a.mesh.num_cells() + c2];
+                wmax = std::max(wmax, std::abs(s3[4]));
+                s3[4] = 0.0;
+                diff = std::max(diff, rel_diff(s3, a.U[c2]));
+            }
+        std::printf("    %-24s extruded vs 2-D: max rel diff %.2e, max |rho w| %.2e\n", c.name, diff, wmax);
+        CHECK(diff < 1e-10);
+        CHECK(wmax < 1e-12);
+    }
+    // relabelling the axes and shifting a periodic box
+    {
+        const int n = 10;
+        const SimParams sp = params_for("Taylor-Green Vortex 3D", {{"nx", "10"}, {"ny", "10"}, {"nz", "10"}, {"mu", "0.05"},
+                                                                   {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"}});
+        Simulation s;
+        s.setup(sp, false);
+        const Mesh& m = s.mesh;
+        Field A0(m.num_cells()), B0(m.num_cells());
+        const auto rot = [](const State& a) { return State{a[0], a[2], a[4], a[3], a[1]}; };
+        for (int k = 0; k < n; ++k)
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) A0[m.cell(i, j, k)] = smooth_3d(s.fluid, m.xc(i), m.yc(j), m.zc(k));
+        for (int k = 0; k < n; ++k)
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) B0[m.cell(i, j, k)] = rot(A0[m.cell(k, i, j)]);
+        const Field A = run_field_3d(sp, A0, 8), B = run_field_3d(sp, B0, 8);
+        double diff = 0.0;
+        for (int k = 0; k < n; ++k)
+            for (int j = 0; j < n; ++j)
+                for (int i = 0; i < n; ++i) diff = std::max(diff, rel_diff(B[m.cell(i, j, k)], rot(A[m.cell(k, i, j)])));
+        std::printf("    permuted vs original: max rel diff %.2e\n", diff);
+        CHECK(diff < 1e-11);
+    }
+    {
+        const int nx = 12, ny = 10, nz = 8, sx = 5, sy = 3, sz = 2;
+        const SimParams sp = params_for("Taylor-Green Vortex 3D", {{"nx", "12"}, {"ny", "10"}, {"nz", "8"}, {"mu", "0.05"},
+                                                                   {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"}});
+        Simulation s;
+        s.setup(sp, false);
+        const Mesh& m = s.mesh;
+        Field U(m.num_cells());
+        for (int k = 0; k < nz; ++k)
+            for (int j = 0; j < ny; ++j)
+                for (int i = 0; i < nx; ++i) U[m.cell(i, j, k)] = smooth_3d(s.fluid, m.xc(i), m.yc(j), m.zc(k));
+        const auto shift = [&](const Field& F) {
+            Field out(F.size());
+            for (int k = 0; k < nz; ++k)
+                for (int j = 0; j < ny; ++j)
+                    for (int i = 0; i < nx; ++i) out[m.cell((i + sx) % nx, (j + sy) % ny, (k + sz) % nz)] = F[m.cell(i, j, k)];
+            return out;
+        };
+        const Field A = shift(run_field_3d(sp, U, 6)), B = run_field_3d(sp, shift(U), 6);
+        double diff = 0.0;
+        for (size_t q = 0; q < A.size(); ++q) diff = std::max(diff, rel_diff(A[q], B[q]));
+        std::printf("    max shifted difference %.3e\n", diff);
+        CHECK(diff < 1e-13);
+    }
+    // a uniform flow stays uniform (transmissive faces on every side)
+    {
+        const SimParams sp = params_for("Taylor-Green Vortex 3D", {{"nx", "6"}, {"ny", "5"}, {"nz", "4"}, {"use_viscous", "true"},
+                                                                   {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"},
+                                                                   {"bc_left", "transmissive"}, {"bc_right", "transmissive"},
+                                                                   {"bc_bottom", "transmissive"}, {"bc_top", "transmissive"},
+                                                                   {"bc_front", "transmissive"}, {"bc_back", "transmissive"}});
+        Simulation sim;
+        sim.setup(sp, false);
+        const State u = sim.fluid.prim_to_cons({1.3, 0.4, -0.2, 2.0, 0.3});
+        const Field U(sim.mesh.num_cells(), u);
+        const Field A = run_field_3d(sp, U, 5);
+        double diff = 0.0;
+        for (const State& a : A) diff = std::max(diff, rel_diff(a, u));
+        CHECK(diff < 1e-12);
+    }
+}
+
 TEST(uniform_flow_is_preserved_3d) {
     for (const char* rs : {"HLLC", "HLLC (Low-Mach Thornber)"})
         for (const char* visc : {"false", "true"}) {

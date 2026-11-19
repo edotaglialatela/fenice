@@ -1089,57 +1089,16 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         }
     }
 
-    double S;
-    const bool fourth = mu && p.fourth_flux();
-    const bool fused_balance = mu && fused_recon(*mu, fourth, fb_active_);
-    bool fused_balance_4 = false;
-    if (fused_balance) {
-        ProfileScope ps(Section::Flux);   // reconstruction, Riemann solver and flux balance in one pass over planes
-        S = mu->muscl_residual_3d(riemann, UL_, UR_, Uv, m, mh, R);
-    } else if (fourth && fused_enabled()) {
-        ProfileScope ps(Section::Flux);   // flux_quadrature = fourth: the whole step in one pass over tiles
-        S = mu->fourth_order_residual_3d(riemann, UL_, UR_, Uv, m, mh, per, R);
-        fused_balance_4 = true;
-    } else if (fourth) {
-        {
-            ProfileScope ps(Section::Reconstruct);
-            mu->reconstruct_conserved(UL_, UR_, Uv, m, mh);
-        }
-        ProfileScope ps(Section::Flux);
-        S = fourth_order_fluxes(riemann, fluid, UL_, UR_, m, mh, per, F_);
-    } else {
-        if (mu) {
-            ProfileScope ps(Section::Reconstruct);
-            mu->reconstruct_3d(UL_, UR_, Uv, m, mh);
-        }
-        ProfileScope ps(Section::Flux);
-        S = riemann.compute_flux(UL_, UR_, m, F_);
+    // MUSCL-Hancock: the face states are advanced by half a step between the reconstruction and the Riemann solves
+    const double predictor_dt = (mu && scheme) ? scheme->predictor_half_dt : 0.0;
+    if (ib && predictor_dt > 0.0) mh.solid = &ib->mask();   // the cells of the body are not predicted
+    if (halos && predictor_dt > 0.0) {                      // MPI strips: the body of the strip, and the neighbours' predicted states
+        if (halos->solid) mh.solid = halos->solid;
+        mh.exchange_faces = halos->exchange_faces;
     }
-
-    ProfileScope divergence_scope(Section::Divergence);
-    if (!fused_balance && !fused_balance_4) {
-    R.resize(Uv.size());
-    const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
-#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
-    for (int kj = 0; kj < ny * nz; ++kj) {
-        const int j = kj % ny, k = kj / ny;
-        for (int i = 0; i < nx; ++i) {
-            const State& fl = F_[m.xface(i, j, k)];
-            const State& fr = F_[m.xface(i + 1, j, k)];
-            const State& fb = F_[m.yface(i, j, k)];
-            const State& ft = F_[m.yface(i, j + 1, k)];
-            const State& ff = F_[m.zface(i, j, k)];
-            const State& fk = F_[m.zface(i, j, k + 1)];
-            State& r = R[m.cell(i, j, k)];
-            for (int q = 0; q < kNVar; ++q)
-                r[q] =
-                    (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) * inv_vol;
-        }
-    }
-    }
-
-    divergence_scope.stop();
-    if (ns) {
+    const bool wrap[3] = {mh.l == &perL_ && mh.r == &perR_, mh.b == &perB_ && mh.t == &perT_, mh.f == &perF_ && mh.bk == &perK_};
+    // the viscous residual, added to `Rt`
+    const auto viscous_into = [&](Field& Rt) -> double {
         ProfileScope ps(Section::Viscous);
         {
             ProfileScope profile(Section::PadCopy);
@@ -1182,11 +1141,83 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
             ProfileScope profile(Section::PadCornerFix);
             bm.fix_padded_corners(Upad_, halos ? (halos->dir == 'x' ? 0 : 1) : -1, halos && halos->lo, halos && halos->hi);
         }
-        const double s_visc = ns->viscous_residual_3d(Uv, m, Upad_, R, &cg, dt_length, true);
+        return ns->viscous_residual_3d(Uv, m, Upad_, Rt, &cg, dt_length, true);
+    };
+    const Field* hsrc = nullptr;
+    double s_visc_early = 0.0;
+    if (predictor_dt > 0.0 && (ns || !rhs_sources.empty())) {
+        hsrc_.assign(Uv.size(), State{});
+        if (ns) s_visc_early = viscous_into(hsrc_);
+        if (!rhs_sources.empty()) rhs_sources.apply_uniform(m, Uv, hsrc_, scheme->stage_time);
+        hsrc = &hsrc_;
+    }
+    double S;
+    const bool fourth = mu && p.fourth_flux();
+    const bool fused_balance = mu && predictor_dt == 0.0 && fused_recon(*mu, fourth, fb_active_);
+    bool fused_balance_4 = false;
+    if (fused_balance) {
+        ProfileScope ps(Section::Flux);   // reconstruction, Riemann solver and flux balance in one pass over planes
+        S = mu->muscl_residual_3d(riemann, UL_, UR_, Uv, m, mh, R);
+    } else if (fourth && fused_enabled()) {
+        ProfileScope ps(Section::Flux);   // flux_quadrature = fourth: the whole step in one pass over tiles
+        S = mu->fourth_order_residual_3d(riemann, UL_, UR_, Uv, m, mh, per, R);
+        fused_balance_4 = true;
+    } else if (fourth) {
+        {
+            ProfileScope ps(Section::Reconstruct);
+            mu->reconstruct_conserved(UL_, UR_, Uv, m, mh);
+        }
+        ProfileScope ps(Section::Flux);
+        S = fourth_order_fluxes(riemann, fluid, UL_, UR_, m, mh, per, F_);
+    } else {
+        if (mu) {
+            ProfileScope ps(Section::Reconstruct);
+            mu->reconstruct_3d(UL_, UR_, Uv, m, mh);
+        }
+        if (predictor_dt > 0.0) {
+            ProfileScope ps(Section::Reconstruct);
+            hancock_reverted_ += static_cast<long long>(mu->hancock_predict_3d(UL_, UR_, m, predictor_dt, wrap, mh.solid, hsrc, &mh.exchange_faces));
+        }
+        ProfileScope ps(Section::Flux);
+        S = riemann.compute_flux(UL_, UR_, m, F_);
+    }
+
+    ProfileScope divergence_scope(Section::Divergence);
+    if (!fused_balance && !fused_balance_4) {
+    R.resize(Uv.size());
+    const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
+#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
+    for (int kj = 0; kj < ny * nz; ++kj) {
+        const int j = kj % ny, k = kj / ny;
+        for (int i = 0; i < nx; ++i) {
+            const State& fl = F_[m.xface(i, j, k)];
+            const State& fr = F_[m.xface(i + 1, j, k)];
+            const State& fb = F_[m.yface(i, j, k)];
+            const State& ft = F_[m.yface(i, j + 1, k)];
+            const State& ff = F_[m.zface(i, j, k)];
+            const State& fk = F_[m.zface(i, j, k + 1)];
+            State& r = R[m.cell(i, j, k)];
+            for (int q = 0; q < kNVar; ++q)
+                r[q] =
+                    (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) * inv_vol;
+        }
+    }
+    }
+
+    divergence_scope.stop();
+    if (ns && !hsrc) {
+        const double s_visc = viscous_into(R);
         S = std::max(S, s_visc);
     }
 
-    if (!rhs_sources.empty()) rhs_sources.apply_uniform(m, Uv, R, scheme ? scheme->stage_time : 0.0);
+    if (hsrc) {
+        // MUSCL-Hancock: the viscous, body-force and source terms were computed before the predictor; they join the convective balance here
+        S = std::max(S, s_visc_early);
+#pragma omp parallel for schedule(static) if (nx * ny * nz >= kOmpMinWork)
+        for (int c = 0; c < nx * ny * nz; ++c)
+            for (int q = 0; q < kNVar; ++q) R[c][q] = R[c][q] + (*hsrc)[c][q];
+    } else if (!rhs_sources.empty())
+        rhs_sources.apply_uniform(m, Uv, R, scheme ? scheme->stage_time : 0.0);
     return S;
 }
 const Field& Simulation::source_for(const Mesh& m, double stage_time) {

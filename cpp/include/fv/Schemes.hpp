@@ -209,6 +209,10 @@ public:
     // on the faces of the interfaces.
     int hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y,
                         const std::vector<char>* solid = nullptr, const Field* source = nullptr, const FaceExchange* exchange = nullptr) const;
+    // The same on a 3-D mesh (a flux difference per axis, the sum taken as (x + y) + z); `periodic` per axis x, y, z. The exchange swaps planes
+    // of nx * nz states (index k * nx + i) across the interfaces of strips along y.
+    int hancock_predict_3d(Field& UL, Field& UR, const Mesh& m, double half_dt, const bool periodic[3], const std::vector<char>* solid = nullptr,
+                           const Field* source = nullptr, const FaceExchange* exchange = nullptr) const;
 
     // MUSCL-Hancock residual of a 2-D mesh in one pass over rows (a block of rows per thread), the face states and fluxes kept for a few
     // rows only: R gets what reconstruct, hancock_predict, RiemannSolver::compute_flux and the divergence of the face fluxes give, bit for

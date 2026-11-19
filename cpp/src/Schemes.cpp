@@ -2161,6 +2161,35 @@ int hancock_cell(const EOS& eos, double hx, double hy, double half_dt, const Sta
     return stayed;
 }
 
+// The 3-D versions: the flux across a face normal to axis a (0: x, 1: y, 2: z), and the six limited states of a cell (low / high side along
+// x, y, then z) advanced by half a step; the flux differences are added as (x + y) + z.
+State euler_flux_axis3(const EOS& eos, const State& U, int a) {
+    const State W = eos.cons_to_prim(U);
+    const double un = a == 0 ? W[1] : a == 1 ? W[2] : W[4], p = W[3];
+    return {U[0] * un, U[1] * un + (a == 0 ? p : 0.0), U[2] * un + (a == 1 ? p : 0.0), (U[3] + p) * un, U[4] * un + (a == 2 ? p : 0.0)};
+}
+
+int hancock_cell_3d(const EOS& eos, double hx, double hy, double hz, double half_dt, const State* src, State& xl, State& xr, State& yb,
+                    State& yt, State& zf, State& zk) {
+    const State fxl = euler_flux_axis3(eos, xl, 0), fxr = euler_flux_axis3(eos, xr, 0);
+    const State fyb = euler_flux_axis3(eos, yb, 1), fyt = euler_flux_axis3(eos, yt, 1);
+    const State fzf = euler_flux_axis3(eos, zf, 2), fzk = euler_flux_axis3(eos, zk, 2);
+    State d;
+    for (int q = 0; q < kNVar; ++q) d[q] = (hx * (fxr[q] - fxl[q]) + hy * (fyt[q] - fyb[q])) + hz * (fzk[q] - fzf[q]);
+    if (src)
+        for (int q = 0; q < kNVar; ++q) d[q] = d[q] - half_dt * (*src)[q];
+    int stayed = 0;
+    for (State* s : {&xl, &xr, &yb, &yt, &zf, &zk}) {
+        State n;
+        for (int q = 0; q < kNVar; ++q) n[q] = (*s)[q] - d[q];
+        if (admissible_state(eos, n))
+            *s = n;
+        else
+            ++stayed;
+    }
+    return stayed;
+}
+
 // The two limited face states of the cells k = 0 .. n-1 of one line as conservative variables: hi[k] on the high side of the cell,
 // prim_to_cons of c + 0.5 phi(c - cm, cp - c), lo[k] on the low side, prim_to_cons of c - 0.5 phi(cp - c, c - cm), with cm / cp the neighbours at
 // W[q * plane + base + k -+ stride] (the wl / wr of the face reconstruction, argument order included). Vector kernel for runs of four.
@@ -2436,6 +2465,58 @@ int MusclReconstruction::hancock_predict(Field& UL, Field& UR, const Mesh& m, do
             if (static_cast<int>(from_lo.size()) == nx) UL[nxf + i] = from_lo[i];
             if (static_cast<int>(from_hi.size()) == nx) UR[nxf + ny * nx + i] = from_hi[i];
         }
+    }
+    return reverted;
+}
+
+int MusclReconstruction::hancock_predict_3d(Field& UL, Field& UR, const Mesh& m, double half_dt, const bool periodic[3],
+                                            const std::vector<char>* solid, const Field* source, const FaceExchange* exchange) const {
+    const int nx = m.nx, ny = m.ny, nz = m.nz;
+    const double hx = half_dt / m.dx, hy = half_dt / m.dy, hz = half_dt / m.dz;
+    int reverted = 0;
+#pragma omp parallel for schedule(static) reduction(+ : reverted) if (nx * ny * nz >= kOmpMinWork)
+    for (int kj = 0; kj < ny * nz; ++kj) {
+        const int j = kj % ny, k = kj / ny;
+        for (int i = 0; i < nx; ++i) {
+            const int c = m.cell(i, j, k);
+            if (solid && (*solid)[static_cast<size_t>(c)]) continue;
+            reverted += hancock_cell_3d(eos_, hx, hy, hz, half_dt, source ? &(*source)[static_cast<size_t>(c)] : nullptr, UR[m.xface(i, j, k)],
+                                        UL[m.xface(i + 1, j, k)], UR[m.yface(i, j, k)], UL[m.yface(i, j + 1, k)], UR[m.zface(i, j, k)],
+                                        UL[m.zface(i, j, k + 1)]);
+        }
+    }
+    // the two copies of a periodic seam face hold the states of the cells on either side
+    if (periodic[0])
+        for (int k = 0; k < nz; ++k)
+            for (int j = 0; j < ny; ++j) {
+                UL[m.xface(0, j, k)] = UL[m.xface(nx, j, k)];
+                UR[m.xface(nx, j, k)] = UR[m.xface(0, j, k)];
+            }
+    if (periodic[1])
+        for (int k = 0; k < nz; ++k)
+            for (int i = 0; i < nx; ++i) {
+                UL[m.yface(i, 0, k)] = UL[m.yface(i, ny, k)];
+                UR[m.yface(i, ny, k)] = UR[m.yface(i, 0, k)];
+            }
+    if (periodic[2])
+        for (int j = 0; j < ny; ++j)
+            for (int i = 0; i < nx; ++i) {
+                UL[m.zface(i, j, 0)] = UL[m.zface(i, j, nz)];
+                UR[m.zface(i, j, nz)] = UR[m.zface(i, j, 0)];
+            }
+    if (exchange && *exchange) {   // MPI strips along y: the states of the edge planes across the interfaces, index k * nx + i
+        Field to_lo(static_cast<size_t>(nx) * nz), to_hi(to_lo.size()), from_lo, from_hi;
+        for (int k = 0; k < nz; ++k)
+            for (int i = 0; i < nx; ++i) {
+                to_lo[static_cast<size_t>(k) * nx + i] = UR[m.yface(i, 0, k)];
+                to_hi[static_cast<size_t>(k) * nx + i] = UL[m.yface(i, ny, k)];
+            }
+        (*exchange)(to_lo, to_hi, from_lo, from_hi);
+        for (int k = 0; k < nz; ++k)
+            for (int i = 0; i < nx; ++i) {
+                if (from_lo.size() == to_lo.size()) UL[m.yface(i, 0, k)] = from_lo[static_cast<size_t>(k) * nx + i];
+                if (from_hi.size() == to_lo.size()) UR[m.yface(i, ny, k)] = from_hi[static_cast<size_t>(k) * nx + i];
+            }
     }
     return reverted;
 }
