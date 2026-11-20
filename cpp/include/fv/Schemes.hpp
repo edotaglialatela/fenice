@@ -149,6 +149,10 @@ struct Halos {
     // MUSCL-Hancock only: cells (row-major, 1 = solid cell of an immersed body, ghost cells included) whose face states are not predicted: the
     // flux difference of a cell inside the body says nothing about the flow, so its states stay as reconstructed. Null: every cell is predicted.
     const std::vector<char>* solid = nullptr;
+    // MUSCL-Hancock only: per cell, the sides (bit s of Face order: left, right, bottom, top, front, back) whose neighbour is a solid cell
+    // (solid_side_mask). A state of a cell on such a side is not predicted: the flux through a wall face is then made of two states of the
+    // time level of the ghost cells (which are filled from the state at the start of the step). Null: none.
+    const std::vector<unsigned char>* solid_sides = nullptr;
     // MUSCL-Hancock only, MPI strips: the exchange of the predicted states across the interfaces (empty: none)
     FaceExchange exchange_faces;
     // MUSCL-Hancock only: the sides (Face order: left, right, bottom, top, front, back) that are a reflecting wall of this (sub)domain, and the ghost
@@ -213,7 +217,8 @@ public:
     // `exchange` (null: none) swaps the predicted states of the edge rows with the neighbours (Halos::exchange_faces) and puts the received ones
     // on the faces of the interfaces.
     int hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y,
-                        const std::vector<char>* solid = nullptr, const Field* source = nullptr, const FaceExchange* exchange = nullptr) const;
+                        const std::vector<char>* solid = nullptr, const Field* source = nullptr, const FaceExchange* exchange = nullptr,
+                        const std::vector<unsigned char>* solid_sides = nullptr) const;
     // After hancock_predict / hancock_predict_3d: the ghost side of the faces on the sides h.wall_side marks is made again from the predicted state of
     // the cell next to it (h.wall_ghost).
     void hancock_wall_ghosts(Field& UL, Field& UR, const Mesh& m, const Halos& h) const;
@@ -228,7 +233,8 @@ public:
     // The same on a 3-D mesh (a flux difference per axis, the sum taken as (x + y) + z); `periodic` per axis x, y, z. The exchange swaps planes
     // of nx * nz states (index k * nx + i) across the interfaces of strips along y.
     int hancock_predict_3d(Field& UL, Field& UR, const Mesh& m, double half_dt, const bool periodic[3], const std::vector<char>* solid = nullptr,
-                           const Field* source = nullptr, const FaceExchange* exchange = nullptr) const;
+                           const Field* source = nullptr, const FaceExchange* exchange = nullptr,
+                           const std::vector<unsigned char>* solid_sides = nullptr) const;
 
     // MUSCL-Hancock residual of a 2-D mesh in one pass over rows (a block of rows per thread), the face states and fluxes kept for a few
     // rows only: R gets what reconstruct, hancock_predict, RiemannSolver::compute_flux and the divergence of the face fluxes give, bit for
@@ -294,5 +300,9 @@ private:
 // speed. `h` tells which sides have a halo (their boundary faces are reconstructed).
 double fourth_order_fluxes(const RiemannSolver& riemann, const EOS& eos, const Field& UL, const Field& UR, const Mesh& m, const Halos& h,
                            const bool periodic[3], Field& F);
+
+// MUSCL-Hancock with an immersed body: for the cells of the rows [j0, j1) (all rows by default; a strip of a decomposition along y) of the mesh `m`,
+// the sides whose neighbour is a solid cell of `solid` (the mask of the whole mesh; no wrap-around), as the bits of Halos::solid_sides.
+std::vector<unsigned char> solid_side_mask(const Mesh& m, const std::vector<char>& solid, int j0 = 0, int j1 = -1);
 
 }   // namespace fv

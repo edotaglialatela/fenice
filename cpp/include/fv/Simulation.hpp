@@ -41,6 +41,7 @@ struct StripHalos {
     const Field* flag_hi = nullptr;
     // MUSCL-Hancock: the cells of an immersed body of the strip (not predicted) and the exchange of the predicted states of the edge rows
     const std::vector<char>* solid = nullptr;
+    const std::vector<unsigned char>* solid_sides = nullptr;   // ... and the sides that face one (solid_side_mask), not predicted either
     FaceExchange exchange_faces;
 };
 
@@ -218,6 +219,7 @@ private:
     StageGuard fb_guard_;
     std::function<bool(bool)> fb_reduce_;   // MPI: the OR of the ranks' "the set grew" (every rank repeats the stage together); empty: serial
     long long fb_repairs_ = 0, fb_flagged_ = 0;
+    std::vector<unsigned char> hancock_sides_;   // MUSCL-Hancock with an immersed body: the sides of the cells that face a solid cell
     Field hsrc_;   // MUSCL-Hancock: body-force + source terms of the stage, computed before the predictor
     long long hancock_reverted_ = 0;   // MUSCL-Hancock: predicted face states left unpredicted because they were inadmissible (total of the run)
 };

@@ -771,6 +771,7 @@ struct FusedGrid {
     double weno_eps;         // relative regularisation of the WENO smoothness indicators
     const char* solid;       // WENO5-Z with an immersed body: the solid cells on the padded layout (null: none)
     const std::vector<char>* hsolid;   // MUSCL-Hancock with an immersed body: the solid cells, not predicted (Halos::solid; null: none)
+    const std::vector<unsigned char>* hsides;   // ... and the sides of the cells that face them, not predicted (Halos::solid_sides; null: none)
     const Halos* hal;        // MUSCL-Hancock: the wall sides and their ghost state (Halos::wall_side / wall_ghost)
     const State* iface_lo;   // MUSCL-Hancock on MPI strips: the neighbours' predicted states across the lower / upper interface (null: none)
     const State* iface_hi;
@@ -2270,13 +2271,19 @@ int hancock_row(const FusedGrid& g, double hx, double hy, double half_dt, const 
         for (int i = 0; i < nx; ++i) r.yt[i] = round_trip(g, (*g.UL)[m.yface(i, ny)]);
     int stayed = 0, done = 0;
     const char* solid_row = nullptr;   // a row with a cell of the body: the cells are taken one by one, the solid ones left as reconstructed
+    const unsigned char* sides_row = nullptr;   // ... or a cell with a side facing one: that side keeps the state of the ghost cells' time level
     if (g.hsolid) {
         const char* row = g.hsolid->data() + static_cast<size_t>(j) * nx;
         for (int i = 0; i < nx && !solid_row; ++i)
             if (row[i]) solid_row = row;
     }
+    if (g.hsides) {
+        const unsigned char* row = g.hsides->data() + static_cast<size_t>(j) * nx;
+        for (int i = 0; i < nx && !sides_row; ++i)
+            if (row[i]) sides_row = row;
+    }
 #ifdef FV_SIMD
-    if (!solid_row && detail::simd_available()) {
+    if (!solid_row && !sides_row && detail::simd_available()) {
         done = nx & ~3;
         if (done > 0)
             detail::hancock_cells_simd(*g.eos, hx, hy, half_dt, source ? source->data() + static_cast<size_t>(j) * nx : nullptr, r.xl.data(),
@@ -2285,8 +2292,14 @@ int hancock_row(const FusedGrid& g, double hx, double hy, double half_dt, const 
 #endif
     for (int i = done; i < nx; ++i) {
         if (solid_row && solid_row[i]) continue;
+        const unsigned char sd = sides_row ? sides_row[i] : 0;
+        const State o0 = r.xl[i], o1 = r.xr[i], o2 = r.yb[i], o3 = r.yt[i];
         stayed += hancock_cell(*g.eos, hx, hy, half_dt, source ? &(*source)[static_cast<size_t>(j) * nx + i] : nullptr, r.xl[i], r.xr[i], r.yb[i],
                                r.yt[i]);
+        if (sd & 1) r.xl[i] = o0;
+        if (sd & 2) r.xr[i] = o1;
+        if (sd & 4) r.yb[i] = o2;
+        if (sd & 8) r.yt[i] = o3;
     }
     return stayed;
 }
@@ -2425,6 +2438,7 @@ double MusclReconstruction::hancock_residual_2d(const RiemannSolver& riemann, co
     FusedGrid g = make_grid(riemann, eos_, lim_, scheme_, weno_eps_, W_pad, S_pad, UL, UR, m, h, PX, PY, zp, kHaloDepth);
     if (h.solid && h.solid->size() != static_cast<size_t>(m.nx) * m.ny) throw std::logic_error("MUSCL-Hancock: the solid mask is not that of the mesh");
     g.hsolid = h.solid;
+    g.hsides = h.solid_sides;
     g.hal = &h;
     g.iface_lo = g.iface_hi = nullptr;
     Field from_lo, from_hi;
@@ -2444,8 +2458,25 @@ double MusclReconstruction::hancock_residual_2d(const RiemannSolver& riemann, co
     return s;
 }
 
+std::vector<unsigned char> solid_side_mask(const Mesh& m, const std::vector<char>& solid, int j0, int j1) {
+    const int nx = m.nx, ny = m.ny, nz = m.nz;
+    if (j1 < 0) j1 = ny;
+    std::vector<unsigned char> out(static_cast<size_t>(nx) * (j1 - j0) * nz, 0);
+    const auto is_solid = [&](int i, int j, int k) {
+        return i >= 0 && i < nx && j >= 0 && j < ny && k >= 0 && k < nz && solid[(static_cast<size_t>(k) * ny + j) * nx + i];
+    };
+    size_t n = 0;
+    for (int k = 0; k < nz; ++k)
+        for (int j = j0; j < j1; ++j)
+            for (int i = 0; i < nx; ++i, ++n)
+                out[n] = static_cast<unsigned char>((is_solid(i - 1, j, k) ? 1 : 0) | (is_solid(i + 1, j, k) ? 2 : 0) | (is_solid(i, j - 1, k) ? 4 : 0) |
+                                                    (is_solid(i, j + 1, k) ? 8 : 0) | (is_solid(i, j, k - 1) ? 16 : 0) | (is_solid(i, j, k + 1) ? 32 : 0));
+    return out;
+}
+
 int MusclReconstruction::hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y,
-                                         const std::vector<char>* solid, const Field* source, const FaceExchange* exchange) const {
+                                         const std::vector<char>* solid, const Field* source, const FaceExchange* exchange,
+                                         const std::vector<unsigned char>* sides) const {
     const int nx = m.nx, ny = m.ny, nxf = m.num_xfaces();
     const double hx = half_dt / m.dx, hy = half_dt / m.dy;
     int reverted = 0;
@@ -2456,8 +2487,14 @@ int MusclReconstruction::hancock_predict(Field& UL, Field& UR, const Mesh& m, do
             if (solid && (*solid)[static_cast<size_t>(j) * nx + i]) continue;
             const int xl = j * (nx + 1) + i, xr = xl + 1;
             const int yb = nxf + j * nx + i, yt = nxf + (j + 1) * nx + i;
+            const unsigned char sd = sides ? (*sides)[static_cast<size_t>(j) * nx + i] : 0;
+            const State o0 = UR[xl], o1 = UL[xr], o2 = UR[yb], o3 = UL[yt];
             reverted += hancock_cell(eos_, hx, hy, half_dt, source ? &(*source)[static_cast<size_t>(j) * nx + i] : nullptr, UR[xl], UL[xr],
                                      UR[yb], UL[yt]);
+            if (sd & 1) UR[xl] = o0;   // a side facing a solid cell keeps the state of the time level of its ghost cells
+            if (sd & 2) UL[xr] = o1;
+            if (sd & 4) UR[yb] = o2;
+            if (sd & 8) UL[yt] = o3;
         }
     // the two copies of a periodic seam face hold the states of the cells on either side: the cell that owns a state predicted it
     if (periodic_x)
@@ -2509,7 +2546,8 @@ void MusclReconstruction::hancock_wall_ghosts(Field& UL, Field& UR, const Mesh& 
 }
 
 int MusclReconstruction::hancock_predict_3d(Field& UL, Field& UR, const Mesh& m, double half_dt, const bool periodic[3],
-                                            const std::vector<char>* solid, const Field* source, const FaceExchange* exchange) const {
+                                            const std::vector<char>* solid, const Field* source, const FaceExchange* exchange,
+                                            const std::vector<unsigned char>* sides) const {
     const int nx = m.nx, ny = m.ny, nz = m.nz;
     const double hx = half_dt / m.dx, hy = half_dt / m.dy, hz = half_dt / m.dz;
     int reverted = 0;
@@ -2519,9 +2557,16 @@ int MusclReconstruction::hancock_predict_3d(Field& UL, Field& UR, const Mesh& m,
         for (int i = 0; i < nx; ++i) {
             const int c = m.cell(i, j, k);
             if (solid && (*solid)[static_cast<size_t>(c)]) continue;
-            reverted += hancock_cell_3d_impl(eos_, hx, hy, hz, half_dt, source ? &(*source)[static_cast<size_t>(c)] : nullptr, UR[m.xface(i, j, k)],
-                                        UL[m.xface(i + 1, j, k)], UR[m.yface(i, j, k)], UL[m.yface(i, j + 1, k)], UR[m.zface(i, j, k)],
-                                        UL[m.zface(i, j, k + 1)]);
+            State* st[6] = {&UR[m.xface(i, j, k)], &UL[m.xface(i + 1, j, k)], &UR[m.yface(i, j, k)], &UL[m.yface(i, j + 1, k)],
+                            &UR[m.zface(i, j, k)], &UL[m.zface(i, j, k + 1)]};
+            const unsigned char sd = sides ? (*sides)[static_cast<size_t>(c)] : 0;
+            State o[6];
+            if (sd)
+                for (int s = 0; s < 6; ++s) o[s] = *st[s];
+            reverted += hancock_cell_3d_impl(eos_, hx, hy, hz, half_dt, source ? &(*source)[static_cast<size_t>(c)] : nullptr, *st[0], *st[1], *st[2],
+                                             *st[3], *st[4], *st[5]);
+            for (int s = 0; s < 6; ++s)
+                if (sd & (1 << s)) *st[s] = o[s];   // a side facing a solid cell keeps the state of the time level of its ghost cells
         }
     }
     // the two copies of a periodic seam face hold the states of the cells on either side

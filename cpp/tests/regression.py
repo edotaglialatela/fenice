@@ -65,13 +65,13 @@ CASES = {
     "sphere3d_ibm_ghost":  ("IBM Flow over Cylinder", dict(nx=48, ny=24, nz=12, Lz=1.0, t_end=0.03, use_mpi=False,
                                                        ibm_shape="Sphere", ibm_cz=0.5, ibm_radius=0.3, bc_front="wall", bc_back="wall")),
     "hot_start_mapping":   ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.03, use_hot_start=True,
-                                                   hot_start_file="{REF}/hot_source.npz", reconstruction="muscl")),
+                                                   hot_start_file="{REF}/hot_source.npz", reconstruction="muscl", time_scheme="Explicit Euler")),
     "amr_sod_1st":         ("Sod Shock Tube", dict(Lx=2.0, nx=128, ny=16, Ly=0.25, t_end=0.2, use_amr=True,
                                                    amr_max_level=3, amr_refine_every=2, amr_init_levels=1,
                                                    time_scheme="SSP Runge-Kutta 2")),
     "amr_sod_muscl_init":  ("Sod Shock Tube", dict(nx=64, ny=16, Ly=0.25, t_end=0.15, use_amr=True,
                                                    amr_max_level=2, amr_refine_every=3, reconstruction="muscl",
-                                                   amr_init_levels=2)),
+                                                   amr_init_levels=2, time_scheme="Explicit Euler")),
     "amr_square_rk2":      ("Sod Shock Tube", dict(Lx=1.0, Ly=1.0, nx=32, ny=32, t_end=0.4, use_amr=True,
                                                    amr_max_level=3, amr_refine_every=2, amr_init_levels=1,
                                                    time_scheme="SSP Runge-Kutta 2")),
@@ -108,14 +108,14 @@ CASES = {
     # AMR seeded from a uniform hot-start field: every leaf interpolates it at its centre
     "amr_hot_start":       ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.03, use_hot_start=True,
                                                    hot_start_file="{REF}/hot_source.npz", reconstruction="muscl", use_amr=True,
-                                                   amr_max_level=2, amr_refine_every=3)),
+                                                   amr_max_level=2, amr_refine_every=3, time_scheme="Explicit Euler")),
     # The source of a hot start is the checkpoint of an AMR run (32 x 4 base mesh, 2 levels, 14 steps of the Sod tube): an AMR run
     # with fewer levels samples it at the leaf centres; a uniform run maps its finest-level field onto its own mesh
     "amr_hot_start_from_amr": ("Sod Shock Tube", dict(Lx=1.0, nx=32, ny=4, Ly=0.125, t_end=0.03, use_hot_start=True,
                                                      hot_start_file="{REF}/hot_source_amr.npz", reconstruction="muscl", use_amr=True,
-                                                     amr_max_level=1, amr_refine_every=3)),
+                                                     amr_max_level=1, amr_refine_every=3, time_scheme="Explicit Euler")),
     "hot_start_from_amr":   ("Sod Shock Tube", dict(Lx=1.0, nx=64, ny=8, Ly=0.125, t_end=0.03, use_hot_start=True,
-                                                   hot_start_file="{REF}/hot_source_amr.npz", reconstruction="muscl")),
+                                                   hot_start_file="{REF}/hot_source_amr.npz", reconstruction="muscl", time_scheme="Explicit Euler")),
     # Manufactured solutions with source terms (generated cases, see fenice.mms); covered by the order study
     # verification/mms.py. The thin variants make the MPI strips run along x.
     "mms_ns_2d":           ("Manufactured Solution", dict(nx=24, ny=24, t_end=0.1)),
@@ -220,7 +220,7 @@ CASES = {
     # that is off-axis in every direction (refinement varies along z, w != 0), and a sphere with its body band
     "amr3d_sod_muscl":     ("Sod Shock Tube", dict(nx=40, ny=2, nz=2, Ly=0.05, Lz=0.05, t_end=0.05, use_amr=True, amr_max_level=2,
                                                   amr_refine_every=4, reconstruction="muscl", bc_bottom="periodic", bc_top="periodic",
-                                                  bc_front="periodic", bc_back="periodic")),
+                                                  bc_front="periodic", bc_back="periodic", time_scheme="Explicit Euler")),
     "amr3d_mms":           ("Manufactured Solution 3D", dict(nx=6, ny=6, nz=6, use_amr=True, amr_max_level=2, amr_refine_every=2,
                                                           amr_criterion=2.0, max_steps=8)),
     "amr3d_tgv_box":       ("Taylor-Green Vortex 3D", dict(nx=12, ny=12, nz=12, t_end=1.0, use_amr=True, amr_max_level=2, amr_refine_every=3,

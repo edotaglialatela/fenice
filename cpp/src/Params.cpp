@@ -150,7 +150,7 @@ const std::vector<ParamSpec>& parameter_table() {
     {"weno_epsilon", "numerics", "1e-6"},
     {"positivity_fallback", "numerics", "false"},
     {"boundary_order", "numerics", "2"},
-    {"time_scheme", "numerics", "Explicit Euler"},
+    {"time_scheme", "numerics", "auto"},
     {"cfl", "numerics", "0.5"},
     {"shock_blend", "numerics", "0.2"},
     // use_muscl: the retired switch of the second-order path, still read as an alias of reconstruction (SimParams::from)
@@ -231,7 +231,7 @@ SimParams SimParams::from(const Params& p) {
     s.bc_front = p.str("bc_front", "periodic");
     s.bc_back = p.str("bc_back", "periodic");
     s.riemann_solver = p.str("riemann_solver", "HLLC");
-    s.time_scheme = p.str("time_scheme", "Explicit Euler");
+    s.time_scheme = p.str("time_scheme", "auto");
     s.cfl = p.num("cfl", 0.5);
     s.t_end = p.num("t_end");
     s.save_interval = std::max(1, p.integer("save_interval", 1));
@@ -314,6 +314,8 @@ SimParams SimParams::from(const Params& p) {
             s.reconstruction = "muscl";
         }
     }
+    // auto: MUSCL-Hancock with the MUSCL reconstruction, Explicit Euler otherwise (the first-order default)
+    if (lower(s.time_scheme) == "auto") s.time_scheme = s.reconstruction == "muscl" ? "MUSCL-Hancock" : "Explicit Euler";
     s.weno_epsilon = p.num("weno_epsilon", 1e-6);
     s.positivity_fallback = p.flag("positivity_fallback");
     s.boundary_order = p.integer("boundary_order", 2);

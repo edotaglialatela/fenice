@@ -836,6 +836,10 @@ void Simulation::run_mpi(MPI_Comm comm) {
     };
 
     Field halo_lo, halo_hi, forced, flag_field, flag_lo, flag_hi;
+    // MUSCL-Hancock with an immersed body: the sides of the strip's cells that face a solid cell, from the mask of the whole mesh (a cell next to
+    // the interface sees the solid cells of the neighbouring strip, as in the serial run)
+    std::vector<unsigned char> strip_sides;
+    if (p.use_ibm && dir == 'y') strip_sides = solid_side_mask(mesh, ibm->mask(), decomp.j_start, decomp.j_start + lm.ny);
     const bool hancock = dynamic_cast<const MusclHancock*>(scheme.get()) != nullptr;
     if (hancock && dir != 'y') throw std::runtime_error("time_scheme = MUSCL-Hancock on MPI needs strips along y (this mesh is cut along x)");
     const ResidualFn res = [&](const Field& Uin, Field& R) {
@@ -850,6 +854,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
         StripHalos h{dir, has_lo ? &halo_lo : nullptr, has_hi ? &halo_hi : nullptr};
         if (hancock) {
             h.solid = p.use_ibm ? &local_ibm->mask() : nullptr;
+            h.solid_sides = p.use_ibm ? &strip_sides : nullptr;
             h.exchange_faces = [&](const Field& to_lo, const Field& to_hi, Field& from_lo, Field& from_hi) {
                 bool a = false, b = false;
                 decomp.exchange_rows(to_lo, to_hi, periodic, from_lo, from_hi, a, b);

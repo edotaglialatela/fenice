@@ -840,9 +840,14 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
     // MUSCL-Hancock: the face states are advanced by half a step between the reconstruction and the Riemann solves (two-pass path)
     const double predictor_dt = (mu && scheme) ? scheme->predictor_half_dt : 0.0;
     const bool wrap_x = mh.l == &perL_ && mh.r == &perR_, wrap_y = mh.b == &perB_ && mh.t == &perT_;
-    if (ib && predictor_dt > 0.0) mh.solid = &ib->mask();   // MUSCL-Hancock: the cells of the body are not predicted
+    if (ib && predictor_dt > 0.0) {   // MUSCL-Hancock: the cells of the body are not predicted, nor the sides that face them
+        mh.solid = &ib->mask();
+        if (hancock_sides_.size() != ib->mask().size()) hancock_sides_ = solid_side_mask(m, ib->mask());
+        mh.solid_sides = &hancock_sides_;
+    }
     if (halos && predictor_dt > 0.0) {                      // MPI strips: the body of the strip, and the neighbours' predicted states
         if (halos->solid) mh.solid = halos->solid;
+        if (halos->solid_sides) mh.solid_sides = halos->solid_sides;
         mh.exchange_faces = halos->exchange_faces;
     }
     if (mu && predictor_dt > 0.0) {   // the walls of this (sub)domain: their ghost is made of the predicted state of the cell next to them
@@ -938,7 +943,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         }
         if (predictor_dt > 0.0) {
             ProfileScope ps(Section::Reconstruct);
-            hancock_reverted_ += static_cast<long long>(mu->hancock_predict(UL_, UR_, m, predictor_dt, wrap_x, wrap_y, mh.solid, hsrc, &mh.exchange_faces));
+            hancock_reverted_ += static_cast<long long>(mu->hancock_predict(UL_, UR_, m, predictor_dt, wrap_x, wrap_y, mh.solid, hsrc, &mh.exchange_faces, mh.solid_sides));
             mu->hancock_wall_ghosts(UL_, UR_, m, mh);
         }
         {
@@ -1098,9 +1103,14 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
 
     // MUSCL-Hancock: the face states are advanced by half a step between the reconstruction and the Riemann solves
     const double predictor_dt = (mu && scheme) ? scheme->predictor_half_dt : 0.0;
-    if (ib && predictor_dt > 0.0) mh.solid = &ib->mask();   // the cells of the body are not predicted
+    if (ib && predictor_dt > 0.0) {   // the cells of the body are not predicted, nor the sides that face them
+        mh.solid = &ib->mask();
+        if (hancock_sides_.size() != ib->mask().size()) hancock_sides_ = solid_side_mask(m, ib->mask());
+        mh.solid_sides = &hancock_sides_;
+    }
     if (halos && predictor_dt > 0.0) {                      // MPI strips: the body of the strip, and the neighbours' predicted states
         if (halos->solid) mh.solid = halos->solid;
+        if (halos->solid_sides) mh.solid_sides = halos->solid_sides;
         mh.exchange_faces = halos->exchange_faces;
     }
     if (mu && predictor_dt > 0.0) {   // the walls of this (sub)domain: their ghost is made of the predicted state of the cell next to them
@@ -1190,7 +1200,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         }
         if (predictor_dt > 0.0) {
             ProfileScope ps(Section::Reconstruct);
-            hancock_reverted_ += static_cast<long long>(mu->hancock_predict_3d(UL_, UR_, m, predictor_dt, wrap, mh.solid, hsrc, &mh.exchange_faces));
+            hancock_reverted_ += static_cast<long long>(mu->hancock_predict_3d(UL_, UR_, m, predictor_dt, wrap, mh.solid, hsrc, &mh.exchange_faces, mh.solid_sides));
             mu->hancock_wall_ghosts(UL_, UR_, m, mh);
         }
         ProfileScope ps(Section::Flux);

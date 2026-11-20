@@ -349,7 +349,7 @@ class SetupDialog(QDialog):
         self.combo_riemann = QComboBox()
         self.combo_riemann.addItems(["HLLC", "HLLC (Low-Mach Thornber)"])
         self.combo_time = QComboBox()
-        self.combo_time.addItems(["Explicit Euler", "SSP Runge-Kutta 2", "SSP Runge-Kutta 3"])
+        self.combo_time.addItems(["Explicit Euler", "SSP Runge-Kutta 2", "SSP Runge-Kutta 3", "MUSCL-Hancock"])
         self.input_cfl = QLineEdit("0.5")
         self.combo_limiter = QComboBox()
         self.combo_limiter.addItems(["Van Leer", "MC", "Koren", "Minmod"])
@@ -607,7 +607,7 @@ class SetupDialog(QDialog):
     # reconstruction choices (label -> value of the `reconstruction` key) and the rules the solver enforces (Params.cpp)
     _RECON_LABELS = {"1st order (Godunov)": "none", "MUSCL (limited, 2nd order)": "muscl",
                      "WENO3-Z (3rd order)": "weno3", "WENO5-Z (5th order)": "weno5"}
-    _TIME_FOR = {"none": "Explicit Euler", "muscl": "SSP Runge-Kutta 2", "weno3": "SSP Runge-Kutta 3", "weno5": "SSP Runge-Kutta 3"}
+    _TIME_FOR = {"none": "Explicit Euler", "muscl": "MUSCL-Hancock", "weno3": "SSP Runge-Kutta 3", "weno5": "SSP Runge-Kutta 3"}
 
     def _recon_value(self):
         """none | muscl | weno3 | weno5: the value of the `reconstruction` key"""
@@ -628,6 +628,8 @@ class SetupDialog(QDialog):
         """(errors, warnings) of the chosen reconstruction / time integration / AMR / MPI combination, as the solver sees it."""
         recon, time = self._recon_value(), self.combo_time.currentText()
         errors, warnings = [], []
+        if time == "MUSCL-Hancock" and recon != "muscl":
+            errors.append("MUSCL-Hancock needs the MUSCL reconstruction.")
         if recon in ("weno3", "weno5"):
             name = self.combo_recon.currentText().split(" (")[0]
             if recon == "weno5" and self.check_mpi.isChecked() and not self.check_amr.isChecked():
@@ -645,6 +647,8 @@ class SetupDialog(QDialog):
         bad = set()
         if recon in ("weno3", "weno5"):
             bad |= {"Explicit Euler", "SSP Runge-Kutta 2"}
+        if recon != "muscl":
+            bad.add("MUSCL-Hancock")
         if self.check_amr.isChecked():
             bad.add("SSP Runge-Kutta 3")
         return bad
@@ -666,7 +670,10 @@ class SetupDialog(QDialog):
         recon = self._recon_value()
         time = self.combo_time.currentText()
         weno = recon in ("weno3", "weno5")
-        if weno and time in self._bad_time_schemes():
+        if time == "MUSCL-Hancock" and recon != "muscl":
+            self.combo_time.setCurrentText(self._TIME_FOR[recon])
+            self._time_auto_set = True
+        elif weno and time in self._bad_time_schemes():
             self.combo_time.setCurrentText(self._TIME_FOR[recon])
             self._time_auto_set = True
         elif not weno and getattr(self, "_time_auto_set", False):

@@ -434,11 +434,21 @@ void CellFluxEngine::predict_cells(const CellMesh& m, int l, double half_dt) {
             st[s] = (s & 1) ? PL_[static_cast<size_t>(fi)] : PR_[static_cast<size_t>(fi)];   // the high side of a leaf is the left of its face
         }
         const State* src = has_src ? &hsrc_[static_cast<size_t>(c)] : nullptr;
+        // a side that faces a solid leaf keeps the limited state (the time level of the ghost leaves, which are filled from the state at the start
+        // of the step): both states of a wall face are then of one time level
+        bool keep[6] = {false, false, false, false, false, false};
+        if (!solid_.empty())
+            for (int s = 0; s < ns; ++s) {
+                const CellNeighbour nb = m.neighbour(c, static_cast<Face>(s));
+                for (const int n : {nb.a, nb.b, nb.c, nb.d})
+                    if (n >= 0 && solid_[static_cast<size_t>(n)]) keep[s] = true;
+            }
         reverted += dim_ == 2 ? MusclReconstruction::hancock_cell_2d(eos_, hx, hy, half_dt, src, st[0], st[1], st[2], st[3])
                               : MusclReconstruction::hancock_cell_3d(eos_, hx, hy, hz, half_dt, src, st[0], st[1], st[2], st[3], st[4], st[5]);
         for (int s = 0; s < ns; ++s)
             for (int k = m.side_ptr[static_cast<size_t>(ns * c + s)]; k < m.side_ptr[static_cast<size_t>(ns * c + s + 1)]; ++k) {
                 const size_t fi = static_cast<size_t>(m.side_face[static_cast<size_t>(k)]);
+                if (keep[s]) continue;
                 ((s & 1) ? PL_[fi] : PR_[fi]) = st[s];
                 // a reflecting wall: its ghost is the mirror of the predicted state (the flux through the wall is the pressure alone)
                 const CellFace& cf = m.faces[fi];
