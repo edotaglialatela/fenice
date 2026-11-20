@@ -67,6 +67,14 @@ CHECK_CASES = {   # name: (case, overrides)
     "sod3d_weno5": ("Sod Shock Tube", ["nx=50", "ny=3", "nz=3", "Ly=0.06", "Lz=0.06", "amr_max_level=2", "amr_refine_every=4",
                                        "reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3", "bc_bottom=periodic", "bc_top=periodic",
                                        "bc_front=periodic", "bc_back=periodic"]),
+    # MUSCL-Hancock: each level predicted before it moves, the predicted side states exchanged between the ranks (2-D with walls, 3-D with a jump)
+    "sod_hancock": ("Sod Shock Tube", ["nx=50", "ny=6", "Ly=0.12", "amr_max_level=2", "amr_refine_every=4", "reconstruction=muscl",
+                                       "time_scheme=MUSCL-Hancock", "bc_left=wall", "bc_right=wall", "boundary_order=2"]),
+    "mms_hancock": ("Manufactured Solution", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "max_steps=16", "reconstruction=muscl",
+                                               "time_scheme=MUSCL-Hancock"]),
+    "sod3d_hancock": ("Sod Shock Tube", ["nx=50", "ny=2", "nz=2", "Ly=0.04", "Lz=0.04", "amr_max_level=2", "amr_refine_every=4",
+                                          "bc_bottom=periodic", "bc_top=periodic", "bc_front=periodic", "bc_back=periodic",
+                                          "reconstruction=muscl", "time_scheme=MUSCL-Hancock"]),
     # the ghost-cell wall of a sphere on the shares of the ranks (the wall is active: the body band is six finest cells wide)
     "sphere3d_ghost": ("IBM Flow over Cylinder", SPHERE_GHOST + ["amr_max_level=2", "amr_refine_every=3", "max_steps=30"]),
 }
@@ -92,6 +100,7 @@ def check(ranks):
     ok = check_restart(RESTART_2D, ranks) and ok
     ok = check_restart(RESTART_3D, ranks) and ok
     ok = check_restart(RESTART_3D_GHOST, ranks) and ok
+    ok = check_restart(RESTART_HANCOCK, ranks) and ok
     ok = check_hot_start_3d() and ok
     ok = check_forces_3d(ranks) and ok
     print("ALL MATCH (bitwise)" if ok else "MISMATCH")
@@ -132,6 +141,11 @@ RESTART_2D = ("restart", "Sod Shock Tube", ["use_amr=true", "Lx=2.0", "nx=128", 
 # the 3-D manufactured solution: three levels with jumps, rho w != 0, remeshes before and after the stop (every 2 steps)
 RESTART_3D = ("restart3d", "Manufactured Solution 3D", ["use_amr=true", "nx=6", "ny=6", "nz=6", "amr_max_level=2", "amr_refine_every=2",
                                                         "amr_criterion=2.0"])
+
+
+# MUSCL-Hancock: the checkpoint carries the lagged wave speed; the stop falls on a full step
+RESTART_HANCOCK = ("restarth", "Sod Shock Tube", ["use_amr=true", "Lx=2.0", "nx=128", "ny=16", "Ly=0.25", "amr_max_level=3", "amr_refine_every=2",
+                                                   "reconstruction=muscl", "time_scheme=MUSCL-Hancock"])
 
 
 RESTART_3D_GHOST = ("restart3dg", "IBM Flow over Cylinder", ["use_amr=true", *SPHERE_GHOST, "amr_max_level=2", "amr_refine_every=2"])

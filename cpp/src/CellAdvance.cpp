@@ -82,7 +82,16 @@ double CellAdvance::advance(int l, double dt, double t) {
         scheme_.stage_time = t + 0.5 * dt;
         engine_.stage_time = scheme_.stage_time;
         if (stage_hook) stage_hook(l, scheme_.stage_time);
-        engine_.predict_level(mesh_, mesh_.U, l, 0.5 * dt);
+        if (par) {
+            // ranks: the limited coarse side of a coarse-fine face comes from the fine leaves' owner, and the predicted side states go
+            // to the ranks that compute a face without owning the leaf
+            engine_.predict_limit(mesh_, mesh_.U, l);
+            par->exchange_limited(l);
+            engine_.predict_cells(mesh_, l, 0.5 * dt);
+            par->exchange_predicted(l);
+        } else {
+            engine_.predict_level(mesh_, mesh_.U, l, 0.5 * dt);
+        }
     }
     if (l < max_l && present(l + 1)) {
         {

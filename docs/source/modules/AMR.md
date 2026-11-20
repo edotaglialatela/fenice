@@ -70,6 +70,12 @@ of its level (replicated or mirrored at a physical side, wrapped on a periodic a
 a face within two cells of a level jump or of the immersed body) keeps the four-cell stencil with the WENO3-Z formula, so the seams are those of a WENO3-Z run.
 A periodic axis needs at least three base cells. The level-0 mesh equals the uniform solver bit for bit. The open item is the remesh cost on MPI.
 
+`time_scheme = MUSCL-Hancock` predicts each level by half of its own step before the finer levels move, in 2-D and 3-D, also on MPI ranks. A face is solved on the
+predicted states of its two leaves, so a rank that computes a face without owning one of its leaves needs that leaf's predicted side state: before the owned
+leaves are predicted the owners of the fine leaves of a coarse-fine face hand the coarse side's limited state to the owner of the coarse leaf (only the fine side's
+owner computes that face), and afterwards the owners hand the predicted side states of their leaves to the other owner of a same-level face and to the owners of the
+fine leaves of a jump. The halo is the one of the other schemes.
+
 Against WENO3-Z on the same adaptive mesh (`cases/validation/amr/weno5_amr.py`, SSP-RK3, the indicator of each case):
 
 | case | quantity | WENO3-Z | WENO5-Z | ratio |

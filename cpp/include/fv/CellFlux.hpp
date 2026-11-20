@@ -140,6 +140,16 @@ public:
     // The body force and the sources (at engine.stage_time, the middle of the step) also advance the predicted states.
     // A leaf of the body is not predicted. Call it for a level before that level or a finer one computes its fluxes `predicted`.
     void predict_level(const CellMesh& mesh, const Field& U, int l, double half_dt);
+    // predict_level in two halves, for ranks that exchange states in between (CellParallel::exchange_limited): the limited side states of
+    // the faces of level l (and the sources of its owned leaves) ...
+    void predict_limit(const CellMesh& mesh, const Field& U, int l);
+    // ... then the prediction of its owned leaves from them, by half_dt.
+    void predict_cells(const CellMesh& mesh, int l, double half_dt);
+    // The state a face keeps for one of its sides (right: the right leaf's), as the predictor left it (a rank hands these over to the ranks that
+    // compute the face without owning the leaf).
+    const State& side_state(int face, bool right) const { return right ? PR_[static_cast<size_t>(face)] : PL_[static_cast<size_t>(face)]; }
+    // Replace the state a face keeps for one of its sides (what a rank received for a leaf it does not own).
+    void set_side_state(int face, bool right, const State& s) { (right ? PR_ : PL_)[static_cast<size_t>(face)] = s; }
     // Predicted states left as they were (not admissible) since the engine was built, on this rank.
     long long hancock_reverted() const { return hancock_reverted_; }
     // R of the leaves of level l (Rl[k] is leaf level_begin[l] + k).  A face of level l + 1 on a side of such a leaf

@@ -90,6 +90,7 @@ struct DistSpec {
     bool remesh;
     int boundary_order = 1;   // 2: second-order boundary faces (ghost layers); inviscid only
     Reconstruction rec = Reconstruction::Muscl;
+    bool hancock = false;   // MUSCL-Hancock time scheme (with the predicted states exchanged between ranks)
 };
 
 // Everything one rank (or the serial reference) needs, built from the spec.
@@ -161,7 +162,7 @@ Field run_distributed(const DistSpec& sp, int ranks, int steps, std::vector<int>
             } else if (sp.body) {
                 ad.set_body(env.ph.ibm_factory, 1);
             }
-            std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4);
+            std::unique_ptr<TimeScheme> ts = make_time_scheme(sp.hancock ? TimeSchemeType::MusclHancock : TimeSchemeType::SSPRK2, 0.4);
             std::unique_ptr<CellParallel> par;
             if (ranks > 0) {
                 par = std::make_unique<CellParallel>(m, eng, hub.comm(rank));
@@ -265,6 +266,38 @@ TEST(cellparallel_equals_serial_bitwise_for_any_rank_count) {
         }
     }
 }
+
+TEST(cellparallel_hancock_equals_serial_bitwise_for_any_rank_count) {
+    // MUSCL-Hancock on ranks: the predicted side states cross the rank interfaces (same-level faces, the coarse side of a level jump)
+    const BCType per = BCType::Periodic;
+    const DistSpec specs[] = {
+        {"hancock euler periodic", true, true, {per, per, per, per}, false, false, false, false, false, 11u, true, 1, Reconstruction::Muscl, true},
+        {"hancock viscous + force + source periodic", true, true, {per, per, per, per}, true, true, true, false, false, 12u, true, 1, Reconstruction::Muscl, true},
+        {"hancock walls, outlet, nrbc, viscous", false, false, {BCType::Wall, BCType::NonReflecting, BCType::NoSlip, BCType::Outlet}, true, false, false, false, false, 14u, true, 1, Reconstruction::Muscl, true},
+        {"hancock second-order boundary faces, walls and inlet", false, false, {BCType::Wall, BCType::Outlet, BCType::MovingWall, BCType::VelInlet}, false, false, false, false, false, 17u, true, 2, Reconstruction::Muscl, true},
+        {"hancock viscous cavity", false, false, {BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::MovingWall}, true, false, false, false, false, 19u, true, 1, Reconstruction::Muscl, true},
+        {"hancock second-order boundary faces, viscous cavity", false, false, {BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::MovingWall}, true, false, false, false, false, 19u, true, 2, Reconstruction::Muscl, true},
+        {"hancock immersed body (ghost cells), viscous", false, false, {BCType::VelInlet, BCType::Outlet, BCType::Wall, BCType::Wall}, true, false, false, false, true, 26u, true, 1, Reconstruction::Muscl, true},
+    };
+    for (const DistSpec& sp : specs)
+        for (const int mode : {0, 1, 2}) {   // replicated; localized with the replicated remesh; localized with the distributed remesh
+            const bool local = mode >= 1;
+            const Field serial = run_distributed(sp, 0, 6);
+            for (const int ranks : {1, 2, 3, 5, 7}) {
+                const Field dist = run_distributed(sp, ranks, 6, nullptr, local, mode == 2);
+                const bool same = bits_equal(serial, dist);
+                CHECK(same);
+                if (!same) {
+                    int nd = 0;
+                    for (size_t c = 0; c < serial.size() && c < dist.size(); ++c)
+                        for (int q = 0; q < kNVar; ++q)
+                            if (serial[c][q] != dist[c][q]) { ++nd; break; }
+                    std::printf("    %s on %d ranks%s differs from the serial run (%zu / %zu leaves, %d differ)\n", sp.name, ranks, mode == 0 ? "" : mode == 1 ? " (localized)" : " (localized, distributed remesh)", serial.size(), dist.size(), nd);
+                }
+            }
+        }
+}
+
 
 TEST(cellparallel_localized_run_equals_serial_bitwise_and_keeps_only_its_halo) {
     // Distributed storage: after partition() each rank keeps only its owned leaves and the halo

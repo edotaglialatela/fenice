@@ -153,6 +153,8 @@ bool CellParallel::partition_local(const CellMesh* whole, const GlobalFacts* fac
         size_lists(final_[static_cast<size_t>(l)]);
         size_lists(reg_[static_cast<size_t>(l)]);
     }
+    same_.assign(static_cast<size_t>(M) + 1, {});
+    for (int l = 0; l <= M; ++l) size_lists(same_[static_cast<size_t>(l)]);
     size_lists(solid_);
     req_.assign(static_cast<size_t>(R), {});
     for (int c = 0; c < N; ++c) {
@@ -247,6 +249,29 @@ void CellParallel::partition_exchange() {
         }
     }
 
+    // same-level faces between leaves of two owners (MUSCL-Hancock hands the predicted side states of the leaf a rank owns to the other
+    // owner, who computes the face too): the faces by (the sender's leaf, its side), the order both ranks can work out alone
+    for (int l = 0; l <= M; ++l) {
+        Lists& sl = same_[static_cast<size_t>(l)];
+        const int ns = mesh_.sides();
+        std::vector<std::vector<std::array<int, 3>>> in(static_cast<size_t>(R));   // (sender's leaf, its side, face) per sender
+        for (int c = ob[static_cast<size_t>(l)]; c < oe[static_cast<size_t>(l)]; ++c)
+            for (int s = 0; s < ns; ++s) {
+                const CellNeighbour nb = mesh_.neighbour(c, static_cast<Face>(s));
+                if (nb.kind != CellNeighbour::Kind::Same) continue;
+                const int o = owner_[static_cast<size_t>(nb.a)];
+                if (o == me) continue;
+                const int f = mesh_.side_face[static_cast<size_t>(mesh_.side_ptr[static_cast<size_t>(ns) * c + s])];
+                sl.send[static_cast<size_t>(o)].push_back(f);
+                in[static_cast<size_t>(o)].push_back({nb.a, static_cast<int>(opposite(static_cast<Face>(s))), f});
+            }
+        for (int r = 0; r < R; ++r) {
+            std::vector<std::array<int, 3>>& v = in[static_cast<size_t>(r)];
+            std::sort(v.begin(), v.end());
+            for (const std::array<int, 3>& e : v) sl.recv[static_cast<size_t>(r)].push_back(e[2]);
+        }
+    }
+
     if (poison)
         for (int c = 0; c < N; ++c)
             if (!held_[static_cast<size_t>(c)]) mesh_.U[static_cast<size_t>(c)].fill(std::numeric_limits<double>::quiet_NaN());
@@ -318,6 +343,81 @@ void CellParallel::exchange_registers(int level) {
     }
 }
 
+namespace {
+// The side of a coarse-fine face that belongs to its coarse leaf (true: the right one)
+// (a localized mesh does not keep a fine leaf that only another rank touches: its side of the face is kOutside)
+bool coarse_is_right(const CellMesh& m, int f) {
+    const CellFace& face = m.faces[static_cast<size_t>(f)];
+    if (face.left < 0) return true;
+    if (face.right < 0) return false;
+    return m.level[static_cast<size_t>(face.left)] > m.level[static_cast<size_t>(face.right)];
+}
+}   // namespace
+
+void CellParallel::exchange_limited(int level) {
+    if (comm_.size <= 1 || level + 1 > mesh_.max_level) return;
+    const Lists& rl = reg_[static_cast<size_t>(level) + 1];
+    std::vector<std::vector<double>> send(static_cast<size_t>(comm_.size)), recv(static_cast<size_t>(comm_.size));
+    for (int r = 0; r < comm_.size; ++r) {
+        for (const int f : rl.send[static_cast<size_t>(r)]) {   // the fine owner computed the face: the coarse side's limited state
+            const State& s = engine_.side_state(f, coarse_is_right(mesh_, f));
+            send[static_cast<size_t>(r)].insert(send[static_cast<size_t>(r)].end(), s.begin(), s.end());
+        }
+        recv[static_cast<size_t>(r)].resize(rl.recv[static_cast<size_t>(r)].size() * kNVar);
+    }
+    comm_.exchange(send, recv);
+    for (int r = 0; r < comm_.size; ++r) {
+        size_t k = 0;
+        for (const int f : rl.recv[static_cast<size_t>(r)]) {
+            State s;
+            for (int q = 0; q < kNVar; ++q) s[static_cast<size_t>(q)] = recv[static_cast<size_t>(r)][k++];
+            engine_.set_side_state(f, coarse_is_right(mesh_, f), s);
+        }
+    }
+}
+
+void CellParallel::exchange_predicted(int level) {
+    if (comm_.size <= 1) return;
+    const Lists& sl = same_[static_cast<size_t>(level)];
+    const bool jump = level + 1 <= mesh_.max_level;
+    const Lists* rl = jump ? &reg_[static_cast<size_t>(level) + 1] : nullptr;
+    const int me = comm_.rank;
+    // the entry of a same-level face that belongs to the leaf this rank owns (to send) or does not (to receive)
+    const auto own_right = [&](int f) {
+        const int right = mesh_.faces[static_cast<size_t>(f)].right;
+        return right >= 0 && owner_[static_cast<size_t>(right)] == me;
+    };
+    std::vector<std::vector<double>> send(static_cast<size_t>(comm_.size)), recv(static_cast<size_t>(comm_.size));
+    for (int r = 0; r < comm_.size; ++r) {
+        std::vector<double>& out = send[static_cast<size_t>(r)];
+        for (const int f : sl.send[static_cast<size_t>(r)]) {
+            const State& s = engine_.side_state(f, own_right(f));
+            out.insert(out.end(), s.begin(), s.end());
+        }
+        size_t n = sl.recv[static_cast<size_t>(r)].size();
+        if (rl) {
+            for (const int f : rl->recv[static_cast<size_t>(r)]) {   // the coarse owner: its predicted side, to the owners of the fine leaves
+                const State& s = engine_.side_state(f, coarse_is_right(mesh_, f));
+                out.insert(out.end(), s.begin(), s.end());
+            }
+            n += rl->send[static_cast<size_t>(r)].size();
+        }
+        recv[static_cast<size_t>(r)].resize(n * kNVar);
+    }
+    comm_.exchange(send, recv);
+    for (int r = 0; r < comm_.size; ++r) {
+        size_t k = 0;
+        const auto take = [&]() {
+            State s;
+            for (int q = 0; q < kNVar; ++q) s[static_cast<size_t>(q)] = recv[static_cast<size_t>(r)][k++];
+            return s;
+        };
+        for (const int f : sl.recv[static_cast<size_t>(r)]) engine_.set_side_state(f, !own_right(f), take());
+        if (rl)
+            for (const int f : rl->send[static_cast<size_t>(r)]) engine_.set_side_state(f, coarse_is_right(mesh_, f), take());
+    }
+}
+
 void CellParallel::localize() {
     if (localized_) throw std::logic_error("CellParallel::localize: already localized");
     if (face_active_.size() != mesh_.faces.size() || held_.size() != static_cast<size_t>(mesh_.num_leaves()))
@@ -353,6 +453,9 @@ void CellParallel::localize() {
     for (Lists& li : reg_) {
         remap(li.send, face_map);
         remap(li.recv, face_map);
+    }    for (Lists& li : same_) {
+        remap(li.send, face_map);
+        remap(li.recv, face_map);
     }
     std::vector<int> owner(static_cast<size_t>(mesh_.num_leaves()));
     for (size_t c = 0; c < leaf_map.size(); ++c)
@@ -376,7 +479,7 @@ bool CellParallel::same_lists(const CellParallel& o) const {
             if (a[l].send != b[l].send || a[l].recv != b[l].recv) return false;
         return true;
     };
-    return same(stage_, o.stage_) && same(final_, o.final_) && same(reg_, o.reg_) && solid_.send == o.solid_.send &&
+    return same(stage_, o.stage_) && same(final_, o.final_) && same(reg_, o.reg_) && same(same_, o.same_) && solid_.send == o.solid_.send &&
            solid_.recv == o.solid_.recv && owner_ == o.owner_ && held_ == o.held_ && split_ == o.split_ &&
            level_present_ == o.level_present_ && ob_ == o.ob_ && oe_ == o.oe_;
 }

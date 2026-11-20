@@ -91,6 +91,7 @@ struct Spec3 {
     unsigned seed;
     bool remesh;
     int band = 0;   // > 0: the ghost-cell wall, the tree refined around the body to that many finest cells (else a random tree)
+    bool hancock = false;   // the MUSCL-Hancock time scheme: the predicted side states cross the rank interfaces
 };
 
 // Refine `rounds` times every leaf within `margin` finest widths of the surface (the readiness rule of the ghost wall)
@@ -142,7 +143,7 @@ Field run3(const Spec3& sp, int ranks, int steps, bool local, std::vector<int>* 
             ind.criterion = 0.02;
             CellAdaptor ad(m, eng, sim.fluid, ind);
             if (sim.p.use_ibm) ad.set_body(sim.ibm_factory, sp.band > 0 ? sp.band : 2);
-            std::unique_ptr<TimeScheme> ts = make_time_scheme(TimeSchemeType::SSPRK2, 0.4);
+            std::unique_ptr<TimeScheme> ts = make_time_scheme(sp.hancock ? TimeSchemeType::MusclHancock : TimeSchemeType::SSPRK2, 0.4);
             std::unique_ptr<CellParallel> par;
             if (ranks > 0) {
                 par = std::make_unique<CellParallel>(m, eng, hub.comm(rank));
@@ -228,6 +229,22 @@ const Spec3 kSpecs[] = {
     {"weno5 immersed sphere on a random tree (wall not ready), walls, boundary_order 2", {"vel_inlet", "outlet", "wall", "moving_wall", "wall", "transmissive"},
      {{"reconstruction", "weno5"}, {"time_scheme", "SSP Runge-Kutta 3"}, {"boundary_order", "2"}, {"use_ibm", "true"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"}, {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"ibm_cz", "0.47"}},
      17u, true},
+};
+
+// MUSCL-Hancock: a prediction per level before the level moves; same-level faces and the coarse side of a jump get their states from the owners
+const Spec3 kHancockSpecs[] = {
+    {"hancock euler periodic", {"periodic", "periodic", "periodic", "periodic", "periodic", "periodic"},
+     {{"time_scheme", "MUSCL-Hancock"}}, 11u, true, 0, true},
+    {"hancock viscous + body force + source, periodic", {"periodic", "periodic", "periodic", "periodic", "periodic", "periodic"},
+     {{"time_scheme", "MUSCL-Hancock"}, {"use_viscous", "true"}, {"mu", "0.03"}, {"use_bodyforce", "true"}, {"gx", "0.3"}, {"gz", "-0.5"},
+      {"source_rho", "0.1*sin(3*x)*cos(2*z)"}, {"source_mz", "0.2*x*y*cos(t)"}},
+     12u, true, 0, true},
+    {"hancock walls, nrbc, mass flow, viscous, boundary_order 2", {"massflow_inlet", "nonreflecting", "no_slip", "moving_wall", "wall", "outlet"},
+     {{"time_scheme", "MUSCL-Hancock"}, {"use_viscous", "true"}, {"mu", "0.03"}, {"boundary_order", "2"}, {"rho_in", "1.1"}}, 13u, true, 0, true},
+    {"hancock immersed sphere (ghost wall), no-slip", {"vel_inlet", "outlet", "wall", "wall", "periodic", "periodic"},
+     {{"time_scheme", "MUSCL-Hancock"}, {"use_viscous", "true"}, {"mu", "0.02"}, {"use_ibm", "true"}, {"ibm_shape", "Sphere"}, {"ibm_radius", "0.27"},
+      {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"ibm_cz", "0.47"}},
+     16u, true, 6, true},
 };
 
 // The ghost-cell wall of a sphere: the tree refined around it so that the wall is active, slip (Euler) and no-slip (viscous)
@@ -328,6 +345,21 @@ TEST(cellparallel3d_equals_serial_bitwise_for_any_rank_count) {
                 if (ranks >= 5) CHECK(counts[0] < static_cast<int>(serial.size()));
                 if (ranks >= 2) CHECK(counts[1] > 0);
             }
+    }
+}
+
+TEST(cellparallel3d_hancock_equals_serial_bitwise_for_any_rank_count) {
+    for (const Spec3& sp : kHancockSpecs) {
+        const Field serial = run3(sp, 0, 4, false);
+        for (const bool local : {false, true})
+            for (const int ranks : {1, 2, 3, 5, 7}) {
+                const Field dist = run3(sp, ranks, 4, local);
+                const bool same = bits_equal(serial, dist);
+                CHECK(same);
+                if (!same) std::printf("    %s on %d ranks (%s) differs from the serial run\n", sp.name, ranks, local ? "localized" : "replicated");
+            }
+        const Field dist = run3(sp, 5, 4, true, nullptr, true);   // the remesh with no rank holding the whole mesh
+        CHECK(bits_equal(serial, dist));
     }
 }
 

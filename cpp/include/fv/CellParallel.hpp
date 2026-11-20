@@ -174,6 +174,13 @@ public:
     void exchange_solid();
     // Fine owners send the registers of the coarse-fine faces of `level` (level >= 1) to the owners of the coarse leaves.
     void exchange_registers(int level);
+    // MUSCL-Hancock, in the two halves of CellFluxEngine::predict_level of `level` (both collective, called for every level that exists anywhere):
+    // before the owned leaves are predicted, the owners of the fine leaves of a coarse-fine face hand the coarse side's limited state to the owner
+    // of the coarse leaf (only the fine side's owner computes that face, and the limit reads the fine leaves);
+    void exchange_limited(int level);
+    // after it, the owners hand the predicted side state of their leaves to the ranks that compute the face without owning the leaf: the other
+    // owner of a same-level face, the owners of the fine leaves of a coarse-fine face.
+    void exchange_predicted(int level);
     // Every rank gets the state of every leaf (before the indicator, and to write results).
     void gather_state();
     double reduce_max(double v) const { return comm_.size > 1 ? comm_.allreduce_max(v) : v; }
@@ -254,6 +261,7 @@ private:
     std::vector<std::vector<double>> req_;    // between the two halves of partition(): the requests to each owner
     std::vector<char> stage_mask_;            // ... the leaves read in a stage of their own level
     std::vector<Lists> stage_, final_, reg_;  // per level
+    std::vector<Lists> same_;                 // per level: same-level faces whose two leaves have different owners (face indices, by (sending leaf, side))
     Lists solid_;
 };
 

@@ -56,6 +56,12 @@ CHECK_CASES = {   # name: (case, overrides)
                                                     "amr_refine_every=4", "nx=100", "ny=50", "max_steps=16"]),
     "amr_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
                                                 "max_steps=16"]),
+    # AMR with MUSCL-Hancock: the predicted side states of the leaves cross the rank interfaces
+    "amr_cylinder_hancock": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
+                                                        "max_steps=16", "time_scheme=MUSCL-Hancock"]),
+    "amr_sphere3d_hancock": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
+                                                         "bc_front=wall", "bc_back=wall", "use_amr=true", "amr_max_level=2", "amr_refine_every=3",
+                                                         "max_steps=15", "time_scheme=MUSCL-Hancock"]),
 }
 
 

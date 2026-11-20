@@ -368,6 +368,11 @@ double CellFluxEngine::predicted_fluxes(const CellMesh& m, const std::vector<int
 }
 
 void CellFluxEngine::predict_level(const CellMesh& m, const Field& U, int l, double half_dt) {
+    predict_limit(m, U, l);
+    predict_cells(m, l, half_dt);
+}
+
+void CellFluxEngine::predict_limit(const CellMesh& m, const Field& U, int l) {
     if (!muscl_) throw std::logic_error("CellFluxEngine::predict_level: the predictor needs a reconstruction");
     if (m.num_leaves() != nleaf_ || static_cast<int>(stencil_.size()) != static_cast<int>(m.faces.size()))
         throw std::logic_error("CellFluxEngine: build() was not called for this mesh");
@@ -410,6 +415,11 @@ void CellFluxEngine::predict_level(const CellMesh& m, const Field& U, int l, dou
         }
         for (int c = sb; c < se; ++c) hsrc_[static_cast<size_t>(c)] = Rt[static_cast<size_t>(c - sb)];
     }
+}
+
+void CellFluxEngine::predict_cells(const CellMesh& m, int l, double half_dt) {
+    const size_t sl = static_cast<size_t>(l);
+    const bool has_src = phys_.body || phys_.source || phys_.rhs_sources;
     // each owned leaf takes its four side states from its faces, predicts them and puts them back on all the faces of the side
     // (hx = half_dt / dx as the uniform solver's predictor, so a level-0 mesh gets its bits)
     const double hx = half_dt / m.dx(l), hy = half_dt / m.dy(l), hz = dim_ == 3 ? half_dt / m.dz(l) : 0.0;
