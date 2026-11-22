@@ -1882,6 +1882,7 @@ TEST(env_switches_are_a_closed_table) {
         CHECK(seen.insert(s.name).second);   // no name twice
         CHECK(std::string(s.kind) == "flag" || std::string(s.kind) == "path");
         CHECK(std::string(s.reader) == "solver" || std::string(s.reader) == "python");
+        CHECK(std::string(s.audience) == "user" || std::string(s.audience) == "developer");
         CHECK(std::strlen(s.effect) > 20);
     }
     bool threw = false;

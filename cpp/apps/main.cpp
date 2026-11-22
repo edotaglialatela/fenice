@@ -57,7 +57,7 @@ void usage() {
                 "  --threads N        OpenMP threads (default: all cores; 1 per rank under MPI, at most cores / ranks)\n"
                 "  --list-cases       list the built-in test cases\n"
                 "  --list-gui-cases   list the cases the GUI offers (the others are run from the command line)\n"
-                "  --print-switches   list the FENICE_* environment switches and exit\n"
+                "  --print-switches   list the FENICE_* environment switches and exit (--all: also the developer ones)\n"
                 "  --print-config     print the resolved parameters and exit\n"
                 "  --print-parameters list every parameter (key, case-file section, baseline default; tab separated) and exit\n"
                 "  --print-case-defaults  print only the test case's own defaults and exit\n"
@@ -144,7 +144,7 @@ int main(int argc, char** argv) {
     std::vector<std::string> raw(argv + 1, argv + argc);
     std::string case_name, config_file, save_target, save_name, from_case;
     std::vector<std::string> sets;
-    bool list_gui_cases = false, list_cases = false, print_switches = false, print_parameters = false, print_config = false, print_case_defaults = false, explain = false, check_case = false, list_templates = false, logo = true, mpi_child = false;
+    bool list_gui_cases = false, list_cases = false, print_switches = false, print_all = false, print_parameters = false, print_config = false, print_case_defaults = false, explain = false, check_case = false, list_templates = false, logo = true, mpi_child = false;
     int threads = 0;
 
     for (size_t k = 0; k < raw.size(); ++k) {
@@ -170,6 +170,8 @@ int main(int argc, char** argv) {
             list_cases = list_gui_cases = true;
         else if (a == "--print-switches")
             print_switches = true;
+        else if (a == "--all")
+            print_all = true;
         else if (a == "--print-config")
             print_config = true;
         else if (a == "--print-parameters")
@@ -208,7 +210,7 @@ int main(int argc, char** argv) {
         if (a != "--mpi-child") forward.push_back(a);
 
     if (print_switches) {
-        fv::print_env_switches(stdout);
+        fv::print_env_switches(stdout, print_all);
         return 0;
     }
     if (print_parameters) {

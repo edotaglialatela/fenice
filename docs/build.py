@@ -476,10 +476,13 @@ def switches_md() -> str:
         solver = fenice.exe()
     except FileNotFoundError:
         return "*(Build the solver to list the switches: `.\\cpp\\build.ps1`)*"
-    out = subprocess.run([solver, "--print-switches"], capture_output=True, text=True, check=True).stdout
-    rows = re.findall(r"^  (FENICE_\w+)  \((\w+), read by the (\w+)\)\n      (.+)$", out, re.M)
-    return "| Switch | Value | Read by | Effect |\n|---|---|---|---|\n" + "\n".join(
-        f"| `{n}` | {kind} | {who} | {effect} |" for n, kind, who, effect in rows)
+    out = subprocess.run([solver, "--print-switches", "--all"], capture_output=True, text=True, check=True).stdout
+    rows = re.findall(r"^  (FENICE_\w+)  \((\w+), read by the (\w+), for the (\w+)\)\n      (.+)$", out, re.M)
+    def table(aud):
+        return "| Switch | Value | Read by | Effect |\n|---|---|---|---|\n" + "\n".join(
+            f"| `{n}` | {kind} | {who} | {effect} |" for n, kind, who, a, effect in rows if a == aud)
+    return (table("user") + "\n\n### Developer switches\n\nThese only select a slower or instrumented alternative; the defaults are the "
+            "fastest paths, so a normal run sets none of them.\n\n" + table("developer"))
 
 
 def check_parameters_documented() -> None:

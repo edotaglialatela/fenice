@@ -8,39 +8,39 @@ namespace fv {
 
 const std::vector<EnvSwitch>& env_switches() {
     static const std::vector<EnvSwitch> table = {
-        {"FENICE_NO_SIMD", "flag", "solver",
+        {"FENICE_NO_SIMD", "flag", "solver", "developer",
          "Run the scalar Riemann and viscous kernels instead of the vector ones (AVX2, NEON). The results are identical bit for bit; use it to time "
          "the vector kernels or to check the equivalence."},
-        {"FENICE_NO_FUSED", "flag", "solver",
+        {"FENICE_NO_FUSED", "flag", "solver", "developer",
          "Uniform mesh: reconstruct the face states into arrays and run the Riemann solver on them in a second pass, "
          "instead of the one pass that does both (MusclReconstruction::muscl_residual_2d / _3d; MUSCL, WENO3-Z, WENO5-Z). The results are identical bit for bit; "
          "for A/B timing."},
-        {"FENICE_NO_PIN", "flag", "solver",
+        {"FENICE_NO_PIN", "flag", "solver", "developer",
          "Leave the OpenMP threads to the scheduler. By default a run with several threads, no more than the physical cores the process may use, on a machine with SMT, puts one thread on each physical core (about 10 % faster at 8 threads where the scheduler would put two on the siblings of one core). Nothing is placed under MPI, or when OMP_PLACES, OMP_PROC_BIND, GOMP_CPU_AFFINITY or KMP_AFFINITY is set. The results do not depend on the placement; for A/B timing."},
-        {"FENICE_FULL_REBUILD", "flag", "solver",
+        {"FENICE_FULL_REBUILD", "flag", "solver", "developer",
          "AMR: rebuild the faces and the engine tables of every leaf after each adaptation instead of copying those of the leaves "
          "that did not change. The tables are identical; for A/B timing and bisecting."},
-        {"FENICE_REPLICATED_REMESH", "flag", "solver",
+        {"FENICE_REPLICATED_REMESH", "flag", "solver", "developer",
          "AMR on MPI: every rank keeps the whole AMR mesh instead of its share of the leaves (the storage before the distributed "
          "one; for A/B comparison)."},
-        {"FENICE_MEM_TRACE", "flag", "solver",
+        {"FENICE_MEM_TRACE", "flag", "solver", "user",
          "Print the resident and the peak memory of the process at the steps of the setup (standard error)."},
-        {"FENICE_PROFILE", "flag", "solver",
+        {"FENICE_PROFILE", "flag", "solver", "user",
          "Print, at the end of the run, the wall time by section: the total time step and residual parts on uniform meshes "
          "(boundary, reconstruct, flux, divergence, viscous, padded copy / conversion / sweep, time updates, forcing / sources), "
          "and the output and remesh parts in an AMR run (min / max over the ranks). Costs nothing when off."},
-        {"FENICE_HALO_REACH", "flag", "solver",
+        {"FENICE_HALO_REACH", "flag", "solver", "developer",
          "AMR: print the halo reach of the mesh (how many rings of leaves the face lists read across a rank boundary). Needs the "
          "whole mesh: a serial run, or FENICE_REPLICATED_REMESH=1 on MPI."},
-        {"FENICE_DEBUG_TABLES", "flag", "solver",
+        {"FENICE_DEBUG_TABLES", "flag", "solver", "developer",
          "AMR: when the engine tables of an incremental and of a full build are compared and differ, print which table differs "
          "(standard error)."},
-        {"FENICE_CHECK_HALO", "flag", "solver",
+        {"FENICE_CHECK_HALO", "flag", "solver", "developer",
          "AMR on MPI: when a rank prunes the mesh to its share, walk the dependencies of every face it computes a second time and "
          "stop if one of them is a leaf it does not hold. The unit tests and amr_mpi.py --check run with it; the results are the same."},
-        {"FENICE_CASES", "path", "solver",
+        {"FENICE_CASES", "path", "solver", "user",
          "The folder that holds the test cases (one folder per case with a case.toml). Default: the cases folder of the repository."},
-        {"FENICE_EXE", "path", "python",
+        {"FENICE_EXE", "path", "python", "user",
          "The solver executable that fenice.exe() and fenice.run() use. Default: build/release/fenice."},
     };
     return table;
@@ -72,10 +72,19 @@ std::string switch_value(const char* name) {
     return v ? v : "";
 }
 
-void print_env_switches(std::FILE* out) {
-    std::fprintf(out, "Environment switches (a flag is on when set to anything but empty or 0):\n");
-    for (const EnvSwitch& s : env_switches())
-        std::fprintf(out, "\n  %s  (%s, read by the %s)\n      %s\n", s.name, s.kind, s.reader, s.effect);
+void print_env_switches(std::FILE* out, bool all) {
+    std::fprintf(out, "Environment switches (a flag is on when set to anything but empty or 0). The defaults are the fastest paths.\n");
+    int hidden = 0;
+    for (const EnvSwitch& s : env_switches()) {
+        const bool developer = std::strcmp(s.audience, "developer") == 0;
+        if (developer && !all) {
+            ++hidden;
+            continue;
+        }
+        std::fprintf(out, "\n  %s  (%s, read by the %s, for the %s)\n      %s\n", s.name, s.kind, s.reader, s.audience, s.effect);
+    }
+    if (hidden > 0)
+        std::fprintf(out, "\n%d developer switches (A/B timing, bisecting, diagnostics) are not listed; --print-switches --all shows them.\n", hidden);
 }
 
 }   // namespace fv

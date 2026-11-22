@@ -5,9 +5,10 @@ section: User guide
 order: 60
 ---
 
-A few environment variables change how the solver runs without changing a case file: they select a code path for comparison
-(A/B timing, bisecting a change), turn on a diagnostic, or point to a folder. They are all `FENICE_*`; `fenice --print-switches`
-prints the same table. A flag is on when it is set to anything but an empty string or `0`; the solver reads each one through a
+A normal run needs none of these: the defaults are the fastest paths (vector kernels, the fused residual, one thread per
+physical core). A few environment variables turn on a diagnostic or point to a folder; the rest, the *developer switches*
+below, select a slower alternative for comparison (A/B timing, bisecting a change). They are all `FENICE_*`;
+`fenice --print-switches` prints the user switches and `fenice --print-switches --all` the whole table. A flag is on when it is set to anything but an empty string or `0`; the solver reads each one through a
 single table (`cpp/include/fv/Switches.hpp`), which rejects a name that is not in it.
 
 {{switches}}

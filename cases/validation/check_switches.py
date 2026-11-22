@@ -17,8 +17,8 @@ import fenice
 REPO = Path(__file__).resolve().parents[2]
 sources = [p for d in ("cpp/src", "cpp/apps", "cpp/include") for p in (REPO / d).rglob("*") if p.suffix in (".cpp", ".hpp")]
 
-out = subprocess.run([fenice.exe(), "--print-switches"], capture_output=True, text=True, check=True).stdout
-table = {m[0]: m[2] for m in re.findall(r"^  (FENICE_\w+)  \((\w+), read by the (\w+)\)$", out, re.M)}
+out = subprocess.run([fenice.exe(), "--print-switches", "--all"], capture_output=True, text=True, check=True).stdout
+table = {m[0]: m[2] for m in re.findall(r"^  (FENICE_\w+)  \((\w+), read by the (\w+), for the \w+\)$", out, re.M)}
 problems = []
 if not table:
     problems.append("fenice --print-switches printed no switch")
