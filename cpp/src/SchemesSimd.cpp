@@ -386,7 +386,7 @@ void muscl_cell_states_line_simd(const EOS& eos, Limiter lim, const double* W, s
 void hancock_cells_simd(const EOS& eos, double hx, double hy, double half_dt, const State* src, State* xl, State* xr, State* yb, State* yt, int n,
                         int* stayed) {
     const VEos E(eos);
-    const V vhx = set1(hx), vhy = set1(hy), vhh = set1(half_dt), zero = set1(0.0), half = set1(0.5);
+    const V vhx = set1(hx), vhy = set1(hy), vhh = set1(half_dt), zero = set1(0.0);
     int left = 0;
     for (int k = 0; k < n; k += 4) {
         // the states in the order of hancock_cell: x low, x high, y low, y high
@@ -431,7 +431,7 @@ void hancock_cells_simd(const EOS& eos, double hx, double hy, double half_dt, co
 void hancock_cells3d_simd(const EOS& eos, double hx, double hy, double hz, double half_dt, const State* src, State* xl, State* xr, State* yb,
                           State* yt, State* zf, State* zk, int n, int* stayed) {
     const VEos E(eos);
-    const V vhx = set1(hx), vhy = set1(hy), vhz = set1(hz), vhh = set1(half_dt), zero = set1(0.0), half = set1(0.5);
+    const V vhx = set1(hx), vhy = set1(hy), vhz = set1(hz), vhh = set1(half_dt), zero = set1(0.0);
     int left = 0;
     for (int k = 0; k < n; k += 4) {
         // the states in the order of hancock_cell_3d_impl: x low, x high, y low, y high, z low, z high
