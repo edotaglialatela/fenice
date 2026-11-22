@@ -39,13 +39,13 @@ CHECK_CASES = {   # name: (case, overrides)
     "thin_strips_hancock": ("IBM Flow over Cylinder", ["Lx=1.5", "Ly=0.5", "nx=150", "ny=50", "ibm_cx=0.5", "ibm_cy=0.25", "max_steps=30",
                                                        "time_scheme=MUSCL-Hancock"]),
     "sphere3d_hancock": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=64", "ny=32", "nz=16", "Lz=1.0",
-                                                     "bc_front=wall", "bc_back=wall", "max_steps=15", "time_scheme=MUSCL-Hancock"]),
+                                                     "bc_zmin=wall", "bc_zmax=wall", "max_steps=15", "time_scheme=MUSCL-Hancock"]),
     "supersonic_hancock": ("IBM Supersonic Flow over Cylinder", ["nx=100", "ny=100", "max_steps=30", "time_scheme=MUSCL-Hancock"]),
     # 3-D: a sphere (trilinear image points over eight cells, fetched across strips), no-slip and slip, and the cylinder along z
     "sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=64", "ny=32", "nz=16", "Lz=1.0",
-                                            "bc_front=wall", "bc_back=wall", "max_steps=15"]),
+                                            "bc_zmin=wall", "bc_zmax=wall", "max_steps=15"]),
     "sphere3d_slip": ("IBM Supersonic Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=2.0", "ibm_radius=0.8", "nx=48", "ny=72", "nz=16",
-                                                            "Lz=4.0", "bc_front=wall", "bc_back=wall", "max_steps=15"]),
+                                                            "Lz=4.0", "bc_zmin=wall", "bc_zmax=wall", "max_steps=15"]),
     "cylinder3d": ("IBM Flow over Cylinder", ["nx=100", "ny=50", "nz=6", "Lz=2.0", "max_steps=15"]),
     # ibm_curvature (slip walls): the curvature of each ghost cell is geometry only, the correction reads the image point
     "supersonic_curv": ("IBM Supersonic Flow over Cylinder", ["ibm_curvature=true", "nx=100", "ny=100", "max_steps=30"]),
@@ -60,7 +60,7 @@ CHECK_CASES = {   # name: (case, overrides)
     "amr_cylinder_hancock": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
                                                         "max_steps=16", "time_scheme=MUSCL-Hancock"]),
     "amr_sphere3d_hancock": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
-                                                         "bc_front=wall", "bc_back=wall", "use_amr=true", "amr_max_level=2", "amr_refine_every=3",
+                                                         "bc_zmin=wall", "bc_zmax=wall", "use_amr=true", "amr_max_level=2", "amr_refine_every=3",
                                                          "max_steps=15", "time_scheme=MUSCL-Hancock"]),
 }
 

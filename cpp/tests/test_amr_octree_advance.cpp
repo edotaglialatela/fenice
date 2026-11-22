@@ -320,7 +320,7 @@ TEST(celladvance3d_invariant_axis_run_equals_the_2d_engine) {
         const char* bc2[4] = {"transmissive", "wall", "wall", "outlet"};
         for (const Scheme& sc : schemes) {
             Simulation s2;
-            s2.setup(cell_flux_params({{"bc_left", bc2[0]}, {"bc_right", bc2[1]}, {"bc_bottom", bc2[2]}, {"bc_top", bc2[3]},
+            s2.setup(cell_flux_params({{"bc_xmin", bc2[0]}, {"bc_xmax", bc2[1]}, {"bc_ymin", bc2[2]}, {"bc_ymax", bc2[3]},
                                        {"reconstruction", sc.recon}, {"boundary_order", sc.bo}}),
                      false);
             BCs bc3;
@@ -420,8 +420,8 @@ SodRun sod_run(int dim, int a, int max_level, bool band, std::vector<double>& dt
     Simulation sim;
     int p = 1, q = 2;
     if (dim == 2) {
-        sim.setup(cell_flux_params({{"nx", nl.c_str()}, {"ny", "2"}, {"Lx", "1"}, {"Ly", "0.04"}, {"bc_left", "transmissive"}, {"bc_right", "transmissive"},
-                                    {"bc_bottom", "periodic"}, {"bc_top", "periodic"}, {"reconstruction", "muscl"}, {"muscl_limiter", "Van Leer"}}),
+        sim.setup(cell_flux_params({{"nx", nl.c_str()}, {"ny", "2"}, {"Lx", "1"}, {"Ly", "0.04"}, {"bc_xmin", "transmissive"}, {"bc_xmax", "transmissive"},
+                                    {"bc_ymin", "periodic"}, {"bc_ymax", "periodic"}, {"reconstruction", "muscl"}, {"muscl_limiter", "Van Leer"}}),
                   false);
     } else {
         p = a == 0 ? 1 : 0;
@@ -589,8 +589,8 @@ WaveErrors wave_errors(int dim, int n, bool refine, double t_end, bool hancock =
     const std::string ns = std::to_string(n);
     Simulation sim;
     if (dim == 2)
-        sim.setup(cell_flux_params({{"nx", ns.c_str()}, {"ny", ns.c_str()}, {"Lx", "1"}, {"Ly", "1"}, {"bc_left", "periodic"}, {"bc_right", "periodic"},
-                                    {"bc_bottom", "periodic"}, {"bc_top", "periodic"}, {"reconstruction", "muscl"}, {"muscl_limiter", "Van Leer"}}),
+        sim.setup(cell_flux_params({{"nx", ns.c_str()}, {"ny", ns.c_str()}, {"Lx", "1"}, {"Ly", "1"}, {"bc_xmin", "periodic"}, {"bc_xmax", "periodic"},
+                                    {"bc_ymin", "periodic"}, {"bc_ymax", "periodic"}, {"reconstruction", "muscl"}, {"muscl_limiter", "Van Leer"}}),
                   false);
     else
         setup_3d(sim, {"periodic", "periodic", "periodic", "periodic", "periodic", "periodic"},

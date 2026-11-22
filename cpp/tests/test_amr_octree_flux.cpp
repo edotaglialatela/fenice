@@ -103,7 +103,7 @@ TEST(cellflux3d_invariant_axis_equals_the_2d_engine) {
         const char* bc2[4] = {"transmissive", "wall", "wall", "outlet"};   // left, right, bottom, top of the 2-D problem
         for (const Scheme& sc : schemes) {
             Simulation s2;
-            s2.setup(cell_flux_params({{"bc_left", bc2[0]}, {"bc_right", bc2[1]}, {"bc_bottom", bc2[2]}, {"bc_top", bc2[3]},
+            s2.setup(cell_flux_params({{"bc_xmin", bc2[0]}, {"bc_xmax", bc2[1]}, {"bc_ymin", bc2[2]}, {"bc_ymax", bc2[3]},
                                        {"reconstruction", sc.recon}, {"boundary_order", sc.bo}}),
                      false);
             // the 3-D problem: axis p carries the 2-D x data, q the 2-D y data, a is periodic
@@ -333,8 +333,8 @@ void truncation_errors(int dim, int n, double& near, double& far, bool refine = 
     Simulation sim;
     const std::string ns = std::to_string(n);
     if (dim == 2) {
-        sim.setup(cell_flux_params({{"nx", ns.c_str()}, {"ny", ns.c_str()}, {"Lx", "4"}, {"Ly", "4"}, {"bc_left", "transmissive"},
-                                    {"bc_right", "transmissive"}, {"bc_bottom", "transmissive"}, {"bc_top", "transmissive"},
+        sim.setup(cell_flux_params({{"nx", ns.c_str()}, {"ny", ns.c_str()}, {"Lx", "4"}, {"Ly", "4"}, {"bc_xmin", "transmissive"},
+                                    {"bc_xmax", "transmissive"}, {"bc_ymin", "transmissive"}, {"bc_ymax", "transmissive"},
                                     {"reconstruction", "muscl"}, {"muscl_limiter", "Van Leer"}}),
                   false);
     } else {

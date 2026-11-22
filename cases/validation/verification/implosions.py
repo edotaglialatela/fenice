@@ -49,10 +49,10 @@ nx = {n}
 ny = {n}
 
 [boundaries]
-bc_left = "wall"
-bc_bottom = "wall"
-bc_right = "transmissive"
-bc_top = "transmissive"
+bc_xmin = "wall"
+bc_ymin = "wall"
+bc_xmax = "transmissive"
+bc_ymax = "transmissive"
 
 [numerics]
 riemann_solver = "HLLC"

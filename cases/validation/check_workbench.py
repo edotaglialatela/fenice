@@ -112,7 +112,7 @@ ok(page.input_Lx.text() == "2.5", "a domain edit reaches the solver's field")
 page.combo_testcase.setCurrentText("IBM Flow over Cylinder")
 pump(0.5)
 ok(geo.chk_body.isChecked() and geo.fields["Lx"].text() != "2.5", "a new case on the solver reloads the geometry node")
-ok(not page.group_domain.isVisibleTo(page) and not page.bc_left.isVisibleTo(page), "the solver page shows no domain or side fields")
+ok(not page.group_domain.isVisibleTo(page) and not page.bc_xmin.isVisibleTo(page), "the solver page shows no domain or side fields")
 
 # ---- keys typed in a node's own widget are that widget's: Backspace in the face's spin box must not delete the selected node
 from PyQt6.QtWidgets import QSpinBox  # noqa: E402

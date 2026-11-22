@@ -1,4 +1,4 @@
-# Template: a three-dimensional box. nz > 1 makes the run 3-D (nz = 1 is 2-D); the z sides take bc_front and bc_back.
+# Template: a three-dimensional box. nz > 1 makes the run 3-D (nz = 1 is 2-D); the z sides take bc_zmin and bc_zmax.
 # A high-pressure ball bursts in a quiet gas inside walls. Keep nx, ny, nz small first: the cell count is their product.
 [case]
 name = "Box 3D Template"
@@ -14,12 +14,12 @@ ny = 48
 nz = 48
 
 [boundaries]
-bc_left = "wall"
-bc_right = "wall"
-bc_bottom = "wall"
-bc_top = "wall"
-bc_front = "wall"
-bc_back = "wall"
+bc_xmin = "wall"
+bc_xmax = "wall"
+bc_ymin = "wall"
+bc_ymax = "wall"
+bc_zmin = "wall"
+bc_zmax = "wall"
 
 [numerics]
 reconstruction = "muscl"

@@ -25,10 +25,10 @@ Ly = {ly}
 nx = {nx}
 ny = {ny}
 [boundaries]
-bc_left = "periodic"
-bc_right = "periodic"
-bc_bottom = "periodic"
-bc_top = "periodic"
+bc_xmin = "periodic"
+bc_xmax = "periodic"
+bc_ymin = "periodic"
+bc_ymax = "periodic"
 [numerics]
 riemann_solver = "HLLC"
 reconstruction = "weno3"

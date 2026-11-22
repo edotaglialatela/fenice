@@ -175,10 +175,10 @@ TEST(cellflux_level0_matches_uniform_residual_bitwise) {
     for (const BCs& bc : sets)
         for (const Scheme& sc : schemes) {
             Simulation sim;
-            sim.setup(cell_flux_params({{"bc_left", bc.l},
-                                        {"bc_right", bc.r},
-                                        {"bc_bottom", bc.b},
-                                        {"bc_top", bc.t},
+            sim.setup(cell_flux_params({{"bc_xmin", bc.l},
+                                        {"bc_xmax", bc.r},
+                                        {"bc_ymin", bc.b},
+                                        {"bc_ymax", bc.t},
                                         {"reconstruction", sc.muscl},
                                         {"muscl_limiter", sc.limiter},
                                         {"riemann_solver", sc.riemann}}),
@@ -211,8 +211,8 @@ TEST(cellflux_level0_matches_uniform_residual_bitwise) {
     // above kOmpMinWork the loops run in parallel: same bits
     for (const BCs& bc : {BCs{"wall", "outlet", "no_slip", "moving_wall"}, BCs{"periodic", "periodic", "wall", "wall"}}) {
         Simulation sim;
-        sim.setup(cell_flux_params({{"nx", "96"}, {"ny", "64"}, {"bc_left", bc.l}, {"bc_right", bc.r}, {"bc_bottom", bc.b},
-                                    {"bc_top", bc.t}, {"reconstruction", "muscl"}, {"muscl_limiter", "MC"}}),
+        sim.setup(cell_flux_params({{"nx", "96"}, {"ny", "64"}, {"bc_xmin", bc.l}, {"bc_xmax", bc.r}, {"bc_ymin", bc.b},
+                                    {"bc_ymax", bc.t}, {"reconstruction", "muscl"}, {"muscl_limiter", "MC"}}),
                   false);
         const Mesh& u = sim.mesh;
         CellMesh cm(u.Lx, u.Ly, u.nx, u.ny, 0, sim.boundaries.type(Face::Left) == BCType::Periodic, false, u.x0, u.y0);
@@ -303,8 +303,8 @@ TEST(celladvance_level0_steps_match_uniform_steps_bitwise) {
         for (const BCs& bc : sets)
             for (int sc = 0; sc < 3; ++sc) {
                 Simulation sim;
-                sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_left", bc.l},
-                                            {"bc_right", bc.r}, {"bc_bottom", bc.b}, {"bc_top", bc.t},
+                sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_xmin", bc.l},
+                                            {"bc_xmax", bc.r}, {"bc_ymin", bc.b}, {"bc_ymax", bc.t},
                                             {"reconstruction", "muscl"}, {"time_scheme", kSchemeNames[sc]}}),
                           false);
                 const Mesh& u = sim.mesh;
@@ -349,8 +349,8 @@ TEST(celladvance_level0_second_order_boundary_steps_match_uniform_steps_bitwise)
               for (int rec = 0; rec < 2; ++rec) {
                 if (rec == 1 && sc != 2) continue;   // WENO3-Z runs with SSP-RK3 only
                 Simulation sim;
-                sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_left", bc.l},
-                                            {"bc_right", bc.r}, {"bc_bottom", bc.b}, {"bc_top", bc.t},
+                sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_xmin", bc.l},
+                                            {"bc_xmax", bc.r}, {"bc_ymin", bc.b}, {"bc_ymax", bc.t},
                                             {"boundary_order", "2"}, {"reconstruction", rec ? "weno3" : "muscl"}, {"time_scheme", kSchemeNames[sc]}}),
                           false);
                 const Mesh& u = sim.mesh;
@@ -395,8 +395,8 @@ TEST(celladvance_level0_hancock_steps_match_uniform_steps_bitwise) {
                     const char* visc = (vs & 1) ? "true" : "false";
                     const char* force = (vs & 2) ? "true" : "false";
                     Simulation sim;
-                    sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_left", bc.l}, {"bc_right", bc.r},
-                                                {"bc_bottom", bc.b}, {"bc_top", bc.t}, {"boundary_order", bo}, {"use_viscous", visc},
+                    sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_xmin", bc.l}, {"bc_xmax", bc.r},
+                                                {"bc_ymin", bc.b}, {"bc_ymax", bc.t}, {"boundary_order", bo}, {"use_viscous", visc},
                                                 {"mu", "0.02"}, {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"},
                                                 {"use_bodyforce", force}, {"gx", "0.3"}, {"gy", "-0.7"},
                                                 {"source_rho", (vs & 2) ? "0.05*sin(2*x)*cos(y)" : "0"},
@@ -448,8 +448,8 @@ TEST(celladvance_level0_weno3_steps_match_uniform_steps_bitwise) {
         for (const BCs& bc : sets)
             for (int sc = 2; sc < 3; ++sc) {   // WENO3-Z runs with SSP-RK3 only
                 Simulation sim;
-                sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_left", bc.l},
-                                            {"bc_right", bc.r}, {"bc_bottom", bc.b}, {"bc_top", bc.t},
+                sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_xmin", bc.l},
+                                            {"bc_xmax", bc.r}, {"bc_ymin", bc.b}, {"bc_ymax", bc.t},
                                             {"reconstruction", "weno3"}, {"time_scheme", kSchemeNames[sc]}}),
                           false);
                 const Mesh& u = sim.mesh;
@@ -497,8 +497,8 @@ TEST(celladvance_level0_weno5_steps_match_uniform_steps_bitwise) {
         for (int big = 0; big < 2; ++big)
             for (const BCs& bc : sets) {
                 Simulation sim;
-                sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_left", bc.l},
-                                            {"bc_right", bc.r}, {"bc_bottom", bc.b}, {"bc_top", bc.t},
+                sim.setup(cell_flux_params({{"nx", big ? "96" : "9"}, {"ny", big ? "64" : "7"}, {"bc_xmin", bc.l},
+                                            {"bc_xmax", bc.r}, {"bc_ymin", bc.b}, {"bc_ymax", bc.t},
                                             {"boundary_order", order}, {"reconstruction", "weno5"}, {"time_scheme", kSchemeNames[sc]}}),
                           false);
                 const Mesh& u = sim.mesh;
@@ -590,8 +590,8 @@ TEST(positivity_fallback_level0_steps_equal_the_uniform_steps_bitwise) {
     // guarded stages repeat the same way, every state bit for bit, and the repair fires.
     for (int max_level : {0, 2}) {
         Simulation sim;
-        sim.setup(cell_flux_params({{"nx", "120"}, {"ny", "4"}, {"bc_left", "periodic"}, {"bc_right", "periodic"}, {"bc_bottom", "periodic"},
-                                    {"bc_top", "periodic"}, {"reconstruction", "weno3"}, {"riemann_solver", "HLLC"},
+        sim.setup(cell_flux_params({{"nx", "120"}, {"ny", "4"}, {"bc_xmin", "periodic"}, {"bc_xmax", "periodic"}, {"bc_ymin", "periodic"},
+                                    {"bc_ymax", "periodic"}, {"reconstruction", "weno3"}, {"riemann_solver", "HLLC"},
                                     {"time_scheme", "SSP Runge-Kutta 3"}, {"positivity_fallback", "true"}, {"use_viscous", "false"}}),
                   false);
         const Mesh& u = sim.mesh;

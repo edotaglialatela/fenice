@@ -24,10 +24,10 @@ mu = 0.02
 pr = 0.72
 
 [boundaries]
-bc_left = "no_slip"
-bc_right = "wall"
-bc_bottom = "wall"
-bc_top = "no_slip"
+bc_xmin = "no_slip"
+bc_xmax = "wall"
+bc_ymin = "wall"
+bc_ymax = "no_slip"
 
 [numerics]
 riemann_solver = "HLLC"

@@ -485,9 +485,9 @@ inline State test_state3(const EOS& eos, double x, double y, double z) {
 
 // A 3-D Simulation of the face-engine rig (Sod defaults, 9 x 7 x 5 cells unless overridden) with the six boundary types.
 inline void setup_3d(Simulation& sim, const std::array<const char*, 6>& bc, std::vector<std::pair<const char*, const char*>> kv) {
-    std::vector<std::pair<const char*, const char*>> all = {{"nz", "5"},          {"Lz", "0.9"},        {"bc_left", bc[0]},
-                                                           {"bc_right", bc[1]},  {"bc_bottom", bc[2]}, {"bc_top", bc[3]},
-                                                           {"bc_front", bc[4]},  {"bc_back", bc[5]}};
+    std::vector<std::pair<const char*, const char*>> all = {{"nz", "5"},          {"Lz", "0.9"},        {"bc_xmin", bc[0]},
+                                                           {"bc_xmax", bc[1]},  {"bc_ymin", bc[2]}, {"bc_ymax", bc[3]},
+                                                           {"bc_zmin", bc[4]},  {"bc_zmax", bc[5]}};
     all.insert(all.end(), kv.begin(), kv.end());
     Params p = baseline_defaults();
     p.merge(get_test_case("Sod Shock Tube").defaults);

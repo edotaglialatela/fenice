@@ -19,10 +19,10 @@ use_viscous = true
 reynolds = 100
 
 [boundaries]
-bc_left = "vel_inlet"
-bc_right = "transmissive"
-bc_bottom = "wall"
-bc_top = "wall"
+bc_xmin = "vel_inlet"
+bc_xmax = "transmissive"
+bc_ymin = "wall"
+bc_ymax = "wall"
 u_in = 1.0
 rho_in = 1.0
 p_out = 7.0                  # sound speed sqrt(gamma p / rho) = 3.1: the inlet is at Mach 0.32

@@ -17,10 +17,10 @@ mu = 2.5e-3
 use_bodyforce = false
 
 [boundaries]
-bc_left = "no_slip"
-bc_right = "no_slip"
-bc_bottom = "no_slip"
-bc_top = "moving_wall"
+bc_xmin = "no_slip"
+bc_xmax = "no_slip"
+bc_ymin = "no_slip"
+bc_ymax = "moving_wall"
 u_in = 1.0
 rho_in = 1.0
 p_out = 100.0

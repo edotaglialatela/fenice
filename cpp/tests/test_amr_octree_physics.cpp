@@ -226,7 +226,7 @@ TEST(cellflux3d_viscous_invariant_axis_equals_the_2d_engine) {
                     if (std::string(recon) == "none" && std::string(bo) == "2") continue;
                     const KV common = {{"reconstruction", recon}, {"boundary_order", bo}, {"use_viscous", "true"}, {"mu", "0.05"}};
                     Simulation s2;
-                    s2.setup(cell_flux_params({{"bc_left", bc2[0]}, {"bc_right", bc2[1]}, {"bc_bottom", bc2[2]}, {"bc_top", bc2[3]},
+                    s2.setup(cell_flux_params({{"bc_xmin", bc2[0]}, {"bc_xmax", bc2[1]}, {"bc_ymin", bc2[2]}, {"bc_ymax", bc2[3]},
                                                {"reconstruction", recon}, {"boundary_order", bo}, {"use_viscous", "true"}, {"mu", "0.05"}}),
                              false);
                     BCs bc3;
@@ -341,8 +341,8 @@ TEST(cellflux3d_body_force_and_sources_level0_match_uniform_bitwise) {
     };
     const Cfg cfgs[] = {
         {{{"nx", "6"}, {"ny", "5"}, {"nz", "4"}, {"use_bodyforce", "true"}, {"gx", "0.3"}, {"gy", "-0.7"}, {"gz", "0.4"}}, "MMS + body force"},
-        {{{"nx", "6"}, {"ny", "5"}, {"nz", "4"}, {"bc_left", "no_slip"}, {"bc_right", "moving_wall"}, {"bc_bottom", "wall"},
-          {"bc_top", "outlet"}, {"bc_front", "wall"}, {"bc_back", "no_slip"}, {"boundary_order", "2"},
+        {{{"nx", "6"}, {"ny", "5"}, {"nz", "4"}, {"bc_xmin", "no_slip"}, {"bc_xmax", "moving_wall"}, {"bc_ymin", "wall"},
+          {"bc_ymax", "outlet"}, {"bc_zmin", "wall"}, {"bc_zmax", "no_slip"}, {"boundary_order", "2"},
           {"source_rho", "0.1*sin(x+2*y+3*z+t)"}, {"source_mz", "0.2*cos(3*x-y+z-2*t)"}, {"source_E", "0.05*x*y*z+t"},
           {"use_bodyforce", "true"}, {"gz", "-0.5"}},
          "walls, unsteady source + body force"}};
@@ -520,7 +520,7 @@ TEST(cellflux3d_massflow_and_nonreflecting_invariant_axis_equals_the_2d_engine) 
         for (const char* visc : {"false", "true"})
             for (const char* bo : {"1", "2"}) {
                 Simulation s2;
-                s2.setup(cell_flux_params({{"bc_left", bc2[0]}, {"bc_right", bc2[1]}, {"bc_bottom", bc2[2]}, {"bc_top", bc2[3]},
+                s2.setup(cell_flux_params({{"bc_xmin", bc2[0]}, {"bc_xmax", bc2[1]}, {"bc_ymin", bc2[2]}, {"bc_ymax", bc2[3]},
                                            {"reconstruction", "muscl"}, {"boundary_order", bo}, {"use_viscous", visc}, {"mu", "0.03"},
                                            {"rho_in", "1.3"}}),
                          false);
@@ -733,8 +733,8 @@ TEST(cellflux3d_ibm_cylinder_along_z_equals_the_2d_engine) {
     Simulation s2, s3;
     const KV ibm = {{"use_ibm", "true"}, {"ibm_shape", "Cylinder"}, {"ibm_radius", "0.27"}, {"ibm_cx", "0.83"},
                     {"ibm_cy", "0.52"}, {"reconstruction", "muscl"}};
-    s2.setup(cell_flux_params({{"nx", "12"}, {"ny", "9"}, {"bc_left", "transmissive"}, {"bc_right", "outlet"}, {"bc_bottom", "wall"},
-                               {"bc_top", "wall"}, {"use_ibm", "true"}, {"ibm_shape", "Cylinder"},
+    s2.setup(cell_flux_params({{"nx", "12"}, {"ny", "9"}, {"bc_xmin", "transmissive"}, {"bc_xmax", "outlet"}, {"bc_ymin", "wall"},
+                               {"bc_ymax", "wall"}, {"use_ibm", "true"}, {"ibm_shape", "Cylinder"},
                                {"ibm_radius", "0.27"}, {"ibm_cx", "0.83"}, {"ibm_cy", "0.52"}, {"reconstruction", "muscl"}}),
              false);
     KV kv3 = {{"nx", "12"}, {"ny", "9"}, {"nz", "2"}, {"Lz", "0.6"}};

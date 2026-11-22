@@ -61,7 +61,7 @@ The orchestration lives in [Simulation]({{root}}modules/Simulation.html).
 | the Riemann solver | `riemann_solver` | [Schemes]({{root}}modules/Schemes.html) |
 | the reconstruction (first order, MUSCL, WENO) and the limiter | `reconstruction`, `muscl_limiter` | [Schemes]({{root}}modules/Schemes.html) |
 | the time integrator and the time step | `time_scheme`, `cfl` | [TimeScheme]({{root}}modules/TimeScheme.html) |
-| the boundary conditions | `bc_left`, `bc_right`, `bc_bottom`, `bc_top`, `bc_front`, `bc_back` | [Boundaries]({{root}}modules/Boundaries.html) |
+| the boundary conditions | `bc_xmin`, `bc_xmax`, `bc_ymin`, `bc_ymax`, `bc_zmin`, `bc_zmax` | [Boundaries]({{root}}modules/Boundaries.html) |
 | viscosity, conductivity, body forces, an immersed body | `use_viscous`, `use_bodyforce`, `use_ibm` | [Physics]({{root}}modules/Physics.html) |
 | the equation of state | `eos_type`, `gamma` | [Core]({{root}}modules/Core.html) |
 | adaptive refinement | `use_amr` | [AMR]({{root}}modules/AMR.html) |

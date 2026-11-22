@@ -24,10 +24,10 @@ mu = 0.02
 pr = 0.72
 
 [boundaries]
-bc_left = "periodic"
-bc_right = "periodic"
-bc_bottom = "moving_wall"
-bc_top = "wall"
+bc_xmin = "periodic"
+bc_xmax = "periodic"
+bc_ymin = "moving_wall"
+bc_ymax = "wall"
 u_in = 0.1
 
 [numerics]

@@ -18,10 +18,10 @@ gamma = 1.4
 use_viscous = false
 
 [boundaries]
-bc_left = "wall"
-bc_right = "wall"
-bc_bottom = "wall"
-bc_top = "wall"
+bc_xmin = "wall"
+bc_xmax = "wall"
+bc_ymin = "wall"
+bc_ymax = "wall"
 
 [numerics]
 riemann_solver = "HLLC"

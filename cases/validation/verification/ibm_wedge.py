@@ -40,10 +40,10 @@ ny = 100
 use_viscous = false
 use_bodyforce = false
 [boundaries]
-bc_left = "vel_inlet"
-bc_right = "transmissive"
-bc_bottom = "transmissive"
-bc_top = "transmissive"
+bc_xmin = "vel_inlet"
+bc_xmax = "transmissive"
+bc_ymin = "transmissive"
+bc_ymax = "transmissive"
 u_in = 2.0
 rho_in = 1.0
 p_out = {p}

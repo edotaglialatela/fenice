@@ -68,10 +68,10 @@ nx = {NX}
 ny = {NY}
 
 [boundaries]
-bc_left = "transmissive"
-bc_right = "transmissive"
-bc_bottom = "wall"
-bc_top = "wall"
+bc_xmin = "transmissive"
+bc_xmax = "transmissive"
+bc_ymin = "wall"
+bc_ymax = "wall"
 
 [numerics]
 riemann_solver = "HLLC"
@@ -199,10 +199,10 @@ nx = {nx}
 ny = {ny}
 
 [boundaries]
-bc_left = "transmissive"
-bc_right = "transmissive"
-bc_bottom = "wall"
-bc_top = "wall"
+bc_xmin = "transmissive"
+bc_xmax = "transmissive"
+bc_ymin = "wall"
+bc_ymax = "wall"
 
 [numerics]
 riemann_solver = "HLLC"

@@ -51,10 +51,10 @@ nx = 100
 ny = 100
 
 [boundaries]
-bc_left = "transmissive"
-bc_right = "transmissive"
-bc_bottom = "transmissive"
-bc_top = "transmissive"
+bc_xmin = "transmissive"
+bc_xmax = "transmissive"
+bc_ymin = "transmissive"
+bc_ymax = "transmissive"
 
 [numerics]
 riemann_solver = "HLLC"

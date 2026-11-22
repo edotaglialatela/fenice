@@ -71,8 +71,8 @@ TEST(check_case_flags_keys_without_effect_and_restated_defaults) {
     f = findings({{"use_viscous", "true"}, {"mu", "0.01"}, {"use_amr", "true"}, {"amr_max_level", "3"}});
     CHECK(f.empty());
     // 2-D: the z keys do nothing; 3-D: they do
-    CHECK(mentions(findings({{"Lz", "2.0"}, {"bc_front", "wall"}}), "Lz", CaseFinding::Unused));
-    CHECK(findings({{"nz", "8"}, {"Lz", "2.0"}, {"bc_front", "wall"}, {"bc_back", "wall"}}).empty());
+    CHECK(mentions(findings({{"Lz", "2.0"}, {"bc_zmin", "wall"}}), "Lz", CaseFinding::Unused));
+    CHECK(findings({{"nz", "8"}, {"Lz", "2.0"}, {"bc_zmin", "wall"}, {"bc_zmax", "wall"}}).empty());
     // reconstruction-dependent keys
     CHECK(mentions(findings({{"muscl_limiter", "Minmod"}}), "muscl_limiter", CaseFinding::Unused));
     CHECK(findings({{"reconstruction", "muscl"}, {"muscl_limiter", "Minmod"}}).empty());
@@ -83,9 +83,9 @@ TEST(check_case_flags_keys_without_effect_and_restated_defaults) {
     // an explicit mu next to reynolds is overridden
     CHECK(mentions(findings({{"use_viscous", "true"}, {"reynolds", "100"}, {"mu", "0.01"}}), "mu", CaseFinding::Unused));
     // inlet at rest, body across the edge or outside, 3-D case on a 2-D mesh, cfl, resolution
-    CHECK(mentions(findings({{"bc_left", "vel_inlet"}}), "u_in", CaseFinding::Warning));
-    CHECK(!mentions(findings({{"bc_left", "vel_inlet"}, {"u_in", "1.0"}}), "u_in", CaseFinding::Warning));
-    CHECK(!mentions(findings({{"bc_left", "vel_inlet"}, {"u_in", "0.3*sqrt(gamma*p_out/rho_in)"}}), "u_in", CaseFinding::Warning));
+    CHECK(mentions(findings({{"bc_xmin", "vel_inlet"}}), "u_in", CaseFinding::Warning));
+    CHECK(!mentions(findings({{"bc_xmin", "vel_inlet"}, {"u_in", "1.0"}}), "u_in", CaseFinding::Warning));
+    CHECK(!mentions(findings({{"bc_xmin", "vel_inlet"}, {"u_in", "0.3*sqrt(gamma*p_out/rho_in)"}}), "u_in", CaseFinding::Warning));
     CHECK(mentions(findings({{"use_ibm", "true"}, {"ibm_cx", "2.0"}}), "ibm_cx", CaseFinding::Warning));
     CHECK(mentions(findings({{"use_ibm", "true"}, {"ibm_cx", "0.05"}}), "ibm_radius", CaseFinding::Warning));
     CHECK(mentions(findings({{"use_ibm", "true"}, {"ibm_radius", "0.02"}}), "ibm_radius", CaseFinding::Note));   // 4 cells across
@@ -177,8 +177,8 @@ TEST(weno5_combinations) {
     CHECK(ok({{"time_scheme", rk3}, {"use_amr", "true"}, {"nz", "4"}, {"use_mpi", "false"}}));
     CHECK(!ok({{"time_scheme", "SSP Runge-Kutta 2"}, {"use_amr", "true"}, {"use_mpi", "false"}}));
     CHECK(!ok({{"time_scheme", rk3}, {"use_mpi", "true"}}));
-    CHECK(!ok({{"time_scheme", rk3}, {"use_amr", "true"}, {"use_mpi", "false"}, {"ny", "2"}, {"bc_bottom", "periodic"}, {"bc_top", "periodic"}}));
-    CHECK(ok({{"time_scheme", rk3}, {"use_amr", "true"}, {"use_mpi", "false"}, {"ny", "3"}, {"bc_bottom", "periodic"}, {"bc_top", "periodic"}}));
+    CHECK(!ok({{"time_scheme", rk3}, {"use_amr", "true"}, {"use_mpi", "false"}, {"ny", "2"}, {"bc_ymin", "periodic"}, {"bc_ymax", "periodic"}}));
+    CHECK(ok({{"time_scheme", rk3}, {"use_amr", "true"}, {"use_mpi", "false"}, {"ny", "3"}, {"bc_ymin", "periodic"}, {"bc_ymax", "periodic"}}));
 }
 
 // boundary_order is 2 by default, is 1 with a first-order scheme (nothing to extend) whatever was asked, and an explicit 1 is kept.
@@ -288,13 +288,13 @@ TEST(parameter_validation) {
     CHECK(error_of({{"cfl", "0.5x"}}).find("not a number") != std::string::npos);
     CHECK(error_of({{"cfl", "0"}}).find("cfl") != std::string::npos);
     CHECK(error_of({{"eos_type", "ideal"}}).find("eos_type") != std::string::npos);
-    CHECK(error_of({{"bc_left", "periodic"}}).find("in pairs") != std::string::npos);
-    CHECK(error_of({{"bc_left", "Periodic"}, {"bc_right", "periodic"}}).empty());
+    CHECK(error_of({{"bc_xmin", "periodic"}}).find("in pairs") != std::string::npos);
+    CHECK(error_of({{"bc_xmin", "Periodic"}, {"bc_xmax", "periodic"}}).empty());
     // adaptive mesh: any base mesh, resume, periodic and mass-flow boundaries and sources are fine now
     CHECK(error_of({{"use_amr", "true"}, {"resume", "true"}}).empty());
     CHECK(error_of({{"use_amr", "true"}, {"nx", "100"}}).empty());
-    CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}, {"bc_left", "periodic"}, {"bc_right", "periodic"}}).empty());
-    CHECK(error_of({{"use_amr", "true"}, {"bc_left", "massflow_inlet"}}).empty());
+    CHECK(error_of({{"use_amr", "true"}, {"nx", "96"}, {"ny", "96"}, {"bc_xmin", "periodic"}, {"bc_xmax", "periodic"}}).empty());
+    CHECK(error_of({{"use_amr", "true"}, {"bc_xmin", "massflow_inlet"}}).empty());
     CHECK(error_of({{"amr_patch_nx", "16"}}).find("removed") != std::string::npos);
     CHECK(error_of({{"amr_patch_ny", "16"}}).find("level-0 grid") != std::string::npos);
     CHECK(error_of({{"amr_buffer_layers", "1"}}).find("amr_diffusion") != std::string::npos);
@@ -478,7 +478,7 @@ Lx = 6.283185307179586
 nz = 8
 
 [boundaries]
-bc_front = "wall"
+bc_zmin = "wall"
 p_out = 0.7142857142857143
 
 [numerics]
@@ -561,7 +561,7 @@ TEST(builtin_cases_and_save_case) {
     const TestCase& saved = get_test_case(dir);
     CHECK(saved.key == "Saved cavity");
     CHECK(saved.defaults.str("nx") == "48");
-    CHECK(saved.defaults.str("bc_top") == "moving_wall");
+    CHECK(saved.defaults.str("bc_ymax") == "moving_wall");
     CHECK(!saved.defaults.has("output_root"));
     CHECK(saved.requires_viscosity);
     bool refused = false;

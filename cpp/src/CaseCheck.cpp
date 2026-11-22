@@ -39,7 +39,7 @@ const std::vector<Dependency>& dependencies() {
         {{"mu", "pr", "reynolds"}, [](const Params& p) { return p.flag("use_viscous"); }, "use_viscous is false"},
         {{"gx", "gy", "gz"}, [](const Params& p) { return p.flag("use_bodyforce"); }, "use_bodyforce is false"},
         {{"gz"}, [](const Params& p) { return p.integer("nz") > 1; }, "the run is 2-D (nz = 1)"},
-        {{"Lz", "bc_front", "bc_back", "ibm_cz"}, [](const Params& p) { return p.integer("nz") > 1; }, "the run is 2-D (nz = 1)"},
+        {{"Lz", "bc_zmin", "bc_zmax", "ibm_cz"}, [](const Params& p) { return p.integer("nz") > 1; }, "the run is 2-D (nz = 1)"},
         {{"ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz", "ibm_file", "ibm_chord", "ibm_aoa", "ibm_curvature"},
          [](const Params& p) { return p.flag("use_ibm"); }, "use_ibm is false"},
         {{"ibm_file", "ibm_chord", "ibm_aoa"},
@@ -105,8 +105,8 @@ std::vector<CaseFinding> check_case(const ParamLayers& layers) {
     {
         const bool three_d = run.integer("nz") > 1;
         bool inlet = false;
-        for (const char* side : {"bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back"})
-            if (lower(run.str(side)) == "vel_inlet" && (three_d || (std::string(side) != "bc_front" && std::string(side) != "bc_back")))
+        for (const char* side : {"bc_xmin", "bc_xmax", "bc_ymin", "bc_ymax", "bc_zmin", "bc_zmax"})
+            if (lower(run.str(side)) == "vel_inlet" && (three_d || (std::string(side) != "bc_zmin" && std::string(side) != "bc_zmax")))
                 inlet = true;
         const bool tabled = !run.str("u_in_table").empty() || !run.str("v_in_table").empty();
         const double u = number_or_nan(run, "u_in"), v = number_or_nan(run, "v_in");

@@ -69,8 +69,8 @@ cells are reset to rest after the step, so the source acts on the fluid only.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `bc_left`, `bc_right`, `bc_bottom`, `bc_top` | `wall` | One of `wall` (*Inviscid Wall (Slip)*), `no_slip` (*Viscous Wall (No-Slip)*), `moving_wall`, `vel_inlet` (*Velocity Inlet*), `massflow_inlet` (*Mass Flow Inlet*), `outlet` (*Pressure Outlet*), `transmissive`, `nonreflecting` (*Non-Reflecting Outlet*), `periodic` (periodic on both sides of an axis or neither) |
-| `bc_front`, `bc_back` | `periodic` | 3-D only: the $z = 0$ and $z = L_z$ sides, same choices |
+| `bc_xmin`, `bc_xmax`, `bc_ymin`, `bc_ymax` | `wall` | One of `wall` (*Inviscid Wall (Slip)*), `no_slip` (*Viscous Wall (No-Slip)*), `moving_wall`, `vel_inlet` (*Velocity Inlet*), `massflow_inlet` (*Mass Flow Inlet*), `outlet` (*Pressure Outlet*), `transmissive`, `nonreflecting` (*Non-Reflecting Outlet*), `periodic` (periodic on both sides of an axis or neither) |
+| `bc_zmin`, `bc_zmax` | `periodic` | 3-D only: the $z = 0$ and $z = L_z$ sides, same choices |
 | `u_in` | `0.0` | Inlet velocity / moving-wall x-velocity [m/s]; may be an expression of `t` |
 | `v_in` | `0.0` | Moving-wall y-velocity [m/s]; may be an expression of `t` |
 | `rho_in` | `1.0` | Mass-flow inlet density [kg/m³]; also the IBM reference density; may be an expression of `t` |

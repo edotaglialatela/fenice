@@ -46,7 +46,7 @@ def measure(args, tag, mpi=0, threads=None):
     return d, json.loads(info.read_text())
 
 
-SPHERE_GHOST = ["nx=24", "ny=12", "nz=6", "Lz=1.0", "ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "bc_front=wall", "bc_back=wall"]
+SPHERE_GHOST = ["nx=24", "ny=12", "nz=6", "Lz=1.0", "ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "bc_zmin=wall", "bc_zmax=wall"]
 CHECK_CASES = {   # name: (case, overrides)
     "sod": ("Sod Shock Tube", ["nx=50", "ny=4", "Ly=0.08", "amr_max_level=2", "amr_refine_every=4"]),
     "airfoil": ("IBM Airfoil AMR", ["t_end=0.6"]),
@@ -58,22 +58,22 @@ CHECK_CASES = {   # name: (case, overrides)
                      ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "max_steps=8"]),
     # 3-D adaptive meshes (octrees): the Sod tube along x with periodic transverse axes, and the viscous manufactured solution
     "sod3d": ("Sod Shock Tube", ["nx=50", "ny=2", "nz=2", "Ly=0.04", "Lz=0.04", "amr_max_level=2", "amr_refine_every=4",
-                                 "bc_bottom=periodic", "bc_top=periodic", "bc_front=periodic", "bc_back=periodic"]),
+                                 "bc_ymin=periodic", "bc_ymax=periodic", "bc_zmin=periodic", "bc_zmax=periodic"]),
     "mms3d": ("Manufactured Solution 3D", ["nx=8", "ny=8", "nz=8", "amr_max_level=2", "amr_refine_every=2", "max_steps=8",
                                           "amr_criterion=0.8"]),   # (0.8: two levels in use, level jumps; 0.1 refines every leaf)
     # WENO5-Z (the two outer cells of a wide face in the halo), 2-D with walls and ghost layers, and an octree
     "sod_weno5": ("Sod Shock Tube", ["nx=50", "ny=6", "Ly=0.12", "amr_max_level=2", "amr_refine_every=4", "reconstruction=weno5",
-                                     "time_scheme=SSP Runge-Kutta 3", "bc_left=wall", "bc_right=wall", "boundary_order=2"]),
+                                     "time_scheme=SSP Runge-Kutta 3", "bc_xmin=wall", "bc_xmax=wall", "boundary_order=2"]),
     "sod3d_weno5": ("Sod Shock Tube", ["nx=50", "ny=3", "nz=3", "Ly=0.06", "Lz=0.06", "amr_max_level=2", "amr_refine_every=4",
-                                       "reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3", "bc_bottom=periodic", "bc_top=periodic",
-                                       "bc_front=periodic", "bc_back=periodic"]),
+                                       "reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3", "bc_ymin=periodic", "bc_ymax=periodic",
+                                       "bc_zmin=periodic", "bc_zmax=periodic"]),
     # MUSCL-Hancock: each level predicted before it moves, the predicted side states exchanged between the ranks (2-D with walls, 3-D with a jump)
     "sod_hancock": ("Sod Shock Tube", ["nx=50", "ny=6", "Ly=0.12", "amr_max_level=2", "amr_refine_every=4", "reconstruction=muscl",
-                                       "time_scheme=MUSCL-Hancock", "bc_left=wall", "bc_right=wall", "boundary_order=2"]),
+                                       "time_scheme=MUSCL-Hancock", "bc_xmin=wall", "bc_xmax=wall", "boundary_order=2"]),
     "mms_hancock": ("Manufactured Solution", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "max_steps=16", "reconstruction=muscl",
                                                "time_scheme=MUSCL-Hancock"]),
     "sod3d_hancock": ("Sod Shock Tube", ["nx=50", "ny=2", "nz=2", "Ly=0.04", "Lz=0.04", "amr_max_level=2", "amr_refine_every=4",
-                                          "bc_bottom=periodic", "bc_top=periodic", "bc_front=periodic", "bc_back=periodic",
+                                          "bc_ymin=periodic", "bc_ymax=periodic", "bc_zmin=periodic", "bc_zmax=periodic",
                                           "reconstruction=muscl", "time_scheme=MUSCL-Hancock"]),
     # the ghost-cell wall of a sphere on the shares of the ranks (the wall is active: the body band is six finest cells wide)
     "sphere3d_ghost": ("IBM Flow over Cylinder", SPHERE_GHOST + ["amr_max_level=2", "amr_refine_every=3", "max_steps=30"]),

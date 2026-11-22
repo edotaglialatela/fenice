@@ -82,7 +82,7 @@ def _make(project):
             self.config_sections.setTabVisible(self.geometry_section_index, False)
             self.tabs.setTabVisible(self.tabs.indexOf(self.ibm_tab), False)
             self.tabs.setTabVisible(self.tabs.indexOf(self.amr_tab), False)   # the refinement is the geometry node's too
-            self._side_widgets = [self.bc_left, self.bc_right, self.bc_bottom, self.bc_top, self.bc_front, self.bc_back]
+            self._side_widgets = [self.bc_xmin, self.bc_xmax, self.bc_ymin, self.bc_ymax, self.bc_zmin, self.bc_zmax]
             for w in self._side_widgets:
                 w.hide()
                 label = self.form_bc.labelForField(w)

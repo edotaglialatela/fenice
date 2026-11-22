@@ -24,10 +24,10 @@ mu = 0.02
 pr = 0.72
 
 [boundaries]
-bc_left = "no_slip"
-bc_right = "transmissive"
-bc_bottom = "periodic"
-bc_top = "periodic"
+bc_xmin = "no_slip"
+bc_xmax = "transmissive"
+bc_ymin = "periodic"
+bc_ymax = "periodic"
 
 [numerics]
 riemann_solver = "HLLC"

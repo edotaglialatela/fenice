@@ -268,9 +268,9 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     }
 
     boundaries = BoundaryManager(mesh, fluid);
-    boundaries.set_boundary_types(parse_bc(p.bc_left), parse_bc(p.bc_right), parse_bc(p.bc_bottom), parse_bc(p.bc_top));
-    boundaries.set_type(Face::Front, parse_bc(p.bc_front));
-    boundaries.set_type(Face::Back, parse_bc(p.bc_back));
+    boundaries.set_boundary_types(parse_bc(p.bc_xmin), parse_bc(p.bc_xmax), parse_bc(p.bc_ymin), parse_bc(p.bc_ymax));
+    boundaries.set_type(Face::Front, parse_bc(p.bc_zmin));
+    boundaries.set_type(Face::Back, parse_bc(p.bc_zmax));
     boundaries.set_params(bc_params(p));
     update_boundary_values(0.0, boundaries);
 

@@ -21,7 +21,7 @@ TEST(cellphys_viscous_matches_uniform_bitwise) {
     int n = 0;
     for (const BCs& bc : sets)
         for (const char* muscl : {"none", "muscl"}) {
-            ParityRig rig({{"bc_left", bc.l}, {"bc_right", bc.r}, {"bc_bottom", bc.b}, {"bc_top", bc.t},
+            ParityRig rig({{"bc_xmin", bc.l}, {"bc_xmax", bc.r}, {"bc_ymin", bc.b}, {"bc_ymax", bc.t},
                            {"use_viscous", "true"}, {"mu", "0.05"}, {"reconstruction", muscl}});
             const bool same = rig.residual_equal();
             CHECK(same);
@@ -30,8 +30,8 @@ TEST(cellphys_viscous_matches_uniform_bitwise) {
         }
     CHECK(n == 14);
     // parallel size
-    ParityRig big({{"nx", "96"}, {"ny", "64"}, {"bc_left", "periodic"}, {"bc_right", "periodic"}, {"bc_bottom", "no_slip"},
-                   {"bc_top", "moving_wall"}, {"use_viscous", "true"}, {"mu", "0.05"}, {"reconstruction", "muscl"}});
+    ParityRig big({{"nx", "96"}, {"ny", "64"}, {"bc_xmin", "periodic"}, {"bc_xmax", "periodic"}, {"bc_ymin", "no_slip"},
+                   {"bc_ymax", "moving_wall"}, {"use_viscous", "true"}, {"mu", "0.05"}, {"reconstruction", "muscl"}});
     CHECK(big.residual_equal());
 }
 
@@ -55,8 +55,8 @@ TEST(cellphys_viscous_second_order_boundary_matches_uniform_bitwise) {
     for (const BCs& bc : sets)
         for (const char* rec : {"muscl", "weno3"})
             for (const char* big : {"0", "1"}) {
-                ParityRig rig({{"nx", big[0] == '1' ? "48" : "9"}, {"ny", big[0] == '1' ? "40" : "7"}, {"bc_left", bc.l},
-                               {"bc_right", bc.r}, {"bc_bottom", bc.b}, {"bc_top", bc.t}, {"use_viscous", "true"}, {"mu", "0.05"},
+                ParityRig rig({{"nx", big[0] == '1' ? "48" : "9"}, {"ny", big[0] == '1' ? "40" : "7"}, {"bc_xmin", bc.l},
+                               {"bc_xmax", bc.r}, {"bc_ymin", bc.b}, {"bc_ymax", bc.t}, {"use_viscous", "true"}, {"mu", "0.05"},
                                {"reconstruction", rec}, {"boundary_order", "2"},
                                {"time_scheme", "SSP Runge-Kutta 3"}});
                 const bool same = rig.residual_equal();
@@ -69,7 +69,7 @@ TEST(cellphys_viscous_second_order_boundary_matches_uniform_bitwise) {
 
 TEST(cellphys_forces_and_sources_match_uniform_bitwise) {
     ParityRig bf({{"use_viscous", "true"}, {"mu", "0.03"}, {"use_bodyforce", "true"}, {"gx", "0.3"}, {"gy", "-0.7"},
-                  {"bc_bottom", "no_slip"}, {"reconstruction", "muscl"}});
+                  {"bc_ymin", "no_slip"}, {"reconstruction", "muscl"}});
     CHECK(bf.sim.body_force != nullptr && bf.residual_equal());
     ParityRig steady({{"use_viscous", "true"}, {"mu", "0.03"}, {"source_rho", "0.1*sin(3*x)*cos(2*y)"},
                       {"source_mx", "0.2*x*y"}, {"source_my", "0.3"}, {"source_E", "0.5*cos(x+y)"}, {"reconstruction", "muscl"}});
@@ -94,7 +94,7 @@ TEST(cellphys_immersed_body_matches_uniform) {
     for (const char* viscous : {"false", "true"}) {
         ParityRig rig({{"nx", "36"}, {"ny", "24"}, {"use_ibm", "true"}, {"ibm_shape", "Cylinder"}, {"ibm_radius", "0.25"},
                        {"ibm_cx", "0.8"}, {"ibm_cy", "0.55"}, {"use_viscous", viscous}, {"mu", "0.02"},
-                       {"reconstruction", "muscl"}, {"bc_left", "vel_inlet"}, {"bc_right", "outlet"}});
+                       {"reconstruction", "muscl"}, {"bc_xmin", "vel_inlet"}, {"bc_xmax", "outlet"}});
         CHECK(rig.sim.ibm->solid_count() > 20);
         CHECK(rig.eng->has_body());
         CHECK(rig.eng->ghost_ready());
@@ -128,10 +128,10 @@ TEST(cellphys_immersed_body_matches_uniform) {
 
 TEST(cellphys_nonreflecting_matches_uniform_bitwise) {
     for (const char* beta : {"-1", "0.3", "1"}) {
-        ParityRig rig({{"bc_right", "nonreflecting"}, {"bc_top", "nonreflecting"}, {"bc_left", "outlet"}, {"bc_bottom", "wall"},
+        ParityRig rig({{"bc_xmax", "nonreflecting"}, {"bc_ymax", "nonreflecting"}, {"bc_xmin", "outlet"}, {"bc_ymin", "wall"},
                        {"p_out", "17.5"}, {"nrbc_beta", beta}, {"reconstruction", "muscl"}});
         CHECK(rig.residual_equal());
-        ParityRig per({{"bc_right", "nonreflecting"}, {"bc_left", "wall"}, {"bc_bottom", "periodic"}, {"bc_top", "periodic"},
+        ParityRig per({{"bc_xmax", "nonreflecting"}, {"bc_xmin", "wall"}, {"bc_ymin", "periodic"}, {"bc_ymax", "periodic"},
                        {"p_out", "17.5"}, {"nrbc_beta", beta}, {"use_viscous", "true"}, {"mu", "0.02"}});
         CHECK(per.residual_equal());
     }

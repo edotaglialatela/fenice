@@ -31,7 +31,7 @@ def _make(project=None):
     def flag(p: dict, key: str, default: str = "false") -> bool:
         return str(p.get(key, default)).strip().lower() in ("1", "true", "yes", "on")
 
-    OPPOSITE = {'left': 'right', 'right': 'left', 'bottom': 'top', 'top': 'bottom', 'front': 'back', 'back': 'front'}
+    OPPOSITE = {'xmin': 'xmax', 'xmax': 'xmin', 'ymin': 'ymax', 'ymax': 'ymin', 'zmin': 'zmax', 'zmax': 'zmin'}
 
     class GeometryPanel(QWidget):
         def __init__(self):
@@ -124,10 +124,10 @@ def _make(project=None):
                 body_form.addRow(self.domain_labels[key], self.fields[key])
             self.bc_combos: dict[str, QComboBox] = {}
             bc_form = QFormLayout()
-            for side in ("left", "right", "bottom", "top", "front", "back"):
+            for side in ("xmin", "xmax", "ymin", "ymax", "zmin", "zmax"):
                 cb = QComboBox()
                 self.bc_combos[side] = cb
-                lbl = QLabel(side.capitalize())
+                lbl = QLabel(side[0] + " " + side[1:])
                 cb._label = lbl
                 bc_form.addRow(lbl, cb)
 
@@ -435,7 +435,7 @@ def _make(project=None):
             for w in (self.edit_nx, self.edit_ny, self.btn_apply, self.btn_half, self.btn_double):
                 w.setEnabled(enabled)
             for side, cb in self.bc_combos.items():
-                shown = side in ("left", "right", "bottom", "top") or nz > 1
+                shown = side in ("xmin", "xmax", "ymin", "ymax") or nz > 1
                 cb.setVisible(shown)
                 cb._label.setVisible(shown)
                 cb.blockSignals(True)
@@ -445,7 +445,7 @@ def _make(project=None):
                 i = cb.findText(by_name.get(p.get(f"bc_{side}", ""), ""))
                 cb.setCurrentIndex(max(i, 0) if choices else -1)
                 cb.blockSignals(False)
-            pairs = [("left", "right"), ("bottom", "top")] + ([("front", "back")] if nz > 1 else [])
+            pairs = [("xmin", "xmax"), ("ymin", "ymax")] + ([("zmin", "zmax")] if nz > 1 else [])
             bad = [f"{a} / {b}" for a, b in pairs if (str(p.get(f"bc_{a}")) == "periodic") != (str(p.get(f"bc_{b}")) == "periodic")]
             msgs = ["Periodic must be set on both sides of a pair (" + ", ".join(bad) + "): the solver will refuse the run until it is."] if bad else []
             if flag(p, "use_amr"):
@@ -589,8 +589,8 @@ def _make(project=None):
             p, ax = self.p, self.ax
             Lx, Ly = float(p["Lx"]), float(p["Ly"])
             (xa, xb), (ya, yb) = ax.get_xlim(), ax.get_ylim()
-            for side, (x, y, rot, ha, va) in {"left": (0.0, Ly / 2, 90, "right", "center"), "right": (Lx, Ly / 2, 90, "left", "center"),
-                                              "bottom": (Lx / 2, 0.0, 0, "center", "top"), "top": (Lx / 2, Ly, 0, "center", "bottom")}.items():
+            for side, (x, y, rot, ha, va) in {"xmin": (0.0, Ly / 2, 90, "right", "center"), "xmax": (Lx, Ly / 2, 90, "left", "center"),
+                                              "ymin": (Lx / 2, 0.0, 0, "center", "top"), "ymax": (Lx / 2, Ly, 0, "center", "bottom")}.items():
                 if xa <= x <= xb and ya <= y <= yb:
                     self._bc_texts.append(ax.text(x, y, p.get(f"bc_{side}", ""), rotation=rot, ha=ha, va=va, fontsize=9,
                                                   color=COLORS["ink_soft"], zorder=4))
@@ -679,7 +679,7 @@ def _make(project=None):
 
 
 _GEOMETRY_KEYS = ("Lx", "Ly", "Lz", "nx", "ny", "nz", "use_ibm", "ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz",
-                  "bc_left", "bc_right", "bc_bottom", "bc_top", "bc_front", "bc_back", "use_amr", "amr_indicator", "amr_max_level",
+                  "bc_xmin", "bc_xmax", "bc_ymin", "bc_ymax", "bc_zmin", "bc_zmax", "use_amr", "amr_indicator", "amr_max_level",
                   "amr_init_levels", "amr_criterion", "amr_refine_threshold", "amr_derefine_threshold", "amr_diffusion", "amr_refine_every")
 
 MODULE = ModuleSpec("geometry", "Geometry", _make, order=10, standalone=True, requires=("PyQt6", "matplotlib", "numpy"),

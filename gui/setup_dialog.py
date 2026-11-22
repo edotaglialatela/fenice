@@ -167,12 +167,12 @@ class SetupDialog(QDialog):
         self.sim_params = {}
 
         # Connect signals after all widgets have been created
-        self.bc_left.currentTextChanged.connect(self._update_bc_inputs)
-        self.bc_right.currentTextChanged.connect(self._update_bc_inputs)
-        self.bc_bottom.currentTextChanged.connect(self._update_bc_inputs)
-        self.bc_top.currentTextChanged.connect(self._update_bc_inputs)
-        self.bc_front.currentTextChanged.connect(self._update_bc_inputs)
-        self.bc_back.currentTextChanged.connect(self._update_bc_inputs)
+        self.bc_xmin.currentTextChanged.connect(self._update_bc_inputs)
+        self.bc_xmax.currentTextChanged.connect(self._update_bc_inputs)
+        self.bc_ymin.currentTextChanged.connect(self._update_bc_inputs)
+        self.bc_ymax.currentTextChanged.connect(self._update_bc_inputs)
+        self.bc_zmin.currentTextChanged.connect(self._update_bc_inputs)
+        self.bc_zmax.currentTextChanged.connect(self._update_bc_inputs)
         self.input_nz.textChanged.connect(self._update_dim_inputs)
         self.input_nz.textChanged.connect(self._update_hot_start_target_info)
         
@@ -324,16 +324,16 @@ class SetupDialog(QDialog):
         bc_opts = ["Inviscid Wall (Slip)", "Viscous Wall (No-Slip)", "Moving Wall",
                    "Velocity Inlet", "Mass Flow Inlet", "Pressure Outlet",
                    "Transmissive", "Non-Reflecting Outlet", "Periodic"]
-        self.bc_left = QComboBox(); self.bc_left.addItems(bc_opts)
-        self.bc_right = QComboBox(); self.bc_right.addItems(bc_opts)
-        self.bc_bottom = QComboBox(); self.bc_bottom.addItems(bc_opts)
-        self.bc_top = QComboBox(); self.bc_top.addItems(bc_opts)
-        f3.addRow("Left:", self.bc_left); f3.addRow("Right:", self.bc_right)
-        f3.addRow("Bottom:", self.bc_bottom); f3.addRow("Top:", self.bc_top)
-        self.bc_front = QComboBox(); self.bc_front.addItems(bc_opts)
-        self.bc_back = QComboBox(); self.bc_back.addItems(bc_opts)
-        self.label_bc_front = QLabel("Front (z = 0):"); self.label_bc_back = QLabel("Back (z = Lz):")
-        f3.addRow(self.label_bc_front, self.bc_front); f3.addRow(self.label_bc_back, self.bc_back)
+        self.bc_xmin = QComboBox(); self.bc_xmin.addItems(bc_opts)
+        self.bc_xmax = QComboBox(); self.bc_xmax.addItems(bc_opts)
+        self.bc_ymin = QComboBox(); self.bc_ymin.addItems(bc_opts)
+        self.bc_ymax = QComboBox(); self.bc_ymax.addItems(bc_opts)
+        f3.addRow("x min (left):", self.bc_xmin); f3.addRow("x max (right):", self.bc_xmax)
+        f3.addRow("y min (bottom):", self.bc_ymin); f3.addRow("y max (top):", self.bc_ymax)
+        self.bc_zmin = QComboBox(); self.bc_zmin.addItems(bc_opts)
+        self.bc_zmax = QComboBox(); self.bc_zmax.addItems(bc_opts)
+        self.label_bc_zmin = QLabel("z min (front):"); self.label_bc_zmax = QLabel("z max (back):")
+        f3.addRow(self.label_bc_zmin, self.bc_zmin); f3.addRow(self.label_bc_zmax, self.bc_zmax)
         self.label_u_in = QLabel("Inlet Velocity (u_in) [m/s]:"); self.input_u_in = QLineEdit("0.0")
         self.label_rho_in = QLabel("Inlet Density (rho_in) [kg/m³]:"); self.input_rho_in = QLineEdit("1.0")
         self.label_p_out = QLabel("Outlet Pressure (p_out) [Pa]:"); self.input_p_out = QLineEdit("1.0")
@@ -556,10 +556,10 @@ class SetupDialog(QDialog):
             w.setEnabled(checked)
 
     def _update_bc_inputs(self, *args):
-        bcs = [self.bc_left.currentText(), self.bc_right.currentText(),
-               self.bc_bottom.currentText(), self.bc_top.currentText()]
+        bcs = [self.bc_xmin.currentText(), self.bc_xmax.currentText(),
+               self.bc_ymin.currentText(), self.bc_ymax.currentText()]
         if self._is_3d():
-            bcs += [self.bc_front.currentText(), self.bc_back.currentText()]
+            bcs += [self.bc_zmin.currentText(), self.bc_zmax.currentText()]
         needs_uin   = ("Velocity Inlet" in bcs) or ("Mass Flow Inlet" in bcs) or ("Moving Wall" in bcs)
         needs_rhoin = ("Mass Flow Inlet" in bcs)
         needs_pout  = ("Pressure Outlet" in bcs)
@@ -576,8 +576,8 @@ class SetupDialog(QDialog):
     def _update_dim_inputs(self, *args):
         """Show the z-direction inputs (Lz, front/back BCs, gz, IBM cz) only for 3-D meshes."""
         three_d = self._is_3d()
-        for w in (self.label_Lz, self.input_Lz, self.label_bc_front, self.bc_front,
-                  self.label_bc_back, self.bc_back):
+        for w in (self.label_Lz, self.input_Lz, self.label_bc_zmin, self.bc_zmin,
+                  self.label_bc_zmax, self.bc_zmax):
             w.setVisible(three_d)
         body = three_d and self.check_bodyforce.isChecked()
         self.label_gz.setVisible(body); self.input_gz.setVisible(body)
@@ -753,15 +753,15 @@ class SetupDialog(QDialog):
             'Lx': lambda v: self.input_Lx.setText(str(v)), 'Ly': lambda v: self.input_Ly.setText(str(v)),
             'nx': lambda v: self.input_nx.setText(str(v)), 'ny': lambda v: self.input_ny.setText(str(v)),
             'nz': lambda v: self.input_nz.setText(str(v)), 'Lz': lambda v: self.input_Lz.setText(str(v)),
-            'bc_front': lambda v: set_combo(self.bc_front, v), 'bc_back': lambda v: set_combo(self.bc_back, v),
+            'bc_zmin': lambda v: set_combo(self.bc_zmin, v), 'bc_zmax': lambda v: set_combo(self.bc_zmax, v),
             'gz': lambda v: self.input_gz.setText(str(v)), 'ibm_cz': lambda v: self.input_cz.setText(str(v)),
             'eos_type': lambda v: set_combo(self.eos_combo, v), 'p_inf': lambda v: self.input_p_inf.setText(str(v)),
             'gamma': lambda v: self.input_gamma.setText(str(v)), 'mu': lambda v: self.input_mu.setText(str(v)),
             'pr': lambda v: self.input_pr.setText(str(v)), 'cfl': lambda v: self.input_cfl.setText(str(v)),
             't_end': lambda v: self.input_t_end.setText(str(v)), 'save_interval': lambda v: self.input_save_interval.setText(str(v)),
-            'use_viscous': lambda v: self.check_viscous.setChecked(bool(v)), 'bc_left': lambda v: set_combo(self.bc_left, v),
-            'bc_right': lambda v: set_combo(self.bc_right, v), 'bc_bottom': lambda v: set_combo(self.bc_bottom, v),
-            'bc_top': lambda v: set_combo(self.bc_top, v), 'riemann_solver': lambda v: set_combo(self.combo_riemann, v),
+            'use_viscous': lambda v: self.check_viscous.setChecked(bool(v)), 'bc_xmin': lambda v: set_combo(self.bc_xmin, v),
+            'bc_xmax': lambda v: set_combo(self.bc_xmax, v), 'bc_ymin': lambda v: set_combo(self.bc_ymin, v),
+            'bc_ymax': lambda v: set_combo(self.bc_ymax, v), 'riemann_solver': lambda v: set_combo(self.combo_riemann, v),
             'time_scheme': lambda v: set_combo(self.combo_time, v), 'u_in': lambda v: self.input_u_in.setText(str(v)),
             'rho_in': lambda v: self.input_rho_in.setText(str(v)), 'p_out': lambda v: self.input_p_out.setText(str(v)),
             'use_bodyforce': lambda v: self.check_bodyforce.setChecked(bool(v)), 'gx': lambda v: self.input_gx.setText(str(v)),
@@ -837,8 +837,8 @@ class SetupDialog(QDialog):
                 value = values[key]
                 widget.setChecked(value.strip().lower() in ("1", "true", "yes", "on") if isinstance(value, str) else bool(value))
 
-        combo_fields = {"eos_type": self.eos_combo, "bc_left": self.bc_left, "bc_right": self.bc_right, "bc_bottom": self.bc_bottom,
-                        "bc_top": self.bc_top, "bc_front": self.bc_front, "bc_back": self.bc_back,
+        combo_fields = {"eos_type": self.eos_combo, "bc_xmin": self.bc_xmin, "bc_xmax": self.bc_xmax, "bc_ymin": self.bc_ymin,
+                        "bc_ymax": self.bc_ymax, "bc_zmin": self.bc_zmin, "bc_zmax": self.bc_zmax,
                         "riemann_solver": self.combo_riemann, "time_scheme": self.combo_time, "muscl_limiter": self.combo_limiter,
                         "ibm_shape": self.combo_shape}
         for key, combo in combo_fields.items():
@@ -924,7 +924,7 @@ class SetupDialog(QDialog):
             QMessageBox.critical(self, title, text)
 
     def apply_geometry(self, values: dict) -> None:
-        """Set the mesh size and the boundary conditions from another page: keys nx, ny, bc_left / right / bottom / top / front / back
+        """Set the mesh size and the boundary conditions from another page: keys nx, ny, bc_xmin / right / bottom / top / front / back
         (solver names, e.g. 'wall'); the fields are the only copy, so what is set here is what the run uses."""
         labels = {v: k for k, v in self._BC_LABELS.items()}
         for key, edit in (("nx", self.input_nx), ("ny", self.input_ny), ("nz", self.input_nz)):
@@ -942,7 +942,7 @@ class SetupDialog(QDialog):
             self.check_ibm.setChecked(bool(values["use_ibm"]))
         if "ibm_shape" in values:
             self.combo_shape.setCurrentText(str(values["ibm_shape"]))
-        for side in ("left", "right", "bottom", "top", "front", "back"):
+        for side in ("xmin", "xmax", "ymin", "ymax", "zmin", "zmax"):
             if f"bc_{side}" in values:
                 combo = getattr(self, f"bc_{side}")
                 i = combo.findText(labels.get(values[f"bc_{side}"], values[f"bc_{side}"]))
@@ -957,7 +957,7 @@ class SetupDialog(QDialog):
 
     def bc_values(self) -> dict:
         """The boundary conditions as the fields hold them now (solver names), valid or not."""
-        return {f"bc_{s}": self._BC_LABELS[getattr(self, f"bc_{s}").currentText()] for s in ("left", "right", "bottom", "top", "front", "back")}
+        return {f"bc_{s}": self._BC_LABELS[getattr(self, f"bc_{s}").currentText()] for s in ("xmin", "xmax", "ymin", "ymax", "zmin", "zmax")}
 
     def geometry_values(self) -> dict:
         """The geometry fields as strings, as they stand (valid or not): domain, mesh, body and the sides."""
@@ -994,15 +994,15 @@ class SetupDialog(QDialog):
                 'Lx': float(self.input_Lx.text()), 'Ly': float(self.input_Ly.text()),
                 'nx': int(self.input_nx.text()), 'ny': int(self.input_ny.text()),
                 'nz': int(self.input_nz.text()), 'Lz': float(self.input_Lz.text()),
-                'bc_front': self._BC_LABELS[self.bc_front.currentText()],
-                'bc_back': self._BC_LABELS[self.bc_back.currentText()],
+                'bc_zmin': self._BC_LABELS[self.bc_zmin.currentText()],
+                'bc_zmax': self._BC_LABELS[self.bc_zmax.currentText()],
                 'gz': float(self.input_gz.text()), 'ibm_cz': float(self.input_cz.text()),
                 'eos_type': self.eos_combo.currentText(), 'gamma': float(self.input_gamma.text()),
                 'p_inf': float(self.input_p_inf.text()) if self.eos_combo.currentText() == "Stiffened Gas" else 0.0,
-                'bc_left': self._BC_LABELS[self.bc_left.currentText()],
-                'bc_right': self._BC_LABELS[self.bc_right.currentText()],
-                'bc_bottom': self._BC_LABELS[self.bc_bottom.currentText()],
-                'bc_top': self._BC_LABELS[self.bc_top.currentText()],
+                'bc_xmin': self._BC_LABELS[self.bc_xmin.currentText()],
+                'bc_xmax': self._BC_LABELS[self.bc_xmax.currentText()],
+                'bc_ymin': self._BC_LABELS[self.bc_ymin.currentText()],
+                'bc_ymax': self._BC_LABELS[self.bc_ymax.currentText()],
                 'riemann_solver': self.combo_riemann.currentText(),
                 'time_scheme': self.combo_time.currentText(),
                 'cfl': float(self.input_cfl.text()), 't_end': float(self.input_t_end.text()),
@@ -1044,7 +1044,7 @@ class SetupDialog(QDialog):
             if self.sim_params['nz'] > 1 and self.sim_params['use_amr'] and self.sim_params.get('use_hot_start'):
                 self._error( "Config Error", "A 3-D AMR run cannot start from a hot start yet: disable one of them.")
                 return False
-            for a, b in (('bc_left', 'bc_right'), ('bc_bottom', 'bc_top'), ('bc_front', 'bc_back')):
+            for a, b in (('bc_xmin', 'bc_xmax'), ('bc_ymin', 'bc_ymax'), ('bc_zmin', 'bc_zmax')):
                 if (self.sim_params[a] == 'periodic') != (self.sim_params[b] == 'periodic'):
                     self._error( "Config Error",
                                          f"{a} / {b}: periodic must be set on both sides or neither.")

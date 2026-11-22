@@ -19,10 +19,10 @@ mu = 0.02
 use_bodyforce = false
 
 [boundaries]
-bc_left = "massflow_inlet"
-bc_right = "outlet"
-bc_bottom = "no_slip"
-bc_top = "no_slip"
+bc_xmin = "massflow_inlet"
+bc_xmax = "outlet"
+bc_ymin = "no_slip"
+bc_ymax = "no_slip"
 u_in = 0.01
 rho_in = 1.0
 p_out = 1.0

@@ -5,8 +5,8 @@ section: Methods
 order: 20
 ---
 
-> **In short.** Each side of the domain has its own boundary condition: `bc_left`, `bc_right`, `bc_bottom`, `bc_top` and, in 3-D,
-> `bc_front`, `bc_back`. The table [below](#boundary-condition-types) lists the types. Use `wall` or `no_slip` for solid walls,
+> **In short.** Each side of the domain has its own boundary condition: `bc_xmin`, `bc_xmax`, `bc_ymin`, `bc_ymax` and, in 3-D,
+> `bc_zmin`, `bc_zmax`. The table [below](#boundary-condition-types) lists the types. Use `wall` or `no_slip` for solid walls,
 > `vel_inlet` or `massflow_inlet` to feed a flow in, `outlet`, `transmissive` or `nonreflecting` where it leaves, and
 > `periodic` (always in pairs) for a repeated box. `boundary_order` (default 2) controls whether the faces at the boundary
 > are second order.
@@ -40,8 +40,8 @@ energy. The adaptive mesh does the same (MUSCL and WENO3-Z, viscous terms includ
 
 </details>
 
-A 2-D mesh has four sides (left, right, bottom, top). A 3-D mesh adds **front**
-($z = 0$, `bc_front`) and **back** ($z = L_z$, `bc_back`), which default to periodic.
+A 2-D mesh has four sides: `bc_xmin` (left, $x = 0$), `bc_xmax` (right), `bc_ymin` (bottom) and `bc_ymax` (top). A 3-D mesh adds **front**
+($z = 0$, `bc_zmin`) and **back** ($z = L_z$, `bc_zmax`), which default to periodic.
 
 ## Boundary-condition types
 

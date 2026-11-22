@@ -248,16 +248,16 @@ class Solution:
                 "box": "no-slip and slip walls on four sides"}[self.kind]
 
     def boundaries(self) -> dict[str, str]:
-        """bc_left ... bc_top of the case file."""
+        """bc_xmin ... bc_ymax of the case file."""
         if self.kind == "walls":
-            return {"bc_left": "periodic", "bc_right": "periodic", "bc_bottom": "moving_wall", "bc_top": "wall"}
+            return {"bc_xmin": "periodic", "bc_xmax": "periodic", "bc_ymin": "moving_wall", "bc_ymax": "wall"}
         if self.kind == "outflow":
-            return {"bc_left": "no_slip", "bc_right": "transmissive", "bc_bottom": "periodic", "bc_top": "periodic"}
+            return {"bc_xmin": "no_slip", "bc_xmax": "transmissive", "bc_ymin": "periodic", "bc_ymax": "periodic"}
         if self.kind == "box":
-            return {"bc_left": "no_slip", "bc_right": "wall", "bc_bottom": "wall", "bc_top": "no_slip"}
-        out = {k: "periodic" for k in ("bc_left", "bc_right", "bc_bottom", "bc_top")}
+            return {"bc_xmin": "no_slip", "bc_xmax": "wall", "bc_ymin": "wall", "bc_ymax": "no_slip"}
+        out = {k: "periodic" for k in ("bc_xmin", "bc_xmax", "bc_ymin", "bc_ymax")}
         if self.dim == 3:
-            out.update(bc_front="periodic", bc_back="periodic")
+            out.update(bc_zmin="periodic", bc_zmax="periodic")
         return out
 
     def interior_mask(self, n, margin=2):

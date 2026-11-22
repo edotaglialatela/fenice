@@ -27,12 +27,12 @@ mu = 0.02
 pr = 0.72
 
 [boundaries]
-bc_left = "periodic"
-bc_right = "periodic"
-bc_bottom = "periodic"
-bc_top = "periodic"
-bc_front = "periodic"
-bc_back = "periodic"
+bc_xmin = "periodic"
+bc_xmax = "periodic"
+bc_ymin = "periodic"
+bc_ymax = "periodic"
+bc_zmin = "periodic"
+bc_zmax = "periodic"
 
 [numerics]
 riemann_solver = "HLLC"

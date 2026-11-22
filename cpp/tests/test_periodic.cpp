@@ -621,14 +621,14 @@ TEST(muscl_hancock_conserves_mass_and_energy_in_a_closed_box) {
     // A wall ghost built from the unpredicted cell leaked 4.5e-4 of the mass of a Sod tube by t = 0.2.
     for (const int nz : {1, 4})
         for (const char* bo : {"1", "2"}) {
-            std::vector<std::pair<const char*, const char*>> ov = {{"nx", "40"}, {"ny", "8"}, {"bc_left", "wall"}, {"bc_right", "wall"},
-                                                                  {"bc_bottom", "wall"}, {"bc_top", "wall"}, {"boundary_order", bo},
+            std::vector<std::pair<const char*, const char*>> ov = {{"nx", "40"}, {"ny", "8"}, {"bc_xmin", "wall"}, {"bc_xmax", "wall"},
+                                                                  {"bc_ymin", "wall"}, {"bc_ymax", "wall"}, {"boundary_order", bo},
                                                                   {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"}};
             if (nz > 1) {
                 ov.push_back({"nz", "4"});
                 ov.push_back({"Lz", "0.4"});
-                ov.push_back({"bc_front", "wall"});
-                ov.push_back({"bc_back", "wall"});
+                ov.push_back({"bc_zmin", "wall"});
+                ov.push_back({"bc_zmax", "wall"});
             }
             Params pr = baseline_defaults();
             pr.merge(get_test_case("Sod Shock Tube").defaults);
@@ -740,9 +740,9 @@ TEST(muscl_hancock_3d_invariances) {
     {
         const SimParams sp = params_for("Taylor-Green Vortex 3D", {{"nx", "6"}, {"ny", "5"}, {"nz", "4"}, {"use_viscous", "true"},
                                                                    {"reconstruction", "muscl"}, {"time_scheme", "MUSCL-Hancock"},
-                                                                   {"bc_left", "transmissive"}, {"bc_right", "transmissive"},
-                                                                   {"bc_bottom", "transmissive"}, {"bc_top", "transmissive"},
-                                                                   {"bc_front", "transmissive"}, {"bc_back", "transmissive"}});
+                                                                   {"bc_xmin", "transmissive"}, {"bc_xmax", "transmissive"},
+                                                                   {"bc_ymin", "transmissive"}, {"bc_ymax", "transmissive"},
+                                                                   {"bc_zmin", "transmissive"}, {"bc_zmax", "transmissive"}});
         Simulation sim;
         sim.setup(sp, false);
         const State u = sim.fluid.prim_to_cons({1.3, 0.4, -0.2, 2.0, 0.3});
@@ -763,12 +763,12 @@ TEST(uniform_flow_is_preserved_3d) {
                                                             {"nz", "4"},
                                                             {"riemann_solver", rs},
                                                             {"use_viscous", visc},
-                                                            {"bc_left", "transmissive"},
-                                                            {"bc_right", "transmissive"},
-                                                            {"bc_bottom", "transmissive"},
-                                                            {"bc_top", "transmissive"},
-                                                            {"bc_front", "transmissive"},
-                                                            {"bc_back", "transmissive"}}),
+                                                            {"bc_xmin", "transmissive"},
+                                                            {"bc_xmax", "transmissive"},
+                                                            {"bc_ymin", "transmissive"},
+                                                            {"bc_ymax", "transmissive"},
+                                                            {"bc_zmin", "transmissive"},
+                                                            {"bc_zmax", "transmissive"}}),
                       false);
             const Field U(sim.mesh.num_cells(), sim.fluid.prim_to_cons({1.3, 0.4, -0.2, 2.0, 0.3}));
             Field R;

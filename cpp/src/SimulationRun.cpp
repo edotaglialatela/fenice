@@ -716,7 +716,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
 
     // MPI-interface sides start transmissive (overridden by halos anyway)
     bool periodic = false;
-    BCType l = parse_bc(p.bc_left), r = parse_bc(p.bc_right), b = parse_bc(p.bc_bottom), tp = parse_bc(p.bc_top);
+    BCType l = parse_bc(p.bc_xmin), r = parse_bc(p.bc_xmax), b = parse_bc(p.bc_ymin), tp = parse_bc(p.bc_ymax);
     if (dir == 'y') {
         periodic = (b == BCType::Periodic || tp == BCType::Periodic);
         if (!(decomp.is_lo_rank && !periodic)) b = BCType::Transmissive;
@@ -733,8 +733,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
         fb_reduce_ = [&decomp](bool grew) { return decomp.allreduce_max(grew ? 1.0 : 0.0) > 0.0; };
     }
     lb.set_boundary_types(l, r, b, tp);
-    lb.set_type(Face::Front, parse_bc(p.bc_front));   // z sides are never split
-    lb.set_type(Face::Back, parse_bc(p.bc_back));
+    lb.set_type(Face::Front, parse_bc(p.bc_zmin));   // z sides are never split
+    lb.set_type(Face::Back, parse_bc(p.bc_zmax));
     lb.set_params(bc_params(p));
     {
         auto reducer = [&decomp](double& sum, double& count) {
@@ -754,9 +754,9 @@ void Simulation::run_mpi(MPI_Comm comm) {
     }
     if (root) {
         // Domain BCs (rank 0's own l/r/b/tp have interface sides set to transmissive)
-        std::printf("[MPI] Domain BCs  left=%s, right=%s, bottom=%s, top=%s\n", bc_name(parse_bc(p.bc_left)).c_str(),
-                    bc_name(parse_bc(p.bc_right)).c_str(), bc_name(parse_bc(p.bc_bottom)).c_str(),
-                    bc_name(parse_bc(p.bc_top)).c_str());
+        std::printf("[MPI] Domain BCs  left=%s, right=%s, bottom=%s, top=%s\n", bc_name(parse_bc(p.bc_xmin)).c_str(),
+                    bc_name(parse_bc(p.bc_xmax)).c_str(), bc_name(parse_bc(p.bc_ymin)).c_str(),
+                    bc_name(parse_bc(p.bc_ymax)).c_str());
         if (dir == 'y') {
             std::printf("[MPI] Local meshes ready  -  each rank: nx=%d, ny_local varies\n", p.nx);
             if (periodic) std::printf("[MPI] Periodic Y detected - wrap-around halo exchange enabled\n");

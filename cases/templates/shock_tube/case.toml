@@ -11,10 +11,10 @@ nx = 200
 ny = 20
 
 [boundaries]
-bc_left = "transmissive"     # waves leave freely
-bc_right = "transmissive"
-bc_bottom = "wall"
-bc_top = "wall"
+bc_xmin = "transmissive"     # waves leave freely
+bc_xmax = "transmissive"
+bc_ymin = "wall"
+bc_ymax = "wall"
 
 [numerics]
 reconstruction = "muscl"     # none = first order, muscl, weno3, weno5

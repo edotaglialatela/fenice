@@ -179,8 +179,8 @@ TEST(nonreflecting_outlet) {
         Simulation sim;
         sim.setup(params_for("Sod Shock Tube", {{"nx", "100"},
                                                 {"ny", "2"},
-                                                {"bc_left", bc},
-                                                {"bc_right", bc},
+                                                {"bc_xmin", bc},
+                                                {"bc_xmax", bc},
                                                 {"p_out", "1.0"},
                                                 {"nrbc_sigma", "1.0"},
                                                 {"t_end", "30"}}),
@@ -312,10 +312,10 @@ TEST(uniform_flow_is_preserved) {
                                                         {"riemann_solver", rs},
                                                         {"reconstruction", muscl},
                                                         {"use_viscous", visc},
-                                                        {"bc_left", "transmissive"},
-                                                        {"bc_right", "transmissive"},
-                                                        {"bc_bottom", "transmissive"},
-                                                        {"bc_top", "transmissive"}}),
+                                                        {"bc_xmin", "transmissive"},
+                                                        {"bc_xmax", "transmissive"},
+                                                        {"bc_ymin", "transmissive"},
+                                                        {"bc_ymax", "transmissive"}}),
                           false);
                 const Field U = uniform_field(sim.fluid, sim.mesh.num_cells(), 1.3, 0.4, -0.2, 2.0);
                 Field R;

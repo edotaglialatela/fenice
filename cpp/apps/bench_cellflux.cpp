@@ -35,10 +35,10 @@ int main(int argc, char** argv) {
     p.set("ny", std::to_string(ny));
     p.set("Lx", "12.0");
     p.set("Ly", "6.0");
-    p.set("bc_left", "transmissive");
-    p.set("bc_right", "transmissive");
-    p.set("bc_bottom", "wall");
-    p.set("bc_top", "wall");
+    p.set("bc_xmin", "transmissive");
+    p.set("bc_xmax", "transmissive");
+    p.set("bc_ymin", "wall");
+    p.set("bc_ymax", "wall");
     p.set("reconstruction", "muscl");
     p.set("muscl_limiter", "Van Leer");
     Simulation sim;

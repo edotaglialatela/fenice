@@ -59,7 +59,7 @@ def run(n, threads, opts, steps, extra_env=None, case="Taylor-Green Vortex", ext
            "--set", f"nx={n}", "--set", f"ny={n}", "--set", f"max_steps={steps}",
            "--set", "save_interval=1000000", "--set", f"output_root={out}", "--set", "t_end=1e9"]
     if not case_boundaries:
-        for side in ("left", "right", "bottom", "top"):
+        for side in ("xmin", "xmax", "ymin", "ymax"):
             cmd += ["--set", f"bc_{side}=periodic"]
     for o in (*opts, *extra_sets):
         cmd += ["--set", o]

@@ -60,10 +60,10 @@ mu = 0.005
 use_bodyforce = false
 
 [boundaries]
-bc_left = "vel_inlet"
-bc_right = "transmissive"
-bc_bottom = "wall"
-bc_top = "wall"
+bc_xmin = "vel_inlet"
+bc_xmax = "transmissive"
+bc_ymin = "wall"
+bc_ymax = "wall"
 u_in = 1.0
 rho_in = 1.0
 p_out = 9.8

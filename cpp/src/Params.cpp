@@ -126,12 +126,12 @@ const std::vector<ParamSpec>& parameter_table() {
     {"source_mz", "source", "0"},
     {"source_E", "source", "0"},
 
-    {"bc_left", "boundaries", "wall"},
-    {"bc_right", "boundaries", "wall"},
-    {"bc_bottom", "boundaries", "wall"},
-    {"bc_top", "boundaries", "wall"},
-    {"bc_front", "boundaries", "periodic"},
-    {"bc_back", "boundaries", "periodic"},
+    {"bc_xmin", "boundaries", "wall"},
+    {"bc_xmax", "boundaries", "wall"},
+    {"bc_ymin", "boundaries", "wall"},
+    {"bc_ymax", "boundaries", "wall"},
+    {"bc_zmin", "boundaries", "periodic"},
+    {"bc_zmax", "boundaries", "periodic"},
     {"u_in", "boundaries", "0.0"},
     {"v_in", "boundaries", "0.0"},
     {"rho_in", "boundaries", "1.0"},
@@ -224,12 +224,12 @@ SimParams SimParams::from(const Params& p) {
     s.eos_type = p.str("eos_type", "Ideal Gas");
     s.gamma = p.num("gamma", 1.4);
     s.p_inf = (lower(s.eos_type) == "stiffened gas") ? p.num("p_inf", 0.0) : 0.0;
-    s.bc_left = p.str("bc_left");
-    s.bc_right = p.str("bc_right");
-    s.bc_bottom = p.str("bc_bottom");
-    s.bc_top = p.str("bc_top");
-    s.bc_front = p.str("bc_front", "periodic");
-    s.bc_back = p.str("bc_back", "periodic");
+    s.bc_xmin = p.str("bc_xmin");
+    s.bc_xmax = p.str("bc_xmax");
+    s.bc_ymin = p.str("bc_ymin");
+    s.bc_ymax = p.str("bc_ymax");
+    s.bc_zmin = p.str("bc_zmin", "periodic");
+    s.bc_zmax = p.str("bc_zmax", "periodic");
     s.riemann_solver = p.str("riemann_solver", "HLLC");
     s.time_scheme = p.str("time_scheme", "auto");
     s.cfl = p.num("cfl", 0.5);
@@ -391,7 +391,7 @@ SimParams SimParams::from(const Params& p) {
                                         "reads three): use weno3 with MPI, or AMR (weno5 runs on MPI ranks there)");
         if (s.reconstruction == "weno5" && s.use_amr) {
             // the adaptive stencil wraps around a periodic axis; the uniform solver replicates when the axis has fewer than three cells
-            const std::pair<const std::string*, int> axes[] = {{&s.bc_left, s.nx}, {&s.bc_bottom, s.ny}, {&s.bc_front, s.nz}};
+            const std::pair<const std::string*, int> axes[] = {{&s.bc_xmin, s.nx}, {&s.bc_ymin, s.ny}, {&s.bc_zmin, s.nz}};
             for (int a = 0; a < (s.nz > 1 ? 3 : 2); ++a)
                 if (lower(*axes[a].first) == "periodic" && axes[a].second < 3)
                     throw std::invalid_argument("reconstruction = weno5 with AMR needs at least three base cells along a periodic axis");
@@ -432,7 +432,7 @@ SimParams SimParams::from(const Params& p) {
     if (eos != "ideal gas" && eos != "stiffened gas")
         throw std::invalid_argument("Unknown eos_type: '" + s.eos_type + "' (use Ideal Gas or Stiffened Gas)");
     const std::pair<const std::string*, const std::string*> sides[] = {
-        {&s.bc_left, &s.bc_right}, {&s.bc_bottom, &s.bc_top}, {&s.bc_front, &s.bc_back}};
+        {&s.bc_xmin, &s.bc_xmax}, {&s.bc_ymin, &s.bc_ymax}, {&s.bc_zmin, &s.bc_zmax}};
     const char* axis = "xyz";
     for (int a = 0; a < 3; ++a)
         if ((lower(*sides[a].first) == "periodic") != (lower(*sides[a].second) == "periodic"))

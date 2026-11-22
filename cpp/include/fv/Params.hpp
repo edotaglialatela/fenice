@@ -60,8 +60,8 @@ struct SimParams {
     int nx, ny, nz;      // nz = 1: 2-D run
     std::string eos_type;
     double gamma, p_inf;
-    std::string bc_left, bc_right, bc_bottom, bc_top;
-    std::string bc_front, bc_back;   // z-min / z-max sides (3-D)
+    std::string bc_xmin, bc_xmax, bc_ymin, bc_ymax;
+    std::string bc_zmin, bc_zmax;   // z-min / z-max sides (3-D)
     std::string riemann_solver, time_scheme;
     double cfl, t_end;
     int save_interval;

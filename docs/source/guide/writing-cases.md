@@ -123,10 +123,10 @@ nx = 300
 ny = 150
 
 [boundaries]
-bc_left = "transmissive"
-bc_right = "transmissive"
-bc_bottom = "wall"
-bc_top = "wall"
+bc_xmin = "transmissive"
+bc_xmax = "transmissive"
+bc_ymin = "wall"
+bc_ymax = "wall"
 
 [numerics]
 riemann_solver = "HLLC"
@@ -180,7 +180,7 @@ case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 | `[thermo]` | `eos_type`, `gamma`, `p_inf` |
 | `[physics]` | `use_viscous`, `mu`, `pr`, `use_bodyforce`, `gx`, `gy`, `gz` |
 | `[source]` | `source_rho`, `source_mx`, `source_my`, `source_mz`, `source_E` (expressions, for manufactured solutions) |
-| `[boundaries]` | `bc_left`, `bc_right`, `bc_bottom`, `bc_top`, `bc_front`, `bc_back`, `u_in`, `v_in`, `rho_in`, `p_out`, `*_table` |
+| `[boundaries]` | `bc_xmin`, `bc_xmax`, `bc_ymin`, `bc_ymax`, `bc_zmin`, `bc_zmax`, `u_in`, `v_in`, `rho_in`, `p_out`, `*_table` |
 | `[numerics]` | `riemann_solver`, `reconstruction`, `muscl_limiter`, `weno_epsilon`, `boundary_order`, `time_scheme`, `cfl` |
 | `[run]` | `t_end`, `save_interval`, `write_interval_time`, `dt_max`, `monitor_interval`, `max_steps`, `resume`, `output_root`, `dump_state` |
 | `[parallel]` | `use_mpi`, `n_cpus` |
