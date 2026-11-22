@@ -2257,11 +2257,42 @@ struct HancockScratch {
     explicit HancockScratch(int nx) : ul(nx + 1), ur(nx + 1), fx(nx + 1), below(nx), above(nx), ax(nx + 1), sm(nx + 1) {}
 };
 
+int hancock_cell_at(const FusedGrid& g, double hx, double hy, double half_dt, const Field* source, int i, int j, State& xl, State& xr, State& yb,
+                    State& yt);
+int hancock_cell_at3(const FusedGrid& g, double hx, double hy, double hz, double half_dt, const Field* source, int i, int j, int k, State st[6]);
+
 // Predicted states of the cells of row j; returns how many states stayed unpredicted. The sides without a ghost layer give the cell the
 // first-order state of the arrays UL / UR through the round trip, as the two-pass reconstruction does.
 int hancock_row(const FusedGrid& g, double hx, double hy, double half_dt, const Field* source, int j, HancockRow& r) {
     const int nx = g.nx, ny = g.ny, pad = g.pad;
     const Mesh& m = *g.m;
+#ifdef FV_SIMD
+    // a row without a cell of a body, away from a side without a halo: one kernel from the primitive planes to the predicted states of the
+    // blocks of four cells; the cells at the ends that need a boundary state, and the leftover cells, go through the single-cell path
+    if (nx >= 4 && detail::simd_available() && !(j == 0 && !g.halo_lo[1]) && !(j == ny - 1 && !g.halo_hi[1])) {
+        bool plain = true;
+        if (g.hsolid) {
+            const char* row = g.hsolid->data() + static_cast<size_t>(j) * nx;
+            for (int i = 0; i < nx && plain; ++i) plain = !row[i];
+        }
+        if (plain && g.hsides) {
+            const unsigned char* row = g.hsides->data() + static_cast<size_t>(j) * nx;
+            for (int i = 0; i < nx && plain; ++i) plain = !row[i];
+        }
+        const int a = g.halo_lo[0] ? 0 : 1;
+        int e = a + ((nx - a) & ~3);
+        if (!g.halo_hi[0] && e == nx) e -= 4;
+        if (plain && e > a) {
+            int stayed = 0;
+            detail::hancock_row_simd(*g.eos, g.lim, hx, hy, half_dt, source ? source->data() + static_cast<size_t>(j) * nx + a : nullptr, g.Wp, g.plane,
+                                     g.P(pad + a, j + pad, 0), static_cast<size_t>(g.PX), e - a, r.xl.data() + a, r.xr.data() + a, r.yb.data() + a,
+                                     r.yt.data() + a, &stayed);
+            for (int i = 0; i < a; ++i) stayed += hancock_cell_at(g, hx, hy, half_dt, source, i, j, r.xl[i], r.xr[i], r.yb[i], r.yt[i]);
+            for (int i = e; i < nx; ++i) stayed += hancock_cell_at(g, hx, hy, half_dt, source, i, j, r.xl[i], r.xr[i], r.yb[i], r.yt[i]);
+            return stayed;
+        }
+    }
+#endif
     const size_t base = g.P(pad, j + pad, 0);
     muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, 1, nx, true, r.xl.data(), r.xr.data());
     muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, static_cast<size_t>(g.PX), nx, true, r.yb.data(), r.yt.data());
@@ -2307,8 +2338,8 @@ int hancock_row(const FusedGrid& g, double hx, double hy, double half_dt, const 
 }
 
 // The predicted states of the one cell (i, j): exactly what hancock_row gives it (MPI strips along x send those of their two edge columns).
-void hancock_cell_at(const FusedGrid& g, double hx, double hy, double half_dt, const Field* source, int i, int j, State& xl, State& xr, State& yb,
-                     State& yt) {
+int hancock_cell_at(const FusedGrid& g, double hx, double hy, double half_dt, const Field* source, int i, int j, State& xl, State& xr, State& yb,
+                    State& yt) {
     const int nx = g.nx, ny = g.ny, pad = g.pad;
     const Mesh& m = *g.m;
     const size_t base = g.P(pad + i, j + pad, 0);
@@ -2319,14 +2350,15 @@ void hancock_cell_at(const FusedGrid& g, double hx, double hy, double half_dt, c
     if (j == 0 && !g.halo_lo[1]) yb = round_trip(g, (*g.UR)[m.yface(i, 0)]);
     if (j == ny - 1 && !g.halo_hi[1]) yt = round_trip(g, (*g.UL)[m.yface(i, ny)]);
     const size_t c = static_cast<size_t>(j) * nx + i;
-    if (g.hsolid && (*g.hsolid)[c]) return;
+    if (g.hsolid && (*g.hsolid)[c]) return 0;
     const unsigned char sd = g.hsides ? (*g.hsides)[c] : 0;
     const State o0 = xl, o1 = xr, o2 = yb, o3 = yt;
-    hancock_cell(*g.eos, hx, hy, half_dt, source ? &(*source)[c] : nullptr, xl, xr, yb, yt);
+    const int stayed = hancock_cell(*g.eos, hx, hy, half_dt, source ? &(*source)[c] : nullptr, xl, xr, yb, yt);
     if (sd & 1) xl = o0;
     if (sd & 2) xr = o1;
     if (sd & 4) yb = o2;
     if (sd & 8) yt = o3;
+    return stayed;
 }
 
 // The Riemann solver on the n faces of s.ul / s.ur, normal to `axis`.
@@ -2456,6 +2488,44 @@ int hancock_row3(const FusedGrid& g, double hx, double hy, double hz, double hal
     State *xl = pl.xl.data() + off, *xr = pl.xr.data() + off, *yb = pl.yb.data() + off, *yt = pl.yt.data() + off, *zf = pl.zf.data() + off,
           *zk = pl.zk.data() + off;
     const size_t base = g.P(pad, j + pad, k + g.zp), sy = static_cast<size_t>(g.PX), sz = static_cast<size_t>(g.PX) * g.PY;
+#ifdef FV_SIMD
+    // as in hancock_row: one kernel for the blocks of four cells of a row without a cell of a body and without a side that has no halo
+    if (nx >= 4 && detail::simd_available() && !(j == 0 && !g.halo_lo[1]) && !(j == ny - 1 && !g.halo_hi[1]) && !(k == 0 && !g.halo_lo[2]) &&
+        !(k == nz - 1 && !g.halo_hi[2])) {
+        bool plain = true;
+        if (g.hsolid) {
+            const char* row = g.hsolid->data() + row_cell;
+            for (int i = 0; i < nx && plain; ++i) plain = !row[i];
+        }
+        if (plain && g.hsides) {
+            const unsigned char* row = g.hsides->data() + row_cell;
+            for (int i = 0; i < nx && plain; ++i) plain = !row[i];
+        }
+        const int a = g.halo_lo[0] ? 0 : 1;
+        int e = a + ((nx - a) & ~3);
+        if (!g.halo_hi[0] && e == nx) e -= 4;
+        if (plain && e > a) {
+            int stayed = 0;
+            detail::hancock_row3d_simd(*g.eos, g.lim, hx, hy, hz, half_dt, source ? source->data() + row_cell + a : nullptr, g.Wp, g.plane, base + a, sy, sz,
+                                       e - a, xl + a, xr + a, yb + a, yt + a, zf + a, zk + a, &stayed);
+            for (int i = 0; i < nx; ++i) {
+                if (i >= a && i < e) {
+                    i = e - 1;
+                    continue;
+                }
+                State st[6];
+                stayed += hancock_cell_at3(g, hx, hy, hz, half_dt, source, i, j, k, st);
+                xl[i] = st[0];
+                xr[i] = st[1];
+                yb[i] = st[2];
+                yt[i] = st[3];
+                zf[i] = st[4];
+                zk[i] = st[5];
+            }
+            return stayed;
+        }
+    }
+#endif
     muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, 1, nx, false, xl, xr);
     muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, sy, nx, false, yb, yt);
     muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, sz, nx, false, zf, zk);
@@ -2518,7 +2588,7 @@ State stencil_face_state3(const FusedGrid& g, size_t base, size_t stride, bool l
 }
 
 // The 3-D twin of hancock_cell_at: the six predicted states of the cell (i, j, k), as hancock_row3 gives them.
-void hancock_cell_at3(const FusedGrid& g, double hx, double hy, double hz, double half_dt, const Field* source, int i, int j, int k, State st[6]) {
+int hancock_cell_at3(const FusedGrid& g, double hx, double hy, double hz, double half_dt, const Field* source, int i, int j, int k, State st[6]) {
     const int nx = g.nx, ny = g.ny, nz = g.nz, pad = g.pad;
     const Mesh& m = *g.m;
     const size_t base = g.P(pad + i, j + pad, k + g.zp), sy = static_cast<size_t>(g.PX), sz = static_cast<size_t>(g.PX) * g.PY;
@@ -2532,13 +2602,14 @@ void hancock_cell_at3(const FusedGrid& g, double hx, double hy, double hz, doubl
     if (k == 0 && !g.halo_lo[2]) st[4] = round_trip(g, (*g.UR)[m.zface(i, j, 0)]);
     if (k == nz - 1 && !g.halo_hi[2]) st[5] = round_trip(g, (*g.UL)[m.zface(i, j, nz)]);
     const size_t c = (static_cast<size_t>(k) * ny + j) * nx + i;
-    if (g.hsolid && (*g.hsolid)[c]) return;
+    if (g.hsolid && (*g.hsolid)[c]) return 0;
     const unsigned char sd = g.hsides ? (*g.hsides)[c] : 0;
     State o[6];
     for (int s = 0; s < 6; ++s) o[s] = st[s];
-    hancock_cell_3d_impl(*g.eos, hx, hy, hz, half_dt, source ? &(*source)[c] : nullptr, st[0], st[1], st[2], st[3], st[4], st[5]);
+    const int stayed = hancock_cell_3d_impl(*g.eos, hx, hy, hz, half_dt, source ? &(*source)[c] : nullptr, st[0], st[1], st[2], st[3], st[4], st[5]);
     for (int s = 0; s < 6; ++s)
         if (sd & (1 << s)) st[s] = o[s];
+    return stayed;
 }
 
 // The fluxes of the x faces of row j of plane k.

@@ -71,6 +71,13 @@ struct VEos {
         U.q[4] = mul(rho, w);
         return U;
     }
+    // admissible_state (Schemes.cpp): density above the floor, pressure + p_inf above zero (a NaN fails both comparisons); all lanes
+    V admissible(const Vec5& nw) const {
+        const V ke = dv(mul(half, add(add(mul(nw.q[1], nw.q[1]), mul(nw.q[2], nw.q[2])), mul(nw.q[4], nw.q[4]))), nw.q[0]);
+        const V rho_e = sub(nw.q[3], ke);
+        const V p = ideal ? mul(gm1, rho_e) : sub(mul(gm1, rho_e), gpinf);
+        return band(lt(eps, nw.q[0]), lt(set1(0.0), add(p, pinf)));
+    }
     // EOS::sound_speed_inv
     V sound_speed_inv(V p, V inv_rho) const {
         if (ideal) return vsqrt(mul(mul(gamma, vmax(p, eps)), inv_rho));
@@ -406,11 +413,7 @@ void hancock_cells_simd(const EOS& eos, double hx, double hy, double half_dt, co
         for (int a = 0; a < 4; ++a) {
             Vec5 nw;
             for (int q = 0; q < 5; ++q) nw.q[q] = sub(s[a].q[q], d[q]);
-            // admissible_state: density above the floor, pressure + p_inf above zero (a NaN fails both comparisons)
-            const V ke = dv(mul(half, add(add(mul(nw.q[1], nw.q[1]), mul(nw.q[2], nw.q[2])), mul(nw.q[4], nw.q[4]))), nw.q[0]);
-            const V rho_e = sub(nw.q[3], ke);
-            const V p = E.ideal ? mul(E.gm1, rho_e) : sub(mul(E.gm1, rho_e), E.gpinf);
-            const V ok = band(lt(E.eps, nw.q[0]), lt(zero, add(p, E.pinf)));
+            const V ok = E.admissible(nw);
             Vec5 out;
             for (int q = 0; q < 5; ++q) out.q[q] = blend(s[a].q[q], nw.q[q], ok);
             store4(dst[a], out);
@@ -457,10 +460,7 @@ void hancock_cells3d_simd(const EOS& eos, double hx, double hy, double hz, doubl
         for (int a = 0; a < 6; ++a) {
             Vec5 nw;
             for (int q = 0; q < 5; ++q) nw.q[q] = sub(s[a].q[q], d[q]);
-            const V ke = dv(mul(half, add(add(mul(nw.q[1], nw.q[1]), mul(nw.q[2], nw.q[2])), mul(nw.q[4], nw.q[4]))), nw.q[0]);
-            const V rho_e = sub(nw.q[3], ke);
-            const V p = E.ideal ? mul(E.gm1, rho_e) : sub(mul(E.gm1, rho_e), E.gpinf);
-            const V ok = band(lt(E.eps, nw.q[0]), lt(zero, add(p, E.pinf)));
+            const V ok = E.admissible(nw);
             Vec5 out;
             for (int q = 0; q < 5; ++q) out.q[q] = blend(s[a].q[q], nw.q[q], ok);
             store4(dst[a], out);
@@ -471,6 +471,127 @@ void hancock_cells3d_simd(const EOS& eos, double hx, double hy, double hz, doubl
                 std::memcpy(&bits, &t[i], sizeof bits);
                 if (bits == 0) ++left;
             }
+        }
+    }
+    *stayed = left;
+    end_batch();
+}
+
+
+namespace {
+
+// The four (six) states of a cell are advanced in registers: the limited states of muscl_cell_states_line_simd (conservative, prim_to_cons of
+// c +- 0.5 phi) feed the operations of hancock_cells_simd without the store, the reload and the transposition between the two kernels.
+inline int count_not_ok(V ok) {
+    double t[4];
+    store(t, ok);
+    int n = 0;
+    for (int i = 0; i < 4; ++i) {
+        std::uint64_t bits;
+        std::memcpy(&bits, &t[i], sizeof bits);
+        if (bits == 0) ++n;
+    }
+    return n;
+}
+
+}   // namespace
+
+void hancock_row_simd(const EOS& eos, Limiter lim, double hx, double hy, double half_dt, const State* src, const double* W, size_t plane, size_t base,
+                      size_t sy, int n, State* xl, State* xr, State* yb, State* yt, int* stayed) {
+    const VEos E(eos);
+    const V half = set1(0.5), zero = set1(0.0), vhx = set1(hx), vhy = set1(hy), vhh = set1(half_dt);
+    int left = 0;
+    for (int k = 0; k < n; k += 4) {
+        Vec5 wlx, wrx, wly, wry;
+        wlx.q[4] = wrx.q[4] = wly.q[4] = wry.q[4] = zero;   // rho w = 0 in 2-D
+        for (int q = 0; q < 4; ++q) {
+            const double* p = W + q * plane + base + k;
+            const V cc = load(p), xm = load(p - 1), xp = load(p + 1), ym = load(p - sy), yp = load(p + sy);
+            wlx.q[q] = add(cc, mul(half, vlimiter(lim, sub(cc, xm), sub(xp, cc))));
+            wrx.q[q] = sub(cc, mul(half, vlimiter(lim, sub(xp, cc), sub(cc, xm))));
+            wly.q[q] = add(cc, mul(half, vlimiter(lim, sub(cc, ym), sub(yp, cc))));
+            wry.q[q] = sub(cc, mul(half, vlimiter(lim, sub(yp, cc), sub(cc, ym))));
+        }
+        // the order of hancock_cell: x low, x high, y low, y high
+        const Vec5 s[4] = {E.prim_to_cons(wrx), E.prim_to_cons(wlx), E.prim_to_cons(wry), E.prim_to_cons(wly)};
+        Vec5 f[4];
+        for (int a = 0; a < 4; ++a) {
+            const Vec5 Wp = E.cons_to_prim(s[a]);
+            const V un = a < 2 ? Wp.q[1] : Wp.q[2], p = Wp.q[3];
+            f[a].q[0] = mul(s[a].q[0], un);
+            f[a].q[1] = add(mul(s[a].q[1], un), a < 2 ? p : zero);
+            f[a].q[2] = add(mul(s[a].q[2], un), a < 2 ? zero : p);
+            f[a].q[3] = mul(add(s[a].q[3], p), un);
+            f[a].q[4] = mul(s[a].q[4], un);
+        }
+        V d[5];
+        for (int q = 0; q < 5; ++q) d[q] = add(mul(vhx, sub(f[1].q[q], f[0].q[q])), mul(vhy, sub(f[3].q[q], f[2].q[q])));
+        if (src) {
+            const Vec5 Q = load4(src + k);
+            for (int q = 0; q < 5; ++q) d[q] = sub(d[q], mul(vhh, Q.q[q]));
+        }
+        State* const dst[4] = {xl + k, xr + k, yb + k, yt + k};
+        for (int a = 0; a < 4; ++a) {
+            Vec5 nw;
+            for (int q = 0; q < 5; ++q) nw.q[q] = sub(s[a].q[q], d[q]);
+            const V ok = E.admissible(nw);
+            Vec5 out;
+            for (int q = 0; q < 5; ++q) out.q[q] = blend(s[a].q[q], nw.q[q], ok);
+            store4(dst[a], out);
+            left += count_not_ok(ok);
+        }
+    }
+    *stayed = left;
+    end_batch();
+}
+
+void hancock_row3d_simd(const EOS& eos, Limiter lim, double hx, double hy, double hz, double half_dt, const State* src, const double* W, size_t plane,
+                        size_t base, size_t sy, size_t sz, int n, State* xl, State* xr, State* yb, State* yt, State* zf, State* zk, int* stayed) {
+    const VEos E(eos);
+    const V half = set1(0.5), zero = set1(0.0), vhx = set1(hx), vhy = set1(hy), vhz = set1(hz), vhh = set1(half_dt);
+    int left = 0;
+    for (int k = 0; k < n; k += 4) {
+        Vec5 wl[3], wr[3];   // per axis: the state on the high side (c + 0.5 phi) and on the low side (c - 0.5 phi)
+        const size_t stride[3] = {1, sy, sz};
+        for (int q = 0; q < kNVar; ++q) {
+            const double* p = W + q * plane + base + k;
+            const V cc = load(p);
+            for (int ax = 0; ax < 3; ++ax) {
+                const V cm = load(p - stride[ax]), cp = load(p + stride[ax]);
+                wl[ax].q[q] = add(cc, mul(half, vlimiter(lim, sub(cc, cm), sub(cp, cc))));
+                wr[ax].q[q] = sub(cc, mul(half, vlimiter(lim, sub(cp, cc), sub(cc, cm))));
+            }
+        }
+        // the order of hancock_cell_3d_impl: x low, x high, y low, y high, z low, z high
+        const Vec5 s[6] = {E.prim_to_cons(wr[0]), E.prim_to_cons(wl[0]), E.prim_to_cons(wr[1]), E.prim_to_cons(wl[1]), E.prim_to_cons(wr[2]),
+                           E.prim_to_cons(wl[2])};
+        Vec5 f[6];
+        for (int a = 0; a < 6; ++a) {
+            const int axis = a / 2;
+            const Vec5 Wp = E.cons_to_prim(s[a]);
+            const V un = axis == 0 ? Wp.q[1] : axis == 1 ? Wp.q[2] : Wp.q[4], p = Wp.q[3];
+            f[a].q[0] = mul(s[a].q[0], un);
+            f[a].q[1] = add(mul(s[a].q[1], un), axis == 0 ? p : zero);
+            f[a].q[2] = add(mul(s[a].q[2], un), axis == 1 ? p : zero);
+            f[a].q[3] = mul(add(s[a].q[3], p), un);
+            f[a].q[4] = add(mul(s[a].q[4], un), axis == 2 ? p : zero);
+        }
+        V d[5];
+        for (int q = 0; q < 5; ++q)
+            d[q] = add(add(mul(vhx, sub(f[1].q[q], f[0].q[q])), mul(vhy, sub(f[3].q[q], f[2].q[q]))), mul(vhz, sub(f[5].q[q], f[4].q[q])));
+        if (src) {
+            const Vec5 Q = load4(src + k);
+            for (int q = 0; q < 5; ++q) d[q] = sub(d[q], mul(vhh, Q.q[q]));
+        }
+        State* const dst[6] = {xl + k, xr + k, yb + k, yt + k, zf + k, zk + k};
+        for (int a = 0; a < 6; ++a) {
+            Vec5 nw;
+            for (int q = 0; q < 5; ++q) nw.q[q] = sub(s[a].q[q], d[q]);
+            const V ok = E.admissible(nw);
+            Vec5 out;
+            for (int q = 0; q < 5; ++q) out.q[q] = blend(s[a].q[q], nw.q[q], ok);
+            store4(dst[a], out);
+            left += count_not_ok(ok);
         }
     }
     *stayed = left;

@@ -49,6 +49,15 @@ void hancock_cells_simd(const EOS& eos, double hx, double hy, double half_dt, co
 // scalar hancock_cell_3d_impl of Schemes.cpp.
 void hancock_cells3d_simd(const EOS& eos, double hx, double hy, double hz, double half_dt, const State* src, State* xl, State* xr, State* yb,
                           State* yt, State* zf, State* zk, int n, int* stayed);
+// The reconstruction and the predictor of a row of cells in one kernel (n a multiple of 4): the limited states of the cells k = 0 .. n-1 are
+// taken from the primitive planes as muscl_cell_states_line_simd takes them (cell k at W[q * plane + base + k], neighbours at +- 1 along x and
+// +- sy along y, planar: rho w = 0) and advanced in registers as hancock_cells_simd advances them: the four states are written once, to
+// xl / xr / yb / yt [k]. Bit-identical to the two kernels one after the other. `src`: as there (cell k of the range).
+void hancock_row_simd(const EOS& eos, Limiter lim, double hx, double hy, double half_dt, const State* src, const double* W, size_t plane, size_t base,
+                      size_t sy, int n, State* xl, State* xr, State* yb, State* yt, int* stayed);
+// The same for a cell of a 3-D mesh (neighbours at +- 1, +- sy, +- sz; six states).
+void hancock_row3d_simd(const EOS& eos, Limiter lim, double hx, double hy, double hz, double half_dt, const State* src, const double* W, size_t plane,
+                        size_t base, size_t sy, size_t sz, int n, State* xl, State* xr, State* yb, State* yt, State* zf, State* zk, int* stayed);
 // Primitive states (EOS::cons_to_prim) of the cells U[0 .. n-1] (n a multiple of 4), the variable q at out[q][k].
 void cons_to_prim_planes_simd(const EOS& eos, const State* U, int n, double* const* out);
 // The same for WENO3-Z (weno3z of Schemes.cpp): four cells per face, planes[q][base + k + s * stride], s = 0 .. 3.
