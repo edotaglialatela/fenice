@@ -42,7 +42,7 @@ struct StripHalos {
     // MUSCL-Hancock: the cells of an immersed body of the strip (not predicted) and the exchange of the predicted states of the edge rows
     const std::vector<char>* solid = nullptr;
     const std::vector<unsigned char>* solid_sides = nullptr;   // ... and the sides that face one (solid_side_mask), not predicted either
-    FaceExchange exchange_faces;
+    FaceExchange exchange_faces{};
 };
 
 // Owns every solver object of a run and drives the time loop (serial, AMR or MPI).

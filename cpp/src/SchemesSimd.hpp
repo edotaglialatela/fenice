@@ -45,6 +45,10 @@ void muscl_cell_states_line_simd(const EOS& eos, Limiter lim, const double* W, s
 // cells 0 .. n-1, null: none) the advance is also by half_dt * src[k]. Bit-identical to the scalar hancock_cell of Schemes.cpp.
 void hancock_cells_simd(const EOS& eos, double hx, double hy, double half_dt, const State* src, State* xl, State* xr, State* yb, State* yt, int n,
                         int* stayed);
+// The same for a cell of a 3-D mesh: six states (low / high side along x, y, z), the flux differences added as (x + y) + z; bit-identical to the
+// scalar hancock_cell_3d_impl of Schemes.cpp.
+void hancock_cells3d_simd(const EOS& eos, double hx, double hy, double hz, double half_dt, const State* src, State* xl, State* xr, State* yb,
+                          State* yt, State* zf, State* zk, int n, int* stayed);
 // Primitive states (EOS::cons_to_prim) of the cells U[0 .. n-1] (n a multiple of 4), the variable q at out[q][k].
 void cons_to_prim_planes_simd(const EOS& eos, const State* U, int n, double* const* out);
 // The same for WENO3-Z (weno3z of Schemes.cpp): four cells per face, planes[q][base + k + s * stride], s = 0 .. 3.

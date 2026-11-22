@@ -643,6 +643,164 @@ TEST(fused_hancock_residual_equals_the_two_pass_residual_bit_for_bit) {
     CHECK(stayed_total > 0);   // the fallback is exercised
 }
 
+// The 3-D MUSCL-Hancock residual in one pass over planes gives, bit for bit, what the arrays of face states, the predictor, the wall ghosts,
+// the Riemann solver and the divergence give (FENICE_NO_FUSED = 1): reflecting walls, transmissive sides, wrap-around halos on every axis, ghost
+// layers on every side, a body with its wall sides, a cell source, the states of a neighbour across a y interface, ideal and stiffened gas, a step
+// that keeps every state and one that does not, and meshes whose rows are not a multiple of four, two planes thick, and large enough for threads.
+TEST(fused_hancock_3d_residual_equals_the_two_pass_residual_bit_for_bit) {
+    unsigned seed = 4711u;
+    const auto rnd = [&]() {
+        seed = seed * 1664525u + 1013904223u;
+        return static_cast<double>(seed >> 8) / 16777216.0;
+    };
+    long long compared = 0, stayed_total = 0;
+    struct Dim { int nx, ny, nz; };
+    for (const EOS eos : {EOS::ideal(1.4), EOS::stiffened(4.4, 100.0)})
+        for (const Dim d : {Dim{9, 6, 3}, Dim{5, 4, 2}, Dim{4, 3, 5}, Dim{22, 18, 17}}) {
+            const Mesh m = generate_cartesian_mesh_3d(1.0, 0.8, 0.6, d.nx, d.ny, d.nz);
+            Field U(m.num_cells());
+            const double ps = eos.type == EOS::Type::IdealGas ? 1.0 : 200.0;
+            for (auto& u : U) u = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, ps * (0.4 + rnd()), rnd() - 0.5});
+            // 0: walls and transmissive sides; 1: periodic on every axis; 2: ghost layers on every side (walls on x and z)
+            for (int cfg = 0; cfg < 3; ++cfg) {
+                BoundaryManager bm(m, eos);
+                if (cfg == 0) {
+                    bm.set_boundary_types(BCType::Wall, BCType::Transmissive, BCType::Transmissive, BCType::Wall);
+                    bm.set_type(Face::Front, BCType::Wall);
+                    bm.set_type(Face::Back, BCType::Transmissive);
+                }
+                if (cfg == 1) {
+                    bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Periodic, BCType::Periodic);
+                    bm.set_type(Face::Front, BCType::Periodic);
+                    bm.set_type(Face::Back, BCType::Periodic);
+                }
+                if (cfg == 2) {
+                    bm.set_boundary_types(BCType::Wall, BCType::Transmissive, BCType::Transmissive, BCType::Transmissive);
+                    bm.set_type(Face::Front, BCType::Wall);
+                    bm.set_type(Face::Back, BCType::Transmissive);
+                }
+                const int D = kHaloDepth;
+                Field perL, perR, perB, perT, perF, perK, ghs[6];
+                Halos h;
+                const auto cell = [&](int i, int j, int k) -> const State& { return U[m.cell(i, j, k)]; };
+                if (cfg == 1) {
+                    if (m.nx >= D) {
+                        perL.resize(static_cast<size_t>(m.ny) * m.nz * D);
+                        perR.resize(perL.size());
+                        for (int k = 0; k < m.nz; ++k)
+                            for (int j = 0; j < m.ny; ++j)
+                                for (int e = 0; e < D; ++e) {
+                                    perL[(static_cast<size_t>(k) * m.ny + j) * D + e] = cell(m.nx - D + e, j, k);
+                                    perR[(static_cast<size_t>(k) * m.ny + j) * D + e] = cell(e, j, k);
+                                }
+                        h.l = &perL;
+                        h.r = &perR;
+                    }
+                    if (m.ny >= D) {
+                        perB.resize(static_cast<size_t>(m.nx) * m.nz * D);
+                        perT.resize(perB.size());
+                        for (int e = 0; e < D; ++e)
+                            for (int k = 0; k < m.nz; ++k)
+                                for (int i = 0; i < m.nx; ++i) {
+                                    perB[(static_cast<size_t>(e) * m.nz + k) * m.nx + i] = cell(i, m.ny - D + e, k);
+                                    perT[(static_cast<size_t>(e) * m.nz + k) * m.nx + i] = cell(i, e, k);
+                                }
+                        h.b = &perB;
+                        h.t = &perT;
+                    }
+                    if (m.nz >= D) {
+                        perF.resize(static_cast<size_t>(m.nx) * m.ny * D);
+                        perK.resize(perF.size());
+                        for (int e = 0; e < D; ++e)
+                            for (int j = 0; j < m.ny; ++j)
+                                for (int i = 0; i < m.nx; ++i) {
+                                    perF[(static_cast<size_t>(e) * m.ny + j) * m.nx + i] = cell(i, j, m.nz - D + e);
+                                    perK[(static_cast<size_t>(e) * m.ny + j) * m.nx + i] = cell(i, j, e);
+                                }
+                        h.f = &perF;
+                        h.bk = &perK;
+                    }
+                }
+                if (cfg == 2) {
+                    const Field* Halos::*slot[6] = {&Halos::l, &Halos::r, &Halos::b, &Halos::t, &Halos::f, &Halos::bk};
+                    for (int s = 0; s < 6; ++s)
+                        if (bm.fill_ghost_slab(U, static_cast<Face>(s), D, ghs[s])) h.*slot[s] = &ghs[s];
+                }
+                const bool per[3] = {cfg == 1 && h.l == &perL && h.r == &perR, cfg == 1 && h.b == &perB && h.t == &perT,
+                                     cfg == 1 && h.f == &perF && h.bk == &perK};
+                // bit 1: some cells of a body (and the sides that face them) are not predicted; 2: a cell source; 4: a neighbour across y
+                std::vector<char> body(m.num_cells(), 0);
+                Field src(m.num_cells());
+                for (int c = 0; c < m.num_cells(); ++c) {
+                    body[c] = rnd() < 0.1 ? 1 : 0;
+                    for (int q = 0; q < kNVar; ++q) src[c][q] = (rnd() - 0.5) * (q == 3 ? 4.0 : 1.0);
+                }
+                const std::vector<unsigned char> sides = solid_side_mask(m, body);
+                Field from_lo(static_cast<size_t>(m.nx) * m.nz), from_hi(from_lo.size()), sent_lo, sent_hi;
+                for (auto* f : {&from_lo, &from_hi})
+                    for (auto& u : *f) u = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, ps * (0.4 + rnd()), rnd() - 0.5});
+                h.wall_ghost = [&bm](int side, const State& inner) { return bm.ghost_state(static_cast<Face>(side), inner, 0.0); };
+                for (int extra = 0; extra < 8; ++extra) {
+                    if ((extra & 4) && (cfg != 2 || m.ny < 2)) continue;
+                    h.solid = (extra & 1) ? &body : nullptr;
+                    h.solid_sides = (extra & 1) ? &sides : nullptr;
+                    const Field* source = (extra & 2) ? &src : nullptr;
+                    // the reflecting sides of the box; a y interface is not a wall
+                    for (int s = 0; s < 6; ++s) h.wall_side[s] = bm.type(static_cast<Face>(s)) == BCType::Wall;
+                    if (extra & 4) h.wall_side[2] = h.wall_side[3] = false;
+                    h.exchange_faces = (extra & 4) ? FaceExchange([&](const Field& to_lo, const Field& to_hi, Field& lo, Field& hi) {
+                                                         sent_lo = to_lo;
+                                                         sent_hi = to_hi;
+                                                         lo = from_lo;
+                                                         hi = from_hi;
+                                                     })
+                                                   : FaceExchange();
+                    for (const RiemannType rt : {RiemannType::HLLC, RiemannType::LowMachHLLC}) {
+                        const RiemannSolver rs(eos, rt, 0.2);
+                        for (const Limiter lim : {Limiter::Minmod, Limiter::VanLeer, Limiter::MC, Limiter::Koren})
+                            for (const double half : {0.002, 0.06}) {
+                                const MusclReconstruction mu(eos, lim);
+                                Field ULs, URs;
+                                bm.apply_boundary_conditions(U, ULs, URs, nullptr, false);
+                                // two passes
+                                Field UL = ULs, UR = URs, F2;
+                                mu.reconstruct_3d(UL, UR, U, m, h);
+                                const int stayed2 = mu.hancock_predict_3d(UL, UR, m, half, per, h.solid, source,
+                                                                          (extra & 4) ? &h.exchange_faces : nullptr, h.solid_sides);
+                                const Field two_lo = sent_lo, two_hi = sent_hi;
+                                mu.hancock_wall_ghosts(UL, UR, m, h);
+                                const double s2 = rs.compute_flux(UL, UR, m, F2);
+                                // one pass
+                                Field R1;
+                                long long stayed1 = -1;
+                                const double s1 = mu.hancock_residual_3d(rs, ULs, URs, U, m, h, half, per, R1, &stayed1, source);
+                                CHECK(s1 == s2);
+                                if (extra & 4) CHECK(sent_lo == two_lo && sent_hi == two_hi);
+                                CHECK(stayed1 == stayed2);
+                                stayed_total += stayed2;
+                                const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
+                                bool same = R1.size() == U.size();
+                                for (int k = 0; same && k < m.nz; ++k)
+                                    for (int j = 0; j < m.ny; ++j)
+                                        for (int i = 0; i < m.nx; ++i)
+                                            for (int q = 0; q < kNVar; ++q) {
+                                                const double fl = F2[m.xface(i, j, k)][q], fr = F2[m.xface(i + 1, j, k)][q];
+                                                const double fb = F2[m.yface(i, j, k)][q], ft = F2[m.yface(i, j + 1, k)][q];
+                                                const double ff = F2[m.zface(i, j, k)][q], fk = F2[m.zface(i, j, k + 1)][q];
+                                                same = same && R1[m.cell(i, j, k)][q] ==
+                                                                   (((0.0 - (fr * Ax - fl * Ax)) - (ft * Ay - fb * Ay)) - (fk * Az - ff * Az)) * inv_vol;
+                                            }
+                                CHECK(same);
+                                compared += static_cast<long long>(U.size());
+                            }
+                    }
+                }
+            }
+        }
+    std::printf("    %lld cells compared, %lld states left unpredicted in the large steps\n", compared, stayed_total);
+    CHECK(stayed_total > 0);
+}
+
 TEST(fused_weno_fluxes_equal_the_two_pass_fluxes_bit_for_bit) {
     const EOS eos = EOS::ideal(1.4);
     unsigned seed = 4242u;

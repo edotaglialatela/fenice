@@ -154,7 +154,7 @@ struct Halos {
     // time level of the ghost cells (which are filled from the state at the start of the step). Null: none.
     const std::vector<unsigned char>* solid_sides = nullptr;
     // MUSCL-Hancock only, MPI strips: the exchange of the predicted states across the interfaces (empty: none)
-    FaceExchange exchange_faces;
+    FaceExchange exchange_faces{};
     // MUSCL-Hancock only: the sides (Face order: left, right, bottom, top, front, back) that are a reflecting wall of this (sub)domain, and the ghost
     // state the wall condition makes of a cell state. The cell next to such a side is predicted, so its ghost is built from the predicted state: the
     // flux through the wall is then the wall's pressure alone, and a closed box keeps its mass and energy.
@@ -244,6 +244,13 @@ public:
     // unpredicted. Returns the maximum wave speed.
     double hancock_residual_2d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m, const Halos& h,
                                double half_dt, bool periodic_x, bool periodic_y, Field& R, long long* reverted = nullptr,
+                               const Field* source = nullptr) const;
+
+    // The 3-D twin of hancock_residual_2d (plane-pipelined; `periodic` as for hancock_predict_3d, `source` the cell source dU/dt): bit for bit
+    // what reconstruct_3d, hancock_predict_3d, hancock_wall_ghosts, the Riemann solver and the divergence give. With `h.exchange_faces`
+    // the interface y faces take the neighbours' predicted states (index k * nx + i).
+    double hancock_residual_3d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m, const Halos& h,
+                               double half_dt, const bool periodic[3], Field& R, long long* reverted = nullptr,
                                const Field* source = nullptr) const;
 
     // WENO3-Z / WENO5-Z of the CONSERVED cell averages (not the primitives) on the faces with a full stencil of a uniform mesh (2-D when nz = 1): the

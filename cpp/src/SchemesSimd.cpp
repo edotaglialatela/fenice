@@ -427,6 +427,56 @@ void hancock_cells_simd(const EOS& eos, double hx, double hy, double half_dt, co
     end_batch();
 }
 
+void hancock_cells3d_simd(const EOS& eos, double hx, double hy, double hz, double half_dt, const State* src, State* xl, State* xr, State* yb,
+                          State* yt, State* zf, State* zk, int n, int* stayed) {
+    const VEos E(eos);
+    const V vhx = set1(hx), vhy = set1(hy), vhz = set1(hz), vhh = set1(half_dt), zero = set1(0.0), half = set1(0.5);
+    int left = 0;
+    for (int k = 0; k < n; k += 4) {
+        // the states in the order of hancock_cell_3d_impl: x low, x high, y low, y high, z low, z high
+        Vec5 s[6] = {load4(xl + k), load4(xr + k), load4(yb + k), load4(yt + k), load4(zf + k), load4(zk + k)};
+        Vec5 f[6];   // euler_flux_axis3 of each: axis 0 for the first two, 1 for the next two, 2 for the last two
+        for (int a = 0; a < 6; ++a) {
+            const int axis = a / 2;
+            const Vec5 W = E.cons_to_prim(s[a]);
+            const V un = axis == 0 ? W.q[1] : axis == 1 ? W.q[2] : W.q[4], p = W.q[3];
+            f[a].q[0] = mul(s[a].q[0], un);
+            f[a].q[1] = add(mul(s[a].q[1], un), axis == 0 ? p : zero);
+            f[a].q[2] = add(mul(s[a].q[2], un), axis == 1 ? p : zero);
+            f[a].q[3] = mul(add(s[a].q[3], p), un);
+            f[a].q[4] = add(mul(s[a].q[4], un), axis == 2 ? p : zero);
+        }
+        V d[5];
+        for (int q = 0; q < 5; ++q)
+            d[q] = add(add(mul(vhx, sub(f[1].q[q], f[0].q[q])), mul(vhy, sub(f[3].q[q], f[2].q[q]))), mul(vhz, sub(f[5].q[q], f[4].q[q])));
+        if (src) {
+            const Vec5 Q = load4(src + k);
+            for (int q = 0; q < 5; ++q) d[q] = sub(d[q], mul(vhh, Q.q[q]));
+        }
+        State* const dst[6] = {xl + k, xr + k, yb + k, yt + k, zf + k, zk + k};
+        for (int a = 0; a < 6; ++a) {
+            Vec5 nw;
+            for (int q = 0; q < 5; ++q) nw.q[q] = sub(s[a].q[q], d[q]);
+            const V ke = dv(mul(half, add(add(mul(nw.q[1], nw.q[1]), mul(nw.q[2], nw.q[2])), mul(nw.q[4], nw.q[4]))), nw.q[0]);
+            const V rho_e = sub(nw.q[3], ke);
+            const V p = E.ideal ? mul(E.gm1, rho_e) : sub(mul(E.gm1, rho_e), E.gpinf);
+            const V ok = band(lt(E.eps, nw.q[0]), lt(zero, add(p, E.pinf)));
+            Vec5 out;
+            for (int q = 0; q < 5; ++q) out.q[q] = blend(s[a].q[q], nw.q[q], ok);
+            store4(dst[a], out);
+            double t[4];
+            store(t, ok);
+            for (int i = 0; i < 4; ++i) {
+                std::uint64_t bits;
+                std::memcpy(&bits, &t[i], sizeof bits);
+                if (bits == 0) ++left;
+            }
+        }
+    }
+    *stayed = left;
+    end_batch();
+}
+
 // ---------------------------------------------------------------------------------------------------------------------
 // WENO5-Z reconstruction of the faces of one line (scalar twin: weno5z in Schemes.cpp, same operations in the same order).
 

@@ -1177,9 +1177,16 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
     }
     double S;
     const bool fourth = mu && p.fourth_flux();
-    const bool fused_balance = mu && predictor_dt == 0.0 && fused_recon(*mu, fourth, fb_active_);
+    const bool fused_hancock = mu && predictor_dt > 0.0 && fused_recon(*mu, fourth, fb_active_);
+    const bool fused_balance = fused_hancock || (mu && predictor_dt == 0.0 && fused_recon(*mu, fourth, fb_active_));
     bool fused_balance_4 = false;
-    if (fused_balance) {
+    if (fused_hancock) {
+        // MUSCL-Hancock in one pass over planes: states, predictor, Riemann solves and flux balance (the two-pass path below gives the same bits)
+        ProfileScope ps(Section::Flux);
+        long long stayed = 0;
+        S = mu->hancock_residual_3d(riemann, UL_, UR_, Uv, m, mh, predictor_dt, wrap, R, &stayed, hsrc);
+        hancock_reverted_ += stayed;
+    } else if (fused_balance) {
         ProfileScope ps(Section::Flux);   // reconstruction, Riemann solver and flux balance in one pass over planes
         S = mu->muscl_residual_3d(riemann, UL_, UR_, Uv, m, mh, R);
     } else if (fourth && fused_enabled()) {

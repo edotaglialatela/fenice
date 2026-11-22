@@ -2412,6 +2412,229 @@ double hancock_residual_2d_impl(const FusedGrid& g, const Mesh& m, double half_d
     reverted = rev_all;
     return smax_all;
 }
+
+// ---- 3-D: the plane-pipelined MUSCL-Hancock residual ------------------------------------------------------------------------------------
+
+// The predicted states of the cells of one z plane, row-major (j * nx + i).
+struct HancockPlane {
+    std::vector<State> xl, xr, yb, yt, zf, zk;
+    explicit HancockPlane(size_t n) : xl(n), xr(n), yb(n), yt(n), zf(n), zk(n) {}
+};
+
+// Predicted states of the cells of row j of plane k (6 states each, written at offset j * nx of the plane); returns how many states stayed.
+int hancock_row3(const FusedGrid& g, double hx, double hy, double hz, double half_dt, const Field* source, int j, int k, HancockPlane& pl) {
+    const int nx = g.nx, ny = g.ny, nz = g.nz, pad = g.pad;
+    const Mesh& m = *g.m;
+    const size_t off = static_cast<size_t>(j) * nx, row_cell = (static_cast<size_t>(k) * ny + j) * nx;
+    State *xl = pl.xl.data() + off, *xr = pl.xr.data() + off, *yb = pl.yb.data() + off, *yt = pl.yt.data() + off, *zf = pl.zf.data() + off,
+          *zk = pl.zk.data() + off;
+    const size_t base = g.P(pad, j + pad, k + g.zp), sy = static_cast<size_t>(g.PX), sz = static_cast<size_t>(g.PX) * g.PY;
+    muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, 1, nx, false, xl, xr);
+    muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, sy, nx, false, yb, yt);
+    muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, sz, nx, false, zf, zk);
+    if (!g.halo_lo[0]) xl[0] = round_trip(g, (*g.UR)[m.xface(0, j, k)]);
+    if (!g.halo_hi[0]) xr[nx - 1] = round_trip(g, (*g.UL)[m.xface(nx, j, k)]);
+    if (j == 0 && !g.halo_lo[1])
+        for (int i = 0; i < nx; ++i) yb[i] = round_trip(g, (*g.UR)[m.yface(i, 0, k)]);
+    if (j == ny - 1 && !g.halo_hi[1])
+        for (int i = 0; i < nx; ++i) yt[i] = round_trip(g, (*g.UL)[m.yface(i, ny, k)]);
+    if (k == 0 && !g.halo_lo[2])
+        for (int i = 0; i < nx; ++i) zf[i] = round_trip(g, (*g.UR)[m.zface(i, j, 0)]);
+    if (k == nz - 1 && !g.halo_hi[2])
+        for (int i = 0; i < nx; ++i) zk[i] = round_trip(g, (*g.UL)[m.zface(i, j, nz)]);
+    int stayed = 0, done = 0;
+    const char* solid_row = nullptr;
+    const unsigned char* sides_row = nullptr;
+    if (g.hsolid) {
+        const char* row = g.hsolid->data() + row_cell;
+        for (int i = 0; i < nx && !solid_row; ++i)
+            if (row[i]) solid_row = row;
+    }
+    if (g.hsides) {
+        const unsigned char* row = g.hsides->data() + row_cell;
+        for (int i = 0; i < nx && !sides_row; ++i)
+            if (row[i]) sides_row = row;
+    }
+#ifdef FV_SIMD
+    if (!solid_row && !sides_row && detail::simd_available()) {
+        done = nx & ~3;
+        if (done > 0)
+            detail::hancock_cells3d_simd(*g.eos, hx, hy, hz, half_dt, source ? source->data() + row_cell : nullptr, xl, xr, yb, yt, zf, zk, done,
+                                         &stayed);
+    }
+#endif
+    for (int i = done; i < nx; ++i) {
+        if (solid_row && solid_row[i]) continue;
+        const unsigned char sd = sides_row ? sides_row[i] : 0;
+        State* st[6] = {&xl[i], &xr[i], &yb[i], &yt[i], &zf[i], &zk[i]};
+        State o[6];
+        if (sd)
+            for (int s = 0; s < 6; ++s) o[s] = *st[s];
+        stayed += hancock_cell_3d_impl(*g.eos, hx, hy, hz, half_dt, source ? &(*source)[row_cell + i] : nullptr, *st[0], *st[1], *st[2], *st[3],
+                                       *st[4], *st[5]);
+        for (int s = 0; s < 6; ++s)
+            if (sd & (1 << s)) *st[s] = o[s];
+    }
+    return stayed;
+}
+
+// The unpredicted limited state of a face at the edge of the domain in 3-D (all five variables; see stencil_face_state for 2-D).
+State stencil_face_state3(const FusedGrid& g, size_t base, size_t stride, bool left) {
+    State w;
+    for (int q = 0; q < kNVar; ++q) {
+        const double* p = g.Wp + q * g.plane + base;
+        const double c0 = p[0], c1 = p[stride], c2 = p[2 * stride], c3 = p[3 * stride];
+        const double b = c2 - c1;
+        w[q] = left ? c1 + 0.5 * apply_limiter(g.lim, c1 - c0, b) : c2 - 0.5 * apply_limiter(g.lim, c3 - c2, b);
+    }
+    return g.eos->prim_to_cons(w);
+}
+
+// The fluxes of the x faces of row j of plane k.
+void hancock_xfaces3(const FusedGrid& g, bool per_x, int j, int k, const HancockPlane& pl, State* F, double& local, HancockScratch& s) {
+    const int nx = g.nx;
+    const State *xl = pl.xl.data() + static_cast<size_t>(j) * nx, *xr = pl.xr.data() + static_cast<size_t>(j) * nx;
+    for (int i = 1; i < nx; ++i) {
+        s.ul[i] = xr[i - 1];
+        s.ur[i] = xl[i];
+    }
+    s.ul[0] = g.hal->wall_side[0] ? g.hal->wall_ghost(0, xl[0])
+              : !g.halo_lo[0]     ? round_trip(g, (*g.UL)[g.m->xface(0, j, k)])
+              : per_x             ? xr[nx - 1]
+                                  : stencil_face_state3(g, g.P(0, j + g.pad, k + g.zp), 1, true);
+    s.ur[0] = xl[0];
+    s.ul[nx] = xr[nx - 1];
+    s.ur[nx] = g.hal->wall_side[1] ? g.hal->wall_ghost(1, xr[nx - 1])
+               : !g.halo_hi[0]     ? round_trip(g, (*g.UR)[g.m->xface(nx, j, k)])
+               : per_x             ? xl[0]
+                                   : stencil_face_state3(g, g.P(nx, j + g.pad, k + g.zp), 1, false);
+    hancock_solve(g, nx + 1, 0, F, local, s);
+}
+
+// The fluxes of the y faces at index f of plane k; lower / upper = the rows on either side (null where there is none).
+void hancock_yfaces3(const FusedGrid& g, bool per_y, int f, int k, const State* lower, const State* upper, const State* iface_lo,
+                     const State* iface_hi, State* F, double& local, HancockScratch& s) {
+    const int nx = g.nx, ny = g.ny, pad = g.pad;
+    const size_t stride = static_cast<size_t>(g.PX);
+    for (int i = 0; i < nx; ++i) {
+        s.ul[i] = f > 0                 ? lower[i]
+                  : g.hal->wall_side[2] ? g.hal->wall_ghost(2, upper[i])
+                  : !g.halo_lo[1]       ? round_trip(g, (*g.UL)[g.m->yface(i, 0, k)])
+                  : per_y               ? lower[i]
+                  : iface_lo            ? iface_lo[i]
+                                        : stencil_face_state3(g, g.P(i + pad, 0, k + g.zp), stride, true);
+        s.ur[i] = f < ny                ? upper[i]
+                  : g.hal->wall_side[3] ? g.hal->wall_ghost(3, lower[i])
+                  : !g.halo_hi[1]       ? round_trip(g, (*g.UR)[g.m->yface(i, ny, k)])
+                  : per_y               ? upper[i]
+                  : iface_hi            ? iface_hi[i]
+                                        : stencil_face_state3(g, g.P(i + pad, ny, k + g.zp), stride, false);
+    }
+    hancock_solve(g, nx, 1, F, local, s);
+}
+
+// The fluxes of the z faces at index f between the planes `lower` and `upper` (null where the face is on a side without a periodic wrap),
+// row by row into F[j * nx + i].
+void hancock_zfaces3(const FusedGrid& g, bool per_z, int f, const HancockPlane* lower, const HancockPlane* upper, State* F, double& local,
+                     HancockScratch& s) {
+    const int nx = g.nx, ny = g.ny, nz = g.nz, pad = g.pad;
+    const size_t stride = static_cast<size_t>(g.PX) * g.PY;
+    for (int j = 0; j < ny; ++j) {
+        const size_t off = static_cast<size_t>(j) * nx;
+        for (int i = 0; i < nx; ++i) {
+            s.ul[i] = f > 0                 ? lower->zk[off + i]
+                      : g.hal->wall_side[4] ? g.hal->wall_ghost(4, upper->zf[off + i])
+                      : !g.halo_lo[2]       ? round_trip(g, (*g.UL)[g.m->zface(i, j, 0)])
+                      : per_z               ? lower->zk[off + i]
+                                            : stencil_face_state3(g, g.P(i + pad, j + pad, 0), stride, true);
+            s.ur[i] = f < nz                ? upper->zf[off + i]
+                      : g.hal->wall_side[5] ? g.hal->wall_ghost(5, lower->zk[off + i])
+                      : !g.halo_hi[2]       ? round_trip(g, (*g.UR)[g.m->zface(i, j, nz)])
+                      : per_z               ? upper->zf[off + i]
+                                            : stencil_face_state3(g, g.P(i + pad, j + pad, nz), stride, false);
+        }
+        hancock_solve(g, nx, 2, F + off, local, s);
+    }
+}
+
+double hancock_residual_3d_impl(const FusedGrid& g, const Mesh& m, double half_dt, const Field* source, const bool per[3], Field& R,
+                                long long& reverted) {
+    const int nx = g.nx, ny = g.ny, nz = g.nz;
+    const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();
+    const double hx = half_dt / m.dx, hy = half_dt / m.dy, hz = half_dt / m.dz;
+    const size_t np = static_cast<size_t>(nx) * ny;
+    double smax_all = 0.0;
+    long long rev_all = 0;
+#pragma omp parallel if (nx * ny * nz >= kOmpMinWork)
+    {
+        double local = 0.0;
+        long long rev = 0;
+        int nthreads = 1, tid = 0;
+#ifdef _OPENMP
+        nthreads = omp_get_num_threads();
+        tid = omp_get_thread_num();
+#endif
+        const int k0 = static_cast<int>(static_cast<long long>(nz) * tid / nthreads);
+        const int k1 = static_cast<int>(static_cast<long long>(nz) * (tid + 1) / nthreads);
+        if (k0 < k1) {
+            HancockScratch s(nx);
+            HancockPlane pa(np), pb(np), pl(np);
+            HancockPlane *cur = &pa, *next = &pb;
+            const HancockPlane* low = nullptr;
+            std::vector<State> zlow(np), zhigh(np), below(nx), above(nx);
+            const auto predict_plane = [&](int k, HancockPlane& out) {
+                int stayed = 0;
+                for (int j = 0; j < ny; ++j) stayed += hancock_row3(g, hx, hy, hz, half_dt, source, j, k, out);
+                return stayed;
+            };
+            if (k0 > 0 || per[2]) {
+                predict_plane(k0 > 0 ? k0 - 1 : nz - 1, pl);
+                low = &pl;
+            }
+            rev += predict_plane(k0, *cur);
+            hancock_zfaces3(g, per[2], k0, low, cur, zlow.data(), local, s);
+            for (int k = k0; k < k1; ++k) {
+                const HancockPlane* up = nullptr;
+                if (k + 1 < nz || per[2]) {
+                    const int stayed = predict_plane(k + 1 < nz ? k + 1 : 0, *next);
+                    if (k + 1 < k1) rev += stayed;
+                    up = next;
+                }
+                hancock_zfaces3(g, per[2], k + 1, cur, up, zhigh.data(), local, s);
+                const State* ilo = g.iface_lo ? g.iface_lo + static_cast<size_t>(k) * nx : nullptr;
+                const State* ihi = g.iface_hi ? g.iface_hi + static_cast<size_t>(k) * nx : nullptr;
+                const auto yface = [&](int f, State* out) {
+                    const State* lower = f > 0 ? cur->yt.data() + static_cast<size_t>(f - 1) * nx
+                                         : per[1] ? cur->yt.data() + static_cast<size_t>(ny - 1) * nx : nullptr;
+                    const State* upper = f < ny ? cur->yb.data() + static_cast<size_t>(f) * nx : per[1] ? cur->yb.data() : nullptr;
+                    hancock_yfaces3(g, per[1], f, k, lower, upper, ilo, ihi, out, local, s);
+                };
+                yface(0, below.data());
+                for (int j = 0; j < ny; ++j) {
+                    yface(j + 1, above.data());
+                    hancock_xfaces3(g, per[0], j, k, *cur, s.fx.data(), local, s);
+                    for (int i = 0; i < nx; ++i) {
+                        const State &fl = s.fx[i], &fr = s.fx[i + 1], &fb = below[i], &ft = above[i];
+                        const State &ff = zlow[static_cast<size_t>(j) * nx + i], &fk = zhigh[static_cast<size_t>(j) * nx + i];
+                        State& r = R[m.cell(i, j, k)];
+                        for (int q = 0; q < kNVar; ++q)
+                            r[q] = (((0.0 - (fr[q] * Ax - fl[q] * Ax)) - (ft[q] * Ay - fb[q] * Ay)) - (fk[q] * Az - ff[q] * Az)) * inv_vol;
+                    }
+                    below.swap(above);
+                }
+                zlow.swap(zhigh);
+                std::swap(cur, next);
+            }
+        }
+#pragma omp critical(fv_hancock_residual3d_max)
+        {
+            if (local > smax_all) smax_all = local;
+            rev_all += rev;
+        }
+    }
+    reverted = rev_all;
+    return smax_all;
+}
 }   // namespace
 
 int MusclReconstruction::hancock_cell_2d(const EOS& eos, double hx, double hy, double half_dt, const State* src, State& xl, State& xr, State& yb,
@@ -2454,6 +2677,47 @@ double MusclReconstruction::hancock_residual_2d(const RiemannSolver& riemann, co
         if (h.t && static_cast<int>(from_hi.size()) == nx) g.iface_hi = from_hi.data();
     }
     const double s = hancock_residual_2d_impl(g, m, half_dt, source, periodic_x, periodic_y, R, rev);
+    if (reverted) *reverted = rev;
+    return s;
+}
+
+double MusclReconstruction::hancock_residual_3d(const RiemannSolver& riemann, const Field& UL, const Field& UR, const Field& U, const Mesh& m,
+                                                const Halos& h, double half_dt, const bool periodic[3], Field& R, long long* reverted,
+                                                const Field* source) const {
+    if (source && source->size() != U.size()) throw std::logic_error("MUSCL-Hancock: the source field is not that of the mesh");
+    if (scheme_ != Reconstruction::Muscl || !m.is3d()) throw std::logic_error("hancock_residual_3d: MUSCL on a 3-D mesh only");
+    thread_local std::vector<double> W_pad;
+    thread_local std::vector<char> S_pad;
+    int PX, PY, zp;
+    pad_primitives(eos_, U, m, h, W_pad, PX, PY, zp, kHaloDepth);
+    R.resize(U.size());
+    long long rev = 0;
+    FusedGrid g = make_grid(riemann, eos_, lim_, scheme_, weno_eps_, W_pad, S_pad, UL, UR, m, h, PX, PY, zp, kHaloDepth);
+    if (h.solid && h.solid->size() != static_cast<size_t>(m.nx) * m.ny * m.nz) throw std::logic_error("MUSCL-Hancock: the solid mask is not that of the mesh");
+    g.hsolid = h.solid;
+    g.hsides = h.solid_sides;
+    g.hal = &h;
+    g.iface_lo = g.iface_hi = nullptr;
+    Field from_lo, from_hi;
+    if (h.exchange_faces) {
+        // MPI strips along y: the y-edge rows of every plane are predicted first (the same bits as in the pass below)
+        const int nx = m.nx, ny = m.ny, nz = m.nz;
+        const double hx = half_dt / m.dx, hy = half_dt / m.dy, hz = half_dt / m.dz;
+        Field to_lo(static_cast<size_t>(nx) * nz), to_hi(to_lo.size());
+        HancockPlane edge(static_cast<size_t>(nx) * ny);
+        for (int k = 0; k < nz; ++k) {
+            hancock_row3(g, hx, hy, hz, half_dt, source, 0, k, edge);
+            hancock_row3(g, hx, hy, hz, half_dt, source, ny - 1, k, edge);
+            for (int i = 0; i < nx; ++i) {
+                to_lo[static_cast<size_t>(k) * nx + i] = edge.yb[i];
+                to_hi[static_cast<size_t>(k) * nx + i] = edge.yt[static_cast<size_t>(ny - 1) * nx + i];
+            }
+        }
+        h.exchange_faces(to_lo, to_hi, from_lo, from_hi);
+        if (h.b && from_lo.size() == to_lo.size()) g.iface_lo = from_lo.data();
+        if (h.t && from_hi.size() == to_lo.size()) g.iface_hi = from_hi.data();
+    }
+    const double s = hancock_residual_3d_impl(g, m, half_dt, source, periodic, R, rev);
     if (reverted) *reverted = rev;
     return s;
 }
