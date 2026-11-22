@@ -590,17 +590,28 @@ TEST(fused_hancock_residual_equals_the_two_pass_residual_bit_for_bit) {
                     from_lo[i] = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, ps * (0.4 + rnd()), 0.0});
                     from_hi[i] = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, ps * (0.4 + rnd()), 0.0});
                 }
-                for (int extra = 0; extra < 8; ++extra) {
+                // bit 8: the same along x (strips cut along x: one state per row)
+                Field xfrom_lo(m.ny), xfrom_hi(m.ny);
+                for (int j = 0; j < m.ny; ++j) {
+                    xfrom_lo[j] = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, ps * (0.4 + rnd()), 0.0});
+                    xfrom_hi[j] = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, ps * (0.4 + rnd()), 0.0});
+                }
+                for (int extra = 0; extra < 16; ++extra) {
+                if ((extra & 12) == 12) continue;
                 if ((extra & 4) && (cfg != 3 || m.ny < 2)) continue;
+                if ((extra & 8) && (cfg != 3 || m.nx < 2)) continue;
+                const bool xs = (extra & 8) != 0;
+                const char axis = xs ? 'x' : 'y';
                 h.solid = (extra & 1) ? &body : nullptr;
                 const Field* source = (extra & 2) ? &src : nullptr;
-                h.exchange_faces = (extra & 4) ? FaceExchange([&](const Field& to_lo, const Field& to_hi, Field& lo, Field& hi) {
-                                                     sent_lo = to_lo;
-                                                     sent_hi = to_hi;
-                                                     lo = from_lo;
-                                                     hi = from_hi;
-                                                 })
-                                               : FaceExchange();
+                h.exchange_axis = axis;
+                h.exchange_faces = (extra & 12) ? FaceExchange([&](const Field& to_lo, const Field& to_hi, Field& lo, Field& hi) {
+                                                      sent_lo = to_lo;
+                                                      sent_hi = to_hi;
+                                                      lo = xs ? xfrom_lo : from_lo;
+                                                      hi = xs ? xfrom_hi : from_hi;
+                                                  })
+                                                : FaceExchange();
                 for (const RiemannType rt : {RiemannType::HLLC, RiemannType::LowMachHLLC}) {
                     const RiemannSolver rs(eos, rt, 0.2);
                     for (const Limiter lim : {Limiter::Minmod, Limiter::VanLeer, Limiter::MC, Limiter::Koren})
@@ -611,7 +622,8 @@ TEST(fused_hancock_residual_equals_the_two_pass_residual_bit_for_bit) {
                             // two passes
                             Field UL = ULs, UR = URs, F2;
                             mu.reconstruct(UL, UR, U, m.nx, m.ny, h);
-                            const int stayed2 = mu.hancock_predict(UL, UR, m, half, px, py, h.solid, source, (extra & 4) ? &h.exchange_faces : nullptr);
+                            const int stayed2 = mu.hancock_predict(UL, UR, m, half, px, py, h.solid, source, (extra & 12) ? &h.exchange_faces : nullptr,
+                                                                   nullptr, axis);
                             const Field two_lo = sent_lo, two_hi = sent_hi;
                             const double s2 = rs.compute_flux(UL, UR, m, F2);
                             // one pass
@@ -619,7 +631,7 @@ TEST(fused_hancock_residual_equals_the_two_pass_residual_bit_for_bit) {
                             long long stayed1 = -1;
                             const double s1 = mu.hancock_residual_2d(rs, ULs, URs, U, m, h, half, px, py, R1, &stayed1, source);
                             CHECK(s1 == s2);
-                            if (extra & 4) CHECK(sent_lo == two_lo && sent_hi == two_hi);
+                            if (extra & 12) CHECK(sent_lo == two_lo && sent_hi == two_hi);
                             CHECK(stayed1 == stayed2);
                             stayed_total += stayed2;
                             const double inv_area = 1.0 / m.cell_area();
@@ -740,21 +752,31 @@ TEST(fused_hancock_3d_residual_equals_the_two_pass_residual_bit_for_bit) {
                 for (auto* f : {&from_lo, &from_hi})
                     for (auto& u : *f) u = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, ps * (0.4 + rnd()), rnd() - 0.5});
                 h.wall_ghost = [&bm](int side, const State& inner) { return bm.ghost_state(static_cast<Face>(side), inner, 0.0); };
-                for (int extra = 0; extra < 8; ++extra) {
+                // bit 8: the same across an x interface (strips cut along x: one state per row of every plane, index k * ny + j)
+                Field xfrom_lo(static_cast<size_t>(m.ny) * m.nz), xfrom_hi(xfrom_lo.size());
+                for (auto* f : {&xfrom_lo, &xfrom_hi})
+                    for (auto& u : *f) u = eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, ps * (0.4 + rnd()), rnd() - 0.5});
+                for (int extra = 0; extra < 16; ++extra) {
+                    if ((extra & 12) == 12) continue;
                     if ((extra & 4) && (cfg != 2 || m.ny < 2)) continue;
+                    if ((extra & 8) && (cfg != 2 || m.nx < 2)) continue;
+                    const bool xs = (extra & 8) != 0;
+                    const char axis = xs ? 'x' : 'y';
+                    h.exchange_axis = axis;
                     h.solid = (extra & 1) ? &body : nullptr;
                     h.solid_sides = (extra & 1) ? &sides : nullptr;
                     const Field* source = (extra & 2) ? &src : nullptr;
                     // the reflecting sides of the box; a y interface is not a wall
                     for (int s = 0; s < 6; ++s) h.wall_side[s] = bm.type(static_cast<Face>(s)) == BCType::Wall;
                     if (extra & 4) h.wall_side[2] = h.wall_side[3] = false;
-                    h.exchange_faces = (extra & 4) ? FaceExchange([&](const Field& to_lo, const Field& to_hi, Field& lo, Field& hi) {
-                                                         sent_lo = to_lo;
-                                                         sent_hi = to_hi;
-                                                         lo = from_lo;
-                                                         hi = from_hi;
-                                                     })
-                                                   : FaceExchange();
+                    if (extra & 8) h.wall_side[0] = h.wall_side[1] = false;
+                    h.exchange_faces = (extra & 12) ? FaceExchange([&](const Field& to_lo, const Field& to_hi, Field& lo, Field& hi) {
+                                                          sent_lo = to_lo;
+                                                          sent_hi = to_hi;
+                                                          lo = xs ? xfrom_lo : from_lo;
+                                                          hi = xs ? xfrom_hi : from_hi;
+                                                      })
+                                                    : FaceExchange();
                     for (const RiemannType rt : {RiemannType::HLLC, RiemannType::LowMachHLLC}) {
                         const RiemannSolver rs(eos, rt, 0.2);
                         for (const Limiter lim : {Limiter::Minmod, Limiter::VanLeer, Limiter::MC, Limiter::Koren})
@@ -766,7 +788,7 @@ TEST(fused_hancock_3d_residual_equals_the_two_pass_residual_bit_for_bit) {
                                 Field UL = ULs, UR = URs, F2;
                                 mu.reconstruct_3d(UL, UR, U, m, h);
                                 const int stayed2 = mu.hancock_predict_3d(UL, UR, m, half, per, h.solid, source,
-                                                                          (extra & 4) ? &h.exchange_faces : nullptr, h.solid_sides);
+                                                                          (extra & 12) ? &h.exchange_faces : nullptr, h.solid_sides, axis);
                                 const Field two_lo = sent_lo, two_hi = sent_hi;
                                 mu.hancock_wall_ghosts(UL, UR, m, h);
                                 const double s2 = rs.compute_flux(UL, UR, m, F2);
@@ -775,7 +797,7 @@ TEST(fused_hancock_3d_residual_equals_the_two_pass_residual_bit_for_bit) {
                                 long long stayed1 = -1;
                                 const double s1 = mu.hancock_residual_3d(rs, ULs, URs, U, m, h, half, per, R1, &stayed1, source);
                                 CHECK(s1 == s2);
-                                if (extra & 4) CHECK(sent_lo == two_lo && sent_hi == two_hi);
+                                if (extra & 12) CHECK(sent_lo == two_lo && sent_hi == two_hi);
                                 CHECK(stayed1 == stayed2);
                                 stayed_total += stayed2;
                                 const double Ax = m.face_area(0), Ay = m.face_area(1), Az = m.face_area(2), inv_vol = 1.0 / m.cell_volume();

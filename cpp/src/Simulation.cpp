@@ -849,6 +849,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         if (halos->solid) mh.solid = halos->solid;
         if (halos->solid_sides) mh.solid_sides = halos->solid_sides;
         mh.exchange_faces = halos->exchange_faces;
+        mh.exchange_axis = halos->dir;
     }
     if (mu && predictor_dt > 0.0) {   // the walls of this (sub)domain: their ghost is made of the predicted state of the cell next to them
         const bool iface[4] = {halos && halos->dir == 'x' && halos->lo, halos && halos->dir == 'x' && halos->hi,
@@ -943,7 +944,7 @@ double Simulation::assemble(const Mesh& m, const BoundaryManager& bm, const Imme
         }
         if (predictor_dt > 0.0) {
             ProfileScope ps(Section::Reconstruct);
-            hancock_reverted_ += static_cast<long long>(mu->hancock_predict(UL_, UR_, m, predictor_dt, wrap_x, wrap_y, mh.solid, hsrc, &mh.exchange_faces, mh.solid_sides));
+            hancock_reverted_ += static_cast<long long>(mu->hancock_predict(UL_, UR_, m, predictor_dt, wrap_x, wrap_y, mh.solid, hsrc, &mh.exchange_faces, mh.solid_sides, mh.exchange_axis));
             mu->hancock_wall_ghosts(UL_, UR_, m, mh);
         }
         {
@@ -1112,6 +1113,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         if (halos->solid) mh.solid = halos->solid;
         if (halos->solid_sides) mh.solid_sides = halos->solid_sides;
         mh.exchange_faces = halos->exchange_faces;
+        mh.exchange_axis = halos->dir;
     }
     if (mu && predictor_dt > 0.0) {   // the walls of this (sub)domain: their ghost is made of the predicted state of the cell next to them
         const bool iface[6] = {halos && halos->dir == 'x' && halos->lo, halos && halos->dir == 'x' && halos->hi,
@@ -1207,7 +1209,7 @@ double Simulation::assemble_3d(const Mesh& m, const BoundaryManager& bm, const I
         }
         if (predictor_dt > 0.0) {
             ProfileScope ps(Section::Reconstruct);
-            hancock_reverted_ += static_cast<long long>(mu->hancock_predict_3d(UL_, UR_, m, predictor_dt, wrap, mh.solid, hsrc, &mh.exchange_faces, mh.solid_sides));
+            hancock_reverted_ += static_cast<long long>(mu->hancock_predict_3d(UL_, UR_, m, predictor_dt, wrap, mh.solid, hsrc, &mh.exchange_faces, mh.solid_sides, mh.exchange_axis));
             mu->hancock_wall_ghosts(UL_, UR_, m, mh);
         }
         ProfileScope ps(Section::Flux);

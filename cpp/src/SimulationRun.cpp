@@ -840,8 +840,8 @@ void Simulation::run_mpi(MPI_Comm comm) {
     // the interface sees the solid cells of the neighbouring strip, as in the serial run)
     std::vector<unsigned char> strip_sides;
     if (p.use_ibm && dir == 'y') strip_sides = solid_side_mask(mesh, ibm->mask(), decomp.j_start, decomp.j_start + lm.ny);
+    if (p.use_ibm && dir == 'x') strip_sides = solid_side_mask(mesh, ibm->mask(), 0, -1, decomp.i_start, decomp.i_start + lm.nx);
     const bool hancock = dynamic_cast<const MusclHancock*>(scheme.get()) != nullptr;
-    if (hancock && dir != 'y') throw std::runtime_error("time_scheme = MUSCL-Hancock on MPI needs strips along y (this mesh is cut along x)");
     const ResidualFn res = [&](const Field& Uin, Field& R) {
         const Field* Uc = &Uin;
         if (ghost) {

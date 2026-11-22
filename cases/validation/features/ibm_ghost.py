@@ -41,6 +41,12 @@ CHECK_CASES = {   # name: (case, overrides)
     "sphere3d_hancock": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=64", "ny=32", "nz=16", "Lz=1.0",
                                                      "bc_zmin=wall", "bc_zmax=wall", "max_steps=15", "time_scheme=MUSCL-Hancock"]),
     "supersonic_hancock": ("IBM Supersonic Flow over Cylinder", ["nx=100", "ny=100", "max_steps=30", "time_scheme=MUSCL-Hancock"]),
+    # ... and strips cut along x (8 rows: y strips up to 4 ranks, x strips from 5): the body's side mask is cut from the whole mesh
+    "thin_xstrips_hancock": ("IBM Flow over Cylinder", ["Lx=1.5", "Ly=0.08", "nx=150", "ny=8", "ibm_cx=0.5", "ibm_cy=0.04", "ibm_radius=0.025",
+                                                        "max_steps=30", "time_scheme=MUSCL-Hancock"]),
+    "sphere3d_xstrips_hancock": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "Lx=1.5", "Ly=0.16", "Lz=0.16", "nx=96", "ny=8", "nz=8",
+                                                            "ibm_cx=0.5", "ibm_cy=0.08", "ibm_cz=0.08", "ibm_radius=0.05", "bc_zmin=wall",
+                                                            "bc_zmax=wall", "max_steps=15", "time_scheme=MUSCL-Hancock"]),
     # 3-D: a sphere (trilinear image points over eight cells, fetched across strips), no-slip and slip, and the cylinder along z
     "sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=64", "ny=32", "nz=16", "Lz=1.0",
                                             "bc_zmin=wall", "bc_zmax=wall", "max_steps=15"]),

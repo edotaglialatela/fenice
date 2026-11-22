@@ -775,6 +775,8 @@ struct FusedGrid {
     const Halos* hal;        // MUSCL-Hancock: the wall sides and their ghost state (Halos::wall_side / wall_ghost)
     const State* iface_lo;   // MUSCL-Hancock on MPI strips: the neighbours' predicted states across the lower / upper interface (null: none)
     const State* iface_hi;
+    const State* xiface_lo;   // ... and across the left / right interface of strips along x, one state per row (index j, or k * ny + j in 3-D)
+    const State* xiface_hi;
     size_t P(int ii, int jj, int kk) const { return (static_cast<size_t>(kk) * PY + jj) * PX + ii; }
 };
 
@@ -2304,6 +2306,29 @@ int hancock_row(const FusedGrid& g, double hx, double hy, double half_dt, const 
     return stayed;
 }
 
+// The predicted states of the one cell (i, j): exactly what hancock_row gives it (MPI strips along x send those of their two edge columns).
+void hancock_cell_at(const FusedGrid& g, double hx, double hy, double half_dt, const Field* source, int i, int j, State& xl, State& xr, State& yb,
+                     State& yt) {
+    const int nx = g.nx, ny = g.ny, pad = g.pad;
+    const Mesh& m = *g.m;
+    const size_t base = g.P(pad + i, j + pad, 0);
+    muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, 1, 1, true, &xl, &xr);
+    muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, static_cast<size_t>(g.PX), 1, true, &yb, &yt);
+    if (i == 0 && !g.halo_lo[0]) xl = round_trip(g, (*g.UR)[m.xface(0, j)]);
+    if (i == nx - 1 && !g.halo_hi[0]) xr = round_trip(g, (*g.UL)[m.xface(nx, j)]);
+    if (j == 0 && !g.halo_lo[1]) yb = round_trip(g, (*g.UR)[m.yface(i, 0)]);
+    if (j == ny - 1 && !g.halo_hi[1]) yt = round_trip(g, (*g.UL)[m.yface(i, ny)]);
+    const size_t c = static_cast<size_t>(j) * nx + i;
+    if (g.hsolid && (*g.hsolid)[c]) return;
+    const unsigned char sd = g.hsides ? (*g.hsides)[c] : 0;
+    const State o0 = xl, o1 = xr, o2 = yb, o3 = yt;
+    hancock_cell(*g.eos, hx, hy, half_dt, source ? &(*source)[c] : nullptr, xl, xr, yb, yt);
+    if (sd & 1) xl = o0;
+    if (sd & 2) xr = o1;
+    if (sd & 4) yb = o2;
+    if (sd & 8) yt = o3;
+}
+
 // The Riemann solver on the n faces of s.ul / s.ur, normal to `axis`.
 void hancock_solve(const FusedGrid& g, int n, int axis, State* F, double& local, HancockScratch& s) {
     for (int c = 0; c < n; ++c) s.ax[c] = axis;
@@ -2322,12 +2347,14 @@ void hancock_xfaces(const FusedGrid& g, bool per_x, int j, const HancockRow& r, 
     s.ul[0] = g.hal->wall_side[0] ? g.hal->wall_ghost(0, r.xl[0])   // a wall: the mirror of the predicted state
               : !g.halo_lo[0]     ? round_trip(g, (*g.UL)[g.m->xface(0, j)])
               : per_x             ? r.xr[nx - 1]
+              : g.xiface_lo       ? g.xiface_lo[j]
                                   : stencil_face_state(g, g.P(0, j + g.pad, 0), 1, true);
     s.ur[0] = r.xl[0];
     s.ul[nx] = r.xr[nx - 1];
     s.ur[nx] = g.hal->wall_side[1] ? g.hal->wall_ghost(1, r.xr[nx - 1])
                : !g.halo_hi[0]     ? round_trip(g, (*g.UR)[g.m->xface(nx, j)])
                : per_x             ? r.xl[0]
+               : g.xiface_hi       ? g.xiface_hi[j]
                                    : stencil_face_state(g, g.P(nx, j + g.pad, 0), 1, false);
     hancock_solve(g, nx + 1, 0, F, local, s);
 }
@@ -2490,6 +2517,30 @@ State stencil_face_state3(const FusedGrid& g, size_t base, size_t stride, bool l
     return g.eos->prim_to_cons(w);
 }
 
+// The 3-D twin of hancock_cell_at: the six predicted states of the cell (i, j, k), as hancock_row3 gives them.
+void hancock_cell_at3(const FusedGrid& g, double hx, double hy, double hz, double half_dt, const Field* source, int i, int j, int k, State st[6]) {
+    const int nx = g.nx, ny = g.ny, nz = g.nz, pad = g.pad;
+    const Mesh& m = *g.m;
+    const size_t base = g.P(pad + i, j + pad, k + g.zp), sy = static_cast<size_t>(g.PX), sz = static_cast<size_t>(g.PX) * g.PY;
+    muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, 1, 1, false, &st[0], &st[1]);
+    muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, sy, 1, false, &st[2], &st[3]);
+    muscl_cell_states_line(*g.eos, g.lim, g.Wp, g.plane, base, sz, 1, false, &st[4], &st[5]);
+    if (i == 0 && !g.halo_lo[0]) st[0] = round_trip(g, (*g.UR)[m.xface(0, j, k)]);
+    if (i == nx - 1 && !g.halo_hi[0]) st[1] = round_trip(g, (*g.UL)[m.xface(nx, j, k)]);
+    if (j == 0 && !g.halo_lo[1]) st[2] = round_trip(g, (*g.UR)[m.yface(i, 0, k)]);
+    if (j == ny - 1 && !g.halo_hi[1]) st[3] = round_trip(g, (*g.UL)[m.yface(i, ny, k)]);
+    if (k == 0 && !g.halo_lo[2]) st[4] = round_trip(g, (*g.UR)[m.zface(i, j, 0)]);
+    if (k == nz - 1 && !g.halo_hi[2]) st[5] = round_trip(g, (*g.UL)[m.zface(i, j, nz)]);
+    const size_t c = (static_cast<size_t>(k) * ny + j) * nx + i;
+    if (g.hsolid && (*g.hsolid)[c]) return;
+    const unsigned char sd = g.hsides ? (*g.hsides)[c] : 0;
+    State o[6];
+    for (int s = 0; s < 6; ++s) o[s] = st[s];
+    hancock_cell_3d_impl(*g.eos, hx, hy, hz, half_dt, source ? &(*source)[c] : nullptr, st[0], st[1], st[2], st[3], st[4], st[5]);
+    for (int s = 0; s < 6; ++s)
+        if (sd & (1 << s)) st[s] = o[s];
+}
+
 // The fluxes of the x faces of row j of plane k.
 void hancock_xfaces3(const FusedGrid& g, bool per_x, int j, int k, const HancockPlane& pl, State* F, double& local, HancockScratch& s) {
     const int nx = g.nx;
@@ -2501,12 +2552,14 @@ void hancock_xfaces3(const FusedGrid& g, bool per_x, int j, int k, const Hancock
     s.ul[0] = g.hal->wall_side[0] ? g.hal->wall_ghost(0, xl[0])
               : !g.halo_lo[0]     ? round_trip(g, (*g.UL)[g.m->xface(0, j, k)])
               : per_x             ? xr[nx - 1]
+              : g.xiface_lo       ? g.xiface_lo[static_cast<size_t>(k) * g.ny + j]
                                   : stencil_face_state3(g, g.P(0, j + g.pad, k + g.zp), 1, true);
     s.ur[0] = xl[0];
     s.ul[nx] = xr[nx - 1];
     s.ur[nx] = g.hal->wall_side[1] ? g.hal->wall_ghost(1, xr[nx - 1])
                : !g.halo_hi[0]     ? round_trip(g, (*g.UR)[g.m->xface(nx, j, k)])
                : per_x             ? xl[0]
+               : g.xiface_hi       ? g.xiface_hi[static_cast<size_t>(k) * g.ny + j]
                                    : stencil_face_state3(g, g.P(nx, j + g.pad, k + g.zp), 1, false);
     hancock_solve(g, nx + 1, 0, F, local, s);
 }
@@ -2665,7 +2718,23 @@ double MusclReconstruction::hancock_residual_2d(const RiemannSolver& riemann, co
     g.hal = &h;
     g.iface_lo = g.iface_hi = nullptr;
     Field from_lo, from_hi;
-    if (h.exchange_faces) {
+    g.xiface_lo = g.xiface_hi = nullptr;
+    if (h.exchange_faces && h.exchange_axis == 'x') {
+        // strips along x: the first and the last cell of every row are predicted first (the same bits as in the pass below), one state per row
+        const int ny = m.ny;
+        const double hx = half_dt / m.dx, hy = half_dt / m.dy;
+        Field to_lo(ny), to_hi(ny);
+        for (int j = 0; j < ny; ++j) {
+            State a, b2, c, d;
+            hancock_cell_at(g, hx, hy, half_dt, source, 0, j, a, b2, c, d);
+            to_lo[j] = a;
+            hancock_cell_at(g, hx, hy, half_dt, source, m.nx - 1, j, a, b2, c, d);
+            to_hi[j] = b2;
+        }
+        h.exchange_faces(to_lo, to_hi, from_lo, from_hi);
+        if (h.l && static_cast<int>(from_lo.size()) == ny) g.xiface_lo = from_lo.data();
+        if (h.r && static_cast<int>(from_hi.size()) == ny) g.xiface_hi = from_hi.data();
+    } else if (h.exchange_faces) {
         // the interface faces need the neighbours' predicted states: the two edge rows are predicted first (the same bits as in the pass below)
         const int nx = m.nx, ny = m.ny;
         const double hx = half_dt / m.dx, hy = half_dt / m.dy;
@@ -2699,7 +2768,24 @@ double MusclReconstruction::hancock_residual_3d(const RiemannSolver& riemann, co
     g.hal = &h;
     g.iface_lo = g.iface_hi = nullptr;
     Field from_lo, from_hi;
-    if (h.exchange_faces) {
+    g.xiface_lo = g.xiface_hi = nullptr;
+    if (h.exchange_faces && h.exchange_axis == 'x') {
+        // MPI strips along x: the first and the last cell of every row of every plane are predicted first (the same bits as in the pass below)
+        const int nx = m.nx, ny = m.ny, nz = m.nz;
+        const double hx = half_dt / m.dx, hy = half_dt / m.dy, hz = half_dt / m.dz;
+        Field to_lo(static_cast<size_t>(ny) * nz), to_hi(to_lo.size());
+        for (int k = 0; k < nz; ++k)
+            for (int j = 0; j < ny; ++j) {
+                State st[6];
+                hancock_cell_at3(g, hx, hy, hz, half_dt, source, 0, j, k, st);
+                to_lo[static_cast<size_t>(k) * ny + j] = st[0];
+                hancock_cell_at3(g, hx, hy, hz, half_dt, source, nx - 1, j, k, st);
+                to_hi[static_cast<size_t>(k) * ny + j] = st[1];
+            }
+        h.exchange_faces(to_lo, to_hi, from_lo, from_hi);
+        if (h.l && from_lo.size() == to_lo.size()) g.xiface_lo = from_lo.data();
+        if (h.r && from_hi.size() == to_lo.size()) g.xiface_hi = from_hi.data();
+    } else if (h.exchange_faces) {
         // MPI strips along y: the y-edge rows of every plane are predicted first (the same bits as in the pass below)
         const int nx = m.nx, ny = m.ny, nz = m.nz;
         const double hx = half_dt / m.dx, hy = half_dt / m.dy, hz = half_dt / m.dz;
@@ -2722,17 +2808,18 @@ double MusclReconstruction::hancock_residual_3d(const RiemannSolver& riemann, co
     return s;
 }
 
-std::vector<unsigned char> solid_side_mask(const Mesh& m, const std::vector<char>& solid, int j0, int j1) {
+std::vector<unsigned char> solid_side_mask(const Mesh& m, const std::vector<char>& solid, int j0, int j1, int i0, int i1) {
     const int nx = m.nx, ny = m.ny, nz = m.nz;
     if (j1 < 0) j1 = ny;
-    std::vector<unsigned char> out(static_cast<size_t>(nx) * (j1 - j0) * nz, 0);
+    if (i1 < 0) i1 = nx;
+    std::vector<unsigned char> out(static_cast<size_t>(i1 - i0) * (j1 - j0) * nz, 0);
     const auto is_solid = [&](int i, int j, int k) {
         return i >= 0 && i < nx && j >= 0 && j < ny && k >= 0 && k < nz && solid[(static_cast<size_t>(k) * ny + j) * nx + i];
     };
     size_t n = 0;
     for (int k = 0; k < nz; ++k)
         for (int j = j0; j < j1; ++j)
-            for (int i = 0; i < nx; ++i, ++n)
+            for (int i = i0; i < i1; ++i, ++n)
                 out[n] = static_cast<unsigned char>((is_solid(i - 1, j, k) ? 1 : 0) | (is_solid(i + 1, j, k) ? 2 : 0) | (is_solid(i, j - 1, k) ? 4 : 0) |
                                                     (is_solid(i, j + 1, k) ? 8 : 0) | (is_solid(i, j, k - 1) ? 16 : 0) | (is_solid(i, j, k + 1) ? 32 : 0));
     return out;
@@ -2740,7 +2827,7 @@ std::vector<unsigned char> solid_side_mask(const Mesh& m, const std::vector<char
 
 int MusclReconstruction::hancock_predict(Field& UL, Field& UR, const Mesh& m, double half_dt, bool periodic_x, bool periodic_y,
                                          const std::vector<char>* solid, const Field* source, const FaceExchange* exchange,
-                                         const std::vector<unsigned char>* sides) const {
+                                         const std::vector<unsigned char>* sides, char exchange_axis) const {
     const int nx = m.nx, ny = m.ny, nxf = m.num_xfaces();
     const double hx = half_dt / m.dx, hy = half_dt / m.dy;
     int reverted = 0;
@@ -2771,7 +2858,18 @@ int MusclReconstruction::hancock_predict(Field& UL, Field& UR, const Mesh& m, do
             UL[nxf + i] = UL[nxf + ny * nx + i];
             UR[nxf + ny * nx + i] = UR[nxf + i];
         }
-    if (exchange && *exchange) {
+    if (exchange && *exchange && exchange_axis == 'x') {   // strips along x: the states of the edge columns, index j
+        Field to_lo(ny), to_hi(ny), from_lo, from_hi;
+        for (int j = 0; j < ny; ++j) {
+            to_lo[j] = UR[j * (nx + 1)];
+            to_hi[j] = UL[j * (nx + 1) + nx];
+        }
+        (*exchange)(to_lo, to_hi, from_lo, from_hi);
+        for (int j = 0; j < ny; ++j) {
+            if (static_cast<int>(from_lo.size()) == ny) UL[j * (nx + 1)] = from_lo[j];
+            if (static_cast<int>(from_hi.size()) == ny) UR[j * (nx + 1) + nx] = from_hi[j];
+        }
+    } else if (exchange && *exchange) {
         Field to_lo(nx), to_hi(nx), from_lo, from_hi;
         for (int i = 0; i < nx; ++i) {
             to_lo[i] = UR[nxf + i];
@@ -2811,7 +2909,7 @@ void MusclReconstruction::hancock_wall_ghosts(Field& UL, Field& UR, const Mesh& 
 
 int MusclReconstruction::hancock_predict_3d(Field& UL, Field& UR, const Mesh& m, double half_dt, const bool periodic[3],
                                             const std::vector<char>* solid, const Field* source, const FaceExchange* exchange,
-                                            const std::vector<unsigned char>* sides) const {
+                                            const std::vector<unsigned char>* sides, char exchange_axis) const {
     const int nx = m.nx, ny = m.ny, nz = m.nz;
     const double hx = half_dt / m.dx, hy = half_dt / m.dy, hz = half_dt / m.dz;
     int reverted = 0;
@@ -2852,7 +2950,20 @@ int MusclReconstruction::hancock_predict_3d(Field& UL, Field& UR, const Mesh& m,
                 UL[m.zface(i, j, 0)] = UL[m.zface(i, j, nz)];
                 UR[m.zface(i, j, nz)] = UR[m.zface(i, j, 0)];
             }
-    if (exchange && *exchange) {   // MPI strips along y: the states of the edge planes across the interfaces, index k * nx + i
+    if (exchange && *exchange && exchange_axis == 'x') {   // strips along x: the states of the edge planes across the interfaces, index k * ny + j
+        Field to_lo(static_cast<size_t>(ny) * nz), to_hi(to_lo.size()), from_lo, from_hi;
+        for (int k = 0; k < nz; ++k)
+            for (int j = 0; j < ny; ++j) {
+                to_lo[static_cast<size_t>(k) * ny + j] = UR[m.xface(0, j, k)];
+                to_hi[static_cast<size_t>(k) * ny + j] = UL[m.xface(nx, j, k)];
+            }
+        (*exchange)(to_lo, to_hi, from_lo, from_hi);
+        for (int k = 0; k < nz; ++k)
+            for (int j = 0; j < ny; ++j) {
+                if (from_lo.size() == to_lo.size()) UL[m.xface(0, j, k)] = from_lo[static_cast<size_t>(k) * ny + j];
+                if (from_hi.size() == to_lo.size()) UR[m.xface(nx, j, k)] = from_hi[static_cast<size_t>(k) * ny + j];
+            }
+    } else if (exchange && *exchange) {   // MPI strips along y: the states of the edge planes across the interfaces, index k * nx + i
         Field to_lo(static_cast<size_t>(nx) * nz), to_hi(to_lo.size()), from_lo, from_hi;
         for (int k = 0; k < nz; ++k)
             for (int i = 0; i < nx; ++i) {

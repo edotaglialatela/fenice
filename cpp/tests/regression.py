@@ -133,6 +133,11 @@ CASES = {
     "hancock_sod":         ("Sod Shock Tube", dict(nx=100, ny=8, t_end=0.05, reconstruction="muscl", time_scheme="MUSCL-Hancock")),
     "hancock_cylinder":    ("IBM Flow over Cylinder", dict(nx=80, ny=40, t_end=0.05, use_mpi=False, time_scheme="MUSCL-Hancock")),
     "hancock_tgv3d":       ("Taylor-Green Vortex 3D", dict(nx=16, ny=24, nz=16, t_end=0.5, mu=0.01, reconstruction="muscl", time_scheme="MUSCL-Hancock")),
+    # MUSCL-Hancock on MPI strips cut along x (ny too small for y strips on 4 ranks): walls, periodic wrap, viscous walls with a lid, 3-D
+    "hancock_sod_xdecomp": ("Sod Shock Tube", dict(nx=100, ny=4, t_end=0.05, reconstruction="muscl", time_scheme="MUSCL-Hancock")),
+    "hancock_vortex_xdecomp": ("Isentropic Vortex", dict(nx=64, ny=6, t_end=0.5, reconstruction="muscl", time_scheme="MUSCL-Hancock")),
+    "hancock_cavity_xdecomp": ("Lid Driven Cavity", dict(nx=40, ny=6, t_end=0.1, reconstruction="muscl", boundary_order=2, time_scheme="MUSCL-Hancock")),
+    "hancock_tgv3d_xdecomp": ("Taylor-Green Vortex 3D", dict(nx=16, ny=6, nz=8, t_end=0.3, mu=0.01, reconstruction="muscl", time_scheme="MUSCL-Hancock")),
     # MUSCL-Hancock on the adaptive mesh (serial yet): a closed box with walls (the coarse leaf's prediction serves both fine sub-steps of a jump)
     # and viscous walls with a moving lid
     "amr_hancock_walls":   ("Sod Shock Tube", dict(Lx=1.0, Ly=1.0, nx=32, ny=32, t_end=0.4, use_amr=True, bc_xmin="wall", bc_xmax="wall",
@@ -236,6 +241,7 @@ MPI_CASES = ["sod_muscl_vl_rk2", "shu_osher", "cavity_rk3_visc", "cavity_periodi
              "tgv3d_16", "tgv3d_xdecomp", "cavity3d_noslip_z", "sod3d_walls_z",
              "vortex_nrbc", "vortex_nrbc_xdecomp", "tgv3d_nrbc",
              "hancock_taylor_green", "hancock_sod", "hancock_cylinder", "hancock_tgv3d", "hancock_sphere3d",
+             "hancock_sod_xdecomp", "hancock_vortex_xdecomp", "hancock_cavity_xdecomp", "hancock_tgv3d_xdecomp",
              "cylinder_ibm_ghost", "supersonic_ibm_ghost", "naca0012_ibm_ghost", "sphere3d_ibm_ghost",
              "amr_sod_1st", "amr_sod_muscl_init", "amr_square_rk2", "amr_square_rk3", "amr_weno3_rk3", "amr_bo2_walls", "amr_bo2_weno3", "amr_weno5_rk3", "amr_bo2_weno5", "amr_cavity_b2", "amr_naca0012", "amr_sod_few_roots", "amr_hot_start", "amr_hot_start_from_amr", "hot_start_from_amr", "mms_ns_2d", "mms_euler_xdecomp", "mms_ns_3d", "mms_walls", "mms_outflow_xdecomp", "mms_unsteady_rk3", "mms_unsteady_rk2",
              "blast_waves_100", "kelvin_helmholtz_32", "noh_40", "riemann2d_c3_32", "riemann2d_c6_32",
