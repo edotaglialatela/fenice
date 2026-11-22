@@ -71,12 +71,10 @@ struct VEos {
         U.q[4] = mul(rho, w);
         return U;
     }
-    // admissible_state (Schemes.cpp): density above the floor, pressure + p_inf above zero (a NaN fails both comparisons); all lanes
+    // admissible_state (Schemes.cpp): density above the floor and rho (E - p_inf) above |m|^2 / 2 (a NaN fails both comparisons); all lanes
     V admissible(const Vec5& nw) const {
-        const V ke = dv(mul(half, add(add(mul(nw.q[1], nw.q[1]), mul(nw.q[2], nw.q[2])), mul(nw.q[4], nw.q[4]))), nw.q[0]);
-        const V rho_e = sub(nw.q[3], ke);
-        const V p = ideal ? mul(gm1, rho_e) : sub(mul(gm1, rho_e), gpinf);
-        return band(lt(eps, nw.q[0]), lt(set1(0.0), add(p, pinf)));
+        const V msq = add(add(mul(nw.q[1], nw.q[1]), mul(nw.q[2], nw.q[2])), mul(nw.q[4], nw.q[4]));
+        return band(lt(eps, nw.q[0]), lt(mul(half, msq), mul(nw.q[0], sub(nw.q[3], pinf))));
     }
     // EOS::sound_speed_inv
     V sound_speed_inv(V p, V inv_rho) const {

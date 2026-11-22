@@ -2135,12 +2135,11 @@ State euler_flux_axis(const EOS& eos, const State& U, int a) {
     return {U[0] * un, U[1] * un + (a == 0 ? p : 0.0), U[2] * un + (a == 1 ? p : 0.0), (U[3] + p) * un, U[4] * un};
 }
 
-// Density and pressure above their limits (pressure + p_inf > 0), NaN included as inadmissible.
+// Density and pressure above their limits (pressure + p_inf > 0), NaN included as inadmissible. With rho > 0 the pressure condition
+// (gamma - 1) (E - |m|^2 / (2 rho) - p_inf) > 0 is rho (E - p_inf) > |m|^2 / 2: no division.
 bool admissible_state(const EOS& eos, const State& U) {
     if (!(U[0] > kEosEps)) return false;
-    const double ke = 0.5 * (U[1] * U[1] + U[2] * U[2] + U[4] * U[4]) / U[0];
-    const double p = eos.pressure_law().from_internal_energy_density(U[3] - ke);
-    return p + eos.p_inf > 0.0;
+    return 0.5 * (U[1] * U[1] + U[2] * U[2] + U[4] * U[4]) < U[0] * (U[3] - eos.p_inf);
 }
 
 // The four limited states of one cell (low / high side along x, then along y) advanced by half a step with the cell's own flux
