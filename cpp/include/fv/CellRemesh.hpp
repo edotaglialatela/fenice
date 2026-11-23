@@ -99,10 +99,16 @@ public:
     // One adaptation of the leaves from the current state; the engine is rebuilt when the leaves changed.
     // Returns whether they did.  xi of the call is kept in last_xi (per leaf of the mesh BEFORE the call).
     // rebuild: the engine is built again even if the topology did not change (the body moved: CellFluxEngine::body_changed).
-    bool remesh(bool rebuild = false);
+    // flow = false: the indicator is not evaluated and only the body band (and the forced box) decides: leaves are refined near the body, none is joined;
+    // the geometry update of a moving body, between the scheduled remeshes that look at the flow.
+    bool remesh(bool rebuild = false, bool flow = true);
+    // The same switch for the flags of a distributed remesh (CellParallel::remesh sets it).
+    void set_flow(bool flow) { flow_ = flow; }
     // The body of the factory moved: the band is made again from it at the next remesh.
     void body_changed() {
         band_.clear();
+        band_w_ = band_h_ = 0;
+        band_ready_ = false;
         band_geo_.reset();
     }
 
@@ -143,7 +149,12 @@ private:
     int margin_ = 2;
     std::array<double, 6> box_ = {0.0, 0.0, 0.0, 0.0, 0.0, 0.0};
     bool has_box_ = false;
-    std::vector<char> band_;   // body + margin on the uniform mesh of the finest level (2-D)
+    // body + margin on the uniform mesh of the finest level (2-D): the box [band_i0_, band_i0_ + band_w_) x [band_j0_, band_j0_ + band_h_) of it (the
+    // whole level for a body that is not moving; a moving body is made from its bounding box, with no array over the level)
+    std::vector<char> band_;
+    int band_i0_ = 0, band_j0_ = 0, band_w_ = 0, band_h_ = 0;
+    bool flow_ = true;
+    bool band_ready_ = false;   // the 2-D band has been made for the present pose
     std::shared_ptr<ImmersedBoundary> band_geo_;   // 3-D: the body built once on the base mesh (its geometry)
 };
 

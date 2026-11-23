@@ -227,6 +227,11 @@ public:
     void closest_wall_point3(double x, double y, double z, double& wx, double& wy, double& wz, double& nx, double& ny, double& nz) const;
     // True for a body built from its geometry (a shape or a polygon), false for a mask-only one.
     bool has_geometry() const { return shape_ != Shape::None; }
+    // Bounding box of a 2-D body (circle or polygon; false for the others).
+    bool bounds(double& x0, double& x1, double& y0, double& y1) const;
+    // The solid cells of ine (ascending index) found inside the bounding box, with no array over the mesh: the candidates of
+    // enable_ghost_cells_sparse for a 2-D body.
+    std::vector<int> solid_cells_near(const Mesh& fine) const;
 
     // Pose of a moving body relative to the geometry it was built with: translation (x, y, z), rotation `angle` [rad, counter-clockwise
     // in the x-y plane] about the pivot given to enable_motion, and the velocities of the pivot (u, v, w) and the angular velocity omega.
@@ -320,6 +325,10 @@ private:
     void body_velocity(double x, double y, double z, double& bu, double& bv, double& bw) const;   // rigid velocity of the pose at a point
     bool ghost_on_ = false, slip_ = false, curvature_ = false;
     int fallback_ = 0;      // ghost cells without an image point (ghost_fallback_count)
+    // sparse ghost table of a polygon: the solidity of the cells around the body, tested once (the point-in-polygon test costs the number of edges)
+    std::vector<char> sbox_;
+    int sb_i0_ = 0, sb_j0_ = 0, sb_w_ = 0, sb_h_ = 0;
+    bool sbox_on_ = false;
     bool sparse_ = false;   // the ghost wall of enable_ghost_cells_sparse: solidity from solid_at, no arrays over the mesh
     bool is_solid(const Mesh& m, int i, int j, int k) const;   // mask_ (dense) or solid_at of the centre (sparse)
     void build_ghosts(const Mesh& m, bool slip, bool curvature, const std::vector<int>* candidates);

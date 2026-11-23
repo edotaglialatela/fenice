@@ -504,7 +504,8 @@ void Simulation::solve_amr() {
     engine.profile_iteration = false;   // Section::Step is the advance alone: the remesh and the output have their own sections
     // A prescribed motion: the body is built again at the pose of the moment each time it has moved a quarter of a finest cell (option 2 of the
     // plan): the factory, the engine's classification of the leaves and its ghost table, the band, and a remesh that builds the engine (and, on
-    // several ranks, the shares) again whether or not a leaf changes. The pose is fixed during a step.
+    // several ranks, the shares) again whether or not a leaf changes; the indicator is left to the scheduled remeshes (only the band moves with
+    // the body). The pose is fixed during a step.
     const bool moving = amr_body_ != nullptr;
     const double h_fine = std::min(cm.dx(cm.max_level), cm.dy(cm.max_level));
     const auto place_body = [&] {
@@ -517,10 +518,10 @@ void Simulation::solve_amr() {
         eng.body_changed();
         cell_adaptor->body_changed();
         if (local_run) {
-            cell_par->remesh(*cell_adaptor, true);
+            cell_par->remesh(*cell_adaptor, true, false);
         } else {
             if (cell_par) cell_par->gather_state();
-            cell_adaptor->remesh(true);
+            cell_adaptor->remesh(true, false);
             if (cell_par) cell_par->partition();
         }
         S = wave_speed();

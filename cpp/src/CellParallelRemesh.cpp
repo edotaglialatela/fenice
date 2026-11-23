@@ -21,7 +21,12 @@ namespace fv {
 using detail::kNoKey;
 using detail::leaf_key;
 
-bool CellParallel::remesh(CellAdaptor& ad, bool rebuild) {
+bool CellParallel::remesh(CellAdaptor& ad, bool rebuild, bool flow) {
+    struct FlowGuard {
+        CellAdaptor& a;
+        ~FlowGuard() { a.set_flow(true); }
+    } flow_guard{ad};
+    ad.set_flow(flow);
     if (!localized_) throw std::logic_error("CellParallel::remesh: the mesh is not localized");
     using Clock = std::chrono::steady_clock;
     const auto sec = [](Clock::time_point a, Clock::time_point b) { return std::chrono::duration<double>(b - a).count(); };

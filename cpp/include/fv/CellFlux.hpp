@@ -102,6 +102,8 @@ public:
     // reads, and whether all of them are finest-level leaves of the whole mesh (set before build: 1 yes, 0 no, -1 look in `whole`).
     bool ghost_enabled() const { return has_body(); }
     std::vector<int> ghost_referenced_cells(const CellMesh& mesh);
+    // A moving body's geometry (made once per pose, on a two-by-two mesh): the centre test of the leaf classification and the ghost table.
+    const ImmersedBoundary& moving_geometry(const CellMesh& mesh);
     void set_ghost_whole_ready(int v) { ghost_whole_ready_ = v; }
     // The body of the factory has moved: the next build makes the solid classification of every leaf and the finest-level ghost table again
     // (no leaf keeps its old value), whatever the topology does.

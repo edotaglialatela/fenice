@@ -906,6 +906,38 @@ bool ImmersedBoundary::solid_at(double x, double y, double z) const {
     }
 }
 
+bool ImmersedBoundary::bounds(double& x0, double& x1, double& y0, double& y1) const {
+    if (shape_ == Shape::Circle) {
+        x0 = cx_ - r_;
+        x1 = cx_ + r_;
+        y0 = cy_ - r_;
+        y1 = cy_ + r_;
+        return true;
+    }
+    if (shape_ == Shape::Polygon) {
+        x0 = px0_;
+        x1 = px1_;
+        y0 = py0_;
+        y1 = py1_;
+        return true;
+    }
+    return false;
+}
+
+std::vector<int> ImmersedBoundary::solid_cells_near(const Mesh& fine) const {
+    double x0, x1, y0, y1;
+    if (fine.is3d() || !bounds(x0, x1, y0, y1)) throw std::logic_error("ImmersedBoundary::solid_cells_near: a 2-D body built from its geometry only");
+    const int i0 = std::max(0, static_cast<int>(std::floor((x0 - fine.x0) / fine.dx)) - 1),
+              i1 = std::min(fine.nx - 1, static_cast<int>(std::floor((x1 - fine.x0) / fine.dx)) + 1);
+    const int j0 = std::max(0, static_cast<int>(std::floor((y0 - fine.y0) / fine.dy)) - 1),
+              j1 = std::min(fine.ny - 1, static_cast<int>(std::floor((y1 - fine.y0) / fine.dy)) + 1);
+    std::vector<int> cells;
+    for (int j = j0; j <= j1; ++j)
+        for (int i = i0; i <= i1; ++i)
+            if (solid_at(fine.xc(i), fine.yc(j), 0.0)) cells.push_back(fine.cell(i, j, 0));
+    return cells;
+}
+
 int ImmersedBoundary::solid_count() const {
     int n = 0;
     for (char m : mask_) n += m ? 1 : 0;
@@ -960,6 +992,9 @@ void ImmersedBoundary::closest_wall_point(double x, double y, double& wx, double
     size_t seg = 0;
     for (size_t k = 0; k < n; ++k) {
         const auto &a = pts[k], &b = pts[(k + 1) % n];
+        const double gx = std::max(std::max(std::min(a[0], b[0]) - x, x - std::max(a[0], b[0])), 0.0);
+        const double gy = std::max(std::max(std::min(a[1], b[1]) - y, y - std::max(a[1], b[1])), 0.0);
+        if (gx * gx + gy * gy > best * (1.0 + 1e-9)) continue;   // cannot win (a margin far above the rounding of d2)
         const double ex = b[0] - a[0], ey = b[1] - a[1], l2 = ex * ex + ey * ey;
         double t = l2 > 0.0 ? ((x - a[0]) * ex + (y - a[1]) * ey) / l2 : 0.0;
         t = std::min(1.0, std::max(0.0, t));
@@ -1071,7 +1106,12 @@ double ImmersedBoundary::wall_curvature(double wx, double wy, double nx, double 
 }
 
 bool ImmersedBoundary::is_solid(const Mesh& m, int i, int j, int k) const {
-    return sparse_ ? solid_at(m.xc(i), m.yc(j), m.zc(k)) : mask_[static_cast<size_t>(m.cell(i, j, k))] != 0;
+    if (!sparse_) return mask_[static_cast<size_t>(m.cell(i, j, k))] != 0;
+    if (sbox_on_ && k == 0) {
+        const int a = i - sb_i0_, b = j - sb_j0_;
+        if (a >= 0 && a < sb_w_ && b >= 0 && b < sb_h_) return sbox_[static_cast<size_t>(b) * sb_w_ + a] != 0;
+    }
+    return solid_at(m.xc(i), m.yc(j), m.zc(k));
 }
 
 void ImmersedBoundary::body_velocity(double x, double y, double z, double& bu, double& bv, double& bw) const {
@@ -1244,6 +1284,7 @@ std::vector<int> ImmersedBoundary::fresh_inputs(const CellIndex& local) const {
 }
 void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip, bool curvature) {
     sparse_ = false;
+    sbox_on_ = false;
     build_ghosts(m, slip, curvature, nullptr);
 }
 
@@ -1252,6 +1293,25 @@ void ImmersedBoundary::enable_ghost_cells_sparse(const Mesh& fine, bool slip, bo
     if (static_cast<long long>(fine.nx) * fine.ny * fine.nz > 2147483647LL)
         throw std::invalid_argument("ibm_method = ghost: the finest level of the adaptive mesh has more than 2^31 cells");
     sparse_ = true;
+    sbox_on_ = false;
+    if (shape_ == Shape::Polygon && !fine.is3d() && !candidates.empty()) {   // the cells within ten of the candidates, tested once
+        int lo_i = fine.nx, hi_i = -1, lo_j = fine.ny, hi_j = -1;
+        for (const int c : candidates) {
+            lo_i = std::min(lo_i, c % fine.nx);
+            hi_i = std::max(hi_i, c % fine.nx);
+            lo_j = std::min(lo_j, c / fine.nx);
+            hi_j = std::max(hi_j, c / fine.nx);
+        }
+        sb_i0_ = std::max(0, lo_i - 10);
+        sb_j0_ = std::max(0, lo_j - 10);
+        sb_w_ = std::min(fine.nx - 1, hi_i + 10) - sb_i0_ + 1;
+        sb_h_ = std::min(fine.ny - 1, hi_j + 10) - sb_j0_ + 1;
+        sbox_.assign(static_cast<size_t>(sb_w_) * sb_h_, 0);
+        for (int j = 0; j < sb_h_; ++j)
+            for (int i = 0; i < sb_w_; ++i)
+                sbox_[static_cast<size_t>(j) * sb_w_ + i] = solid_at(fine.xc(sb_i0_ + i), fine.yc(sb_j0_ + j), fine.zc(0));
+        sbox_on_ = true;
+    }
     build_ghosts(fine, slip, curvature, &candidates);
 }
 

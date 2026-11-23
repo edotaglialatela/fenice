@@ -546,6 +546,8 @@ void CellAdaptor::set_body(std::function<ImmersedBoundary(const Mesh&)> factory,
     body_ = std::move(factory);
     margin_ = margin;
     band_.clear();
+    band_w_ = band_h_ = 0;
+    band_ready_ = false;
     band_geo_.reset();
 }
 
@@ -560,8 +562,48 @@ void CellAdaptor::build_band() {
         return;
     }
     const int M = mesh_.max_level, NX = mesh_.nx_at(M), NY = mesh_.ny_at(M);
+    {   // a moving body: its geometry on a two-by-two mesh, the solid finest cells from the bounding box, the band as a box around them
+        const ImmersedBoundary geo = body_(generate_cartesian_mesh(mesh_.Lx, mesh_.Ly, 2, 2, mesh_.x0, mesh_.y0));
+        double bx0, bx1, by0, by1;
+        if (geo.moving() && geo.bounds(bx0, bx1, by0, by1)) {
+            const std::vector<int> cells = geo.solid_cells_near(generate_cartesian_mesh(mesh_.Lx, mesh_.Ly, NX, NY, mesh_.x0, mesh_.y0));
+            int lo_i = NX, hi_i = -1, lo_j = NY, hi_j = -1;
+            for (const int c : cells) {
+                lo_i = std::min(lo_i, c % NX);
+                hi_i = std::max(hi_i, c % NX);
+                lo_j = std::min(lo_j, c / NX);
+                hi_j = std::max(hi_j, c / NX);
+            }
+            band_.clear();
+            band_w_ = band_h_ = 0;
+            band_ready_ = true;
+            if (cells.empty()) return;
+            band_i0_ = std::max(0, lo_i - margin_);
+            band_j0_ = std::max(0, lo_j - margin_);
+            band_w_ = std::min(NX - 1, hi_i + margin_) - band_i0_ + 1;
+            band_h_ = std::min(NY - 1, hi_j + margin_) - band_j0_ + 1;
+            std::vector<char> sol(static_cast<size_t>(band_w_) * band_h_, 0), tmp(sol.size(), 0);
+            for (const int c : cells) sol[static_cast<size_t>(c / NX - band_j0_) * band_w_ + (c % NX - band_i0_)] = 1;
+            band_.assign(sol.size(), 0);
+            for (int j = 0; j < band_h_; ++j)   // the dilation of the dense band, inside the box
+                for (int i = 0; i < band_w_; ++i)
+                    if (sol[static_cast<size_t>(j) * band_w_ + i])
+                        for (int d = -margin_; d <= margin_; ++d)
+                            if (i + d >= 0 && i + d < band_w_) tmp[static_cast<size_t>(j) * band_w_ + i + d] = 1;
+            for (int j = 0; j < band_h_; ++j)
+                for (int i = 0; i < band_w_; ++i)
+                    if (tmp[static_cast<size_t>(j) * band_w_ + i])
+                        for (int d = -margin_; d <= margin_; ++d)
+                            if (j + d >= 0 && j + d < band_h_) band_[static_cast<size_t>(j + d) * band_w_ + i] = 1;
+            return;
+        }
+    }
     const ImmersedBoundary ib = body_(generate_cartesian_mesh(mesh_.Lx, mesh_.Ly, NX, NY, mesh_.x0, mesh_.y0));
     const std::vector<char>& mk = ib.mask();
+    band_i0_ = band_j0_ = 0;
+    band_w_ = NX;
+    band_h_ = NY;
+    band_ready_ = true;
     // dilation by `margin_` cells, separably
     std::vector<char> tmp(mk.size(), 0);
     band_.assign(mk.size(), 0);
@@ -588,18 +630,20 @@ bool CellAdaptor::in_body_band(int level, int ci, int cj, int ck) {
         const int M = mesh_.max_level;
         return near_body_surface(*band_geo_, mesh_, level, ci, cj, ck, margin_ * std::max({mesh_.dx(M), mesh_.dy(M), mesh_.dz(M)}));
     }
-    if (band_.empty()) build_band();
-    const int M = mesh_.max_level, NX = mesh_.nx_at(M), r = 1 << (M - level);
-    for (int j = cj * r; j < (cj + 1) * r; ++j)
-        for (int i = ci * r; i < (ci + 1) * r; ++i)
-            if (band_[static_cast<size_t>(j) * NX + i]) return true;
+    if (!band_ready_) build_band();
+    const int M = mesh_.max_level, r = 1 << (M - level);
+    const int ja = std::max(cj * r, band_j0_), jb = std::min((cj + 1) * r, band_j0_ + band_h_);
+    const int ia = std::max(ci * r, band_i0_), ib = std::min((ci + 1) * r, band_i0_ + band_w_);
+    for (int j = ja; j < jb; ++j)
+        for (int i = ia; i < ib; ++i)
+            if (band_[static_cast<size_t>(j - band_j0_) * band_w_ + (i - band_i0_)]) return true;
     return false;
 }
 
 void CellAdaptor::decide(int max_level, int level, int i, int j, int k, double xi, double xi_parent, char& refine, char& coarsen) {
-    refine = level < max_level && xi >= ind_.split;
+    refine = flow_ && level < max_level && xi >= ind_.split;
     // a group is joined on the xi of its parent cell at the parent level (the children's own xi with parent_join off)
-    coarsen = level > 0 && (ind_.parent_join ? xi_parent : xi) < ind_.join;
+    coarsen = flow_ && level > 0 && (ind_.parent_join ? xi_parent : xi) < ind_.join;
     if (in_body_band(level, i, j, k)) {
         refine = level < max_level;
         coarsen = 0;
@@ -617,8 +661,14 @@ void CellAdaptor::decide(int max_level, int level, int i, int j, int k, double x
 
 void CellAdaptor::flags(const CellMesh& m, const Field& U, const std::vector<int>& which, std::vector<char>& refine,
                         std::vector<char>& coarsen) {
-    const CellIndicator::Result ev = ind_.evaluate(m, U, eos_);
-    if (body_ && band_.empty() && !band_geo_) build_band();   // decide only reads it in the loop
+    CellIndicator::Result ev;
+    if (flow_) {
+        ev = ind_.evaluate(m, U, eos_);
+    } else {   // only the band decides: no indicator
+        ev.xi.assign(static_cast<size_t>(m.num_leaves()), 0.0);
+        ev.xi_parent.assign(static_cast<size_t>(m.num_leaves()), 0.0);
+    }
+    if (body_ && !band_ready_ && !band_geo_) build_band();   // decide only reads it in the loop
     const int n = static_cast<int>(which.size());
     refine.assign(static_cast<size_t>(n), 0);
     coarsen.assign(static_cast<size_t>(n), 0);
@@ -630,15 +680,22 @@ void CellAdaptor::flags(const CellMesh& m, const Field& U, const std::vector<int
     }
 }
 
-bool CellAdaptor::remesh(bool rebuild) {
+bool CellAdaptor::remesh(bool rebuild, bool flow) {
     using Clock = std::chrono::steady_clock;
     const auto sec = [](Clock::time_point a, Clock::time_point b) { return std::chrono::duration<double>(b - a).count(); };
     const auto t0 = Clock::now();
     const int N = mesh_.num_leaves();
-    CellIndicator::Result ev = ind_.evaluate(mesh_, mesh_.U, eos_);
+    flow_ = flow;
+    CellIndicator::Result ev;
+    if (flow) {
+        ev = ind_.evaluate(mesh_, mesh_.U, eos_);
+    } else {   // only the band decides: no indicator
+        ev.xi.assign(static_cast<size_t>(N), 0.0);
+        ev.xi_parent.assign(static_cast<size_t>(N), 0.0);
+    }
     last_xi.swap(ev.xi);
     std::vector<char> refine(static_cast<size_t>(N), 0), coarsen(static_cast<size_t>(N), 0);
-    if (body_ && band_.empty() && !band_geo_) build_band();   // in_body_band only reads it in the loop
+    if (body_ && !band_ready_ && !band_geo_) build_band();   // in_body_band only reads it in the loop
     long long nr = 0;
 #pragma omp parallel for schedule(static) reduction(+ : nr) if (N >= kOmpMinWork)
     for (int c = 0; c < N; ++c) {
@@ -657,6 +714,7 @@ bool CellAdaptor::remesh(bool rebuild) {
     t_indicator += sec(t0, t1);
     t_adapt += sec(t1, t2);
     t_build += sec(t2, t3);
+    flow_ = true;
     return changed;
 }
 

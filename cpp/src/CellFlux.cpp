@@ -268,6 +268,16 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
             solid_[c] = inc && m.prev_leaf[c] >= 0 ? old_solid[static_cast<size_t>(m.prev_leaf[c])]
                                                    : static_cast<char>(ib.solid_at(m.xc(c), m.yc(c), m.zc(c)));
         forced_.resize(static_cast<size_t>(nleaf_));
+    } else if (has_body() && phys_.ibm_velocity) {
+        // a moving body: the centre test of its geometry (a two-by-two mesh is enough for that) at the leaf centres, which is the uniform mask of
+        // the leaf's level (the same cell centres), with no array over the levels
+        solid_.assign(static_cast<size_t>(nleaf_), 0);
+        const ImmersedBoundary& ib = moving_geometry(m);
+#pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
+        for (int c = 0; c < nleaf_; ++c)
+            solid_[c] = inc && !body_dirty_ && m.prev_leaf[c] >= 0 ? old_solid[static_cast<size_t>(m.prev_leaf[c])]
+                                                                   : static_cast<char>(ib.solid_at(m.xc(c), m.yc(c), 0.0));
+        forced_.resize(static_cast<size_t>(nleaf_));
     } else if (has_body()) {
         level_mask_.resize(static_cast<size_t>(m.max_level) + 1);
         solid_.assign(static_cast<size_t>(nleaf_), 0);
@@ -1060,13 +1070,29 @@ void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
     if (ghost_ready_ && l == m.max_level) fill_ghost_leaves(U, forced_, held_mask_.empty() ? nullptr : &held_mask_);
 }
 
+const ImmersedBoundary& CellFluxEngine::moving_geometry(const CellMesh& m) {
+    if (!ibm_geo_) {
+        ibm_geo_ = std::make_shared<ImmersedBoundary>(phys_.ibm_factory(generate_cartesian_mesh(m.Lx, m.Ly, 2, 2, m.x0, m.y0)));
+        if (!ibm_geo_->has_geometry()) throw std::invalid_argument("CellFluxEngine: a moving body is built from its geometry");
+        ibm_rho_ref_ = ibm_geo_->rho_ref();
+        ibm_p_ref_ = ibm_geo_->p_ref();
+    }
+    return *ibm_geo_;
+}
+
 std::vector<int> CellFluxEngine::ghost_referenced_cells(const CellMesh& m) {
     if (!has_body()) return {};
     if (!ghost_ib_) {
         const int M = m.max_level;
         const Mesh fine = generate_cartesian_mesh(m.Lx, m.Ly, m.nx_at(M), m.ny_at(M), m.x0, m.y0);
-        ghost_ib_ = std::make_shared<ImmersedBoundary>(phys_.ibm_factory(fine));
-        ghost_ib_->enable_ghost_cells(fine, phys_.ibm_slip, phys_.ibm_curvature);
+        if (phys_.ibm_velocity) {   // a moving body: the table built from the solid cells of the bounding box (the same table, no array over the level)
+            auto ib = std::make_shared<ImmersedBoundary>(moving_geometry(m));
+            ib->enable_ghost_cells_sparse(fine, phys_.ibm_slip, phys_.ibm_curvature, ib->solid_cells_near(fine));
+            ghost_ib_ = ib;
+        } else {
+            ghost_ib_ = std::make_shared<ImmersedBoundary>(phys_.ibm_factory(fine));
+            ghost_ib_->enable_ghost_cells(fine, phys_.ibm_slip, phys_.ibm_curvature);
+        }
     }
     const auto& cells = ghost_ib_->referenced_cells();
     return std::vector<int>(cells.begin(), cells.end());
