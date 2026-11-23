@@ -274,7 +274,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                 amr_body_->py = p.ibm_cy;
                 amr_body_->geo.u = p.ibm_vx;   // the pose at t = 0: no displacement, the velocities of the motion
                 amr_body_->geo.v = p.ibm_vy;
-                amr_body_->geo.omega = p.ibm_omega;
+                amr_body_->geo.omega = prescribed_pose(0.0).omega;
                 ibm_factory = [base = ibm_factory, st = amr_body_](const Mesh& m) {
                     ImmersedBoundary b = base(m);
                     b.enable_motion(st->px, st->py);

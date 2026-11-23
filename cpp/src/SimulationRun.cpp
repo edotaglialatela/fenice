@@ -195,6 +195,11 @@ ImmersedBoundary::BodyPose Simulation::prescribed_pose(double t) const {
     pose.u = p.ibm_vx;
     pose.v = p.ibm_vy;
     pose.omega = p.ibm_omega;
+    if (p.ibm_omega_from > 0.0 || p.ibm_omega_until > 0.0) {   // the rotation runs between two times and the angle is held outside (the pose is fixed during a step)
+        const double t_off = p.ibm_omega_until > 0.0 ? p.ibm_omega_until : t;
+        pose.angle = p.ibm_omega * (std::min(std::max(t, p.ibm_omega_from), std::max(t_off, p.ibm_omega_from)) - p.ibm_omega_from);
+        pose.omega = (t >= p.ibm_omega_from && (p.ibm_omega_until <= 0.0 || t < p.ibm_omega_until)) ? p.ibm_omega : 0.0;
+    }
     return pose;
 }
 
@@ -645,7 +650,7 @@ void Simulation::solve_amr() {
             amr_body_->geo.v = pose.v;
             eng.set_body_velocity(pose.u, pose.v);
         }
-        if (shift <= 0.25 * h_fine) return;
+        if (shift <= 0.25 * h_fine && pose.omega == g.omega) return;   // (the wall velocity of a rotation is that of the built pose: a stop rebuilds it)
         const auto r0 = Clock::now();
         amr_body_->geo = pose;
         eng.body_changed();

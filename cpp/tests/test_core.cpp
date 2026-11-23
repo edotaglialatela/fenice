@@ -2886,3 +2886,24 @@ TEST(positivity_fallback_keeps_the_wake_of_a_mach_10_cylinder_admissible) {
     std::printf("    %lld repair passes in %d steps\n", repairs, kSteps);
     CHECK(repairs > 0);
 }
+
+TEST(prescribed_rotation_stops_at_ibm_omega_until_and_holds_the_angle) {
+    const auto pose_at = [](const char* until, double t, const char* from = "0.0") {
+        Simulation sim;
+        sim.setup(params_for("Sod Shock Tube", {{"Lx", "2.4"}, {"Ly", "2.4"}, {"nx", "16"}, {"ny", "16"}, {"use_ibm", "true"}, {"ibm_shape", "Cylinder"},
+                                                {"ibm_radius", "0.1"}, {"ibm_cx", "1.2"}, {"ibm_cy", "1.2"}, {"ibm_omega", "-0.5"},
+                                                {"ibm_omega_until", until}, {"ibm_omega_from", from}, {"use_mpi", "false"}}),
+                  false);
+        return sim.prescribed_pose(t);
+    };
+    const ImmersedBoundary::BodyPose a = pose_at("2.0", 1.0), b = pose_at("2.0", 5.0), c = pose_at("0.0", 5.0);
+    CHECK(a.angle == -0.5 && a.omega == -0.5);   // before the stop: as without it
+    CHECK(b.angle == -1.0 && b.omega == 0.0);    // after: the angle held, no angular velocity
+    CHECK(c.angle == -2.5 && c.omega == -0.5);   // ibm_omega_until = 0: the rotation never stops (the old expression, bit for bit)
+    // ibm_omega_from: at rest first, then the rotation, then held
+    const ImmersedBoundary::BodyPose d0 = pose_at("4.0", 0.5, "1.0"), d1 = pose_at("4.0", 3.0, "1.0"), d2 = pose_at("4.0", 9.0, "1.0"), e = pose_at("0.0", 3.0, "1.0");
+    CHECK(d0.angle == 0.0 && d0.omega == 0.0);
+    CHECK(d1.angle == -1.0 && d1.omega == -0.5);
+    CHECK(d2.angle == -1.5 && d2.omega == 0.0);
+    CHECK(e.angle == -1.0 && e.omega == -0.5);   // no stop: from alone delays the start
+}

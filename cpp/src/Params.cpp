@@ -186,6 +186,8 @@ const std::vector<ParamSpec>& parameter_table() {
     {"ibm_vy", "ibm", "0.0"},
     {"ibm_vz", "ibm", "0.0"},
     {"ibm_omega", "ibm", "0.0"},
+    {"ibm_omega_from", "ibm", "0.0"},
+    {"ibm_omega_until", "ibm", "0.0"},
     {"ibm_mass", "ibm", "0.0"},
     {"ibm_stiff_x", "ibm", "0.0"},
     {"ibm_stiff_y", "ibm", "0.0"},
@@ -314,6 +316,8 @@ SimParams SimParams::from(const Params& p) {
     s.ibm_vy = p.num("ibm_vy", 0.0);
     s.ibm_vz = p.num("ibm_vz", 0.0);
     s.ibm_omega = p.num("ibm_omega", 0.0);
+    s.ibm_omega_from = p.num("ibm_omega_from", 0.0);
+    s.ibm_omega_until = p.num("ibm_omega_until", 0.0);
     s.ibm_mass = p.num("ibm_mass", 0.0);
     s.ibm_stiff_x = p.num("ibm_stiff_x", 0.0);
     s.ibm_stiff_y = p.num("ibm_stiff_y", 0.0);
@@ -480,6 +484,9 @@ SimParams SimParams::from(const Params& p) {
         throw std::invalid_argument("ibm_shape = Airfoil needs ibm_file (a Selig or Lednicer coordinate file)");
     if (s.use_ibm && airfoil && !(s.ibm_chord > 0.0)) throw std::invalid_argument("ibm_chord must be positive");
     if (s.use_ibm && s.nz > 1 && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is 2-D only (for now)");
+    if (!(s.ibm_omega_from >= 0.0) || !(s.ibm_omega_until >= 0.0)) throw std::invalid_argument("ibm_omega_from and ibm_omega_until must be >= 0");
+    if ((s.ibm_omega_until > 0.0 || s.ibm_omega_from > 0.0) && s.ibm_omega == 0.0) throw std::invalid_argument("ibm_omega_from / ibm_omega_until need a rotation (ibm_omega)");
+    if (s.ibm_omega_until > 0.0 && s.ibm_omega_until <= s.ibm_omega_from) throw std::invalid_argument("ibm_omega_until must be later than ibm_omega_from");
     if (s.use_ibm && s.ibm_moving() && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is not available for a moving body");
     if (s.use_ibm && s.ibm_moving() && s.nz > 1) {   // in 3-D: a sphere that translates, on a uniform mesh
         if (shape != "sphere") throw std::invalid_argument("a moving body in 3-D is a sphere (for now)");

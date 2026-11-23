@@ -1,0 +1,62 @@
+# A NACA 0012 at Re = 1000 and Ma = 0.2 that pitches nose-up about its quarter chord and then holds the angle (prescribed motion, adaptive mesh).
+# The airfoil rests at 0 degrees until t = ibm_omega_from (the wake develops), turns at ibm_omega [rad per unit time, negative = nose-up] until
+# ibm_omega_until, and stays there. Without ibm_omega it is the static airfoil at ibm_aoa. The study that uses it is
+# cases/validation/features/pitching_airfoil/ (run_workstation.sh); the mesh, the angles and the times are set there with --set.
+
+[case]
+name = "IBM Airfoil Pitch"
+description = "NACA 0012, Re = 1000: rest, pitch-up about the quarter chord, hold (AMR, body at the finest level)"
+requires_viscous = true
+gui = false
+
+[mesh]
+Lx = 12.0
+Ly = 6.0
+nx = 720
+ny = 360
+
+[physics]
+use_viscous = true
+reynolds = 1000.0
+use_bodyforce = false
+
+[boundaries]
+bc_xmin = "vel_inlet"
+bc_xmax = "nonreflecting"
+bc_ymin = "wall"
+bc_ymax = "wall"
+u_in = 1.0
+rho_in = 1.0
+p_out = 17.857142857142858
+
+[numerics]
+riemann_solver = "HLLC (Low-Mach Thornber)"
+reconstruction = "muscl"
+muscl_limiter = "Van Leer"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.5
+
+[run]
+t_end = 45.0
+save_interval = 1000000000
+monitor_interval = 5
+
+[parallel]
+use_mpi = false
+
+[amr]
+use_amr = true
+amr_max_level = 2
+amr_refine_every = 5
+amr_indicator = "density+velocity"
+
+[ibm]
+use_ibm = true
+ibm_shape = "NACA 0012"
+ibm_cx = 3.0
+ibm_cy = 3.0
+ibm_chord = 1.0
+ibm_aoa = 0.0
+
+[initial]
+state = { rho = 1.0, u = 1.0, v = 0.0, p = 17.857142857142858 }

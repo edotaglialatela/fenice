@@ -63,6 +63,8 @@ CHECK_CASES = {   # name: (case, overrides)
                                                       "ibm_vx=2.0", "ibm_vy=0.3"]),
     "moving_slip_cylinder": ("IBM Flow over Cylinder", ["use_viscous=false", "nx=200", "ny=100", "max_steps=30", "ibm_vx=2.0", "ibm_vy=-0.5"]),
     "moving_airfoil": ("IBM Airfoil", ["nx=192", "ny=96", "max_steps=20", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_omega=2.0"]),
+    # a rotation that stops (ibm_omega_until) inside the run: the angle is held and the wall velocity of the rotation goes to zero
+    "moving_airfoil_hold": ("IBM Airfoil", ["nx=192", "ny=96", "max_steps=20", "ibm_vx=1.0", "ibm_omega=-2.0", "ibm_omega_from=0.01", "ibm_omega_until=0.05"]),
     "moving_cylinder_hancock": ("IBM Flow over Cylinder", ["nx=200", "ny=100", "max_steps=30", "ibm_vx=2.0", "ibm_vy=0.7",
                                                            "time_scheme=MUSCL-Hancock"]),
     # a body driven by the flow (uniform mesh): the loads of the first stage of each step, summed in global cell order whatever the cut, advance
@@ -98,6 +100,7 @@ CHECK_CASES = {   # name: (case, overrides)
     "amr_moving_slip_cylinder": ("IBM Flow over Cylinder", ["use_viscous=false", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
                                                             "nx=100", "ny=50", "max_steps=16", "ibm_vx=2.0", "ibm_vy=-0.5"]),
     "amr_moving_airfoil": ("IBM Airfoil AMR", ["max_steps=12", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_omega=2.0"]),
+    "amr_moving_airfoil_hold": ("IBM Airfoil AMR", ["max_steps=12", "ibm_vx=1.0", "ibm_omega=-2.0", "ibm_omega_from=0.005", "ibm_omega_until=0.02"]),
     "amr_moving_cylinder_hancock": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
                                                                "max_steps=16", "ibm_vx=2.0", "ibm_vy=0.7", "time_scheme=MUSCL-Hancock"]),
     # AMR with a body driven by the flow: one residual of the whole mesh at the start of each step, the loads of the solid leaves summed in
@@ -179,7 +182,7 @@ def amr_motion_check():
     print(f"moving cylinder in a gas at rest: AMR against uniform, largest difference of the 0.1 s mean of Fx {100 * worst:.2f} % of the peak", flush=True)
     return worst < 0.05
 
-RESUME_CASES = ("moving_cylinder", "moving_airfoil", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder", "dynamic_sphere3d")
+RESUME_CASES = ("moving_cylinder", "moving_airfoil", "moving_airfoil_hold", "amr_moving_airfoil_hold", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder", "dynamic_sphere3d")
 RESUME_PAIRS = ((None, None), (None, 3), (3, None), (2, 4))   # ranks of the first half and of the resumed half (None: serial)
 
 
