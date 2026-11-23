@@ -57,7 +57,7 @@ SOURCE = DOCS / "source"
 HEADERS = ROOT / "cpp" / "include" / "fv"
 TEMPLATES = DOCS / "_templates"
 SITE = DOCS / "site"   # the generated site (gitignored; published to GitHub Pages by CI)
-SECTIONS = ["Start here", "User guide", "Methods", "Test cases", "Verification", "API reference"]
+SECTIONS = ["Start here", "User guide", "Methods", "Immersed boundary", "Test cases", "Verification", "API reference"]
 
 EXTRAS = {"code-friendly": None, "cuddled-lists": None, "fenced-code-blocks": {"cssclass": "pdoc-code codehilite"},
           "footnotes": None, "header-ids": {"mixed": True, "reset-count": True}, "markdown-in-html": None,

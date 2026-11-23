@@ -1,13 +1,12 @@
 ---
-title: Physics - viscous fluxes, gradients, body forces, IBM
+title: Physics - viscous fluxes, gradients, body forces
 nav: Physics
 section: Methods
 order: 40
 ---
 
 > **In short.** The physics beyond the Euler equations: viscous and heat fluxes (`use_viscous`, with `mu`, `reynolds` and `pr`), body forces
-> (`use_bodyforce`) and an immersed body in the flow (`use_ibm`: a cylinder, a sphere or an airfoil placed on the Cartesian grid,
-> with force monitoring). Skip to the [immersed boundary method](#immersed-boundary-method) if you want to put a body in the flow.
+> (`use_bodyforce`). An immersed body in the flow (`use_ibm`) is described in the [immersed boundary section]({{root}}ibm/wall.html).
 
 ## Cell-centre gradients
 
@@ -85,105 +84,10 @@ $$\mathbf S = \bigl[0,\ \rho g_x,\ \rho g_y,\ \rho\,\mathbf u\cdot\mathbf g,\ \r
 
 The energy component is the power delivered by the force, $\mathbf u\cdot\rho\mathbf g$.
 
-## Immersed boundary method
+## Immersed boundary
 
-A sharp wall inside the Cartesian mesh, imposed through **ghost cells**. A cell is **solid** when its centre lies inside the body:
-
-* **Circle / sphere.** In 2-D `Cylinder` and `Sphere` are the same circle. In 3-D, `Sphere`
-  is a ball centred at (`ibm_cx`, `ibm_cy`, `ibm_cz`), and `Cylinder` is a circular
-  cylinder running through the whole depth along z.
-* **Airfoil.** A closed polygon (`Geometry.hpp`): a `NACA dddd` section from the 4-digit
-  formulas (closed trailing edge, 200 cosine-spaced points per surface), or `Airfoil` read
-  from `ibm_file` in the Selig or Lednicer format of the UIUC database. The section is
-  normalised to unit chord, scaled to `ibm_chord`, rotated by `ibm_aoa` (nose up) about its
-  quarter chord and placed with the quarter chord at (`ibm_cx`, `ibm_cy`); the point test is
-  the even-odd rule. In 3-D it is extruded along z.
-
-A sharp trailing edge is only a few cells thick, so airfoil lift converges slowly with the grid; resolve the chord
-with at least ~60 cells.
-
-### Ghost-cell wall
-
-The wall exists for the cylinder and the airfoil (2-D, uniform or AMR, or extruded along z in 3-D) and for the
-3-D sphere, serial, OpenMP or MPI. The
-solid cells that the fluid stencils read (a fluid cell within two cells) become **ghost cells**. For each one the closest point
-of the true surface and the outward normal are found, and the ghost cell is mirrored across the wall to an **image point** at
-least 1.5 cells into the fluid, where the state is interpolated bilinearly from the surrounding fluid cells (a body extruded along z: in the layer of
-the ghost cell, so every layer is the 2-D run; a sphere: trilinearly over the eight cells around the image point, the solid ones left out). The ghost state makes
-the wall condition hold on the real surface:
-
-* density and pressure equal those of the image point (zero normal gradient);
-* no-slip (`use_viscous`): the velocity goes linearly through zero at the wall, $\mathbf u_{
-m ghost} =
-  -(d_{
-m ghost}/d_{
-m image})\,\mathbf u_{
-m image}$; slip (inviscid): only the normal component is reflected.
-
-In 3-D the velocity has three components: slip removes only the normal part (a spanwise velocity along an extruded body survives), no-slip scales all three.
-
-* The deeper solid cells stay at rest and are reset to the reference state (`rho_in`, `p_out`) each step (energy from the EOS).
-* The ghost cells are filled inside every residual evaluation (`apply_forcing`), so at every Runge-Kutta stage, and once more after
-the complete step together with the reset of the deeper cells (`apply_solid_reset`).
-* A ghost cell for which no image point with
-fluid cells around it exists (a slot one or two cells wide) copies the nearest fluid cell and gets a zero velocity; the solver
-prints how many there are.
-* The wall position is
-exact, so no staircase waves are shed and the solution converges fast with the grid: on a cylinder at Re = 40 the drag
-is within 0.15 % of its converged value at 20 cells per diameter.
-* The monitor's loads are the momentum flux into the solid
-cells (below); `ImmersedBoundary::surface_loads` integrates the true surface from probes at $d$ and $2d$ along the
-normal (for surface distributions; that integral is 1-3 % low).
-* Under MPI each rank fills its own ghost cells and fetches the few cells of other strips their image points read, so the result is
-identical for any number of ranks (also in 3-D); with AMR the body is kept at the finest level in a band as wide as the ghost stencils (2-D; in 3-D the band is six finest cells wide, and the wall is active once no leaf coarser than the finest level lies within that reach of the surface, a fact the ranks settle together; a run stops if that cannot be reached).
-* `reconstruction = weno5` on a uniform mesh uses the four-cell WENO3-Z stencil on every face that has a solid cell among its six, as the adaptive mesh does.
-* In 3-D there are no surface samples (`surface_loads` is zero): the monitor loads are the momentum flux into the solid cells, which is dimension independent.
-
-<details markdown="1">
-<summary>Curvature correction (`ibm_curvature`, 2-D slip walls)</summary>
-
-**Curvature correction (`ibm_curvature`, 2-D slip walls).** The zero normal gradient of the pressure is a first-order error on a curved wall, where
-the normal momentum equation gives $\partial p/\partial n = \rho\,\kappa\,u_t^2$ ($\kappa$: curvature of the wall, positive for a convex body; $1/R$ for a
-cylinder, estimated from the turning of the normal over three cells for a polygon). With `ibm_curvature = true` the ghost pressure is
-$p_{\rm image} - \rho\,\kappa\,u_t^2\,(d_{\rm image} + d_{\rm ghost})$, limited to a factor 0.5 to 2, and the density follows constant entropy along the normal. The
-balance holds where the flow follows the wall, so the correction is weighted by $\max(0, 1 - |u_n|/(0.2\,|u_t|))$ at the image point: unweighted, the
-bow shock of an impulsively started Mach 2 cylinder stays pinned to the wall. It is opt-in, rejected in 3-D, and leaves flat walls unchanged.
-
-</details>
-
-<details markdown="1">
-<summary>Evidence for the ghost-cell wall</summary>
-
-**Evidence.** Mach 2 flow along a 10 degree wedge (`verification/ibm_wedge.py`, exact oblique shock, faces inclined to the grid): the pressure error of the
-ghost wall is 2.3e-2, 7.7e-4 and 6.3e-5 at 50, 100 and 200 cells per unit length (order 3.6). The supersonic vortex around a cylinder (`verification/ibm_vortex.py`, exact solution): the ghost wall's pressure error
-falls only as $h^1$ (2.3e-2 at 160 cells per radius), with the correction it is 8.7e-4 and falls as $h^{1.5}$. The wall is not
-conservative: in a closed inviscid box the fluid mass grows by about 0.2 % by $t=4$. In 3-D the evidence is the exactness of the
-trilinear image state on a linear field (unit test), the equality of extruded bodies with the 2-D run, bitwise MPI equality, and the self-convergence of
-the sphere's drag (`features/ibm_sphere.py`: Cd 3.46 and 3.51 at 10 and 20 cells per diameter, a change of 1.5 %; weak evidence, with no exact reference).
-
-</details>
-
-### Loads on the body
-
-The force of the fluid on the body is the net momentum flux into the solid cells: summing
-their residuals, the fluxes through faces between two solid cells cancel and only the faces
-on the body surface remain,
-
-$$\mathbf F = \sum_{c\ \in\ \rm solid} \mathbf R_c\,V_c, \qquad
-M_z = \sum_{c\ \in\ \rm solid} (\mathbf x_c - \mathbf x_{\rm ref}) \times \mathbf R_c\,V_c,$$
-
-with $\mathbf R$ the momentum residual of the forced state (body force removed) and
-$\mathbf x_{\rm ref}$ = (`ibm_cx`, `ibm_cy`). It contains the pressure and the viscous
-stresses alike, for any shape. With `monitor_interval` the monitor gets $F_x$, $F_y$ and
-$C_d = F_x/(q A)$, $C_l = F_y/(q A)$, $C_m = -M_z/(q A L)$ (nose-up positive), with
-$q = \tfrac12\rho_{\rm in}u_{\rm in}^2$, $L$ the chord or diameter and $A = L$ per unit depth
-in 2-D ($L L_z$ in 3-D, $\pi r^2$ for a sphere). On the cylinder at Re = 100 (400 × 200) this
-gives $\overline{C_d} = 1.54$, a lift amplitude of 0.46 at its peak and St = 0.178 over
-$50 \le t \le 80$, against
-$C_d \approx 1.35$ and $C_l' \approx 0.33$ for an unconfined cylinder; the 10 % blockage of the
-channel raises both.
-
-{{widget:IBM}}
+A body in the flow (`use_ibm`) has its own section: [the ghost-cell wall]({{root}}ibm/wall.html) (geometry, wall condition, loads) and
+[moving bodies and fluid-structure coupling]({{root}}ibm/moving-bodies.html).
 
 ---
 

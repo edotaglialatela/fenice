@@ -74,7 +74,7 @@ validation computes its dissipation rate $-dE_k/dt$ from it.
 
 With an immersed body (`use_ibm`) five columns follow: `Fx,Fy,Cd,Cl,Cm`, the loads of the
 fluid on the body and their coefficients (see
-[Physics]({{root}}modules/Physics.html#loads-on-the-body)). They are computed from one extra
+[Physics]({{root}}ibm/wall.html#loads-on-the-body)). They are computed from one extra
 residual evaluation of the current state at each monitor step, so they do not change the
 solution.
 

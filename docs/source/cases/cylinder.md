@@ -15,7 +15,7 @@ At moderate Reynolds number the wake of a circular cylinder becomes time-periodi
 shedding counter-rotating vortices alternately from the top and bottom of the body. This
 **von Kármán vortex street** is a classical 2-D benchmark for viscous unsteady solvers, and at Mach 2 the same body
 carries a bow shock. Three cases of the solver run on this body with the
-[immersed boundary]({{root}}modules/Physics.html#immersed-boundary-method) and differ in what they test:
+[immersed boundary]({{root}}ibm/wall.html) and differ in what they test:
 
 | case | flow | domain | mesh | what it checks |
 |---|---|---|---|---|
@@ -82,7 +82,7 @@ domain only sheds once the tiny numerical asymmetry has been amplified, which ta
 (100 diameters at $u_{
 m in} = 1$). `ibm_loads.py cylinder` runs to $t = 80$ and measures from $t = 50$.
 
-Once the flow reaches periodic shedding, the solver writes the lift and drag coefficients from the [IBM loads]({{root}}modules/Physics.html#immersed-boundary-method)
+Once the flow reaches periodic shedding, the solver writes the lift and drag coefficients from the [IBM loads]({{root}}ibm/wall.html)
 (pressure and viscous stresses) to the monitor:
 
 $$C_L = \frac{F_y}{\tfrac12\rho u_{\rm in}^2 D}, \qquad C_D = \frac{F_x}{\tfrac12\rho u_{\rm in}^2 D}$$

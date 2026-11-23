@@ -11,7 +11,7 @@ order: 45
 > * `build\release\fenice.exe --case "IBM Airfoil AMR"`
 
 Low-Reynolds-number flow past an airfoil, with the section traced by the
-[immersed boundary]({{root}}modules/Physics.html#immersed-boundary-method). The default is a
+[immersed boundary]({{root}}ibm/wall.html). The default is a
 NACA 0012 at 10° incidence, $\mathrm{Re} = \rho\,u_{\rm in}\,c/\mu = 1000$ and Ma = 0.2, in
 a $12c \times 6c$ box with the quarter chord at $(3c, 3c)$: a velocity inlet on the left, the
 [non-reflecting outlet]({{root}}modules/Boundaries.html#non-reflecting-outlet) on the right,
@@ -29,7 +29,7 @@ With IBM on, every `monitor_interval` steps the monitor records $F_x$, $F_y$ and
 coefficients $C_d$, $C_l$ and $C_m$ (about the quarter chord, nose-up positive), on the chord
 and $q = \tfrac12\rho_{\rm in}u_{\rm in}^2$. They are computed inside the solver from the
 momentum flux into the body, so they include pressure and friction; see
-[Loads on the body]({{root}}modules/Physics.html#loads-on-the-body).
+[Loads on the body]({{root}}ibm/wall.html#loads-on-the-body).
 
 ## Default parameters
 
