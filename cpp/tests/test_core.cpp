@@ -1376,6 +1376,116 @@ TEST(viscous_rows_equal_the_gradient_version_bit_for_bit) {
     std::printf("    %lld cell residuals compared\n", compared);
 }
 
+// The 3-D viscous sweep by planes (face fluxes of a plane at a time, balance and speed bound in the same loop) must give the bits of the
+// sweep by passes (one face array per axis): random state, meshes with a width that is not a multiple of four, the thread blocks with
+// seams (1 / 3 / 7 threads), walls on all six sides also with second-order boundary faces and fixed edges, periodic seams on every axis,
+// neighbour-rank layers of an x strip and of a y strip with their cross-derivative slabs, replacing and accumulating, the speed bound.
+TEST(viscous_3d_plane_sweep_equals_the_passes_bit_for_bit) {
+    const EOS eos = EOS::ideal(1.4);
+    long long compared = 0;
+    struct Dims {
+        int nx, ny, nz;
+    };
+    // above kOmpMinWork cells so that the thread blocks run; 90 x 12 x 5: fewer planes than 7 threads (the passes take over), 13 / 37: leftover columns
+    for (const Dims dm : {Dims{17, 14, 20}, Dims{13, 16, 24}, Dims{37, 5, 25}, Dims{90, 12, 5}}) {
+        const Mesh m = generate_cartesian_mesh_3d(1.0, 0.8, 0.6, dm.nx, dm.ny, dm.nz);
+        unsigned seed = 777u + static_cast<unsigned>(dm.nx);
+        const auto rnd = [&]() {
+            seed = seed * 1664525u + 1013904223u;
+            return static_cast<double>(seed >> 8) / 16777216.0;
+        };
+        const auto random_state = [&]() { return eos.prim_to_cons({0.5 + rnd(), rnd() - 0.5, rnd() - 0.5, 0.4 + rnd(), rnd() - 0.5}); };
+        Field U(m.num_cells());
+        for (auto& u : U) u = random_state();
+        // 0: periodic on all axes, 1: walls on all six sides, 2: as 1 with boundary_order = 2, 3: periodic z with walls in x and y (order 2),
+        // 4: x strip (neighbour layers on both x sides), 5: y strip, both with second-order boundary faces and the other sides walls
+        for (const int variant : {0, 1, 2, 3, 4, 5}) {
+            BoundaryManager bm(m, eos);
+            if (variant == 0) {
+                bm.set_boundary_types(BCType::Periodic, BCType::Periodic, BCType::Periodic, BCType::Periodic);
+                bm.set_type(Face::Front, BCType::Periodic);
+                bm.set_type(Face::Back, BCType::Periodic);
+            } else {
+                bm.set_boundary_types(BCType::NoSlip, BCType::MovingWall, BCType::NoSlip, BCType::Transmissive);
+                bm.set_type(Face::Front, variant == 3 ? BCType::Periodic : BCType::NoSlip);
+                bm.set_type(Face::Back, variant == 3 ? BCType::Periodic : BCType::Wall);
+            }
+            BCParams bp;
+            bp.u_in = 1.0;
+            bp.v_in = 0.3;
+            bp.boundary_order = variant >= 2 ? 2 : 1;
+            bm.set_params(bp);
+            NavierStokes ns(eos, 0.02, 0.72);
+            ns.set_second_order_boundary(variant >= 2);
+            Field P;
+            bm.get_padded_U(U, P);
+            const int PX = m.nx + 2, PY = m.ny + 2;
+            const int mpi_axis = variant == 4 ? 0 : (variant == 5 ? 1 : -1);
+            if (mpi_axis == 0) {   // the layers of the neighbour strips: columns 0 and nx + 1 of the interior rows and planes
+                for (int k = 0; k < m.nz; ++k)
+                    for (int j = 0; j < m.ny; ++j) {
+                        P[(static_cast<size_t>(k + 1) * PY + j + 1) * PX + 0] = random_state();
+                        P[(static_cast<size_t>(k + 1) * PY + j + 1) * PX + m.nx + 1] = random_state();
+                    }
+            } else if (mpi_axis == 1) {
+                for (int k = 0; k < m.nz; ++k)
+                    for (int i = 0; i < m.nx; ++i) {
+                        P[(static_cast<size_t>(k + 1) * PY + 0) * PX + i + 1] = random_state();
+                        P[(static_cast<size_t>(k + 1) * PY + m.ny + 1) * PX + i + 1] = random_state();
+                    }
+            }
+            bm.fix_padded_corners(P, mpi_axis, mpi_axis >= 0, mpi_axis >= 0);
+            // the cross-derivative slabs of the neighbour strips (x strip: slab index k * ny + j, y strip: k * nx + i)
+            std::vector<double> slab[8];
+            CrossGhosts cg;
+            cg.periodic_x = cg.periodic_y = cg.periodic_z = (variant == 0);
+            if (variant == 3) cg.periodic_z = true;
+            if (mpi_axis >= 0) {
+                cg.dir = mpi_axis == 0 ? 'x' : 'y';
+                const size_t len = static_cast<size_t>(m.nz) * (mpi_axis == 0 ? m.ny : m.nx);
+                const double** slots[8] = {&cg.lo_a, &cg.lo_b, &cg.lo_c, &cg.lo_d, &cg.hi_a, &cg.hi_b, &cg.hi_c, &cg.hi_d};
+                for (int s = 0; s < 8; ++s) {
+                    slab[s].resize(len);
+                    for (auto& v : slab[s]) v = rnd() - 0.5;
+                    *slots[s] = slab[s].data();
+                }
+            }
+            for (const bool accumulate : {false, true}) {
+                Field Ra(m.num_cells()), Rb;
+                size_t cc = 0;
+                for (auto& r : Ra) {
+                    r = {0.1, 0.2, 0.3, 0.4, 0.5};
+                    if (cc++ % 2) r[0] = -0.0;   // the zero slot starts as -0 in every other cell
+                }
+                Rb = Ra;
+#ifdef _OPENMP
+                omp_set_num_threads(1);
+#endif
+                ns.set_fused_sweep(false);
+                const double sa = ns.viscous_residual_3d(U, m, P, Ra, &cg, 0.0, accumulate);
+                ns.set_fused_sweep(true);
+                for (const int threads : {1, 3, 7}) {
+#ifdef _OPENMP
+                    omp_set_num_threads(threads);
+#endif
+                    Field Rc = Rb;
+                    const double sb = ns.viscous_residual_3d(U, m, P, Rc, &cg, 0.0, accumulate);
+                    CHECK(std::memcmp(&sa, &sb, sizeof sa) == 0);
+                    bool same = Ra.size() == Rc.size();
+                    for (size_t c = 0; same && c < Ra.size(); ++c)
+                        for (int q = 0; q < kNVar; ++q) same = same && std::memcmp(&Ra[c][q], &Rc[c][q], sizeof(double)) == 0;
+                    CHECK(same);
+                    compared += static_cast<long long>(Ra.size());
+                }
+            }
+        }
+    }
+#ifdef _OPENMP
+    omp_set_num_threads(omp_get_num_procs());
+#endif
+    std::printf("    %lld cell residuals compared\n", compared);
+}
+
 // ---------------------------------------------------------------------------
 // Time schemes
 // ---------------------------------------------------------------------------

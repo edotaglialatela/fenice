@@ -38,6 +38,8 @@ namespace fs = std::filesystem;
 
 namespace fv {
 
+static bool fused_enabled();   // FENICE_NO_FUSED (defined with the residual)
+
 using namespace sim_detail;
 
 std::atomic<bool> g_stop_requested{false};
@@ -298,6 +300,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
     if (p.use_viscous) {
         ns = std::make_unique<NavierStokes>(fluid, p.mu, p.pr);
         ns->set_second_order_boundary(p.boundary_order == 2);
+        ns->set_fused_sweep(fused_enabled());
         if (verbose) std::printf("[PHYSICS] Viscous fluxes enabled (Navier-Stokes)\n");
     } else {
         ns.reset();

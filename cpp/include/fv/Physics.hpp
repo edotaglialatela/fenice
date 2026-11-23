@@ -100,6 +100,10 @@ public:
     // first-cell value, which is O(h) away from the wall.
     void set_second_order_boundary(bool on) { bface2_ = on; }
 
+    // The 3-D sweep by planes (default on): the fluxes of the faces of a plane at a time, balanced at once, instead of one pass over
+    // the whole mesh per axis. The same bits; off gives the passes (the reference of the tests, FENICE_NO_FUSED = 1).
+    void set_fused_sweep(bool on) { fused3d_ = on; }
+
     // Dynamic viscosity.
     double mu() const { return mu_; }
     // Prandtl number.
@@ -109,6 +113,7 @@ private:
     EOS eos_;
     double mu_, Pr_;
     bool bface2_ = false;
+    bool fused3d_ = true;
     mutable Field W_, W_pad_;
     mutable std::vector<double> scratch_;
 };

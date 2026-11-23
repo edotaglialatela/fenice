@@ -561,20 +561,14 @@ double NavierStokes::viscous_residual_3d(const Field& /*U*/, const Mesh& m, cons
     const bool simd3 = detail::simd_available();
 #endif
 
-    // Face fluxes, one array per axis: F[d][face (i, j, k) with index t along d]
-    const int nfx = (nx + 1) * ny * nz, nfy = nx * (ny + 1) * nz, nfz = nx * ny * (nz + 1);
-    thread_local Field Fax[3];
-    Fax[0].resize(nfx);
-    Fax[1].resize(nfy);
-    Fax[2].resize(nfz);
-    for (int d = 0; d < 3; ++d) {
-        const int ni = nx + (d == 0), nj = ny + (d == 1), nk = nz + (d == 2);
+    // The viscous fluxes of one row of faces normal to axis d: out[i], i = 0 .. ni - 1, for the faces (i, j, k) of the face grid of
+    // axis d (x faces: ni = nx + 1, j < ny, k < nz; y faces: ni = nx, j <= ny, k < nz; z faces: ni = nx, j < ny, k <= nz), from the
+    // cell quantities above. Both sweeps below (all faces first, or a plane at a time) call this: the same bits.
+    const auto face_row = [&](int d, int j, int k, State* out) {
+        const int ni = nx + (d == 0);
         const int n_d = d == 0 ? nx : (d == 1 ? ny : nz);
         const double area = m.face_area(d);
-        Field& F = Fax[d];
-#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
-        for (int kj = 0; kj < nj * nk; ++kj) {
-            const int j = kj % nj, k = kj / nj;
+        {
             const auto face = [&](int i) {
                 const int idx[3] = {i, j, k};
                 const int t = idx[d];
@@ -677,10 +671,8 @@ double NavierStokes::viscous_residual_3d(const Field& /*U*/, const Mesh& m, cons
                     }
                 }
                 const double q_d = -k_cond * dT;
-                const int fi = d == 0 ? (k * ny + j) * (nx + 1) + i
-                                      : (d == 1 ? (k * (ny + 1) + j) * nx + i : (k * ny + j) * nx + i);
-                F[fi] = {0.0, tau[0] * area, tau[1] * area,
-                         (vf[0] * tau[0] + vf[1] * tau[1] + vf[2] * tau[2] - q_d) * area, tau[2] * area};
+                out[i] = {0.0, tau[0] * area, tau[1] * area,
+                          (vf[0] * tau[0] + vf[1] * tau[1] + vf[2] * tau[2] - q_d) * area, tau[2] * area};
             };
             // faces with a cell on both sides and no boundary rule: four at a time (detail::viscous_faces3d_simd, the arithmetic of
             // `face` for such a face); the others (ends of an x row, the first and last y / z row, leftovers) go through `face`
@@ -705,20 +697,107 @@ double NavierStokes::viscous_residual_3d(const Field& /*U*/, const Mesh& m, cons
                     const double* vp[3] = {vel[0] + cc0, vel[1] + cc0, vel[2] + cc0};
                     const double* gp[4];
                     for (int q = 0; q < 4; ++q) gp[q] = G[kGa[d][q]][kGb[d][q]] + cc0;
-                    const size_t fi0 = d == 0 ? (static_cast<size_t>(k) * ny + j) * (nx + 1) + v0
-                                              : (d == 1 ? (static_cast<size_t>(k) * (ny + 1) + j) * nx + v0
-                                                        : (static_cast<size_t>(k) * ny + j) * nx + v0);
-                    detail::viscous_faces3d_simd(d, mu_, k_cond, h[d], area, vp, sT + cc0, gp, delta, vn, &F[fi0]);
+                    detail::viscous_faces3d_simd(d, mu_, k_cond, h[d], area, vp, sT + cc0, gp, delta, vn, out + v0);
                 }
             }
 #endif
             for (int i = 0; i < v0; ++i) face(i);
             for (int i = v0 + vn; i < ni; ++i) face(i);
         }
-    }
+    };
 
     if (!accumulate) Rv.assign(n, State{});
     const double inv_vol = 1.0 / m.cell_volume();
+    // Speed that bounds the explicit time step, as in the 2-D version: D = max(4/3 nu, kappa / (rho c_v)), the
+    // convective length is L = 2 / sum(1/h), and the viscous part of the speed is 2 L D sum 1/h^2.
+    const double inv_h2 = inv_h2_3d(m.dx, m.dy, m.dz);
+    const double L = length > 0.0 ? length : step_length_3d(m.dx, m.dy, m.dz);
+    const auto cell_speed = [&](int i, int j, int k) {
+        const State& w = W(i, j, k);
+        const double rho = w[0];
+        const double nu_eff = viscous_nu_eff(mu_, k_cond, gamma, rho);
+        return viscous_speed_bound(std::max({std::abs(w[1]), std::abs(w[2]), std::abs(w[4])}), eos_.sound_speed(w[3], rho), L, inv_h2, nu_eff);
+    };
+    // The balance of a cell from the fluxes on its six faces (left / right in x, bottom / top in y, back / front in z)
+    const auto balance = [&](const State& fl, const State& fr, const State& fb, const State& ft, const State& ff, const State& fk,
+                             State& r) {
+        if (accumulate)
+            for (int q = 0; q < kNVar; ++q) r[q] += (((0.0 + (fr[q] - fl[q])) + (ft[q] - fb[q])) + (fk[q] - ff[q])) * inv_vol;
+        else
+            for (int q = 0; q < kNVar; ++q) r[q] = (((0.0 + (fr[q] - fl[q])) + (ft[q] - fb[q])) + (fk[q] - ff[q])) * inv_vol;
+    };
+    double s_max = 0.0;
+
+    int max_threads = 1;
+#ifdef _OPENMP
+    max_threads = omp_get_max_threads();
+#endif
+    // A thread takes a block of planes: with fewer planes than threads the fluxes of the whole mesh go through arrays, one pass per axis
+    if (fused3d_ && (n < kOmpMinWork || nz >= max_threads)) {
+        // The plane-pipelined sweep (as fused_residual_3d): for each plane the x faces of every row, the y faces below and above the
+        // rows and the z faces below and above the plane (the upper ones are the lower ones of the next plane) are computed into small
+        // per-thread rows and planes, and the cells are balanced at once; the speed bound is taken in the same loop. The planes at the
+        // seam of two blocks are solved by both threads (the same bits). No face array of the whole mesh is stored.
+#pragma omp parallel if (n >= kOmpMinWork)
+        {
+            double local = 0.0;
+            int nthreads = 1, tid = 0;
+#ifdef _OPENMP
+            nthreads = omp_get_num_threads();
+            tid = omp_get_thread_num();
+#endif
+            const int k0 = static_cast<int>(static_cast<long long>(nz) * tid / nthreads);
+            const int k1 = static_cast<int>(static_cast<long long>(nz) * (tid + 1) / nthreads);
+            if (k0 < k1) {
+                // kept between calls (a plane of a large mesh is past the size the allocator keeps); every entry is written before it is read
+                thread_local std::vector<State> zlow, zhigh, fx, below, above;
+                zlow.resize(static_cast<size_t>(nx) * ny);
+                zhigh.resize(zlow.size());
+                fx.resize(static_cast<size_t>(nx) + 1);
+                below.resize(static_cast<size_t>(nx));
+                above.resize(static_cast<size_t>(nx));
+                for (int j = 0; j < ny; ++j) face_row(2, j, k0, &zlow[static_cast<size_t>(j) * nx]);
+                for (int k = k0; k < k1; ++k) {
+                    for (int j = 0; j < ny; ++j) face_row(2, j, k + 1, &zhigh[static_cast<size_t>(j) * nx]);
+                    face_row(1, 0, k, below.data());
+                    for (int j = 0; j < ny; ++j) {
+                        face_row(0, j, k, fx.data());
+                        face_row(1, j + 1, k, above.data());
+                        for (int i = 0; i < nx; ++i) {
+                            balance(fx[static_cast<size_t>(i)], fx[static_cast<size_t>(i) + 1], below[static_cast<size_t>(i)],
+                                    above[static_cast<size_t>(i)], zlow[static_cast<size_t>(j) * nx + i],
+                                    zhigh[static_cast<size_t>(j) * nx + i], Rv[m.cell(i, j, k)]);
+                            local = std::max(local, cell_speed(i, j, k));
+                        }
+                        below.swap(above);
+                    }
+                    zlow.swap(zhigh);
+                }
+            }
+#pragma omp critical(fv_viscous_speed)
+            s_max = std::max(s_max, local);
+        }
+        return s_max;
+    }
+
+    // Face fluxes, one array per axis: F[d][face (i, j, k) with index t along d]
+    const int nfx = (nx + 1) * ny * nz, nfy = nx * (ny + 1) * nz, nfz = nx * ny * (nz + 1);
+    thread_local Field Fax[3];
+    Fax[0].resize(nfx);
+    Fax[1].resize(nfy);
+    Fax[2].resize(nfz);
+    for (int d = 0; d < 3; ++d) {
+        const int nj = ny + (d == 1), nk = nz + (d == 2);
+        Field& F = Fax[d];
+#pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
+        for (int kj = 0; kj < nj * nk; ++kj) {
+            const int j = kj % nj, k = kj / nj;
+            const size_t row = d == 0 ? (static_cast<size_t>(k) * ny + j) * (nx + 1)
+                                      : (d == 1 ? (static_cast<size_t>(k) * (ny + 1) + j) * nx : (static_cast<size_t>(k) * ny + j) * nx);
+            face_row(d, j, k, &F[row]);
+        }
+    }
+
     // Bind the thread_local arrays here: inside the parallel region each thread would see its own (empty) copy
     const Field& F0 = Fax[0];
     const Field& F1 = Fax[1];
@@ -726,41 +805,19 @@ double NavierStokes::viscous_residual_3d(const Field& /*U*/, const Mesh& m, cons
 #pragma omp parallel for schedule(static) if (n >= kOmpMinWork)
     for (int kj = 0; kj < ny * nz; ++kj) {
         const int j = kj % ny, k = kj / ny;
-        for (int i = 0; i < nx; ++i) {
-            const State& fl = F0[(k * ny + j) * (nx + 1) + i];
-            const State& fr = F0[(k * ny + j) * (nx + 1) + i + 1];
-            const State& fb = F1[(k * (ny + 1) + j) * nx + i];
-            const State& ft = F1[(k * (ny + 1) + j + 1) * nx + i];
-            const State& ff = F2[(k * ny + j) * nx + i];
-            const State& fk = F2[((k + 1) * ny + j) * nx + i];
-            State& r = Rv[m.cell(i, j, k)];
-            if (accumulate)
-                for (int q = 0; q < kNVar; ++q)
-                    r[q] += (((0.0 + (fr[q] - fl[q])) + (ft[q] - fb[q])) + (fk[q] - ff[q])) * inv_vol;
-            else
-                for (int q = 0; q < kNVar; ++q)
-                    r[q] = (((0.0 + (fr[q] - fl[q])) + (ft[q] - fb[q])) + (fk[q] - ff[q])) * inv_vol;
-        }
+        for (int i = 0; i < nx; ++i)
+            balance(F0[(k * ny + j) * (nx + 1) + i], F0[(k * ny + j) * (nx + 1) + i + 1], F1[(k * (ny + 1) + j) * nx + i],
+                    F1[(k * (ny + 1) + j + 1) * nx + i], F2[(k * ny + j) * nx + i], F2[((k + 1) * ny + j) * nx + i],
+                    Rv[m.cell(i, j, k)]);
     }
 
-    // Speed that bounds the explicit time step, as in the 2-D version: D = max(4/3 nu, kappa / (rho c_v)), the
-    // convective length is L = 2 / sum(1/h), and the viscous part of the speed is 2 L D sum 1/h^2.
-    const double inv_h2 = inv_h2_3d(m.dx, m.dy, m.dz);
-    const double L = length > 0.0 ? length : step_length_3d(m.dx, m.dy, m.dz);
-    double s_max = 0.0;
 #pragma omp parallel if (n >= kOmpMinWork)
     {
         double local = 0.0;
 #pragma omp for schedule(static) nowait
         for (int kj = 0; kj < ny * nz; ++kj) {
             const int j = kj % ny, k = kj / ny;
-            for (int i = 0; i < nx; ++i) {
-                const State& w = W(i, j, k);
-                const double rho = w[0];
-                const double nu_eff = viscous_nu_eff(mu_, k_cond, gamma, rho);
-                const double s = viscous_speed_bound(std::max({std::abs(w[1]), std::abs(w[2]), std::abs(w[4])}), eos_.sound_speed(w[3], rho), L, inv_h2, nu_eff);
-                local = std::max(local, s);
-            }
+            for (int i = 0; i < nx; ++i) local = std::max(local, cell_speed(i, j, k));
         }
 #pragma omp critical(fv_viscous_speed)
         s_max = std::max(s_max, local);
