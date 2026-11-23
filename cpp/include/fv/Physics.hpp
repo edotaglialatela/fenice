@@ -316,7 +316,7 @@ private:
     struct FreshCell {
         int cell = 0;
         double ratio = 0.0;   // distance cell-wall / distance image-wall
-        double wu = 0.0, wv = 0.0;
+        double wu = 0.0, wv = 0.0, ww = 0.0;
         Probe image;
     };
     std::vector<FreshCell> fresh_;

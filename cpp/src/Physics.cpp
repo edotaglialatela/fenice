@@ -1129,7 +1129,7 @@ void ImmersedBoundary::refresh_wall_velocity() {
 
 void ImmersedBoundary::enable_motion(double px, double py) {
     if (sparse_) throw std::logic_error("ImmersedBoundary::enable_motion: needs the dense ghost-cell wall");
-    if (shape_ == Shape::None || shape_ == Shape::Ball) throw std::invalid_argument("a moving body is a cylinder or a polygon (2-D) for now");
+    if (shape_ == Shape::None) throw std::invalid_argument("a moving body is built from its geometry");
     if (curvature_) throw std::invalid_argument("ibm_curvature is not available for a moving body");
     moving_ = true;
     ref_cx_ = cx_;
@@ -1211,20 +1211,26 @@ void ImmersedBoundary::build_fresh(const Mesh& m, const std::vector<int>& cells)
         if (sparse_) fresh_solid_.insert(c);
         else mask_[static_cast<size_t>(c)] = 1;
     }
-    const double hh = std::max(m.dx, m.dy);
+    const bool d3 = m.is3d();
+    const double hh = d3 ? std::max(std::max(m.dx, m.dy), m.dz) : std::max(m.dx, m.dy);
     for (const int c : cells) {
         const int i = c % nx_, j = (c / nx_) % ny_, k = c / (nx_ * ny_);
         FreshCell f;
         f.cell = c;
-        double wx, wy, nxw, nyw;
-        closest_wall_point(m.xc(i), m.yc(j), wx, wy, nxw, nyw);
-        const double dg = std::hypot(m.xc(i) - wx, m.yc(j) - wy);
-        double wz_unused = 0.0;
-        body_velocity(wx, wy, wz_unused, f.wu, f.wv, wz_unused);
+        double wx, wy, wz = 0.0, nxw, nyw, nzw = 0.0;
+        double dg;
+        if (d3) {
+            closest_wall_point3(m.xc(i), m.yc(j), m.zc(k), wx, wy, wz, nxw, nyw, nzw);
+            dg = std::sqrt((m.xc(i) - wx) * (m.xc(i) - wx) + (m.yc(j) - wy) * (m.yc(j) - wy) + (m.zc(k) - wz) * (m.zc(k) - wz));
+        } else {
+            closest_wall_point(m.xc(i), m.yc(j), wx, wy, nxw, nyw);
+            dg = std::hypot(m.xc(i) - wx, m.yc(j) - wy);
+        }
+        body_velocity(wx, wy, wz, f.wu, f.wv, f.ww);
         bool found = false;
         double d = 0.0;
         for (d = std::max(dg + hh, 1.5 * hh); d <= 4.0 * hh + dg + 1e-12; d += 0.5 * hh)
-            if (make_probe(m, wx + d * nxw, wy + d * nyw, f.image, k)) {
+            if (d3 ? make_probe3(m, wx + d * nxw, wy + d * nyw, wz + d * nzw, f.image) : make_probe(m, wx + d * nxw, wy + d * nyw, f.image, k)) {
                 found = true;
                 break;
             }
@@ -1233,16 +1239,17 @@ void ImmersedBoundary::build_fresh(const Mesh& m, const std::vector<int>& cells)
         } else {   // no settled fluid around any image point: the nearest settled fluid cell of the two-cell neighbourhood, at the wall velocity
             double best = 1e300;
             int cn = c;
-            for (int dj = -2; dj <= 2; ++dj)
-                for (int di = -2; di <= 2; ++di) {
-                    const int ii = i + di, jj = j + dj;
-                    if (ii < 0 || ii >= nx_ || jj < 0 || jj >= ny_ || is_solid(m, ii, jj, k)) continue;
-                    const double d2 = static_cast<double>(di * di + dj * dj);
-                    if (d2 < best) {
-                        best = d2;
-                        cn = m.cell(ii, jj, k);
+            for (int dk = d3 ? -2 : 0; dk <= (d3 ? 2 : 0); ++dk)
+                for (int dj = -2; dj <= 2; ++dj)
+                    for (int di = -2; di <= 2; ++di) {
+                        const int ii = i + di, jj = j + dj, kk = k + dk;
+                        if (ii < 0 || ii >= nx_ || jj < 0 || jj >= ny_ || kk < 0 || kk >= nz_ || is_solid(m, ii, jj, kk)) continue;
+                        const double d2 = static_cast<double>(di * di + dj * dj + dk * dk);
+                        if (d2 < best) {
+                            best = d2;
+                            cn = m.cell(ii, jj, kk);
+                        }
                     }
-                }
             for (int q = 0; q < 8; ++q) {
                 f.image.cell[q] = cn;
                 f.image.w[q] = q == 0 ? 1.0 : 0.0;
@@ -1278,12 +1285,12 @@ void ImmersedBoundary::make_fresh_sparse(const ImmersedBoundary& previous, const
 
 bool ImmersedBoundary::move_to(const Mesh& m, const BodyPose& pose) {
     if (!moving_) throw std::logic_error("ImmersedBoundary::move_to: enable_motion first");
-    if (m.is3d()) throw std::logic_error("ImmersedBoundary::move_to: a moving body is 2-D for now");
+    if (m.is3d() && shape_ != Shape::Ball) throw std::logic_error("ImmersedBoundary::move_to: in 3-D only a sphere moves");
     mesh_ = m;
     pose_ = pose;
     // the geometry follows the pose in steps of a quarter cell; in between only the velocities of the wall are refreshed
-    const double h = std::min(m.dx, m.dy);
-    const double shift = std::max(std::max(std::abs(pose.x - built_.x), std::abs(pose.y - built_.y)),
+    const double h = m.is3d() ? std::min(std::min(m.dx, m.dy), m.dz) : std::min(m.dx, m.dy);
+    const double shift = std::max(std::max(std::max(std::abs(pose.x - built_.x), std::abs(pose.y - built_.y)), std::abs(pose.z - built_.z)),
                                   shape_ == Shape::Polygon ? std::abs(pose.angle - built_.angle) * reach_ : 0.0);
     if (shift <= 0.25 * h) {
         refresh_wall_velocity();
@@ -1312,7 +1319,8 @@ void ImmersedBoundary::fill_fresh_part(const CellIndex& local, const CellState& 
         const FreshCell& f = fresh_[q];
         if (local(f.cell) < 0) continue;
         const State W = f.image.at(in, eos);
-        val[q] = eos.prim_to_cons({W[0], f.wu + f.ratio * (W[1] - f.wu), f.wv + f.ratio * (W[2] - f.wv), W[3], 0.0});
+        val[q] = eos.prim_to_cons({W[0], f.wu + f.ratio * (W[1] - f.wu), f.wv + f.ratio * (W[2] - f.wv), W[3],
+                                   nz_ > 1 ? f.ww + f.ratio * (W[4] - f.ww) : 0.0});
     }
     for (size_t q = 0; q < fresh_.size(); ++q) {
         const int l = local(fresh_[q].cell);

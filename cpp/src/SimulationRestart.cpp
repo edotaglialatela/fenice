@@ -87,7 +87,9 @@ NpzArchive Simulation::checkpoint_header(int step) const {
 std::vector<double> Simulation::body_checkpoint() const {
     if (!p.use_ibm || !p.ibm_moving()) return {};
     const ImmersedBoundary::BodyPose g = amr_body_ ? amr_body_->geo : ibm->built_pose();
-    return {g.x, g.y, g.angle, body_.x, body_.y, body_.u, body_.v, body_.ax, body_.ay, body_.dt};
+    std::vector<double> v = {g.x, g.y, g.angle, body_.x, body_.y, body_.u, body_.v, body_.ax, body_.ay, body_.dt};
+    if (p.nz > 1) v.insert(v.end(), {g.z, body_.z, body_.w, body_.az});   // a 3-D body: the z entries follow (a 2-D file keeps its ten)
+    return v;
 }
 
 void Simulation::restore_body_from_checkpoint() {
@@ -96,11 +98,12 @@ void Simulation::restore_body_from_checkpoint() {
     const NpzFile file(path);
     if (!file.has("body_pose")) throw std::runtime_error("The checkpoint " + path + " has no pose of the moving body: it is from a static run");
     const std::vector<double> b = file.read("body_pose").as_doubles();
-    if (b.size() != 10) throw std::runtime_error("The checkpoint " + path + " has a malformed body pose");
+    if (b.size() != (p.nz > 1 ? 14u : 10u)) throw std::runtime_error("The checkpoint " + path + " has a malformed body pose (a 2-D file with a 3-D run, or the reverse)");
     ImmersedBoundary::BodyPose g;
     g.x = b[0];
     g.y = b[1];
     g.angle = b[2];
+    if (p.nz > 1) g.z = b[10];
     if (p.ibm_dynamic()) {
         body_.x = b[3];
         body_.y = b[4];
@@ -111,9 +114,16 @@ void Simulation::restore_body_from_checkpoint() {
         body_.dt = b[9];
         g.u = body_.u;
         g.v = body_.v;
+        if (p.nz > 1) {
+            body_.z = b[11];
+            body_.w = b[12];
+            body_.az = b[13];
+            g.w = body_.w;
+        }
     } else {
         g.u = p.ibm_vx;
         g.v = p.ibm_vy;
+        g.w = p.ibm_vz;
         g.omega = p.ibm_omega;
     }
     if (amr_body_) {

@@ -309,7 +309,7 @@ TEST(ordered_loads_equal_the_serial_loads_whatever_the_cut) {
     sim.ibm_load_terms(sim.mesh, sim.mesh, 0, 0, sim.ibm->mask(), sim.U, R, sim.p.ibm_cx, sim.p.ibm_cy, whole);
     CHECK(whole.size() > 30);
     std::vector<Simulation::LoadTerm> all = whole;
-    const std::array<double, 3> sum = Simulation::sum_load_terms(all);
+    const std::array<double, 4> sum = Simulation::sum_load_terms(all);
     CHECK(sum[0] == serial[0] && sum[1] == serial[1] && sum[2] == serial[2]);
     // strips of 17, 40 and 23 rows, the way the MPI loop cuts and places them (the local origin rounds differently from the global one)
     std::vector<Simulation::LoadTerm> strips;
@@ -327,7 +327,7 @@ TEST(ordered_loads_equal_the_serial_loads_whatever_the_cut) {
         sim.ibm_load_terms(lm, sim.mesh, 0, j0, ml, Ul, Rl, sim.p.ibm_cx, sim.p.ibm_cy, strips);
     }
     CHECK(strips.size() == whole.size());
-    const std::array<double, 3> cut = Simulation::sum_load_terms(strips);
+    const std::array<double, 4> cut = Simulation::sum_load_terms(strips);
     CHECK(cut[0] == serial[0] && cut[1] == serial[1] && cut[2] == serial[2]);
     for (size_t q = 0; q < strips.size(); ++q)   // term by term
         CHECK(strips[q].cell == whole[q].cell && strips[q].fx == whole[q].fx && strips[q].fy == whole[q].fy && strips[q].mz == whole[q].mz);

@@ -184,12 +184,15 @@ const std::vector<ParamSpec>& parameter_table() {
     {"ibm_curvature", "ibm", "false"},
     {"ibm_vx", "ibm", "0.0"},
     {"ibm_vy", "ibm", "0.0"},
+    {"ibm_vz", "ibm", "0.0"},
     {"ibm_omega", "ibm", "0.0"},
     {"ibm_mass", "ibm", "0.0"},
     {"ibm_stiff_x", "ibm", "0.0"},
     {"ibm_stiff_y", "ibm", "0.0"},
+    {"ibm_stiff_z", "ibm", "0.0"},
     {"ibm_damp_x", "ibm", "0.0"},
     {"ibm_damp_y", "ibm", "0.0"},
+    {"ibm_damp_z", "ibm", "0.0"},
 
     {"use_hot_start", "hot_start", "false"},
     {"hot_start_file", "hot_start", ""},
@@ -309,12 +312,15 @@ SimParams SimParams::from(const Params& p) {
     s.ibm_curvature = p.flag("ibm_curvature");
     s.ibm_vx = p.num("ibm_vx", 0.0);
     s.ibm_vy = p.num("ibm_vy", 0.0);
+    s.ibm_vz = p.num("ibm_vz", 0.0);
     s.ibm_omega = p.num("ibm_omega", 0.0);
     s.ibm_mass = p.num("ibm_mass", 0.0);
     s.ibm_stiff_x = p.num("ibm_stiff_x", 0.0);
     s.ibm_stiff_y = p.num("ibm_stiff_y", 0.0);
+    s.ibm_stiff_z = p.num("ibm_stiff_z", 0.0);
     s.ibm_damp_x = p.num("ibm_damp_x", 0.0);
     s.ibm_damp_y = p.num("ibm_damp_y", 0.0);
+    s.ibm_damp_z = p.num("ibm_damp_z", 0.0);
     s.reynolds = p.num("reynolds", 0.0);
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
     s.reconstruction = lower(p.str("reconstruction", "none"));
@@ -475,11 +481,17 @@ SimParams SimParams::from(const Params& p) {
     if (s.use_ibm && airfoil && !(s.ibm_chord > 0.0)) throw std::invalid_argument("ibm_chord must be positive");
     if (s.use_ibm && s.nz > 1 && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is 2-D only (for now)");
     if (s.use_ibm && s.ibm_moving() && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is not available for a moving body");
-    if (s.use_ibm && s.ibm_moving() && s.nz > 1) throw std::invalid_argument("a moving body is 2-D only (for now)");
-    if (!(s.ibm_mass >= 0.0) || !(s.ibm_stiff_x >= 0.0) || !(s.ibm_stiff_y >= 0.0) || !(s.ibm_damp_x >= 0.0) || !(s.ibm_damp_y >= 0.0))
-        throw std::invalid_argument("ibm_mass, ibm_stiff_x/y and ibm_damp_x/y must be >= 0");
+    if (s.use_ibm && s.ibm_moving() && s.nz > 1) {   // in 3-D: a sphere that translates, on a uniform mesh
+        if (shape != "sphere") throw std::invalid_argument("a moving body in 3-D is a sphere (for now)");
+        if (s.ibm_omega != 0.0) throw std::invalid_argument("a moving body in 3-D translates only (ibm_omega must be 0)");
+        if (s.use_amr) throw std::invalid_argument("a moving body is 2-D only on an adaptive mesh (for now)");
+    }
+    if (s.use_ibm && s.ibm_moving() && s.nz == 1 && s.ibm_vz != 0.0) throw std::invalid_argument("ibm_vz needs a 3-D mesh (nz > 1)");
+    if (!(s.ibm_mass >= 0.0) || !(s.ibm_stiff_x >= 0.0) || !(s.ibm_stiff_y >= 0.0) || !(s.ibm_stiff_z >= 0.0) || !(s.ibm_damp_x >= 0.0) ||
+        !(s.ibm_damp_y >= 0.0) || !(s.ibm_damp_z >= 0.0))
+        throw std::invalid_argument("ibm_mass, ibm_stiff_x/y/z and ibm_damp_x/y/z must be >= 0");
     if (s.use_ibm && !s.ibm_dynamic() &&
-        (s.ibm_stiff_x != 0.0 || s.ibm_stiff_y != 0.0 || s.ibm_damp_x != 0.0 || s.ibm_damp_y != 0.0))
+        (s.ibm_stiff_x != 0.0 || s.ibm_stiff_y != 0.0 || s.ibm_stiff_z != 0.0 || s.ibm_damp_x != 0.0 || s.ibm_damp_y != 0.0 || s.ibm_damp_z != 0.0))
         throw std::invalid_argument("ibm_stiff_* and ibm_damp_* act on a body driven by the flow: set ibm_mass > 0");
     if (s.use_ibm && s.ibm_dynamic()) {
         if (s.ibm_omega != 0.0) throw std::invalid_argument("a body driven by the flow translates only (ibm_omega must be 0)");

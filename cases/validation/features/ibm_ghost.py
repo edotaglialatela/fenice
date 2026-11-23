@@ -75,6 +75,15 @@ CHECK_CASES = {   # name: (case, overrides)
                                                          "ibm_stiff_y=5", "ibm_vx=0.5"]),
     "dynamic_xstrips": ("IBM Flow over Cylinder", ["Lx=1.5", "Ly=0.08", "nx=150", "ny=8", "ibm_cx=0.5", "ibm_cy=0.04", "ibm_radius=0.025",
                                                    "max_steps=80", "ibm_mass=0.002", "ibm_stiff_x=5", "ibm_vx=0.5"]),
+    # a sphere in 3-D (uniform mesh): prescribed, and driven by the flow with the strips cut along y (2-4 ranks) and along x (more ranks on the thin mesh);
+    # the loads are summed in the global cell order with the layer in the index, so that no two cells tie
+    "moving_sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=48", "ny=24", "nz=12", "Lz=1.0", "bc_zmin=wall",
+                                                   "bc_zmax=wall", "max_steps=30", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_vz=0.2"]),
+    "dynamic_sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=48", "ny=24", "nz=12", "Lz=1.0", "bc_zmin=wall",
+                                                    "bc_zmax=wall", "max_steps=60", "ibm_mass=0.1", "ibm_stiff_x=5", "ibm_stiff_z=3", "ibm_vx=0.5", "ibm_vz=0.2"]),
+    "dynamic_sphere3d_xstrips": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "Lx=1.5", "Ly=0.4", "Lz=0.4", "nx=60", "ny=8", "nz=8", "ibm_cx=0.6", "ibm_cy=0.2",
+                                                            "ibm_cz=0.2", "ibm_radius=0.12", "bc_zmin=wall", "bc_zmax=wall", "max_steps=60", "ibm_mass=0.01",
+                                                            "ibm_stiff_x=5", "ibm_stiff_z=3", "ibm_vx=0.5", "ibm_vz=0.2"]),
     # AMR: the ghost table on the finest level, the image leaves in the MPI halo
     "amr_airfoil": ("IBM Airfoil AMR", ["max_steps=12"]),
     "amr_cylinder_curv": ("IBM Flow over Cylinder", ["use_viscous=false", "ibm_curvature=true", "use_amr=true", "amr_max_level=2",
@@ -170,7 +179,7 @@ def amr_motion_check():
     print(f"moving cylinder in a gas at rest: AMR against uniform, largest difference of the 0.1 s mean of Fx {100 * worst:.2f} % of the peak", flush=True)
     return worst < 0.05
 
-RESUME_CASES = ("moving_cylinder", "moving_airfoil", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder")
+RESUME_CASES = ("moving_cylinder", "moving_airfoil", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder", "dynamic_sphere3d")
 RESUME_PAIRS = ((None, None), (None, 3), (3, None), (2, 4))   # ranks of the first half and of the resumed half (None: serial)
 
 

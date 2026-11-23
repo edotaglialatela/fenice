@@ -103,8 +103,9 @@ public:
     // Every rank of an MPI run advances the same copy from the same loads, so the poses agree bit for bit.
     struct BodyDynamics {
         double x = 0.0, y = 0.0, u = 0.0, v = 0.0;   // displacement and velocity at the current time
+        double z = 0.0, w = 0.0, az = 0.0;           // the same along z (a 3-D body), and the acceleration of the previous step
         double ax = 0.0, ay = 0.0, dt = 0.0;         // acceleration of the previous step and its length (dt = 0: no previous step)
-        double fx = 0.0, fy = 0.0;                   // loads of the first stage of the current step (R of U^n at the pose of the step)
+        double fx = 0.0, fy = 0.0, fz = 0.0;         // loads of the first stage of the current step (R of U^n at the pose of the step)
         bool captured = false;                       // fx, fy hold this step's loads
     };
     BodyDynamics body_;
@@ -115,7 +116,7 @@ public:
     // The pose of the body for the step starting at time t: the state of body_ if the body is driven by the flow, else the prescribed one.
     ImmersedBoundary::BodyPose body_pose(double t) const;
     // Velocity of the body during the step (the pose's).
-    std::array<double, 2> body_velocity() const;
+    std::array<double, 3> body_velocity() const;
     // Advance body_ by dt from the loads it holds (explicit, second order: Adams-Bashforth for the velocity, trapezoid for the position;
     // a first step is Euler). Springs and dampers act on the state at the start of the step; the weight m g acts with a body force.
     void advance_body(double dt);
@@ -124,11 +125,11 @@ public:
     // ascending global index (sum_load_terms), so it does not depend on how the mesh is cut.
     struct LoadTerm {
         long long cell;
-        double fx, fy, mz;
+        double fx, fy, mz, fz;
     };
     void ibm_load_terms(const Mesh& m, const Mesh& g, int i0, int j0, const std::vector<char>& solid, const Field& U, const Field& R, double pivot_x,
                         double pivot_y, std::vector<LoadTerm>& out) const;
-    static std::array<double, 3> sum_load_terms(std::vector<LoadTerm>& terms);
+    static std::array<double, 4> sum_load_terms(std::vector<LoadTerm>& terms);   // Fx, Fy, Mz, Fz
 
     // Shared residual assembly for a (sub)domain, optionally with MPI halos.
     double assemble(const Mesh& m, const BoundaryManager& bm, const ImmersedBoundary* ib, const MusclReconstruction* mu,
