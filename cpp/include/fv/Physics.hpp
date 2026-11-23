@@ -6,6 +6,7 @@
 #include <array>
 #include <functional>
 #include <utility>
+#include <unordered_set>
 #include <vector>
 
 #include "fv/Core.hpp"
@@ -267,6 +268,11 @@ public:
     // and forgets the fresh cells. fresh_inputs: the global cells they read (the part's own are among them).
     void fill_fresh_part(const CellIndex& local, const CellState& in, Field& U_part, const EOS& eos);
     std::vector<int> fresh_inputs(const CellIndex& local) const;
+    // The fresh cells of a sparse table (the adaptive mesh's finest level), after enable_ghost_cells_sparse of the new pose: the cells that were solid
+    // in `previous` (the same body at its last pose) and are fluid now, with their image points in settled fluid. fill_fresh_part fills them.
+    void make_fresh_sparse(const ImmersedBoundary& previous, const Mesh& fine);
+    // (fresh cell, cell its fill reads) pairs, the cell itself included (the leaves a share must hold; not part of the wall's readiness).
+    std::vector<std::pair<int, int>> fresh_reads() const;
     // Number of fresh cells of the last rebuild, and how many of them had no fluid around any image point (they copy the nearest settled
     // fluid cell at the wall velocity).
     int fresh_count() const { return static_cast<int>(fresh_.size()); }
@@ -310,6 +316,8 @@ private:
         Probe image;
     };
     std::vector<FreshCell> fresh_;
+    std::unordered_set<int> fresh_solid_;   // sparse table: the fresh cells count as solid while their probes are made
+    void build_fresh(const Mesh& m, const std::vector<int>& cells);   // fresh_ for these cells (they must be fluid now)
     int fresh_fallback_ = 0;
     BodyPose built_;                 // the pose of the last geometry build
     double reach_ = 0.0;             // largest distance of the body from the pivot (rotation moves the polygon by angle * reach_)

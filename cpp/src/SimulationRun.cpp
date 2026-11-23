@@ -630,6 +630,7 @@ void Simulation::solve_amr() {
             cell_adaptor->remesh(true, false);
             if (cell_par) cell_par->partition();
         }
+        eng.fill_fresh_leaves(cm.U);   // the leaves the body left take the state of the wall layer
         S = wave_speed();
         cell_speed_ = S;
         remesh_wall += seconds_since(r0);

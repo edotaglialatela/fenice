@@ -92,6 +92,7 @@ void CellFluxEngine::body_changed() {
     body_dirty_ = true;
     level_mask_.clear();
     ghost_ib_.reset();
+    if (ibm_geo_) ibm_geo_prev_ = ibm_geo_;   // (a second change before a build keeps the pose of the last build)
     ibm_geo_.reset();
 }
 
@@ -1092,6 +1093,10 @@ std::vector<int> CellFluxEngine::ghost_referenced_cells(const CellMesh& m) {
         if (phys_.ibm_velocity) {   // a moving body: the table built from the solid cells of the bounding box (the same table, no array over the level)
             auto ib = std::make_shared<ImmersedBoundary>(moving_geometry(m));
             ib->enable_ghost_cells_sparse(fine, phys_.ibm_slip, phys_.ibm_curvature, ib->solid_cells_near(fine));
+            if (ibm_geo_prev_) {
+                ib->make_fresh_sparse(*ibm_geo_prev_, fine);
+                ibm_geo_prev_.reset();
+            }
             ghost_ib_ = ib;
         } else {
             ghost_ib_ = std::make_shared<ImmersedBoundary>(phys_.ibm_factory(fine));
@@ -1136,6 +1141,10 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
             ghost_incomplete_.resize(static_cast<size_t>(nleaf_), 0);
             ghost_incomplete_[static_cast<size_t>(a->second)] = 1;
         }
+    }
+    for (const auto& pr : ghost_ib_->fresh_reads()) {   // the fresh fill's leaves, where the share holds them at the finest level
+        const int leaf = m.find(M, pr.second % NX, pr.second / NX);
+        if (leaf >= 0) fine_leaf_[pr.second] = leaf;
     }
     ghost_ready_ = true;
 }
@@ -1243,6 +1252,27 @@ void CellFluxEngine::fill_ghost_leaves(const Field& U, Field& out, const std::ve
             return it == fine_leaf_.end() ? nan_state : U[static_cast<size_t>(it->second)];
         },
         out, eos_);
+}
+
+void CellFluxEngine::fill_fresh_leaves(Field& U) {
+    if (!ghost_ib_ || !ghost_ready_) return;
+    static const State nan_state = {std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(),
+                                    std::numeric_limits<double>::quiet_NaN(), std::numeric_limits<double>::quiet_NaN(),
+                                    std::numeric_limits<double>::quiet_NaN()};
+    std::unordered_set<int> unreadable;   // a fresh cell with a leaf to read that is not at the finest level keeps its state
+    for (const auto& pr : ghost_ib_->fresh_reads())
+        if (!fine_leaf_.count(pr.second)) unreadable.insert(pr.first);
+    ghost_ib_->fill_fresh_part(
+        [&](int fc) {
+            const auto it = fine_leaf_.find(fc);
+            if (it == fine_leaf_.end() || unreadable.count(fc)) return -1;
+            return owned_mask_.empty() || owned_mask_[static_cast<size_t>(it->second)] ? it->second : -1;
+        },
+        [&](int fc) -> const State& {
+            const auto it = fine_leaf_.find(fc);
+            return it == fine_leaf_.end() ? nan_state : U[static_cast<size_t>(it->second)];
+        },
+        U, eos_);
 }
 
 std::array<double, 3> CellFluxEngine::ghost_loads(const Field& U, double mu, double cx, double cy) const {

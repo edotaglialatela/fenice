@@ -1107,6 +1107,7 @@ double ImmersedBoundary::wall_curvature(double wx, double wy, double nx, double 
 
 bool ImmersedBoundary::is_solid(const Mesh& m, int i, int j, int k) const {
     if (!sparse_) return mask_[static_cast<size_t>(m.cell(i, j, k))] != 0;
+    if (!fresh_solid_.empty() && fresh_solid_.count(m.cell(i, j, k))) return true;
     if (sbox_on_ && k == 0) {
         const int a = i - sb_i0_, b = j - sb_j0_;
         if (a >= 0 && a < sb_w_ && b >= 0 && b < sb_h_) return sbox_[static_cast<size_t>(b) * sb_w_ + a] != 0;
@@ -1192,31 +1193,14 @@ void ImmersedBoundary::set_velocity(double u, double v) {
     refresh_wall_velocity();
 }
 
-bool ImmersedBoundary::move_to(const Mesh& m, const BodyPose& pose) {
-    if (!moving_) throw std::logic_error("ImmersedBoundary::move_to: enable_motion first");
-    if (m.is3d()) throw std::logic_error("ImmersedBoundary::move_to: a moving body is 2-D for now");
-    mesh_ = m;
-    pose_ = pose;
-    // the geometry follows the pose in steps of a quarter cell; in between only the velocities of the wall are refreshed
-    const double h = std::min(m.dx, m.dy);
-    const double shift = std::max(std::max(std::abs(pose.x - built_.x), std::abs(pose.y - built_.y)),
-                                  shape_ == Shape::Polygon ? std::abs(pose.angle - built_.angle) * reach_ : 0.0);
-    if (shift <= 0.25 * h) {
-        refresh_wall_velocity();
-        return false;
-    }
-    const std::vector<char> old_mask = mask_;
-    built_ = pose;
-    place_geometry(m, pose);
-    build_ghosts(m, slip_, curvature_, nullptr);
-
-    // fresh cells: solid before, fluid now. Their probes read settled fluid only, so the fresh cells count as solid while they are made.
+void ImmersedBoundary::build_fresh(const Mesh& m, const std::vector<int>& cells) {
+    // Their probes read settled fluid only, so the fresh cells count as solid while they are made.
     fresh_.clear();
     fresh_fallback_ = 0;
-    std::vector<int> cells;
-    for (int c = 0; c < static_cast<int>(mask_.size()); ++c)
-        if (old_mask[static_cast<size_t>(c)] && !mask_[static_cast<size_t>(c)]) cells.push_back(c);
-    for (const int c : cells) mask_[static_cast<size_t>(c)] = 1;
+    for (const int c : cells) {
+        if (sparse_) fresh_solid_.insert(c);
+        else mask_[static_cast<size_t>(c)] = 1;
+    }
     const double hh = std::max(m.dx, m.dy);
     for (const int c : cells) {
         const int i = c % nx_, j = (c / nx_) % ny_, k = c / (nx_ * ny_);
@@ -1242,7 +1226,7 @@ bool ImmersedBoundary::move_to(const Mesh& m, const BodyPose& pose) {
             for (int dj = -2; dj <= 2; ++dj)
                 for (int di = -2; di <= 2; ++di) {
                     const int ii = i + di, jj = j + dj;
-                    if (ii < 0 || ii >= nx_ || jj < 0 || jj >= ny_ || mask_[static_cast<size_t>(m.cell(ii, jj, k))]) continue;
+                    if (ii < 0 || ii >= nx_ || jj < 0 || jj >= ny_ || is_solid(m, ii, jj, k)) continue;
                     const double d2 = static_cast<double>(di * di + dj * dj);
                     if (d2 < best) {
                         best = d2;
@@ -1258,7 +1242,53 @@ bool ImmersedBoundary::move_to(const Mesh& m, const BodyPose& pose) {
         }
         fresh_.push_back(f);
     }
-    for (const int c : cells) mask_[static_cast<size_t>(c)] = 0;
+    for (const int c : cells) {
+        if (sparse_) fresh_solid_.erase(c);
+        else mask_[static_cast<size_t>(c)] = 0;
+    }
+}
+
+std::vector<std::pair<int, int>> ImmersedBoundary::fresh_reads() const {
+    std::vector<std::pair<int, int>> v;
+    for (const FreshCell& f : fresh_) {
+        v.push_back({f.cell, f.cell});
+        for (int k = 0; k < 8; ++k)
+            if (f.image.w[k] != 0.0) v.push_back({f.cell, f.image.cell[k]});
+    }
+    return v;
+}
+
+void ImmersedBoundary::make_fresh_sparse(const ImmersedBoundary& previous, const Mesh& fine) {
+    if (!sparse_) throw std::logic_error("ImmersedBoundary::make_fresh_sparse: a sparse ghost-cell wall");
+    std::vector<int> cells;
+    for (const int c : previous.solid_cells_near(fine))
+        if (!is_solid(fine, c % fine.nx, c / fine.nx, 0)) cells.push_back(c);
+    build_fresh(fine, cells);
+}
+
+bool ImmersedBoundary::move_to(const Mesh& m, const BodyPose& pose) {
+    if (!moving_) throw std::logic_error("ImmersedBoundary::move_to: enable_motion first");
+    if (m.is3d()) throw std::logic_error("ImmersedBoundary::move_to: a moving body is 2-D for now");
+    mesh_ = m;
+    pose_ = pose;
+    // the geometry follows the pose in steps of a quarter cell; in between only the velocities of the wall are refreshed
+    const double h = std::min(m.dx, m.dy);
+    const double shift = std::max(std::max(std::abs(pose.x - built_.x), std::abs(pose.y - built_.y)),
+                                  shape_ == Shape::Polygon ? std::abs(pose.angle - built_.angle) * reach_ : 0.0);
+    if (shift <= 0.25 * h) {
+        refresh_wall_velocity();
+        return false;
+    }
+    const std::vector<char> old_mask = mask_;
+    built_ = pose;
+    place_geometry(m, pose);
+    build_ghosts(m, slip_, curvature_, nullptr);
+
+    // fresh cells: solid before, fluid now
+    std::vector<int> cells;
+    for (int c = 0; c < static_cast<int>(mask_.size()); ++c)
+        if (old_mask[static_cast<size_t>(c)] && !mask_[static_cast<size_t>(c)]) cells.push_back(c);
+    build_fresh(m, cells);
     return true;
 }
 

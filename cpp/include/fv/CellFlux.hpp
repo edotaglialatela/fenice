@@ -110,6 +110,9 @@ public:
     void body_changed();
     // A moving body between two body_changed calls: its translational velocity changed (a body driven by the flow); the ghost wall follows.
     void set_body_velocity(double u, double v);
+    // After a build that followed body_changed: the leaves the body left take the state of the wall layer from image points in settled fluid
+    // (the uniform solver's fresh cells), those this rank owns; the leaves they read are in its share.
+    void fill_fresh_leaves(Field& U);
     // 3-D: some leaf of `mesh` coarser than the finest level lies near the surface (the readiness rule of the wall): a rank tests its
     // own leaves and the ranks reduce the answer.
     bool ghost_band_violated(const CellMesh& mesh) const;
@@ -385,6 +388,7 @@ private:
     double ibm_rho_ref_ = 1.0, ibm_p_ref_ = 1.0;   // deep-solid reset state
     // ghost-cell wall: the table on the finest level, its cells -> leaves, ready when all of them are finest-level leaves
     std::shared_ptr<ImmersedBoundary> ghost_ib_;
+    std::shared_ptr<ImmersedBoundary> ibm_geo_prev_;   // the geometry before the last body_changed (its solid cells are the fresh ones)
     std::unordered_map<int, int> fine_leaf_;
     std::vector<std::pair<int, int>> ghost_reads_leaf_;
     std::vector<char> ghost_leaf_mask_, held_mask_, ghost_incomplete_;
