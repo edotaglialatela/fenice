@@ -248,6 +248,9 @@ public:
     // at the closest wall point; the deeper solid cells carry the body velocity at the reference state. Returns true if it rebuilt.
     // The cells the body left (fresh cells) hold stale solid states until fill_fresh.
     bool move_to(const Mesh& mesh, const BodyPose& pose);
+    // Place the body (the mask only, no ghost table, no fresh cells) at the pose: for a body made by a factory at the pose of the moment, before
+    // its ghost wall is built (the adaptive mesh); the ghost cells then carry the wall velocity of the pose.
+    void set_pose(const Mesh& mesh, const BodyPose& pose);
     // After a rebuilding move_to: the fresh cells take the state of the wall layer from an image point in the settled fluid (density and
     // pressure with zero normal gradient, the velocity linear from the wall velocity at the wall to the image velocity). Call before any
     // ghost fill; reads fluid cells only.
@@ -262,6 +265,8 @@ public:
     int fresh_fallback_count() const { return fresh_fallback_; }
     // The pose of the last move_to (the identity before it).
     const BodyPose& pose() const { return pose_; }
+    // Largest distance of the body from its pivot (a rotation by an angle moves the body by at most angle times this; 0 for a circle).
+    double rotation_reach() const { return reach_; }
     // The test the mask is made of: whether a cell centred at (x, y, z) is solid (z is read by the sphere only); the mask of
     // any mesh is this test at its cell centres (the adaptive mesh classifies its leaves with it). Throws for a mask-only body.
     bool solid_at(double x, double y, double z) const;
@@ -300,7 +305,8 @@ private:
     int fresh_fallback_ = 0;
     BodyPose built_;                 // the pose of the last geometry build
     double reach_ = 0.0;             // largest distance of the body from the pivot (rotation moves the polygon by angle * reach_)
-    void refresh_wall_velocity();    // the ghost wall velocities from the current pose on the built geometry
+    void refresh_wall_velocity();
+    void place_geometry(const Mesh& m, const BodyPose& pose);   // the shape and the mask at the pose    // the ghost wall velocities from the current pose on the built geometry
     struct SurfacePoint {
         double x = 0.0, y = 0.0, nx = 0.0, ny = 0.0, ds = 0.0, d = 0.0;   // probes at d and 2 d along the normal
         Probe probe, probe2;

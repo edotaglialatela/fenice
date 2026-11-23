@@ -630,7 +630,7 @@ void CellAdaptor::flags(const CellMesh& m, const Field& U, const std::vector<int
     }
 }
 
-bool CellAdaptor::remesh() {
+bool CellAdaptor::remesh(bool rebuild) {
     using Clock = std::chrono::steady_clock;
     const auto sec = [](Clock::time_point a, Clock::time_point b) { return std::chrono::duration<double>(b - a).count(); };
     const auto t0 = Clock::now();
@@ -652,7 +652,7 @@ bool CellAdaptor::remesh() {
     const int extra = mesh_.children() - 1;   // each refined leaf adds 3 (7 in 3-D); each join removes as many
     n_joined += std::max(0, before + extra * static_cast<int>(nr) - mesh_.num_leaves()) / extra;
     const auto t2 = Clock::now();
-    if (changed) engine_.build(mesh_);
+    if (changed || rebuild) engine_.build(mesh_);
     const auto t3 = Clock::now();
     t_indicator += sec(t0, t1);
     t_adapt += sec(t1, t2);

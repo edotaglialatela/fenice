@@ -65,6 +65,8 @@ mesh): a leaf is solid if its centre is inside the body, and the body band is ke
 the margin of the surface (`near_body_surface`). The ghost-cell wall works on leaves in 2-D and 3-D,
 also on the shares of an MPI run (bitwise equal to serial).
 
+A body with a prescribed motion (ibm_vx, ibm_vy, ibm_omega, 2-D) is built again each time it has moved a quarter of a finest cell: the engine's leaf classification and finest-level ghost table follow the new pose, the body band is made again, and a remesh builds the engine (on several ranks the shares) whether or not a leaf changes, so the refined band moves with the body. The pose is fixed during a step, the ghost leaves carry the wall velocity and the deep solid leaves ride with the body; the leaves the body leaves keep the state of their ghost value. A body may not travel more than one finest cell in a step, and a run cannot resume yet. Serial and MPI runs agree bit for bit.
+
 `reconstruction = weno5` runs on the adaptive mesh in 2-D and 3-D, also on MPI ranks: a face whose six cells along its normal are fluid leaves
 of its level (replicated or mirrored at a physical side, wrapped on a periodic axis) takes the WENO5-Z stencil; every other face (a coarse-fine face,
 a face within two cells of a level jump or of the immersed body) keeps the four-cell stencil with the WENO3-Z formula, so the seams are those of a WENO3-Z run.

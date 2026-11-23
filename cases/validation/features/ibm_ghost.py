@@ -71,6 +71,14 @@ CHECK_CASES = {   # name: (case, overrides)
                                                     "amr_refine_every=4", "nx=100", "ny=50", "max_steps=16"]),
     "amr_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
                                                 "max_steps=16"]),
+    # AMR with a prescribed motion: the body is built again every quarter finest cell (engine, band, leaf classification, shares)
+    "amr_moving_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50", "max_steps=16",
+                                                       "ibm_vx=2.0", "ibm_vy=0.7"]),
+    "amr_moving_slip_cylinder": ("IBM Flow over Cylinder", ["use_viscous=false", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
+                                                            "nx=100", "ny=50", "max_steps=16", "ibm_vx=2.0", "ibm_vy=-0.5"]),
+    "amr_moving_airfoil": ("IBM Airfoil AMR", ["max_steps=12", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_omega=2.0"]),
+    "amr_moving_cylinder_hancock": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
+                                                               "max_steps=16", "ibm_vx=2.0", "ibm_vy=0.7", "time_scheme=MUSCL-Hancock"]),
     # AMR with MUSCL-Hancock: the predicted side states of the leaves cross the rank interfaces
     "amr_cylinder_hancock": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
                                                         "max_steps=16", "time_scheme=MUSCL-Hancock"]),
@@ -84,6 +92,65 @@ def loads(run):
     d = fenice.read_monitor(study.case_output(run))
     return np.array([d["Cd"][-1], d["Cl"][-1]])
 
+
+QUIET_CASE = """[case]
+name = "Quiet Moving Cylinder"
+description = "a cylinder started in a gas at rest (inviscid)"
+[mesh]
+Lx = 2.4
+Ly = 2.4
+nx = 240
+ny = 240
+[physics]
+use_viscous = false
+use_bodyforce = false
+[boundaries]
+bc_xmin = "transmissive"
+bc_xmax = "transmissive"
+bc_ymin = "transmissive"
+bc_ymax = "transmissive"
+u_in = 0.0
+rho_in = 1.0
+p_out = 1.0
+[numerics]
+riemann_solver = "HLLC"
+reconstruction = "muscl"
+muscl_limiter = "Van Leer"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.5
+[run]
+t_end = 0.6
+save_interval = 100000
+monitor_interval = 1
+[parallel]
+use_mpi = false
+[ibm]
+use_ibm = true
+ibm_shape = "Cylinder"
+ibm_radius = 0.1
+ibm_cx = 1.2
+ibm_cy = 1.2
+ibm_vx = 0.05
+[initial]
+state = { rho = 1.0, u = 0.0, v = 0.0, p = 1.0 }
+"""
+
+
+def amr_motion_check():
+    """A cylinder started in a gas at rest: the adaptive mesh (60^2 base, two levels, the body rebuilt every quarter finest cell) against the
+    uniform mesh of the finest resolution (240^2). Band: the 0.1 s mean of the force Fx(t) differs by less than 5 % of its peak (the raw force differs by up to 8 %: it jumps when a cell changes side)."""
+    out = study.study_dir(STUDY) / "check" / "quiet"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "case.toml").write_text(QUIET_CASE)
+    fenice.run(str(out), out_root=out / "uniform")
+    fenice.run(str(out), "nx=60", "ny=60", "use_amr=true", "amr_max_level=2", "amr_refine_every=4", out_root=out / "amr")
+    u, a = (fenice.read_monitor(study.case_output(out / k)) for k in ("uniform", "amr"))
+    t = np.linspace(0.0, 0.6, 601)   # the raw force jumps when a cell changes side (a few per cent of the peak): compare 0.1 s means
+    kernel = np.ones(100) / 100.0
+    fu, fa = (np.convolve(np.interp(t, s["t"], s["Fx"]), kernel, "valid") for s in (u, a))
+    worst = np.max(np.abs(fa - fu)) / np.max(np.abs(np.interp(t, u["t"], u["Fx"])))
+    print(f"moving cylinder in a gas at rest: AMR against uniform, largest difference of the 0.1 s mean of Fx {100 * worst:.2f} % of the peak", flush=True)
+    return worst < 0.05
 
 def check(ranks, only=None):
     """Serial against 2..N ranks: identical final states, loads equal to roundoff (only: the cases whose name starts with it)."""
@@ -104,6 +171,8 @@ def check(ranks, only=None):
             ok = ok and same and close
             line += f" | np{n} {'==' if same else 'DIFFERS'}{'' if close else ' (loads differ)'}"
         print(line, flush=True)
+    if not only or only.startswith("amr_moving"):
+        ok = amr_motion_check() and ok
     print("ALL MATCH (bitwise)" if ok else "MISMATCH")
     return 0 if ok else 1
 

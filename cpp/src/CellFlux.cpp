@@ -88,6 +88,13 @@ void CellFluxEngine::size_work_arrays(const CellMesh& m) {
     }
 }
 
+void CellFluxEngine::body_changed() {
+    body_dirty_ = true;
+    level_mask_.clear();
+    ghost_ib_.reset();
+    ibm_geo_.reset();
+}
+
 void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
     const auto per = [&](Face lo, Face hi) {
         const bool a = bc_.type(lo) == BCType::Periodic, b = bc_.type(hi) == BCType::Periodic;
@@ -277,11 +284,12 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
             const int cb = m.level_begin[l], ce = m.level_begin[l + 1];
 #pragma omp parallel for schedule(static) if (ce - cb >= kOmpMinWork)
             for (int c = cb; c < ce; ++c)
-                solid_[c] = inc && m.prev_leaf[c] >= 0 ? old_solid[static_cast<size_t>(m.prev_leaf[c])]
-                                                       : mk[static_cast<size_t>(m.cj[c]) * m.nx_at(l) + m.ci[c]];
+                solid_[c] = inc && !body_dirty_ && m.prev_leaf[c] >= 0 ? old_solid[static_cast<size_t>(m.prev_leaf[c])]
+                                                                       : mk[static_cast<size_t>(m.cj[c]) * m.nx_at(l) + m.ci[c]];
         }
         forced_.resize(static_cast<size_t>(nleaf_));
     }
+    body_dirty_ = false;
     far_cells(m);   // WENO5-Z: after the stencils, the neighbour codes and the solid mask, before the lists (need_ reads it)
     if (whole) {   // a partial mesh: the lists come with the partition
         for (auto* v : {&lface_, &lheld_, &need_, &vcells_}) v->clear();
@@ -1013,6 +1021,14 @@ void CellFluxEngine::update_source(const CellMesh& m, int cb, int ce) {
                            ys.data(), ce - cb, &src_[static_cast<size_t>(cb)], m.dim == 3 ? zs.data() : nullptr);
 }
 
+// A solid leaf at rest (a moving body: with the velocity of the body at its centre).
+void CellFluxEngine::stop_solid(const CellMesh& m, int c, State& W) const {
+    W[1] = 0.0;
+    W[2] = 0.0;
+    W[4] = 0.0;
+    if (phys_.ibm_velocity) phys_.ibm_velocity(m.xc(c), m.yc(c), W[1], W[2]);
+}
+
 void CellFluxEngine::force_state(const CellMesh& m, const Field& U) {
     if (!has_body()) return;
     forced_.resize(static_cast<size_t>(m.num_leaves()));
@@ -1024,13 +1040,10 @@ void CellFluxEngine::force_all(const CellMesh& m, const Field& U) {
     forced_.resize(static_cast<size_t>(m.num_leaves()));
     for (int c = 0; c < m.num_leaves(); ++c) {
         State W = eos_.cons_to_prim(U[c]);
-        if (solid_[c]) {
-            W[1] = 0.0;
-            W[2] = 0.0;
-            W[4] = 0.0;
-        }
+        if (solid_[c]) stop_solid(m, c, W);
         forced_[c] = eos_.prim_to_cons(W);
-    }    if (ghost_ready_) fill_ghost_leaves(U, forced_, nullptr);
+    }
+    if (ghost_ready_) fill_ghost_leaves(U, forced_, nullptr);
 }
 
 void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
@@ -1041,11 +1054,7 @@ void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
     for (int k = 0; k < nh; ++k) {
         const int c = held[static_cast<size_t>(k)];
         State W = eos_.cons_to_prim(U[c]);
-        if (solid_[c]) {
-            W[1] = 0.0;
-            W[2] = 0.0;
-            W[4] = 0.0;
-        }
+        if (solid_[c]) stop_solid(m, c, W);
         forced_[c] = eos_.prim_to_cons(W);
     }
     if (ghost_ready_ && l == m.max_level) fill_ghost_leaves(U, forced_, held_mask_.empty() ? nullptr : &held_mask_);

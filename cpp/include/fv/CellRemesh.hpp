@@ -98,7 +98,13 @@ public:
 
     // One adaptation of the leaves from the current state; the engine is rebuilt when the leaves changed.
     // Returns whether they did.  xi of the call is kept in last_xi (per leaf of the mesh BEFORE the call).
-    bool remesh();
+    // rebuild: the engine is built again even if the topology did not change (the body moved: CellFluxEngine::body_changed).
+    bool remesh(bool rebuild = false);
+    // The body of the factory moved: the band is made again from it at the next remesh.
+    void body_changed() {
+        band_.clear();
+        band_geo_.reset();
+    }
 
     // Initial adaptation: `initial(mesh)` fills mesh.U at the leaf centres (each leaf at its own level); repeat
     // indicator + adapt until nothing changes (at most max_level + 1 passes), then fill once more. Returns the passes made.

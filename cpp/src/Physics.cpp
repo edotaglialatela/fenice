@@ -1087,7 +1087,8 @@ void ImmersedBoundary::refresh_wall_velocity() {
 }
 
 void ImmersedBoundary::enable_motion(double px, double py) {
-    if (!ghost_on_ || sparse_) throw std::logic_error("ImmersedBoundary::enable_motion: needs the dense ghost-cell wall (enable_ghost_cells first)");
+    if (sparse_) throw std::logic_error("ImmersedBoundary::enable_motion: needs the dense ghost-cell wall");
+    if (shape_ == Shape::None || shape_ == Shape::Ball) throw std::invalid_argument("a moving body is a cylinder or a polygon (2-D) for now");
     if (curvature_) throw std::invalid_argument("ibm_curvature is not available for a moving body");
     moving_ = true;
     ref_cx_ = cx_;
@@ -1102,21 +1103,7 @@ void ImmersedBoundary::enable_motion(double px, double py) {
     for (const auto& q : ref_poly_.pts) reach_ = std::max(reach_, std::hypot(q[0] - px, q[1] - py));
 }
 
-bool ImmersedBoundary::move_to(const Mesh& m, const BodyPose& pose) {
-    if (!moving_) throw std::logic_error("ImmersedBoundary::move_to: enable_motion first");
-    if (m.is3d()) throw std::logic_error("ImmersedBoundary::move_to: a moving body is 2-D for now");
-    mesh_ = m;
-    pose_ = pose;
-    // the geometry follows the pose in steps of a quarter cell; in between only the velocities of the wall are refreshed
-    const double h = std::min(m.dx, m.dy);
-    const double shift = std::max(std::max(std::abs(pose.x - built_.x), std::abs(pose.y - built_.y)),
-                                  shape_ == Shape::Polygon ? std::abs(pose.angle - built_.angle) * reach_ : 0.0);
-    if (shift <= 0.25 * h) {
-        refresh_wall_velocity();
-        return false;
-    }
-    const std::vector<char> old_mask = mask_;
-    built_ = pose;
+void ImmersedBoundary::place_geometry(const Mesh& m, const BodyPose& pose) {
     if (shape_ == Shape::Polygon) {
         const double ca = std::cos(pose.angle), sa = std::sin(pose.angle);
         poly_.pts.resize(ref_poly_.pts.size());
@@ -1148,6 +1135,32 @@ bool ImmersedBoundary::move_to(const Mesh& m, const BodyPose& pose) {
             for (int j = 0; j < ny_; ++j)
                 for (int i = 0; i < nx_; ++i) mask_[m.cell(i, j, k)] = solid_at(m.xc(i), m.yc(j), m.zc(k));
     }
+}
+
+void ImmersedBoundary::set_pose(const Mesh& m, const BodyPose& pose) {
+    if (!moving_) throw std::logic_error("ImmersedBoundary::set_pose: enable_motion first");
+    mesh_ = m;
+    pose_ = pose;
+    built_ = pose;
+    place_geometry(m, pose);
+}
+
+bool ImmersedBoundary::move_to(const Mesh& m, const BodyPose& pose) {
+    if (!moving_) throw std::logic_error("ImmersedBoundary::move_to: enable_motion first");
+    if (m.is3d()) throw std::logic_error("ImmersedBoundary::move_to: a moving body is 2-D for now");
+    mesh_ = m;
+    pose_ = pose;
+    // the geometry follows the pose in steps of a quarter cell; in between only the velocities of the wall are refreshed
+    const double h = std::min(m.dx, m.dy);
+    const double shift = std::max(std::max(std::abs(pose.x - built_.x), std::abs(pose.y - built_.y)),
+                                  shape_ == Shape::Polygon ? std::abs(pose.angle - built_.angle) * reach_ : 0.0);
+    if (shift <= 0.25 * h) {
+        refresh_wall_velocity();
+        return false;
+    }
+    const std::vector<char> old_mask = mask_;
+    built_ = pose;
+    place_geometry(m, pose);
     build_ghosts(m, slip_, curvature_, nullptr);
 
     // fresh cells: solid before, fluid now. Their probes read settled fluid only, so the fresh cells count as solid while they are made.

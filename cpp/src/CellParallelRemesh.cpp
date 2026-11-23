@@ -21,7 +21,7 @@ namespace fv {
 using detail::kNoKey;
 using detail::leaf_key;
 
-bool CellParallel::remesh(CellAdaptor& ad) {
+bool CellParallel::remesh(CellAdaptor& ad, bool rebuild) {
     if (!localized_) throw std::logic_error("CellParallel::remesh: the mesh is not localized");
     using Clock = std::chrono::steady_clock;
     const auto sec = [](Clock::time_point a, Clock::time_point b) { return std::chrono::duration<double>(b - a).count(); };
@@ -162,7 +162,7 @@ bool CellParallel::remesh(CellAdaptor& ad) {
     {
         const double any = reduce_max(any_change);
         if (any == 2.0) throw std::logic_error(failure.empty() ? "CellParallel::remesh: another rank's region was too small" : failure);
-        if (any == 0.0) {
+        if (any == 0.0 && !rebuild) {
             t_topo += sec(t2, Clock::now());
             profile_add(Section::RemeshTopology, sec(t2, Clock::now()));
             t_region += sec(t0, t1);

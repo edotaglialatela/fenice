@@ -465,7 +465,7 @@ void Simulation::solve_amr() {
                         }
                         const double ex = rx * cm.volume(c), ey = ry * cm.volume(c);   // (the area in 2-D; Fx, Fy, Mz as the uniform solver's)
                         contributions[static_cast<size_t>(c)] =
-                            {ex, ey, (cm.xc(c) - p.ibm_cx) * ey - (cm.yc(c) - p.ibm_cy) * ex, 0.0, 0.0};
+                            {ex, ey, (cm.xc(c) - p.ibm_cx - (amr_body_ ? amr_body_->geo.x : 0.0)) * ey - (cm.yc(c) - p.ibm_cy - (amr_body_ ? amr_body_->geo.y : 0.0)) * ex, 0.0, 0.0};
                     }
                 Field ordered;
                 if (cell_par) cell_par->collect_field(contributions, ordered, true);
@@ -502,7 +502,34 @@ void Simulation::solve_amr() {
     double remesh_wall = 0.0, t_gather = 0.0, t_speed = 0.0, t_partition = 0.0;
     LoopEngine engine;
     engine.profile_iteration = false;   // Section::Step is the advance alone: the remesh and the output have their own sections
+    // A prescribed motion: the body is built again at the pose of the moment each time it has moved a quarter of a finest cell (option 2 of the
+    // plan): the factory, the engine's classification of the leaves and its ghost table, the band, and a remesh that builds the engine (and, on
+    // several ranks, the shares) again whether or not a leaf changes. The pose is fixed during a step.
+    const bool moving = amr_body_ != nullptr;
+    const double h_fine = std::min(cm.dx(cm.max_level), cm.dy(cm.max_level));
+    const auto place_body = [&] {
+        const ImmersedBoundary::BodyPose pose = prescribed_pose(t);
+        const ImmersedBoundary::BodyPose& g = amr_body_->geo;
+        const double shift = std::max(std::max(std::abs(pose.x - g.x), std::abs(pose.y - g.y)), std::abs(pose.angle - g.angle) * ibm->rotation_reach());
+        if (shift <= 0.25 * h_fine) return;
+        const auto r0 = Clock::now();
+        amr_body_->geo = pose;
+        eng.body_changed();
+        cell_adaptor->body_changed();
+        if (local_run) {
+            cell_par->remesh(*cell_adaptor, true);
+        } else {
+            if (cell_par) cell_par->gather_state();
+            cell_adaptor->remesh(true);
+            if (cell_par) cell_par->partition();
+        }
+        S = wave_speed();
+        cell_speed_ = S;
+        remesh_wall += seconds_since(r0);
+        profile_add(Section::Remesh, seconds_since(r0));
+    };
     engine.advance = [&](int st, double t_stop) {
+        if (moving) place_body();
         // the time-step length of the base mesh: min(dx, dy) in 2-D, 2 / sum 1/h in 3-D (Simulation::dt_length)
         const double h0 = octree ? step_length_3d(cm.dx(0), cm.dy(0), cm.dz(0)) : step_length_2d(cm.dx(0), cm.dy(0));
         double dt = std::min(scheme->cfl * h0 / std::max(S, 1e-10), p.t_end - t);
@@ -514,6 +541,8 @@ void Simulation::solve_amr() {
         }
         check_progress(t, dt, S, st, p.time_scheme.c_str());
         cell_speed_ = S;
+        if (moving && dt * std::max(std::abs(p.ibm_vx), std::abs(p.ibm_vy)) > h_fine)
+            throw std::runtime_error("the moving body travelled more than one finest cell in a step (lower the CFL number)");
         if (p.use_ibm) {
             if (!eng.ghost_ready())
                 throw std::runtime_error("The ghost-cell wall of the immersed body is no longer set up: the cells around the body are "

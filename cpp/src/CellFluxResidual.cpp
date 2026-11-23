@@ -1160,7 +1160,15 @@ void CellFluxEngine::solid_reset(const CellMesh& m, Field& U) const {
     if (ghost_ready_) fill_ghost_leaves(U, U, owned_mask_.empty() ? nullptr : &owned_mask_);
     const State deep = eos_.prim_to_cons({ibm_rho_ref_, 0.0, 0.0, ibm_p_ref_, 0.0});
     for (int c = 0; c < N; ++c)
-        if (solid_[c] && !(ghost_ready_ && ghost_leaf_mask_[static_cast<size_t>(c)]) && (owned_mask_.empty() || owned_mask_[c])) U[c] = deep;
+        if (solid_[c] && !(ghost_ready_ && ghost_leaf_mask_[static_cast<size_t>(c)]) && (owned_mask_.empty() || owned_mask_[c])) {
+            if (phys_.ibm_velocity) {   // a moving body: the deep leaves ride with it
+                double bu = 0.0, bv = 0.0;
+                phys_.ibm_velocity(m.xc(c), m.yc(c), bu, bv);
+                U[c] = eos_.prim_to_cons({ibm_rho_ref_, bu, bv, ibm_p_ref_, 0.0});
+            } else {
+                U[c] = deep;
+            }
+        }
 }
 
 }   // namespace fv

@@ -267,8 +267,22 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             std::printf("[WARNING] %d ghost cells have no fluid around their image point (a part of the body thinner than the "
                         "stencil): they take the nearest fluid cell, first order there\n", ibm->ghost_fallback_count());
         if (p.ibm_moving()) {
-            if (p.use_amr) throw std::invalid_argument("a moving body runs on the uniform solver only (no AMR yet)");
+            if (p.use_amr && p.resume) throw std::invalid_argument("a moving body on an adaptive mesh cannot resume yet");
             ibm->enable_motion(p.ibm_cx, p.ibm_cy);
+            if (p.use_amr) {   // the adaptive mesh builds the body again at the pose of the moment (CellFluxEngine::body_changed)
+                amr_body_ = std::make_shared<MovingBodyState>();
+                amr_body_->px = p.ibm_cx;
+                amr_body_->py = p.ibm_cy;
+                amr_body_->geo.u = p.ibm_vx;   // the pose at t = 0: no displacement, the velocities of the motion
+                amr_body_->geo.v = p.ibm_vy;
+                amr_body_->geo.omega = p.ibm_omega;
+                ibm_factory = [base = ibm_factory, st = amr_body_](const Mesh& m) {
+                    ImmersedBoundary b = base(m);
+                    b.enable_motion(st->px, st->py);
+                    b.set_pose(m, st->geo);
+                    return b;
+                };
+            }
             if (verbose)
                 std::printf("[IBM] Prescribed motion: v = (%g, %g), omega = %g about (%g, %g)\n", p.ibm_vx, p.ibm_vy, p.ibm_omega,
                             p.ibm_cx, p.ibm_cy);
@@ -397,6 +411,11 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             cell_physics.ibm_factory = ibm_factory;
             cell_physics.ibm_curvature = p.ibm_curvature;
             cell_physics.ibm_slip = !p.use_viscous;
+            if (amr_body_)
+                cell_physics.ibm_velocity = [st = amr_body_](double x, double y, double& bu, double& bv) {
+                    bu = st->geo.u - st->geo.omega * (y - (st->py + st->geo.y));
+                    bv = st->geo.v + st->geo.omega * (x - (st->px + st->geo.x));
+                };
         }
         cell_engine = std::make_unique<CellFluxEngine>(fluid, riemann, muscl.get(), boundaries);
         cell_engine->set_physics(cell_physics);
@@ -695,6 +714,7 @@ void Simulation::fill_cells(CellMesh& m) const {
 std::array<double, 3> Simulation::cell_loads(const CellMesh& m, const Field& R) const {
     const std::vector<char>& solid = cell_engine->solid();
     double fx = 0.0, fy = 0.0, mz = 0.0;
+    const double px = p.ibm_cx + (amr_body_ ? amr_body_->geo.x : 0.0), py = p.ibm_cy + (amr_body_ ? amr_body_->geo.y : 0.0);   // the moment centre follows the body
     for (int l = 0; l <= m.max_level; ++l)   // the leaves this rank owns, in leaf order (all of them without a partition)
         for (int c = cell_engine->owned_begin(l); c < cell_engine->owned_end(l); ++c) {
             if (!solid[static_cast<size_t>(c)]) continue;
@@ -706,7 +726,7 @@ std::array<double, 3> Simulation::cell_loads(const CellMesh& m, const Field& R) 
             const double ex = rx * m.volume(c), ey = ry * m.volume(c);
             fx += ex;
             fy += ey;
-            mz += (m.xc(c) - p.ibm_cx) * ey - (m.yc(c) - p.ibm_cy) * ex;
+            mz += (m.xc(c) - px) * ey - (m.yc(c) - py) * ex;
         }
     return {fx, fy, mz};
 }

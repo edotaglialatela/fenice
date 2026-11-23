@@ -46,6 +46,8 @@ struct CellPhysics {
     // the body at the finest level (a body band at least ImmersedBoundary::ghost_reach wide). Until then (ghost_ready false) the
     // solid leaves are only kept at rest at the reference state, with no wall condition: a run requires the wall.
     bool ibm_slip = false, ibm_curvature = false;
+    // A moving body: its velocity at a point (x, y) of the solid, for the deep solid leaves (empty: they rest). Constant between body_changed calls.
+    std::function<void(double, double, double&, double&)> ibm_velocity;
 };
 
 // Viscous cell kernels of the engine.  The range functions run four cells at a time with AVX2 where the CPU has it
@@ -101,6 +103,9 @@ public:
     bool ghost_enabled() const { return has_body(); }
     std::vector<int> ghost_referenced_cells(const CellMesh& mesh);
     void set_ghost_whole_ready(int v) { ghost_whole_ready_ = v; }
+    // The body of the factory has moved: the next build makes the solid classification of every leaf and the finest-level ghost table again
+    // (no leaf keeps its old value), whatever the topology does.
+    void body_changed();
     // 3-D: some leaf of `mesh` coarser than the finest level lies near the surface (the readiness rule of the wall): a rank tests its
     // own leaves and the ranks reduce the answer.
     bool ghost_band_violated(const CellMesh& mesh) const;
@@ -181,6 +186,7 @@ public:
     void solid_reset(const CellMesh& mesh, Field& U) const;
     // True with an immersed body.
     bool has_body() const { return static_cast<bool>(phys_.ibm_factory); }
+    void stop_solid(const CellMesh& m, int c, State& W) const;
     // Solid flag of every leaf (valid after build; empty without a body).
     const std::vector<char>& solid() const { return solid_; }
     // Ghost-cell wall active on this mesh (every ghost cell and the cells it reads are finest-level leaves).
@@ -384,6 +390,7 @@ private:
     void map_ghost_cells_3d(const CellMesh& m, const CellMesh* whole);
     bool same_fine_leaves(const CellFluxEngine& o) const;   // the sparse table of the finest level from the solid finest leaves
     void fill_ghost_leaves(const Field& U, Field& out, const std::vector<char>* only) const;
+    bool body_dirty_ = false;   // body_changed since the last build
     std::vector<std::vector<char>> level_mask_;   // cache: mask of the uniform mesh of each level (2-D)
     // 3-D: the body built once on the base mesh; a leaf is solid when ImmersedBoundary::solid_at of its centre says so (no mask
     // of a uniform mesh of a level)

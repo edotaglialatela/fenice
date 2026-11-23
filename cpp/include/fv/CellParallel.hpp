@@ -94,7 +94,8 @@ public:
     // the merges of the groups it owns a member of, makes the new leaves of its old ones, finds the new splitters (global_facts), sends
     // every new leaf to its owner, and builds the share from a fetched region. Same decisions, leaves and state as CellAdaptor::remesh
     // on the whole mesh, bit for bit; returns whether the leaves changed (if not, nothing was touched). Collective.
-    bool remesh(CellAdaptor& ad);
+    // rebuild: the shares are built again (the engine, the halo) even if no leaf changes (the body moved); returns true then.
+    bool remesh(CellAdaptor& ad, bool rebuild = false);
     // Test switches of remesh(ad): `flag_hook` replaces the indicator (it gets the fetched region, the indices of the owned leaves in it,
     // and fills their refine / coarsen flags); `region_shrink` adds that many rings to the region (a negative one must make it fail).
     std::function<void(const CellMesh&, const std::vector<int>&, std::vector<char>&, std::vector<char>&)> flag_hook;

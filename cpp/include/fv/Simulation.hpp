@@ -131,7 +131,14 @@ public:
     void load_boundary_functions();
     void update_boundary_values(double stage_time, BoundaryManager& manager) const;
     std::unique_ptr<ImmersedBoundary> ibm;                      // optional obstacle
-    std::function<ImmersedBoundary(const Mesh&)> ibm_factory;   // same body on the uniform mesh of any level
+    std::function<ImmersedBoundary(const Mesh&)> ibm_factory;
+    // A prescribed motion on an adaptive mesh: the pose the factory builds the body at (geo, the geometry of the last body update; the engine, the
+    // band and every leaf classification follow it) and the pivot. Shared with the factory and the velocity function of the engine.
+    struct MovingBodyState {
+        ImmersedBoundary::BodyPose geo;
+        double px = 0.0, py = 0.0;
+    };
+    std::shared_ptr<MovingBodyState> amr_body_;   // same body on the uniform mesh of any level
     std::unique_ptr<TimeScheme> scheme;                         // time integrator
     // Adaptive mesh (use_amr): the leaves, the engine that computes their residual, the indicator, and on several MPI ranks
     // the distribution of the leaves (CellParallel). `cells` is null without AMR.
