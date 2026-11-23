@@ -199,10 +199,19 @@ void Simulation::solve() {
     arm_stop_file();
     const long long n_all = mesh.num_cells();
     Field R_loads;
+    // R_loads holds the residual of the current state at the current time (r_valid): the monitor row, the force output of the same step
+    // and the first stage of the next step all use the one evaluation (offer_first_residual), the same bits as evaluating each again
+    bool r_valid = false;
+    double r_speed = 0.0;
+    const auto offer_residual = [&] {
+        if (r_valid) scheme->offer_first_residual(R_loads, r_speed);
+        r_valid = false;
+    };
     auto row = [&](int st) {   // averages, plus the IBM loads from a residual of the current state
         scheme->stage_time = t;
         std::array<double, 3> loads{};
-        residual(U, R_loads);
+        r_speed = residual(U, R_loads);
+        r_valid = true;
         if (p.use_ibm) loads = ibm_loads(mesh, *ibm, U, R_loads);
         ResSums rs{};
         for (int c = 0; c < mesh.num_cells(); ++c)
@@ -219,10 +228,11 @@ void Simulation::solve() {
             if (post.has_averages()) post.observe_averages(step, t, volume_primitive_means(fluid, mesh, U), false, false);
         }
         if (step == 0 && post.has_force_due(step, true)) {
-            residual(U, R_loads);
+            if (!r_valid) residual(U, R_loads);
             post.write_forces(step, t, ibm_loads(mesh, *ibm, U, R_loads), mesh, true);
         }
     }
+    offer_residual();
     LoopEngine engine;
     engine.advance = [&](int st, double t_stop) {
         const StepResult r = scheme->step(U, res, min_delta, t, std::min(p.t_end, t_stop), p.dt_max);
@@ -238,10 +248,11 @@ void Simulation::solve() {
             post.write_uniform(mesh, fluid, U, st, t);
             if (post.has_averages()) post.observe_averages(st, t, volume_primitive_means(fluid, mesh, U));
             if (post.has_force_due(st)) {
-                residual(U, R_loads);
+                if (!r_valid) residual(U, R_loads);
                 post.write_forces(st, t, ibm_loads(mesh, *ibm, U, R_loads), mesh);
             }
         }
+        offer_residual();
     };
     engine.save = [&](int st, const StepResult& r, double wall) {
         {
@@ -915,12 +926,15 @@ void Simulation::run_mpi(MPI_Comm comm) {
     const bool monitoring = p.monitor_interval > 0;
     const long long n_all = static_cast<long long>(p.nx) * p.ny * p.nz;
     Field R_loads;
+    bool r_valid = false;   // R_loads is the residual of the current state, which the first stage of the next step takes (offer_first_residual)
+    double r_speed = 0.0;
     auto row = [&](int st) {   // collective: every rank calls it
         scheme->stage_time = t;
         update_boundary_values(t, lb);
         const auto v = volume_averages(U_local, n_all);
         std::array<double, 3> loads{};
-        res(U_local, R_loads);   // residual of the current state: the IBM loads and the norms, summed over the strips
+        r_speed = res(U_local, R_loads);   // residual of the current state: the IBM loads and the norms, summed over the strips
+        r_valid = true;
         if (p.use_ibm) {
             const std::array<double, 3> mine = ibm_loads(lm, *local_ibm, U_local, R_loads);
             MPI_Allreduce(mine.data(), loads.data(), 3, MPI_DOUBLE, MPI_SUM, comm);
@@ -931,7 +945,12 @@ void Simulation::run_mpi(MPI_Comm comm) {
         MPI_Allreduce(mine_rs.data(), rs.data(), 4, MPI_DOUBLE, MPI_SUM, comm);
         monitor_row(mon, st, v, p.use_ibm ? &loads : nullptr, residual_norms(rs));
     };
+    const auto offer_residual = [&] {
+        if (r_valid) scheme->offer_first_residual(R_loads, r_speed);
+        r_valid = false;
+    };
     if (monitoring && step == 0) row(step);
+    offer_residual();
     LoopEngine engine;
     engine.advance = [&](int st, double t_stop) {
         const StepResult sr = scheme->step(U_local, res, min_delta, t, std::min(p.t_end, t_stop), p.dt_max);
@@ -945,6 +964,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     engine.after_step = [&](int st) {
         if (monitoring && st % p.monitor_interval == 0) row(st);
         post_state(st, false, true);
+        offer_residual();
     };
     engine.save = [&](int st, const StepResult& sr, double wall) {
         Field g = decomp.gather(U_local);

@@ -89,6 +89,14 @@ void TimeScheme::repair(const Field& cand, const std::function<void()>& again) {
     guard_->clear();
 }
 
+double TimeScheme::first_stage(const Field& U, const ResidualFn& res) {
+    const bool use = offered_ && !guard_ && offer_time_ == stage_time && offer_R_.size() == U.size();
+    offered_ = false;
+    if (!use) return res(U, R1_);
+    R1_.swap(offer_R_);
+    return offer_s_;
+}
+
 double TimeScheme::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
     const double s = res(U, R1_);
     axpy(U, U, dt, R1_);
@@ -101,7 +109,7 @@ double TimeScheme::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) 
 
 StepResult ExplicitEuler::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max) {
     stage_time = t;
-    const double s = res(U, R1_);
+    const double s = first_stage(U, res);
     double dt = cfl * min_delta / (s + kDtEps);
     dt = std::min(dt, t_max - t);
     if (dt_max > 0.0) dt = std::min(dt, dt_max);
@@ -150,7 +158,7 @@ void ssp_combine(Field& U, const Field& U1, double dt, const Field& R2) {
 
 StepResult SSPRK2::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max) {
     stage_time = t;
-    const double s1 = res(U, R1_);
+    const double s1 = first_stage(U, res);
     double dt = cfl * min_delta / (s1 + kDtEps);
     dt = std::min(dt, t_max - t);
     if (dt_max > 0.0) dt = std::min(dt, dt_max);
@@ -213,7 +221,7 @@ void ssp3_combine(Field& out, const Field& u0, double a, const Field& v, double 
 
 StepResult SSPRK3::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max) {
     stage_time = t;
-    const double s1 = res(U, R1_);
+    const double s1 = first_stage(U, res);
     double dt = cfl * min_delta / (s1 + kDtEps);
     dt = std::min(dt, t_max - t);
     if (dt_max > 0.0) dt = std::min(dt, dt_max);
@@ -286,6 +294,7 @@ double SSPRK3::advance_fixed_dt(Field& U, const ResidualFn& res, double dt) {
 // ---------------------------------------------------------------------------
 
 StepResult MusclHancock::step(Field& U, const ResidualFn& res, double min_delta, double t, double t_max, double dt_max) {
+    offered_ = false;   // its residuals carry the predictor: an offered one (of the plain state) is no use
     if (!(s_prev_ > 0.0)) {   // no wave speed yet: one plain residual (no predictor) gives it
         stage_time = t;
         predictor_half_dt = 0.0;

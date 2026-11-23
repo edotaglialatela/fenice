@@ -71,6 +71,17 @@ public:
 
     double cfl;   // CFL number
 
+    // The residual of the state the next step() starts from, evaluated by the caller (the monitor row) at the stage time now set, with the
+    // wave speed `s` it returned. The first stage of that step takes it (swapped in, `R` is left with stale content) instead of evaluating
+    // it again: the same bits, one residual less. It serves one step() and is dropped by it; a scheme with a stage guard evaluates its
+    // first stage itself, and MusclHancock has no residual of the state at the start of its step.
+    void offer_first_residual(Field& R, double s) {
+        offer_R_.swap(R);
+        offer_s_ = s;
+        offer_time_ = stage_time;
+        offered_ = true;
+    }
+
     // Absolute time of the stage whose residual is being evaluated (set by every step() before each call of the
     // residual: t, t + dt, ... of the Runge-Kutta stages). Only the time-dependent source terms
     // read it; the fixed-dt path of the AMR subcycling does not set it.
@@ -90,8 +101,13 @@ protected:
     // candidate `cand` of the stage with the marked cells in force. The set is emptied at the end.
     void repair(const Field& cand, const std::function<void()>& again);
     static constexpr int kMaxRepairs = 8;
+    // R1_ = residual of U at stage_time, and its wave speed: the offered one (offer_first_residual) when there is one for this stage
+    double first_stage(const Field& U, const ResidualFn& res);
 
     Field R1_, R2_, R3_, tmp_;
+    Field offer_R_;
+    double offer_s_ = 0.0, offer_time_ = 0.0;
+    bool offered_ = false;
     Field g_;                            // candidate of a guarded stage (the stage's inputs stay intact for the repeat)
     const StageGuard* guard_ = nullptr;
 };
