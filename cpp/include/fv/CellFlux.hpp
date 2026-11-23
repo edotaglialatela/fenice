@@ -108,6 +108,8 @@ public:
     // The body of the factory has moved: the next build makes the solid classification of every leaf and the finest-level ghost table again
     // (no leaf keeps its old value), whatever the topology does.
     void body_changed();
+    // A moving body between two body_changed calls: its translational velocity changed (a body driven by the flow); the ghost wall follows.
+    void set_body_velocity(double u, double v);
     // 3-D: some leaf of `mesh` coarser than the finest level lies near the surface (the readiness rule of the wall): a rank tests its
     // own leaves and the ranks reduce the answer.
     bool ghost_band_violated(const CellMesh& mesh) const;

@@ -95,6 +95,10 @@ void CellFluxEngine::body_changed() {
     ibm_geo_.reset();
 }
 
+void CellFluxEngine::set_body_velocity(double u, double v) {
+    if (ghost_ib_) ghost_ib_->set_velocity(u, v);   // no table yet: the next build takes the velocity of the body state
+}
+
 void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
     const auto per = [&](Face lo, Face hi) {
         const bool a = bc_.type(lo) == BCType::Periodic, b = bc_.type(hi) == BCType::Periodic;

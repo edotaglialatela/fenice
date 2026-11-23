@@ -1185,6 +1185,13 @@ void ImmersedBoundary::set_pose(const Mesh& m, const BodyPose& pose) {
     place_geometry(m, pose);
 }
 
+void ImmersedBoundary::set_velocity(double u, double v) {
+    if (!moving_) throw std::logic_error("ImmersedBoundary::set_velocity: enable_motion first");
+    pose_.u = u;
+    pose_.v = v;
+    refresh_wall_velocity();
+}
+
 bool ImmersedBoundary::move_to(const Mesh& m, const BodyPose& pose) {
     if (!moving_) throw std::logic_error("ImmersedBoundary::move_to: enable_motion first");
     if (m.is3d()) throw std::logic_error("ImmersedBoundary::move_to: a moving body is 2-D for now");

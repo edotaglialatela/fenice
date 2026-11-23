@@ -89,6 +89,12 @@ CHECK_CASES = {   # name: (case, overrides)
     "amr_moving_airfoil": ("IBM Airfoil AMR", ["max_steps=12", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_omega=2.0"]),
     "amr_moving_cylinder_hancock": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
                                                                "max_steps=16", "ibm_vx=2.0", "ibm_vy=0.7", "time_scheme=MUSCL-Hancock"]),
+    # AMR with a body driven by the flow: one residual of the whole mesh at the start of each step, the loads of the solid leaves summed in
+    # (level, ci, cj) order whatever the partition, the wall velocity of the ghost table refreshed every step, the geometry every quarter finest cell
+    "amr_dynamic_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50", "max_steps=40",
+                                                        "ibm_mass=0.02", "ibm_stiff_x=5", "ibm_stiff_y=5", "ibm_damp_x=0.05", "ibm_vx=0.5"]),
+    "amr_dynamic_slip_cylinder": ("IBM Flow over Cylinder", ["use_viscous=false", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
+                                                             "nx=100", "ny=50", "max_steps=40", "ibm_mass=0.02", "ibm_stiff_y=5", "ibm_vx=0.5"]),
     # AMR with MUSCL-Hancock: the predicted side states of the leaves cross the rank interfaces
     "amr_cylinder_hancock": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
                                                         "max_steps=16", "time_scheme=MUSCL-Hancock"]),

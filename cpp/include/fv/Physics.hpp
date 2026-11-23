@@ -253,6 +253,9 @@ public:
     // at the closest wall point; the deeper solid cells carry the body velocity at the reference state. Returns true if it rebuilt.
     // The cells the body left (fresh cells) hold stale solid states until fill_fresh.
     bool move_to(const Mesh& mesh, const BodyPose& pose);
+    // Change the translational velocity of the pose without moving the geometry: the wall velocities of the ghost table follow (a body driven by the
+    // flow on an adaptive mesh, whose table stays between geometry updates).
+    void set_velocity(double u, double v);
     // Place the body (the mask only, no ghost table, no fresh cells) at the pose: for a body made by a factory at the pose of the moment, before
     // its ghost wall is built (the adaptive mesh); the ghost cells then carry the wall velocity of the pose.
     void set_pose(const Mesh& mesh, const BodyPose& pose);

@@ -483,7 +483,6 @@ SimParams SimParams::from(const Params& p) {
         throw std::invalid_argument("ibm_stiff_* and ibm_damp_* act on a body driven by the flow: set ibm_mass > 0");
     if (s.use_ibm && s.ibm_dynamic()) {
         if (s.ibm_omega != 0.0) throw std::invalid_argument("a body driven by the flow translates only (ibm_omega must be 0)");
-        if (s.use_amr) throw std::invalid_argument("a body driven by the flow is not available with AMR yet (uniform mesh, serial or MPI)");
         if (const std::string ts = lower(s.time_scheme); ts == "muscl-hancock" || ts == "hancock")
             throw std::invalid_argument("a body driven by the flow needs a Runge-Kutta or Euler time scheme (its loads come from the first stage)");
         if (s.positivity_fallback) throw std::invalid_argument("a body driven by the flow cannot use positivity_fallback");

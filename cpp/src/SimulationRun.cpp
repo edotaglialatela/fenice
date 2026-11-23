@@ -503,6 +503,31 @@ void Simulation::solve_amr() {
     std::FILE* mon = root ? open_monitor() : nullptr;
     arm_stop_file();
     const bool monitoring = p.monitor_interval > 0;
+    // R of the current state of the leaves this rank owns (collective on several ranks): one evaluation of the whole mesh, no subcycling
+    const auto residual_of_state = [&](Field& Rl) {
+        if (!cell_par) {
+            eng.residual(cm, cm.U, Rl);
+            return;
+        }
+        // the partitioned engine: the fluxes of each level, the coarse-fine ones handed to the coarse owners through the
+        // registers (set to the flux itself, as a weight 1 gives), then R of the owned leaves
+        Field Rown(static_cast<size_t>(cm.num_leaves()));
+        eng.force_state(cm, cm.U);   // as the first pass of a step does
+        for (int l = 0; l <= cm.max_level; ++l) {
+            if (!cell_par->level_present(l)) continue;
+            eng.compute_level_fluxes(cm, cm.U, l);
+            if (l == 0) continue;
+            eng.clear_registers(cm, l);
+            eng.accumulate_registers(cm, l, 1.0);
+            cell_par->exchange_registers(l);
+        }
+        for (int l = 0; l <= cm.max_level; ++l) {
+            if (!cell_par->level_present(l)) continue;
+            eng.gather_level(cm, l, true, Rl);
+            std::copy(Rl.begin(), Rl.end(), Rown.begin() + eng.owned_begin(l));
+        }
+        Rl.swap(Rown);
+    };
     const auto row = [&](int st, bool write_monitor, bool write_force, bool force_final) {
         scheme->stage_time = t;
         eng.stage_time = t;
@@ -521,28 +546,7 @@ void Simulation::solve_amr() {
         ResSums rs{};
         {
             Field Rl;
-            if (!cell_par) {
-                eng.residual(cm, cm.U, Rl);
-            } else {
-                // the partitioned engine: the fluxes of each level, the coarse-fine ones handed to the coarse owners through the
-                // registers (set to the flux itself, as a weight 1 gives), then R of the owned leaves
-                Field Rown(static_cast<size_t>(cm.num_leaves()));
-                eng.force_state(cm, cm.U);   // as the first pass of a step does
-                for (int l = 0; l <= cm.max_level; ++l) {
-                    if (!cell_par->level_present(l)) continue;
-                    eng.compute_level_fluxes(cm, cm.U, l);
-                    if (l == 0) continue;
-                    eng.clear_registers(cm, l);
-                    eng.accumulate_registers(cm, l, 1.0);
-                    cell_par->exchange_registers(l);
-                }
-                for (int l = 0; l <= cm.max_level; ++l) {
-                    if (!cell_par->level_present(l)) continue;
-                    eng.gather_level(cm, l, true, Rl);
-                    std::copy(Rl.begin(), Rl.end(), Rown.begin() + eng.owned_begin(l));
-                }
-                Rl.swap(Rown);
-            }
+            residual_of_state(Rl);
             if (p.use_ibm) {
                 loads = cell_loads(cm, Rl);
                 if (cell_par)
@@ -603,11 +607,17 @@ void Simulation::solve_amr() {
     // several ranks, the shares) again whether or not a leaf changes; the indicator is left to the scheduled remeshes (only the band moves with
     // the body). The pose is fixed during a step.
     const bool moving = amr_body_ != nullptr;
+    const bool dynamic = moving && p.ibm_dynamic();
     const double h_fine = std::min(cm.dx(cm.max_level), cm.dy(cm.max_level));
     const auto place_body = [&] {
-        const ImmersedBoundary::BodyPose pose = prescribed_pose(t);
+        const ImmersedBoundary::BodyPose pose = body_pose(t);
         const ImmersedBoundary::BodyPose& g = amr_body_->geo;
         const double shift = std::max(std::max(std::abs(pose.x - g.x), std::abs(pose.y - g.y)), std::abs(pose.angle - g.angle) * ibm->rotation_reach());
+        if (dynamic) {   // the wall velocity changes every step, the geometry only when the body has moved a quarter cell
+            amr_body_->geo.u = pose.u;
+            amr_body_->geo.v = pose.v;
+            eng.set_body_velocity(pose.u, pose.v);
+        }
         if (shift <= 0.25 * h_fine) return;
         const auto r0 = Clock::now();
         amr_body_->geo = pose;
@@ -625,8 +635,67 @@ void Simulation::solve_amr() {
         remesh_wall += seconds_since(r0);
         profile_add(Section::Remesh, seconds_since(r0));
     };
+    // A body driven by the flow: the loads of the state at the start of the step (R of U^n at the pose and velocity of the step; with subcycling there
+    // is no single first stage, so one residual of the whole mesh), the contributions of the solid leaves summed in (level, ci, cj) order, which every
+    // partition reproduces (the ranks exchange the solid leaves only: the band).
+    const auto capture_loads = [&] {
+        scheme->stage_time = t;
+        eng.stage_time = t;
+        update_boundary_values(t, boundaries);
+        Field Rl;
+        residual_of_state(Rl);
+        const std::vector<char>& solid = eng.solid();
+        std::vector<double> mine;   // level, ci, cj, ex, ey per solid leaf
+        for (int l = 0; l <= cm.max_level; ++l)
+            for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c) {
+                if (!solid[static_cast<size_t>(c)]) continue;
+                double rx = Rl[static_cast<size_t>(c)][1], ry = Rl[static_cast<size_t>(c)][2];
+                if (body_force) {
+                    rx -= cm.U[static_cast<size_t>(c)][0] * body_force->gx;
+                    ry -= cm.U[static_cast<size_t>(c)][0] * body_force->gy;
+                }   // not a load
+                const double a = cm.volume(c);
+                mine.insert(mine.end(), {static_cast<double>(l), static_cast<double>(cm.ci[static_cast<size_t>(c)]),
+                                         static_cast<double>(cm.cj[static_cast<size_t>(c)]), rx * a, ry * a});
+            }
+        std::vector<double> all;
+        if (cell_par) {
+            const int R = cell_comm.size;
+            std::vector<double> sizes(static_cast<size_t>(R)), one(1, static_cast<double>(mine.size()));
+            std::vector<int> counts(static_cast<size_t>(R), 1), displs(static_cast<size_t>(R));
+            for (int r = 0; r < R; ++r) displs[static_cast<size_t>(r)] = r;
+            cell_comm.allgatherv(one.data(), 1, sizes.data(), counts.data(), displs.data());
+            int total = 0;
+            for (int r = 0; r < R; ++r) {
+                counts[static_cast<size_t>(r)] = static_cast<int>(sizes[static_cast<size_t>(r)]);
+                displs[static_cast<size_t>(r)] = total;
+                total += counts[static_cast<size_t>(r)];
+            }
+            all.resize(static_cast<size_t>(total));
+            cell_comm.allgatherv(mine.data(), static_cast<int>(mine.size()), all.data(), counts.data(), displs.data());
+        } else {
+            all.swap(mine);
+        }
+        const size_t n = all.size() / 5;
+        std::vector<size_t> order(n);
+        for (size_t k = 0; k < n; ++k) order[k] = k;
+        std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
+            const double* x = &all[5 * a];
+            const double* y = &all[5 * b];
+            return x[0] != y[0] ? x[0] < y[0] : (x[1] != y[1] ? x[1] < y[1] : x[2] < y[2]);
+        });
+        double fx = 0.0, fy = 0.0;
+        for (const size_t k : order) {
+            fx += all[5 * k + 3];
+            fy += all[5 * k + 4];
+        }
+        body_.fx = fx;
+        body_.fy = fy;
+        body_.captured = true;
+    };
     engine.advance = [&](int st, double t_stop) {
         if (moving) place_body();
+        if (dynamic) capture_loads();
         // the time-step length of the base mesh: min(dx, dy) in 2-D, 2 / sum 1/h in 3-D (Simulation::dt_length)
         const double h0 = octree ? step_length_3d(cm.dx(0), cm.dy(0), cm.dz(0)) : step_length_2d(cm.dx(0), cm.dy(0));
         double dt = std::min(scheme->cfl * h0 / std::max(S, 1e-10), p.t_end - t);
@@ -638,14 +707,21 @@ void Simulation::solve_amr() {
         }
         check_progress(t, dt, S, st, p.time_scheme.c_str());
         cell_speed_ = S;
-        if (moving && dt * std::max(std::abs(p.ibm_vx), std::abs(p.ibm_vy)) > h_fine)
-            throw std::runtime_error("the moving body travelled more than one finest cell in a step (lower the CFL number)");
+        if (moving) {
+            const std::array<double, 2> w = body_velocity();
+            if (dt * std::max(std::abs(w[0]), std::abs(w[1])) > h_fine)
+                throw std::runtime_error("the moving body travelled more than one finest cell in a step (lower the CFL number)");
+        }
         if (p.use_ibm) {
             if (!eng.ghost_ready())
                 throw std::runtime_error("The ghost-cell wall of the immersed body is no longer set up: the cells around the body are "
                                          "not all at the finest level after a remesh");
             eng.solid_reset(cm, cm.U);
             if (cell_par) cell_par->exchange_solid();
+        }
+        if (dynamic) {
+            if (!body_.captured) throw std::logic_error("the loads of the body were not taken at the start of the step");
+            advance_body(dt);
         }
         t += dt;
         return StepResult{dt, S};
