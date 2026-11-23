@@ -87,6 +87,7 @@ GROUPS = {
         "sod_sensitivity": (["features/sod_sensitivity.py"], "quick", 0.01),   # C1c: Sobol indices of the Sod L1 error (CFL, resolution, limiter), 320 runs
         "cylinder_mesh_transition": (["features/cylinder_mesh_transition.py"], "long", None),
         "ibm_spring": (["features/ibm_spring.py"], "quick", None),   # a cylinder on a spring in a gas at rest against the added-mass ODE (20 cells per diameter)
+        "ibm_gravity": (["features/ibm_gravity.py"], "quick", None),   # a cylinder released in a stratified gas: weight and buoyancy against the added-mass ODE
         "ibm_spring_full": (["features/ibm_spring.py", "--full"], "medium", None),   # ... and 40 cells per diameter, and the time-step check
     },
 }
