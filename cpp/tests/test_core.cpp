@@ -341,10 +341,11 @@ TEST(oscillating_cylinder_feels_the_added_mass) {
     // A cylinder of radius R moves as x = A (1 - cos(w t)) in a gas at rest, inviscid, low Mach number (A = 0.2 R: the body crosses two cells at
     // 10 cells per diameter, so the mask rebuilds and fresh cells occur). The exact linear compressible answer (outgoing 2-D waves, kR = 0.169)
     // is F = -K (1.0535 cos(w t) + 0.0467 sin(w t)), K = rho pi R^2 A w^2: the added mass, 5 % above the incompressible one, and a small
-    // radiation damping. The fit window t in [0.6, 1.8] ends before the reflections of the open boundaries return.
-    // Bands (set after a first run showed that the wall converges at about first order, which they must reflect): at 20 cells per diameter
-    // the cos component is within 10 % of the exact value; the error of both components falls by at least 0.6 from 20 to 40 cells per diameter;
-    // the rebuilds cost under 10 % of the run.
+    // radiation damping. The fit window t in [0.6, 1.2] ends before the reflections of the open boundaries disturb it (a longer one moved the
+    // fine mesh by 10 %). MUSCL reconstruction: with the first-order scheme the dissipation of the scheme added a spurious in-phase force of
+    // 0.3 K at 20 cells per diameter (sin component -0.30 against -0.05), which is not the wall's. Bands (set after the runs: 1.9 % / 0.8 % in cos,
+    // 0.023 / 0.012 in sin at 20 / 40 cells per diameter): cos within 4 % at 20 cells per diameter; the error of both components falls by at least
+    // 0.6 from 20 to 40; the rebuilds cost under 10 % of the run.
     const double Rc = 0.1, A = 0.02, w = 2.0, rho = 1.0;
     const double K = rho * std::acos(-1.0) * Rc * Rc * A * w * w;
     const double a_exact = -1.0535, b_exact = -0.0467;
@@ -352,7 +353,7 @@ TEST(oscillating_cylinder_feels_the_added_mass) {
         Simulation sim;
         sim.setup(params_for("Sod Shock Tube", {{"Lx", "2.4"}, {"Ly", "2.4"}, {"nx", n}, {"ny", n}, {"use_ibm", "true"},
                                                 {"ibm_shape", "Cylinder"}, {"ibm_radius", "0.1"}, {"ibm_cx", "1.2"}, {"ibm_cy", "1.2"},
-                                                {"ibm_omega", "1e-300"},   // any nonzero motion key switches the wall to the moving one
+                                                {"ibm_omega", "1e-300"}, {"reconstruction", "muscl"},   // any nonzero motion key switches the wall to the moving one
                                                 {"rho_in", "1.0"}, {"p_out", "1.0"}, {"use_viscous", "false"}, {"bc_ymin", "transmissive"},
                                                 {"bc_ymax", "transmissive"}, {"use_mpi", "false"}}),
                   false);
@@ -370,9 +371,9 @@ TEST(oscillating_cylinder_feels_the_added_mass) {
         const auto wall0 = std::chrono::steady_clock::now();
         double t = 0.0, scc = 0.0, sss = 0.0, scs = 0.0, sfc = 0.0, sfs = 0.0;
         Field R;
-        while (t < 1.8) {
+        while (t < 1.2) {
             place(t);
-            t += sim.scheme->step(sim.U, res, sim.dt_length, t, 1.8).dt;
+            t += sim.scheme->step(sim.U, res, sim.dt_length, t, 1.2).dt;
             sim.ibm->apply_solid_reset(sim.U, sim.fluid);
             place(t);
             if (t < 0.6) continue;
@@ -396,7 +397,7 @@ TEST(oscillating_cylinder_feels_the_added_mass) {
     double a1, b1, a2, b2;
     const double share = run("240", a1, b1);
     run("480", a2, b2);
-    CHECK_NEAR(a1, a_exact, 0.1 * std::abs(a_exact));
+    CHECK_NEAR(a1, a_exact, 0.04 * std::abs(a_exact));
     const double e1 = std::abs(a1 - a_exact) + std::abs(b1 - b_exact), e2 = std::abs(a2 - a_exact) + std::abs(b2 - b_exact);
     CHECK(e2 < 0.6 * e1);
     CHECK(share < 0.1);
