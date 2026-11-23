@@ -841,36 +841,60 @@ Field evaluate_initial(const InitialSpec& spec, const Mesh& m, const EOS& eos, c
 }
 
 
-Field evaluate_source(const Mesh& m, const Params& run, double t) {
-    // Parameter keys in the slot order of the state [rho, rho u, rho v, rho E, rho w]
-    static const char* const kKeys[kNVar] = {"source_rho", "source_mx", "source_my", "source_E", "source_mz"};
+namespace {
+
+// The five source expressions in the slot order of the state [rho, rho u, rho v, rho E, rho w], compiled in an evaluator.
+struct SourceItems {
+    int item[kNVar];
+    SourceItems(Evaluator& ev, const Params& run) {
+        static const char* const kKeys[kNVar] = {"source_rho", "source_mx", "source_my", "source_E", "source_mz"};
+        for (int q = 0; q < kNVar; ++q) item[q] = ev.compile(run.str(kKeys[q], "0"), kKeys[q]);
+    }
+};
+
+// Calls cell(ev, items, c) for c = 0 .. n-1. Every cell is independent and te_eval is pure, so the values do not depend on
+// the thread count. One Evaluator cannot be shared (te_compile keeps the addresses of its variable storage): each thread
+// compiles its own copy. The serial compile comes first, so a bad expression throws outside the parallel region.
+template <class Cell>
+void for_source_cells(const Mesh& m, const Params& run, double t, int n, Cell&& cell) {
     Evaluator ev(run, m);
     ev.set_time(t);
-    int item[kNVar];
-    for (int q = 0; q < kNVar; ++q) item[q] = ev.compile(run.str(kKeys[q], "0"), kKeys[q]);
+    const SourceItems items(ev, run);
+    if (n < kOmpMinWork) {
+        for (int c = 0; c < n; ++c) cell(ev, items, c);
+        return;
+    }
+#pragma omp parallel
+    {
+        Evaluator mine(run, m);
+        mine.set_time(t);
+        const SourceItems own(mine, run);
+#pragma omp for schedule(static)
+        for (int c = 0; c < n; ++c) cell(mine, own, c);
+    }
+}
+
+}   // namespace
+
+Field evaluate_source(const Mesh& m, const Params& run, double t) {
     Field S(static_cast<size_t>(m.num_cells()));
     const bool three_d = m.is3d();
-    for (int k = 0; k < m.nz; ++k)
-        for (int j = 0; j < m.ny; ++j)
-            for (int i = 0; i < m.nx; ++i) {
-                ev.set_position(m.xc(i), m.yc(j), three_d ? m.zc(k) : 0.0);
-                State& s = S[m.cell(i, j, k)];
-                for (int q = 0; q < kNVar; ++q) s[q] = ev.eval(item[q]);
-            }
+    const int nx = m.nx, ny = m.ny;
+    for_source_cells(m, run, t, static_cast<int>(S.size()), [&](Evaluator& ev, const SourceItems& it, int c) {
+        const int i = c % nx, j = (c / nx) % ny, k = c / (nx * ny);   // cell(i, j, k) = (k * ny + j) * nx + i
+        ev.set_position(m.xc(i), m.yc(j), three_d ? m.zc(k) : 0.0);
+        State& s = S[static_cast<size_t>(c)];
+        for (int q = 0; q < kNVar; ++q) s[q] = ev.eval(it.item[q]);
+    });
     return S;
 }
 
 void evaluate_source_points(const Mesh& m, const Params& run, double t, const double* xs, const double* ys, int n,
                             State* out, const double* zs) {
-    static const char* const kKeys[kNVar] = {"source_rho", "source_mx", "source_my", "source_E", "source_mz"};
-    Evaluator ev(run, m);
-    ev.set_time(t);
-    int item[kNVar];
-    for (int q = 0; q < kNVar; ++q) item[q] = ev.compile(run.str(kKeys[q], "0"), kKeys[q]);
-    for (int k = 0; k < n; ++k) {
+    for_source_cells(m, run, t, n, [&](Evaluator& ev, const SourceItems& it, int k) {
         ev.set_position(xs[k], ys[k], zs ? zs[k] : 0.0);
-        for (int q = 0; q < kNVar; ++q) out[k][q] = ev.eval(item[q]);
-    }
+        for (int q = 0; q < kNVar; ++q) out[k][q] = ev.eval(it.item[q]);
+    });
 }
 
 std::function<double(double)> compile_time_expression(const Params& run, const Mesh& mesh, const std::string& expression,

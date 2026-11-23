@@ -119,9 +119,10 @@ public:
     // Source terms of the case (source_*), evaluated once per mesh the residual is assembled on (the whole mesh,
     // or an MPI strip); keyed by (nx, ny, nz, dx, dy, dz, x0, y0, z0)
     std::map<std::array<double, 9>, Field> source_cache_;
-    // Unsteady sources (a source expression uses t): per mesh, the field of the last stage time it was asked for;
-    // the stages that share a time reuse it
-    std::map<std::array<double, 9>, std::pair<double, Field>> unsteady_source_cache_;
+    // Unsteady sources (a source expression uses t): per mesh, the fields of the two last stage times it was asked for
+    // (most recent first); the stages that share a time reuse them (SSP-RK2: the last stage of a step is the first of
+    // the next, SSP-RK3: the first stage of a step is its predecessor's second)
+    std::map<std::array<double, 9>, std::array<std::pair<double, Field>, 2>> unsteady_source_cache_;
     const Field& source_for(const Mesh& m, double stage_time);
     std::map<std::string, std::function<double(double)>> boundary_expressions_;
     std::map<std::string, std::vector<std::pair<double, double>>> boundary_tables_;

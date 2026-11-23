@@ -1258,14 +1258,22 @@ const Field& Simulation::source_for(const Mesh& m, double stage_time) {
                                        static_cast<double>(m.nz), m.dx, m.dy, m.dz, m.x0, m.y0, m.z0};
     if (p.source_unsteady) {
         auto ut = unsteady_source_cache_.find(key);
-        if (ut == unsteady_source_cache_.end())
-            ut = unsteady_source_cache_.emplace(key, std::make_pair(std::numeric_limits<double>::quiet_NaN(), Field{}))
-                     .first;
-        if (!(ut->second.first == stage_time)) {   // also true for the NaN of a new entry
-            ut->second.second = evaluate_source(m, p.source, stage_time);
-            ut->second.first = stage_time;
+        if (ut == unsteady_source_cache_.end()) {
+            std::array<std::pair<double, Field>, 2> fresh;
+            fresh[0].first = fresh[1].first = std::numeric_limits<double>::quiet_NaN();
+            ut = unsteady_source_cache_.emplace(key, std::move(fresh)).first;
         }
-        return ut->second.second;
+        auto& slot = ut->second;   // [0] most recent, [1] the one before
+        if (slot[0].first == stage_time) return slot[0].second;
+        if (slot[1].first == stage_time) {
+            std::swap(slot[0], slot[1]);
+            return slot[0].second;
+        }
+        // a miss (also the NaN of a new entry): the older field is replaced
+        slot[1].second = evaluate_source(m, p.source, stage_time);
+        slot[1].first = stage_time;
+        std::swap(slot[0], slot[1]);
+        return slot[0].second;
     }
     auto it = source_cache_.find(key);
     if (it == source_cache_.end()) it = source_cache_.emplace(key, evaluate_source(m, p.source)).first;
