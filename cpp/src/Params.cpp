@@ -486,7 +486,6 @@ SimParams SimParams::from(const Params& p) {
         if (const std::string ts = lower(s.time_scheme); ts == "muscl-hancock" || ts == "hancock")
             throw std::invalid_argument("a body driven by the flow needs a Runge-Kutta or Euler time scheme (its loads come from the first stage)");
         if (s.positivity_fallback) throw std::invalid_argument("a body driven by the flow cannot use positivity_fallback");
-        if (s.resume) throw std::invalid_argument("a body driven by the flow cannot resume yet (its pose and velocity are not in the checkpoint)");
     }
     if (s.reynolds < 0.0) throw std::invalid_argument("reynolds must be >= 0 (0: use mu)");
     if (s.reynolds > 0.0) {

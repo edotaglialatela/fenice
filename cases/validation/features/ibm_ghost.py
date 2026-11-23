@@ -84,6 +84,8 @@ CHECK_CASES = {   # name: (case, overrides)
     # AMR with a prescribed motion: the body is built again every quarter finest cell (engine, band, leaf classification, shares)
     "amr_moving_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50", "max_steps=16",
                                                        "ibm_vx=2.0", "ibm_vy=0.7"]),
+    "amr_moving_slow_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50", "max_steps=16",
+                                                            "ibm_vx=0.5", "ibm_vy=0.2"]),   # a quarter finest cell takes several steps: the geometry lags the pose
     "amr_moving_slip_cylinder": ("IBM Flow over Cylinder", ["use_viscous=false", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
                                                             "nx=100", "ny=50", "max_steps=16", "ibm_vx=2.0", "ibm_vy=-0.5"]),
     "amr_moving_airfoil": ("IBM Airfoil AMR", ["max_steps=12", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_omega=2.0"]),
@@ -168,11 +170,40 @@ def amr_motion_check():
     print(f"moving cylinder in a gas at rest: AMR against uniform, largest difference of the 0.1 s mean of Fx {100 * worst:.2f} % of the peak", flush=True)
     return worst < 0.05
 
+RESUME_CASES = ("moving_cylinder", "moving_airfoil", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder")
+RESUME_PAIRS = ((None, None), (None, 3), (3, None), (2, 4))   # ranks of the first half and of the resumed half (None: serial)
+
+
+def resume_check():
+    """A moving body (prescribed, or driven by the flow; uniform and adaptive mesh) stopped halfway and resumed, also on another number of ranks,
+    ends in the state of the uninterrupted serial run: the checkpoint holds the pose the geometry was built at and the state of the body."""
+    ok = True
+    for name in RESUME_CASES:
+        case, sets = CHECK_CASES[name]
+        sets = [s for s in sets if not s.startswith("max_steps")]
+        half = 24 if name.startswith("amr_") else 40
+        out = study.study_dir(STUDY) / "check" / f"resume_{name}"
+        out.mkdir(parents=True, exist_ok=True)
+        fenice.run(case, *sets, f"max_steps={2 * half}", "save_interval=1000000000", "monitor_interval=10", out_root=out / "whole", dump=out / "whole.npz")
+        ref = fenice.read_dump(out / "whole.npz")
+        line = f"resume {name:22s}"
+        for a, b in RESUME_PAIRS:
+            d = out / f"{a}_{b}"
+            fenice.run(case, *sets, f"max_steps={half}", f"save_interval={half}", "monitor_interval=10", out_root=d, mpi=a)
+            fenice.run(case, *sets, f"max_steps={half}", "save_interval=1000000000", "monitor_interval=10", "resume=true", out_root=d, mpi=b,
+                       dump=out / f"{a}_{b}.npz")
+            same = np.array_equal(fenice.read_dump(out / f"{a}_{b}.npz")["U"], ref["U"])
+            ok = ok and same
+            line += f" | {a or 'serial'}->{b or 'serial'} {'==' if same else 'DIFFERS'}"
+        print(line, flush=True)
+    return ok
+
+
 def check(ranks, only=None):
     """Serial against 2..N ranks: identical final states, loads equal to roundoff (only: the cases whose name starts with it)."""
     ok = True
     for name, (case, sets) in CHECK_CASES.items():
-        if only and not name.startswith(only):
+        if only and not name.startswith(only) or only == "resume":
             continue
         sets = [*sets, "save_interval=1000000000", "monitor_interval=10"]
         out = study.study_dir(STUDY) / "check" / name
@@ -189,6 +220,8 @@ def check(ranks, only=None):
         print(line, flush=True)
     if not only or only.startswith("amr_moving"):
         ok = amr_motion_check() and ok
+    if not only or only == "resume":
+        ok = resume_check() and ok
     print("ALL MATCH (bitwise)" if ok else "MISMATCH")
     return 0 if ok else 1
 

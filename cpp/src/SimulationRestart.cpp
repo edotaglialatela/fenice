@@ -79,7 +79,49 @@ NpzArchive Simulation::checkpoint_header(int step) const {
     a["Lz"] = NpyArray::from_double(mesh.Lz);
     a["collection_time"] = NpyArray::from_doubles(times, {static_cast<int64_t>(times.size())});
     a["collection_file"] = NpyArray::from_strings(files);
+    if (const std::vector<double> body = body_checkpoint(); !body.empty()) a["body_pose"] = NpyArray::from_doubles(body, {static_cast<int64_t>(body.size())});
     return a;
+}
+
+// body_pose = {x, y, angle of the geometry, x, y, u, v, ax, ay, dt of the body driven by the flow (zeros otherwise)}
+std::vector<double> Simulation::body_checkpoint() const {
+    if (!p.use_ibm || !p.ibm_moving()) return {};
+    const ImmersedBoundary::BodyPose g = amr_body_ ? amr_body_->geo : ibm->built_pose();
+    return {g.x, g.y, g.angle, body_.x, body_.y, body_.u, body_.v, body_.ax, body_.ay, body_.dt};
+}
+
+void Simulation::restore_body_from_checkpoint() {
+    const std::string path = checkpoint_path();
+    if (!fs::exists(path)) return;   // load_checkpoint says so and starts from zero
+    const NpzFile file(path);
+    if (!file.has("body_pose")) throw std::runtime_error("The checkpoint " + path + " has no pose of the moving body: it is from a static run");
+    const std::vector<double> b = file.read("body_pose").as_doubles();
+    if (b.size() != 10) throw std::runtime_error("The checkpoint " + path + " has a malformed body pose");
+    ImmersedBoundary::BodyPose g;
+    g.x = b[0];
+    g.y = b[1];
+    g.angle = b[2];
+    if (p.ibm_dynamic()) {
+        body_.x = b[3];
+        body_.y = b[4];
+        body_.u = b[5];
+        body_.v = b[6];
+        body_.ax = b[7];
+        body_.ay = b[8];
+        body_.dt = b[9];
+        g.u = body_.u;
+        g.v = body_.v;
+    } else {
+        g.u = p.ibm_vx;
+        g.v = p.ibm_vy;
+        g.omega = p.ibm_omega;
+    }
+    if (amr_body_) {
+        amr_body_->geo = g;   // the factory builds the body at this pose
+    } else {
+        g.omega = p.ibm_dynamic() ? 0.0 : p.ibm_omega;
+        ibm->restore_geometry(mesh, g);
+    }
 }
 
 void Simulation::save_checkpoint(int step, const LeafArrays* leaves) {

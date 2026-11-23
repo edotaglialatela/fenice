@@ -257,6 +257,10 @@ public:
     // Change the translational velocity of the pose without moving the geometry: the wall velocities of the ghost table follow (a body driven by the
     // flow on an adaptive mesh, whose table stays between geometry updates).
     void set_velocity(double u, double v);
+    // The pose the geometry was last built at (move_to builds it every quarter cell; a checkpoint keeps it), and the way back: build the geometry
+    // (mask and ghost table, no fresh cells) at `built` on a mesh, as a resumed run does before its first step.
+    const BodyPose& built_pose() const { return built_; }
+    void restore_geometry(const Mesh& mesh, const BodyPose& built);
     // Place the body (the mask only, no ghost table, no fresh cells) at the pose: for a body made by a factory at the pose of the moment, before
     // its ghost wall is built (the adaptive mesh); the ghost cells then carry the wall velocity of the pose.
     void set_pose(const Mesh& mesh, const BodyPose& pose);

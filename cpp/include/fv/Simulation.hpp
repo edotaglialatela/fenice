@@ -108,6 +108,10 @@ public:
         bool captured = false;                       // fx, fy hold this step's loads
     };
     BodyDynamics body_;
+    // The moving body in a checkpoint ("body_pose": the pose the geometry was built at, and for a body driven by the flow its state): written with
+    // every checkpoint, read at setup of a resumed run on every rank, before anything is built from the body.
+    std::vector<double> body_checkpoint() const;
+    void restore_body_from_checkpoint();
     // The pose of the body for the step starting at time t: the state of body_ if the body is driven by the flow, else the prescribed one.
     ImmersedBoundary::BodyPose body_pose(double t) const;
     // Velocity of the body during the step (the pose's).

@@ -1186,6 +1186,16 @@ void ImmersedBoundary::set_pose(const Mesh& m, const BodyPose& pose) {
     place_geometry(m, pose);
 }
 
+void ImmersedBoundary::restore_geometry(const Mesh& m, const BodyPose& built) {
+    if (!moving_) throw std::logic_error("ImmersedBoundary::restore_geometry: enable_motion first");
+    mesh_ = m;
+    pose_ = built;
+    built_ = built;
+    place_geometry(m, built);
+    build_ghosts(m, slip_, curvature_, nullptr);
+    fresh_.clear();
+}
+
 void ImmersedBoundary::set_velocity(double u, double v) {
     if (!moving_) throw std::logic_error("ImmersedBoundary::set_velocity: enable_motion first");
     pose_.u = u;

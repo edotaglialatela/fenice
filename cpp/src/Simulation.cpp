@@ -267,7 +267,6 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             std::printf("[WARNING] %d ghost cells have no fluid around their image point (a part of the body thinner than the "
                         "stencil): they take the nearest fluid cell, first order there\n", ibm->ghost_fallback_count());
         if (p.ibm_moving()) {
-            if (p.use_amr && p.resume) throw std::invalid_argument("a moving body on an adaptive mesh cannot resume yet");
             ibm->enable_motion(p.ibm_cx, p.ibm_cy);
             if (p.use_amr) {   // the adaptive mesh builds the body again at the pose of the moment (CellFluxEngine::body_changed)
                 amr_body_ = std::make_shared<MovingBodyState>();
@@ -288,6 +287,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                 body_.u = p.ibm_vx;
                 body_.v = p.ibm_vy;
             }
+            if (p.resume) restore_body_from_checkpoint();
             if (verbose && p.ibm_dynamic())
                 std::printf("[IBM] Body driven by the flow: mass %g, springs (%g, %g), dampers (%g, %g), initial velocity (%g, %g)\n", p.ibm_mass,
                             p.ibm_stiff_x, p.ibm_stiff_y, p.ibm_damp_x, p.ibm_damp_y, p.ibm_vx, p.ibm_vy);
