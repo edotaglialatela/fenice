@@ -1451,13 +1451,13 @@ TEST(viscous_3d_plane_sweep_equals_the_passes_bit_for_bit) {
                 }
             }
             for (const bool accumulate : {false, true}) {
-                Field Ra(m.num_cells()), Rb;
+                Field Rb(m.num_cells());
                 size_t cc = 0;
-                for (auto& r : Ra) {
+                for (auto& r : Rb) {
                     r = {0.1, 0.2, 0.3, 0.4, 0.5};
                     if (cc++ % 2) r[0] = -0.0;   // the zero slot starts as -0 in every other cell
                 }
-                Rb = Ra;
+                Field Ra = Rb;
 #ifdef _OPENMP
                 omp_set_num_threads(1);
 #endif
