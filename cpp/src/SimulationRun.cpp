@@ -640,6 +640,7 @@ void Simulation::solve_amr() {
     // is no single first stage, so one residual of the whole mesh), the contributions of the solid leaves summed in (level, ci, cj) order, which every
     // partition reproduces (the ranks exchange the solid leaves only: the band).
     const auto capture_loads = [&] {
+        ProfileScope ps(Section::AmrLoads);
         scheme->stage_time = t;
         eng.stage_time = t;
         update_boundary_values(t, boundaries);

@@ -22,6 +22,7 @@ enum class Section {
     AmrGather,          // AMR: the fluxes summed into the residual of the cells
     AmrForce,           // AMR: the body forcing / ghost fill before the first pass and after each level
     AmrExchange,        // AMR: the halo exchanges of an MPI run (stage, final, registers)
+    AmrLoads,           // AMR: the residual and the load sum of a body driven by the flow, once per step
     Remesh,             // the whole remesh, with the wave-speed bound recomputed after it
     RemeshRegion,       // the region of the mesh the indicator reads, fetched with its state
     RemeshFlags,        // the indicator on the owned leaves and the exchange of the flags
