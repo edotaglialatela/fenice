@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Pitching NACA 0012 at Re = 1000: a moving immersed body on an adaptive mesh, validated against the static airfoil, one script from the clone to the figures.
 #
-#   bash run_workstation.sh                 # the full job (about 2-4 h on 24 cores at the default resolution; the benchmark prints the estimate first)
+#   bash run_workstation.sh                 # the full job (hours: the benchmark prints the estimate first; LEVEL=2 is several times cheaper)
 #   QUICK=1 bash run_workstation.sh         # a few-minute smoke test of the whole chain (coarse mesh, short times): run it first
 #
 # Physics. NACA 0012, Re = 1000 (chord and inlet speed 1), Ma 0.2, a 12 x 6 box, quarter chord at (3, 3), slip walls at +-3 chords.
@@ -10,8 +10,9 @@
 #            Kurtulus 2015, 2019), so the flow ends steady; it must end on the STATIC 6-degree airfoil (validation of the moving wall).
 #   B  fast  0 -> 15 degrees in 1.5 time units (k = 0.087): above the critical angle, a lift overshoot, separation and vortex shedding (showcase).
 #   static   0, 3, 6, 10, 15 degrees on the same mesh: the polar, and the steady / unsteady transition between 6 and 10 degrees.
-# Mesh: base BASE_NX x BASE_NY with LEVEL refinement levels, the body always at the finest level (default 720 x 360, level 2: 240 cells per chord).
-# A is also run one level coarser to measure mesh convergence of the pitching lift.
+# Mesh: base BASE_NX x BASE_NY with LEVEL refinement levels, the body always at the finest level (default 720 x 360, level 3: 5760 x 2880 equivalent,
+# 480 cells per chord).
+# A is also run one level coarser (level 2, 240 cells per chord) to measure mesh convergence of the pitching lift.
 #
 # Environment (all optional):
 #   REPO_URL REF            what to clone (default: the GitHub repository, branch main)
@@ -34,7 +35,7 @@ if [[ $QUICK == 1 ]]; then   # the chain end to end, in minutes: coarse mesh, sh
     T_PRE=${T_PRE:-1.0}; T_RAMP_A=${T_RAMP_A:-1.5}; T_RAMP_B=${T_RAMP_B:-0.5}; T_END=${T_END:-5.0}; T_END_STATIC=${T_END_STATIC:-5.0}
     FRAME_DT=${FRAME_DT:-0.5}; BENCH_STEPS=${BENCH_STEPS:-20}
 else
-    BASE_NX=${BASE_NX:-720}; BASE_NY=${BASE_NY:-360}; LEVEL=${LEVEL:-2}
+    BASE_NX=${BASE_NX:-720}; BASE_NY=${BASE_NY:-360}; LEVEL=${LEVEL:-3}
     T_PRE=${T_PRE:-15}; T_RAMP_A=${T_RAMP_A:-6}; T_RAMP_B=${T_RAMP_B:-1.5}; T_END=${T_END:-45}; T_END_STATIC=${T_END_STATIC:-40}
     FRAME_DT=${FRAME_DT:-0.5}; BENCH_STEPS=${BENCH_STEPS:-150}
 fi
