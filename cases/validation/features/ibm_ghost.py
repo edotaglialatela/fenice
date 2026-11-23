@@ -100,7 +100,7 @@ CHECK_CASES = {   # name: (case, overrides)
 
 def loads(run):
     d = fenice.read_monitor(study.case_output(run))
-    return np.array([d["Cd"][-1], d["Cl"][-1]])
+    return np.array([d["Cd"][-1], d["Cl"][-1], d["Cm"][-1]])
 
 
 QUIET_CASE = """[case]

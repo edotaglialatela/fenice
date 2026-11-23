@@ -72,14 +72,14 @@ state = { rho = 1.0, u = 0.0, v = 0.0, p = 1.0 }
 """
 
 
-def run(ratio, cells, cfl=0.4):
+def run(ratio, cells, cfl=0.4, *extra, tag=""):
     """Run one mass ratio; returns the monitor (t, body_x)."""
     m = ratio * RHO_PR2
     k = (m + M_ADDED) * W * W
-    out = study.study_dir(STUDY) / f"mu{ratio:g}_n{cells}_cfl{cfl:g}"
+    out = study.study_dir(STUDY) / f"mu{ratio:g}_n{cells}_cfl{cfl:g}{tag}"
     out.mkdir(parents=True, exist_ok=True)
     (out / "case.toml").write_text(CASE)
-    fenice.run(str(out), f"nx={cells}", f"ny={cells}", f"ibm_mass={m!r}", f"ibm_stiff_x={k!r}", f"ibm_vx={V0}", f"cfl={cfl}", out_root=out / "run")
+    fenice.run(str(out), f"nx={cells}", f"ny={cells}", f"ibm_mass={m!r}", f"ibm_stiff_x={k!r}", f"ibm_vx={V0}", f"cfl={cfl}", *extra, out_root=out / "run")
     d = fenice.read_monitor(study.case_output(out / "run"))
     return d["t"], d["body_x"]
 
@@ -136,6 +136,12 @@ def main():
         ok = ok and diff < 0.02
         print(f"mass ratio 0.3, CFL 0.4 against 0.1: rms difference {100 * diff:.2f} % of the amplitude (time step of the fluid and the coupling together)  "
               f"{'ok' if diff < 0.02 else 'OUT OF BAND'}", flush=True)
+        # time outputs clamp a step to the time left before them, a much shorter step than its neighbours: the trajectory must not feel it
+        tc, xc = run(0.3, 240, 0.4, "write_interval_time=0.0517", "save_interval=1000000000", tag="_outputs")
+        diff = float(np.sqrt(np.mean((xa - np.interp(ta, tc, xc)) ** 2))) / amp
+        ok = ok and diff < 0.01
+        print(f"mass ratio 0.3, with time outputs every 0.0517 (clamped steps): rms difference {100 * diff:.2f} % of the amplitude  "
+              f"{'ok' if diff < 0.01 else 'OUT OF BAND'}", flush=True)
     print("ALL IN BAND" if ok else "OUT OF BAND")
     raise SystemExit(0 if ok else 1)
 

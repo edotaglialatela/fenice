@@ -128,7 +128,9 @@ std::array<double, 3> Simulation::ibm_loads(const Mesh& m, const ImmersedBoundar
     const std::vector<char>& solid = ib.mask();
     const double vol = m.is3d() ? m.cell_volume() : m.cell_area();
     double fx = 0.0, fy = 0.0, mz = 0.0;
-    const double pivot_x = ib.moving() ? p.ibm_cx + ib.pose().x : p.ibm_cx, pivot_y = ib.moving() ? p.ibm_cy + ib.pose().y : p.ibm_cy;   // follows the body
+    // the moment centre follows the body: from the whole-mesh body (an MPI strip's `ib` is a mask that was never placed)
+    const bool follows = ibm && ibm->moving();
+    const double pivot_x = follows ? p.ibm_cx + ibm->pose().x : p.ibm_cx, pivot_y = follows ? p.ibm_cy + ibm->pose().y : p.ibm_cy;
     for (int c = 0; c < m.num_cells(); ++c) {
         if (!solid[c]) continue;
         double rx = R[c][1], ry = R[c][2];
@@ -211,7 +213,9 @@ void Simulation::advance_body(double dt) {
     const double ax = (b.fx - p.ibm_stiff_x * b.x - p.ibm_damp_x * b.u) / p.ibm_mass + gx;
     const double ay = (b.fy - p.ibm_stiff_y * b.y - p.ibm_damp_y * b.v) / p.ibm_mass + gy;
     double u1, v1;
-    if (b.dt > 0.0) {   // Adams-Bashforth 2 for a variable step: v1 = v + dt ((1 + r/2) a - r/2 a_prev), r = dt / dt_prev
+    // Adams-Bashforth 2 for a variable step: v1 = v + dt ((1 + r/2) a - r/2 a_prev), r = dt / dt_prev. A step that follows a much shorter one (a step
+    // clamped to a time output) would multiply the change of the loads by a large r: it takes an Euler step instead (a smaller r is harmless).
+    if (b.dt > 0.0 && dt <= 2.0 * b.dt) {
         const double r = dt / b.dt;
         u1 = b.u + dt * ((1.0 + 0.5 * r) * ax - 0.5 * r * b.ax);
         v1 = b.v + dt * ((1.0 + 0.5 * r) * ay - 0.5 * r * b.ay);
