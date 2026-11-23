@@ -810,6 +810,18 @@ void Simulation::run_mpi(MPI_Comm comm) {
         decomp.fetch(ghost_fetch, Uin, ghost_remote);
         ibm->fill_ghosts_part(local_of, cells_of(Uin, ghost_remote, ghost_pos), Uout, fluid, reset);
     };
+    // The cells fill_ghosts writes in this strip (the ghost cells and the deeper solid cells: every solid cell). The residual forces the
+    // state in place and puts them back after the assembly (the way Simulation::assemble does: the same bits as forcing a copy of the strip,
+    // without the copy): the cells the ghost fill reads are fluid cells, which it never writes.
+    std::vector<int> forced_local;
+    std::vector<State> forced_saved;
+    if (ghost) {
+        std::vector<char> solid(ibm->mask().size(), 0);
+        for (size_t c = 0; c < solid.size(); ++c) solid[c] = ibm->mask()[c] ? 1 : 0;
+        for (const int c : ibm->ghost_cell_list()) solid[static_cast<size_t>(c)] = 1;
+        for (size_t c = 0; c < solid.size(); ++c)
+            if (solid[c] && local_of(static_cast<int>(c)) >= 0) forced_local.push_back(local_of(static_cast<int>(c)));
+    }
     if (ghost && start == 0) fill_ghosts(Field(U_local), U_local, false);
     if (root)
         std::printf("[MPI] Initial field scattered to all ranks  (total cells: %d, per-rank avg: %d)\n\n",
@@ -835,7 +847,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
         }
     };
 
-    Field halo_lo, halo_hi, forced, flag_field, flag_lo, flag_hi;
+    Field halo_lo, halo_hi, flag_field, flag_lo, flag_hi;
     // MUSCL-Hancock with an immersed body: the sides of the strip's cells that face a solid cell, from the mask of the whole mesh (a cell next to
     // the interface sees the solid cells of the neighbouring strip, as in the serial run)
     std::vector<unsigned char> strip_sides;
@@ -845,9 +857,10 @@ void Simulation::run_mpi(MPI_Comm comm) {
     const ResidualFn res = [&](const Field& Uin, Field& R) {
         const Field* Uc = &Uin;
         if (ghost) {
-            forced = Uin;
-            fill_ghosts(Uin, forced, false);
-            Uc = &forced;
+            Field& Uw = const_cast<Field&>(Uin);   // restored below; every caller passes a state it owns
+            forced_saved.resize(forced_local.size());
+            for (size_t k = 0; k < forced_local.size(); ++k) forced_saved[k] = Uw[static_cast<size_t>(forced_local[k])];
+            fill_ghosts(Uw, Uw, false);
         }
         bool has_lo, has_hi;
         decomp.exchange_halos(*Uc, periodic, halo_lo, halo_hi, has_lo, has_hi);
@@ -873,10 +886,15 @@ void Simulation::run_mpi(MPI_Comm comm) {
         }
         update_boundary_values(scheme->stage_time, lb);
         const double s = assemble(lm, lb, nullptr, local_muscl.get(), *Uc, R, &h);
+        if (ghost) {
+            Field& Uw = const_cast<Field&>(Uin);
+            for (size_t k = 0; k < forced_local.size(); ++k) Uw[static_cast<size_t>(forced_local[k])] = forced_saved[k];
+        }
         return decomp.allreduce_max(s);
     };
-    // Once per step: the ghost cells from the fluid, the deeper solid cells back to the reference state
-    const auto solid_reset = [&](Field& Uloc) { fill_ghosts(Field(Uloc), Uloc, true); };
+    // Once per step: the ghost cells from the fluid, the deeper solid cells back to the reference state (the cells it reads are
+    // fluid cells: no copy of the strip is needed)
+    const auto solid_reset = [&](Field& Uloc) { fill_ghosts(Uloc, Uloc, true); };
     const double min_delta = dt_length;
 
     if (start == 0) {
