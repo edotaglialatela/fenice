@@ -1138,7 +1138,12 @@ double fused_residual_3d(const FusedGrid& g, const Mesh& m, Field& R) {
         const int k0 = static_cast<int>(static_cast<long long>(nz) * tid / nthreads);
         const int k1 = static_cast<int>(static_cast<long long>(nz) * (tid + 1) / nthreads);
         if (k0 < k1) {
-            std::vector<State> fx(nx + 1), below(nx), above(nx), zlow(static_cast<size_t>(nx) * ny), zhigh(zlow.size());
+            // The z-face planes are kept between calls (a plane of a large mesh is past the size the allocator keeps, so every call
+            // mapped fresh pages); every row of them is written (fused_line writes the whole line) before it is read
+            thread_local std::vector<State> zlow, zhigh;
+            zlow.resize(static_cast<size_t>(nx) * ny);
+            zhigh.resize(zlow.size());
+            std::vector<State> fx(nx + 1), below(nx), above(nx);
             for (int j = 0; j < ny; ++j) fused_line(g, 2, j, k0, &zlow[static_cast<size_t>(j) * nx], local, scratch);
             for (int k = k0; k < k1; ++k) {
                 for (int j = 0; j < ny; ++j) fused_line(g, 2, j, k + 1, &zhigh[static_cast<size_t>(j) * nx], local, scratch);
@@ -2704,7 +2709,11 @@ double hancock_residual_3d_impl(const FusedGrid& g, const Mesh& m, double half_d
             HancockPlane pa(np), pb(np), pl(np);
             HancockPlane *cur = &pa, *next = &pb;
             const HancockPlane* low = nullptr;
-            std::vector<State> zlow(np), zhigh(np), below(nx), above(nx);
+            // kept between calls like the planes of fused_residual_3d; hancock_zfaces3 writes every row before it is read
+            thread_local std::vector<State> zlow, zhigh;
+            zlow.resize(np);
+            zhigh.resize(np);
+            std::vector<State> below(nx), above(nx);
             const auto predict_plane = [&](int k, HancockPlane& out) {
                 int stayed = 0;
                 for (int j = 0; j < ny; ++j) stayed += hancock_row3(g, hx, hy, hz, half_dt, source, j, k, out);
