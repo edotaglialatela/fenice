@@ -84,7 +84,8 @@ export FENICE_CASES=$REPO/cases
 export PYTHONPATH=$REPO/python${PYTHONPATH:+:$PYTHONPATH}
 FENICE=$("$PYTHON" -c "import fenice; print(fenice.exe())")
 STUDY=$REPO/cases/validation/features/pitching_airfoil
-RES=$WORK/results/pitching_airfoil$([[ $QUICK == 1 ]] && echo _quick)
+RES=$WORK/results/pitching_airfoil
+if [[ $QUICK == 1 ]]; then RES+=_quick; fi
 mkdir -p "$RES"
 echo "solver: $FENICE"
 
