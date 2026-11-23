@@ -213,8 +213,10 @@ void Simulation::solve() {
         pose.u = p.ibm_vx;
         pose.v = p.ibm_vy;
         pose.omega = p.ibm_omega;
-        ibm->move_to(mesh, pose);
-        hancock_sides_.clear();   // the solid-side flags of the MUSCL-Hancock predictor follow the mask
+        if (ibm->move_to(mesh, pose)) {
+            ibm->fill_fresh(U, fluid);   // the cells the body left take the state of the wall layer before any ghost fill
+            hancock_sides_.clear();      // the solid-side flags of the MUSCL-Hancock predictor follow the mask
+        }
     };
     const auto offer_residual = [&] {
         // a moving body changes the ghost table before the next step: the residual of the old pose is not the first stage of the next step

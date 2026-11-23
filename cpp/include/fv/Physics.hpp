@@ -242,10 +242,20 @@ public:
     void enable_motion(double px, double py);
     // True after enable_motion.
     bool moving() const { return moving_; }
-    // Place the body at `pose` and rebuild the mask and the ghost table (the whole table: an incremental rebuild is a later step).
-    // The ghost cells then carry the wall velocity of the pose, rigid-body motion at the closest wall point; the deeper solid cells carry
-    // the body velocity at the reference state. Cells the body left keep their stale state until the next fill (fresh cells).
-    void move_to(const Mesh& mesh, const BodyPose& pose);
+    // Place the body at `pose`. The geometry (mask, ghost table) is rebuilt only when the body has moved by more than a quarter cell
+    // since the last build (translation, or rotation times the largest distance from the pivot); in between the wall stays where it was
+    // built and only the velocities (of the pose) are refreshed. The ghost cells carry the wall velocity of the pose, rigid-body motion
+    // at the closest wall point; the deeper solid cells carry the body velocity at the reference state. Returns true if it rebuilt.
+    // The cells the body left (fresh cells) hold stale solid states until fill_fresh.
+    bool move_to(const Mesh& mesh, const BodyPose& pose);
+    // After a rebuilding move_to: the fresh cells take the state of the wall layer from an image point in the settled fluid (density and
+    // pressure with zero normal gradient, the velocity linear from the wall velocity at the wall to the image velocity). Call before any
+    // ghost fill; reads fluid cells only.
+    void fill_fresh(Field& U, const EOS& eos);
+    // Number of fresh cells of the last rebuild, and how many of them had no fluid around any image point (they copy the nearest settled
+    // fluid cell at the wall velocity).
+    int fresh_count() const { return static_cast<int>(fresh_.size()); }
+    int fresh_fallback_count() const { return fresh_fallback_; }
     // The pose of the last move_to (the identity before it).
     const BodyPose& pose() const { return pose_; }
     // The test the mask is made of: whether a cell centred at (x, y, z) is solid (z is read by the sphere only); the mask of
@@ -273,8 +283,20 @@ private:
         double nx = 0.0, ny = 0.0, nz = 0.0;
         double kappa = 0.0, span = 0.0;   // wall curvature (convex > 0) and distance image-ghost along the normal
         double wu = 0.0, wv = 0.0, ww = 0.0;   // wall velocity at the closest wall point (moving body only)
+        double wx = 0.0, wy = 0.0, wz = 0.0;   // the closest wall point
         Probe image;
     };
+    struct FreshCell {
+        int cell = 0;
+        double ratio = 0.0;   // distance cell-wall / distance image-wall
+        double wu = 0.0, wv = 0.0;
+        Probe image;
+    };
+    std::vector<FreshCell> fresh_;
+    int fresh_fallback_ = 0;
+    BodyPose built_;                 // the pose of the last geometry build
+    double reach_ = 0.0;             // largest distance of the body from the pivot (rotation moves the polygon by angle * reach_)
+    void refresh_wall_velocity();    // the ghost wall velocities from the current pose on the built geometry
     struct SurfacePoint {
         double x = 0.0, y = 0.0, nx = 0.0, ny = 0.0, ds = 0.0, d = 0.0;   // probes at d and 2 d along the normal
         Probe probe, probe2;
