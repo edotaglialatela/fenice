@@ -266,6 +266,13 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         if (ibm->ghost_fallback_count() > 0)
             std::printf("[WARNING] %d ghost cells have no fluid around their image point (a part of the body thinner than the "
                         "stencil): they take the nearest fluid cell, first order there\n", ibm->ghost_fallback_count());
+        if (p.ibm_moving()) {
+            if (p.use_amr) throw std::invalid_argument("a moving body runs on the uniform solver only (no AMR yet)");
+            ibm->enable_motion(p.ibm_cx, p.ibm_cy);
+            if (verbose)
+                std::printf("[IBM] Prescribed motion: v = (%g, %g), omega = %g about (%g, %g)\n", p.ibm_vx, p.ibm_vy, p.ibm_omega,
+                            p.ibm_cx, p.ibm_cy);
+        }
         if (verbose && p.reynolds > 0.0) std::printf("[PHYSICS] Re = %g -> mu = %g\n", p.reynolds, p.mu);
     }
 

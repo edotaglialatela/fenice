@@ -84,6 +84,10 @@ struct SimParams {
     double ibm_radius, ibm_cx, ibm_cy, ibm_cz;   // (cx, cy): centre, or an airfoil's quarter chord
     std::string ibm_file;        // Airfoil: Selig / Lednicer coordinate file (relative: to the case folder)
     double ibm_chord, ibm_aoa;   // airfoil chord and angle of attack [deg, nose up]
+    // Prescribed motion of the body (provisional keys, constant velocities): translation (ibm_vx, ibm_vy) [m/s] and rotation ibm_omega
+    // [rad/s] about (ibm_cx, ibm_cy), from the body's placement at t = 0. Zero everywhere: a static body.
+    double ibm_vx = 0.0, ibm_vy = 0.0, ibm_omega = 0.0;
+    bool ibm_moving() const { return ibm_vx != 0.0 || ibm_vy != 0.0 || ibm_omega != 0.0; }
     bool ibm_curvature = false;  // slip wall only: curvature pressure correction of the ghost cells (dp/dn = rho kappa u_t^2)
     double reynolds;             // > 0: sets mu = rho_in u_in L / reynolds (L: chord or diameter)
     std::string muscl_limiter;   // limiter of reconstruction = muscl

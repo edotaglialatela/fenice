@@ -182,6 +182,9 @@ const std::vector<ParamSpec>& parameter_table() {
     // ibm_method: retired (the ghost-cell wall is the only wall); auto and ghost are still read, mask is an error (SimParams::from)
     {"ibm_method", "ibm", nullptr},
     {"ibm_curvature", "ibm", "false"},
+    {"ibm_vx", "ibm", "0.0"},
+    {"ibm_vy", "ibm", "0.0"},
+    {"ibm_omega", "ibm", "0.0"},
 
     {"use_hot_start", "hot_start", "false"},
     {"hot_start_file", "hot_start", ""},
@@ -299,6 +302,9 @@ SimParams SimParams::from(const Params& p) {
                                         "wall (remove the key)");
     }
     s.ibm_curvature = p.flag("ibm_curvature");
+    s.ibm_vx = p.num("ibm_vx", 0.0);
+    s.ibm_vy = p.num("ibm_vy", 0.0);
+    s.ibm_omega = p.num("ibm_omega", 0.0);
     s.reynolds = p.num("reynolds", 0.0);
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
     s.reconstruction = lower(p.str("reconstruction", "none"));
@@ -458,6 +464,8 @@ SimParams SimParams::from(const Params& p) {
         throw std::invalid_argument("ibm_shape = Airfoil needs ibm_file (a Selig or Lednicer coordinate file)");
     if (s.use_ibm && airfoil && !(s.ibm_chord > 0.0)) throw std::invalid_argument("ibm_chord must be positive");
     if (s.use_ibm && s.nz > 1 && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is 2-D only (for now)");
+    if (s.use_ibm && s.ibm_moving() && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is not available for a moving body");
+    if (s.use_ibm && s.ibm_moving() && s.nz > 1) throw std::invalid_argument("a moving body is 2-D only (for now)");
     if (s.reynolds < 0.0) throw std::invalid_argument("reynolds must be >= 0 (0: use mu)");
     if (s.reynolds > 0.0) {
         // mu from the Reynolds number on the body: rho_in u_in L / mu, L = chord or diameter

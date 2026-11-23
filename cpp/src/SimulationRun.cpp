@@ -203,10 +203,25 @@ void Simulation::solve() {
     // and the first stage of the next step all use the one evaluation (offer_first_residual), the same bits as evaluating each again
     bool r_valid = false;
     double r_speed = 0.0;
+    const bool moving = p.use_ibm && ibm->moving();
+    // the body at time `tt` (constant velocities from its placement at t = 0); the pose is fixed during a step
+    const auto place_body = [&](double tt) {
+        ImmersedBoundary::BodyPose pose;
+        pose.x = p.ibm_vx * tt;
+        pose.y = p.ibm_vy * tt;
+        pose.angle = p.ibm_omega * tt;
+        pose.u = p.ibm_vx;
+        pose.v = p.ibm_vy;
+        pose.omega = p.ibm_omega;
+        ibm->move_to(mesh, pose);
+        hancock_sides_.clear();   // the solid-side flags of the MUSCL-Hancock predictor follow the mask
+    };
     const auto offer_residual = [&] {
-        if (r_valid) scheme->offer_first_residual(R_loads, r_speed);
+        // a moving body changes the ghost table before the next step: the residual of the old pose is not the first stage of the next step
+        if (r_valid && !moving) scheme->offer_first_residual(R_loads, r_speed);
         r_valid = false;
     };
+    if (moving) place_body(t);
     auto row = [&](int st) {   // averages, plus the IBM loads from a residual of the current state
         scheme->stage_time = t;
         std::array<double, 3> loads{};
@@ -235,8 +250,13 @@ void Simulation::solve() {
     offer_residual();
     LoopEngine engine;
     engine.advance = [&](int st, double t_stop) {
+        if (moving && st > start_step + 1) place_body(t);   // the first step of a run was placed above
         const StepResult r = scheme->step(U, res, min_delta, t, std::min(p.t_end, t_stop), p.dt_max);
         check_progress(t, r.dt, r.s_max, st, p.time_scheme.c_str());
+        if (moving) {   // the body must not leave the ghost table behind: at most one cell per step
+            const double travel = r.dt * std::max(std::abs(p.ibm_vx) / mesh.dx, std::abs(p.ibm_vy) / mesh.dy);
+            if (travel > 1.0) throw std::runtime_error("the moving body travelled more than one cell in a step (lower the CFL number)");
+        }
         if (p.use_ibm) ibm->apply_solid_reset(U, fluid);
         t += r.dt;
         scheme->stage_time = t;
@@ -655,6 +675,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     const bool root = (rank == 0);
 
     setup(p, root);
+    if (p.use_ibm && p.ibm_moving()) throw std::invalid_argument("a moving body runs on the serial uniform solver only (no MPI yet)");
     MPIDecomposition decomp(p.nx, p.ny, comm, p.nz);
 
     // Layout table

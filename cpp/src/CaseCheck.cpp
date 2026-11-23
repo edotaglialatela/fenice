@@ -40,7 +40,8 @@ const std::vector<Dependency>& dependencies() {
         {{"gx", "gy", "gz"}, [](const Params& p) { return p.flag("use_bodyforce"); }, "use_bodyforce is false"},
         {{"gz"}, [](const Params& p) { return p.integer("nz") > 1; }, "the run is 2-D (nz = 1)"},
         {{"Lz", "bc_zmin", "bc_zmax", "ibm_cz"}, [](const Params& p) { return p.integer("nz") > 1; }, "the run is 2-D (nz = 1)"},
-        {{"ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz", "ibm_file", "ibm_chord", "ibm_aoa", "ibm_curvature"},
+        {{"ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz", "ibm_file", "ibm_chord", "ibm_aoa", "ibm_curvature", "ibm_vx", "ibm_vy",
+          "ibm_omega"},
          [](const Params& p) { return p.flag("use_ibm"); }, "use_ibm is false"},
         {{"ibm_file", "ibm_chord", "ibm_aoa"},
          [](const Params& p) {

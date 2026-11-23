@@ -1074,6 +1074,65 @@ bool ImmersedBoundary::is_solid(const Mesh& m, int i, int j, int k) const {
     return sparse_ ? solid_at(m.xc(i), m.yc(j), m.zc(k)) : mask_[static_cast<size_t>(m.cell(i, j, k))] != 0;
 }
 
+void ImmersedBoundary::body_velocity(double x, double y, double z, double& bu, double& bv, double& bw) const {
+    (void)z;
+    const double px = pivot_x_ + pose_.x, py = pivot_y_ + pose_.y;
+    bu = pose_.u - pose_.omega * (y - py);
+    bv = pose_.v + pose_.omega * (x - px);
+    bw = pose_.w;
+}
+
+void ImmersedBoundary::enable_motion(double px, double py) {
+    if (!ghost_on_ || sparse_) throw std::logic_error("ImmersedBoundary::enable_motion: needs the dense ghost-cell wall (enable_ghost_cells first)");
+    if (curvature_) throw std::invalid_argument("ibm_curvature is not available for a moving body");
+    moving_ = true;
+    ref_cx_ = cx_;
+    ref_cy_ = cy_;
+    ref_cz_ = cz_;
+    ref_poly_ = poly_;
+    pivot_x_ = px;
+    pivot_y_ = py;
+    pose_ = BodyPose{};
+}
+
+void ImmersedBoundary::move_to(const Mesh& m, const BodyPose& pose) {
+    if (!moving_) throw std::logic_error("ImmersedBoundary::move_to: enable_motion first");
+    pose_ = pose;
+    mesh_ = m;
+    if (shape_ == Shape::Polygon) {
+        const double ca = std::cos(pose.angle), sa = std::sin(pose.angle);
+        poly_.pts.resize(ref_poly_.pts.size());
+        double x0 = 1e300, x1 = -1e300, y0 = 1e300, y1 = -1e300;
+        for (size_t q = 0; q < ref_poly_.pts.size(); ++q) {
+            const double rx = ref_poly_.pts[q][0] - pivot_x_, ry = ref_poly_.pts[q][1] - pivot_y_;
+            const double x = pivot_x_ + pose.x + ca * rx - sa * ry, y = pivot_y_ + pose.y + sa * rx + ca * ry;
+            poly_.pts[q] = {x, y};
+            x0 = std::min(x0, x);
+            x1 = std::max(x1, x);
+            y0 = std::min(y0, y);
+            y1 = std::max(y1, y);
+        }
+        px0_ = x0;
+        px1_ = x1;
+        py0_ = y0;
+        py1_ = y1;
+        std::fill(mask_.begin(), mask_.end(), 0);
+        for (int j = 0; j < ny_; ++j)
+            for (int i = 0; i < nx_; ++i) {
+                if (!solid_at(m.xc(i), m.yc(j), 0.0)) continue;
+                for (int k = 0; k < nz_; ++k) mask_[m.cell(i, j, k)] = 1;
+            }
+    } else {   // a circle or a sphere is its centre; rotation does not move it
+        cx_ = ref_cx_ + pose.x;
+        cy_ = ref_cy_ + pose.y;
+        cz_ = ref_cz_ + pose.z;
+        for (int k = 0; k < nz_; ++k)
+            for (int j = 0; j < ny_; ++j)
+                for (int i = 0; i < nx_; ++i) mask_[m.cell(i, j, k)] = solid_at(m.xc(i), m.yc(j), m.zc(k));
+    }
+    build_ghosts(m, slip_, curvature_, nullptr);
+}
+
 void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip, bool curvature) {
     sparse_ = false;
     build_ghosts(m, slip, curvature, nullptr);
@@ -1138,6 +1197,7 @@ void ImmersedBoundary::build_ghosts(const Mesh& m, bool slip, bool curvature, co
                     closest_wall_point3(m.xc(i), m.yc(j), m.zc(k), wx, wy, wz, g.nx, g.ny, g.nz);
                 else
                     closest_wall_point(m.xc(i), m.yc(j), wx, wy, g.nx, g.ny);
+                if (moving_) body_velocity(wx, wy, wz, g.wu, g.wv, g.ww);
                 const double ez = ball ? m.zc(k) - wz : 0.0;
                 const double dg = std::sqrt((m.xc(i) - wx) * (m.xc(i) - wx) + (m.yc(j) - wy) * (m.yc(j) - wy) + ez * ez);
                 double di;
@@ -1235,6 +1295,20 @@ void ImmersedBoundary::fill_ghosts_part(const CellIndex& local, const CellState&
         if (!mask_[c] || ghost_mask_[c]) continue;
         const int l = local(c);
         if (l < 0) continue;
+        if (moving_) {   // the deep cells ride with the body
+            double bu, bv, bw;
+            body_velocity(mesh_.xc(c % nx_), mesh_.yc((c / nx_) % ny_), 0.0, bu, bv, bw);
+            if (reset) {
+                U[static_cast<size_t>(l)] = eos.prim_to_cons({rho_ref_, bu, bv, p_ref_, bw});
+            } else {
+                State W = eos.cons_to_prim(U[static_cast<size_t>(l)]);
+                W[1] = bu;
+                W[2] = bv;
+                W[4] = bw;
+                U[static_cast<size_t>(l)] = eos.prim_to_cons(W);
+            }
+            continue;
+        }
         if (reset) {
             U[static_cast<size_t>(l)] = deep;
             continue;
@@ -1265,6 +1339,22 @@ void ImmersedBoundary::fill_ghost_cells(const CellIndex& local, const CellState&
         if (dst[static_cast<size_t>(k)] < 0) continue;
         State W = g.image.at(in, eos);
         const bool d3 = nz_ > 1;   // the 2-D lines stay as they were (no extra zero terms: the bits of the 2-D run are fixed)
+        if (moving_) {   // the wall condition in the frame of the wall point: relative velocity through zero (no-slip) or reflected (slip)
+            const double ru = W[1] - g.wu, rv = W[2] - g.wv, rw = d3 ? W[4] - g.ww : 0.0;
+            const double rn = d3 ? ru * g.nx + rv * g.ny + rw * g.nz : ru * g.nx + rv * g.ny;
+            double ux, uy, uz = 0.0;
+            if (slip_) {
+                ux = g.wu + ru - rn * g.nx - g.ratio * rn * g.nx;
+                uy = g.wv + rv - rn * g.ny - g.ratio * rn * g.ny;
+                if (d3) uz = g.ww + rw - rn * g.nz - g.ratio * rn * g.nz;
+            } else {
+                ux = g.wu - g.ratio * ru;
+                uy = g.wv - g.ratio * rv;
+                if (d3) uz = g.ww - g.ratio * rw;
+            }
+            val[static_cast<size_t>(k)] = eos.prim_to_cons({W[0], ux, uy, W[3], uz});
+            continue;
+        }
         const double un = d3 ? W[1] * g.nx + W[2] * g.ny + W[4] * g.nz : W[1] * g.nx + W[2] * g.ny;
         if (curvature_ && slip_ && g.kappa != 0.0) {   // normal momentum at the wall: p grows outwards by rho kappa u_t^2
             const double tx = W[1] - un * g.nx, ty = W[2] - un * g.ny;

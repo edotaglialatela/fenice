@@ -289,6 +289,53 @@ TEST(reynolds_and_ibm_loads) {
     CHECK(std::abs(loads[2]) < 1e-3 * loads[0]);
 }
 
+TEST(moving_wall_piston_matches_the_exact_shock) {
+    // A flat wall (a cylinder of radius 50, its sagitta over the 0.1 high tube is 1e-4) moves at u_p into a gas at rest: a shock runs ahead
+    // of it and the gas between them is the exact piston state. Band fixed beforehand: plateau mean within 2 % of the Rankine-Hugoniot
+    // values of pressure, density and velocity.
+    const double gamma = 1.4, up = 0.5, p1 = 1.0, rho1 = 1.0, x0 = 0.4, t_end = 0.5;
+    const double c0 = std::sqrt(gamma * p1 / rho1);
+    const double k = 0.5 * up * (gamma + 1.0) / c0;   // M - 1/M = k
+    const double M = 0.5 * (k + std::sqrt(k * k + 4.0));
+    const double p2 = p1 * (1.0 + 2.0 * gamma / (gamma + 1.0) * (M * M - 1.0));
+    const double rho2 = rho1 * (gamma + 1.0) * M * M / ((gamma - 1.0) * M * M + 2.0);
+    Simulation sim;
+    sim.setup(params_for("Sod Shock Tube", {{"Lx", "2.0"}, {"nx", "400"}, {"use_ibm", "true"}, {"ibm_shape", "Cylinder"},
+                                            {"ibm_radius", "50"}, {"ibm_cx", "-49.6"}, {"ibm_cy", "0.05"}, {"ibm_vx", "0.5"},
+                                            {"rho_in", "1.0"}, {"p_out", "1.0"}, {"use_viscous", "false"}, {"use_mpi", "false"}}),
+              false);
+    CHECK(sim.ibm->moving());
+    sim.U = uniform_field(sim.fluid, sim.mesh.num_cells(), rho1, 0.0, 0.0, p1);
+    const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
+    double t = 0.0;
+    while (t < t_end) {
+        ImmersedBoundary::BodyPose pose;
+        pose.x = up * t;
+        pose.u = up;
+        sim.ibm->move_to(sim.mesh, pose);
+        t += sim.scheme->step(sim.U, res, sim.dt_length, t, t_end).dt;
+        sim.ibm->apply_solid_reset(sim.U, sim.fluid);
+    }
+    const double x_piston = x0 + up * t, x_shock = x0 + M * c0 * t;
+    double sp = 0.0, sr = 0.0, su = 0.0;
+    int n = 0;
+    const int j = sim.mesh.ny / 2;
+    for (int i = 0; i < sim.mesh.nx; ++i) {
+        const double x = sim.mesh.xc(i);
+        if (x < x_piston + 0.1 || x > x_shock - 0.1) continue;
+        const State W = sim.fluid.cons_to_prim(sim.U[sim.mesh.cell(i, j, 0)]);
+        sr += W[0];
+        su += W[1];
+        sp += W[3];
+        ++n;
+    }
+    CHECK(n > 20);
+    std::printf("    piston plateau (%d cells): p %.4f / %.4f, rho %.4f / %.4f, u %.4f / %.4f\n", n, sp / n, p2, sr / n, rho2, su / n, up);
+    CHECK_NEAR(sp / n, p2, 0.02 * p2);
+    CHECK_NEAR(sr / n, rho2, 0.02 * rho2);
+    CHECK_NEAR(su / n, up, 0.02 * up);
+}
+
 TEST(bc_parse_labels) {
     CHECK(parse_bc("Inviscid Wall (Slip)") == BCType::Wall);
     CHECK(parse_bc("Mass Flow Inlet") == BCType::MassflowInlet);

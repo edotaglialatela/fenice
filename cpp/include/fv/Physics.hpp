@@ -227,6 +227,27 @@ public:
     void closest_wall_point3(double x, double y, double z, double& wx, double& wy, double& wz, double& nx, double& ny, double& nz) const;
     // True for a body built from its geometry (a shape or a polygon), false for a mask-only one.
     bool has_geometry() const { return shape_ != Shape::None; }
+
+    // Pose of a moving body relative to the geometry it was built with: translation (x, y, z), rotation `angle` [rad, counter-clockwise
+    // in the x-y plane] about the pivot given to enable_motion, and the velocities of the pivot (u, v, w) and the angular velocity omega.
+    struct BodyPose {
+        double x = 0.0, y = 0.0, z = 0.0;
+        double angle = 0.0;
+        double u = 0.0, v = 0.0, w = 0.0;
+        double omega = 0.0;
+    };
+    // Switch the wall to a moving one (after enable_ghost_cells; uniform meshes, geometry bodies, 2-D or a sphere). The geometry at
+    // this moment is the reference; (px, py) is the pivot of the rotation. Until this call nothing changes: a static body runs the
+    // static code and its bits are unchanged.
+    void enable_motion(double px, double py);
+    // True after enable_motion.
+    bool moving() const { return moving_; }
+    // Place the body at `pose` and rebuild the mask and the ghost table (the whole table: an incremental rebuild is a later step).
+    // The ghost cells then carry the wall velocity of the pose, rigid-body motion at the closest wall point; the deeper solid cells carry
+    // the body velocity at the reference state. Cells the body left keep their stale state until the next fill (fresh cells).
+    void move_to(const Mesh& mesh, const BodyPose& pose);
+    // The pose of the last move_to (the identity before it).
+    const BodyPose& pose() const { return pose_; }
     // The test the mask is made of: whether a cell centred at (x, y, z) is solid (z is read by the sphere only); the mask of
     // any mesh is this test at its cell centres (the adaptive mesh classifies its leaves with it). Throws for a mask-only body.
     bool solid_at(double x, double y, double z) const;
@@ -251,12 +272,20 @@ private:
         double ratio = 0.0;   // distance ghost-wall / distance image-wall (Dirichlet values scale by -ratio)
         double nx = 0.0, ny = 0.0, nz = 0.0;
         double kappa = 0.0, span = 0.0;   // wall curvature (convex > 0) and distance image-ghost along the normal
+        double wu = 0.0, wv = 0.0, ww = 0.0;   // wall velocity at the closest wall point (moving body only)
         Probe image;
     };
     struct SurfacePoint {
         double x = 0.0, y = 0.0, nx = 0.0, ny = 0.0, ds = 0.0, d = 0.0;   // probes at d and 2 d along the normal
         Probe probe, probe2;
     };
+    // motion (enable_motion / move_to): the reference geometry, the pivot, the current pose and the mesh of the last placement
+    bool moving_ = false;
+    double ref_cx_ = 0.0, ref_cy_ = 0.0, ref_cz_ = 0.0, pivot_x_ = 0.0, pivot_y_ = 0.0;
+    Polygon2D ref_poly_;
+    BodyPose pose_;
+    Mesh mesh_;
+    void body_velocity(double x, double y, double z, double& bu, double& bv, double& bw) const;   // rigid velocity of the pose at a point
     bool ghost_on_ = false, slip_ = false, curvature_ = false;
     int fallback_ = 0;      // ghost cells without an image point (ghost_fallback_count)
     bool sparse_ = false;   // the ghost wall of enable_ghost_cells_sparse: solidity from solid_at, no arrays over the mesh
