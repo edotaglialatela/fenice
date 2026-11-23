@@ -1203,17 +1203,32 @@ bool ImmersedBoundary::move_to(const Mesh& m, const BodyPose& pose) {
 }
 
 void ImmersedBoundary::fill_fresh(Field& U, const EOS& eos) {
-    const CellState in = [&U](int c) -> const State& { return U[static_cast<size_t>(c)]; };
+    fill_fresh_part([](int c) { return c; }, [&U](int c) -> const State& { return U[static_cast<size_t>(c)]; }, U, eos);
+}
+
+void ImmersedBoundary::fill_fresh_part(const CellIndex& local, const CellState& in, Field& U_part, const EOS& eos) {
     std::vector<State> val(fresh_.size());
     for (size_t q = 0; q < fresh_.size(); ++q) {   // from settled cells only: the order does not matter
         const FreshCell& f = fresh_[q];
+        if (local(f.cell) < 0) continue;
         const State W = f.image.at(in, eos);
         val[q] = eos.prim_to_cons({W[0], f.wu + f.ratio * (W[1] - f.wu), f.wv + f.ratio * (W[2] - f.wv), W[3], 0.0});
     }
-    for (size_t q = 0; q < fresh_.size(); ++q) U[static_cast<size_t>(fresh_[q].cell)] = val[q];
+    for (size_t q = 0; q < fresh_.size(); ++q) {
+        const int l = local(fresh_[q].cell);
+        if (l >= 0) U_part[static_cast<size_t>(l)] = val[q];
+    }
     fresh_.clear();
 }
 
+std::vector<int> ImmersedBoundary::fresh_inputs(const CellIndex& local) const {
+    std::vector<int> v;
+    for (const FreshCell& f : fresh_)
+        if (local(f.cell) >= 0)
+            for (int k = 0; k < 8; ++k)
+                if (f.image.w[k] != 0.0) v.push_back(f.image.cell[k]);
+    return v;
+}
 void ImmersedBoundary::enable_ghost_cells(const Mesh& m, bool slip, bool curvature) {
     sparse_ = false;
     build_ghosts(m, slip, curvature, nullptr);

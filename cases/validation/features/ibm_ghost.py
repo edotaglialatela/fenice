@@ -56,6 +56,15 @@ CHECK_CASES = {   # name: (case, overrides)
     # ibm_curvature (slip walls): the curvature of each ghost cell is geometry only, the correction reads the image point
     "supersonic_curv": ("IBM Supersonic Flow over Cylinder", ["ibm_curvature=true", "nx=100", "ny=100", "max_steps=30"]),
     "naca_slip_curv": ("IBM Airfoil", ["use_viscous=false", "reynolds=0", "ibm_curvature=true", "nx=192", "ny=96", "max_steps=20"]),
+    # prescribed motion (uniform mesh): every rank rebuilds the replicated ghost table together, the cells the body left are filled from
+    # fluid cells of other strips, and the fetch plan, the strip masks and the Hancock sides follow; the body crosses 1 to 3 cells
+    "moving_cylinder": ("IBM Flow over Cylinder", ["nx=200", "ny=100", "max_steps=30", "ibm_vx=2.0", "ibm_vy=0.7"]),
+    "moving_thin_strips": ("IBM Flow over Cylinder", ["Lx=1.5", "Ly=0.5", "nx=150", "ny=50", "ibm_cx=0.5", "ibm_cy=0.25", "max_steps=30",
+                                                      "ibm_vx=2.0", "ibm_vy=0.3"]),
+    "moving_slip_cylinder": ("IBM Flow over Cylinder", ["use_viscous=false", "nx=200", "ny=100", "max_steps=30", "ibm_vx=2.0", "ibm_vy=-0.5"]),
+    "moving_airfoil": ("IBM Airfoil", ["nx=192", "ny=96", "max_steps=20", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_omega=2.0"]),
+    "moving_cylinder_hancock": ("IBM Flow over Cylinder", ["nx=200", "ny=100", "max_steps=30", "ibm_vx=2.0", "ibm_vy=0.7",
+                                                           "time_scheme=MUSCL-Hancock"]),
     # AMR: the ghost table on the finest level, the image leaves in the MPI halo
     "amr_airfoil": ("IBM Airfoil AMR", ["max_steps=12"]),
     "amr_cylinder_curv": ("IBM Flow over Cylinder", ["use_viscous=false", "ibm_curvature=true", "use_amr=true", "amr_max_level=2",
@@ -76,10 +85,12 @@ def loads(run):
     return np.array([d["Cd"][-1], d["Cl"][-1]])
 
 
-def check(ranks):
-    """Serial against 2..N ranks: identical final states, loads equal to roundoff."""
+def check(ranks, only=None):
+    """Serial against 2..N ranks: identical final states, loads equal to roundoff (only: the cases whose name starts with it)."""
     ok = True
     for name, (case, sets) in CHECK_CASES.items():
+        if only and not name.startswith(only):
+            continue
         sets = [*sets, "save_interval=1000000000", "monitor_interval=10"]
         out = study.study_dir(STUDY) / "check" / name
         out.mkdir(parents=True, exist_ok=True)
@@ -191,11 +202,12 @@ def loads_study(args):
 def main():
     ap = study.parser(__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="MPI (2..7 ranks) against serial, bit for bit")
+    ap.add_argument("--only", help="with --check: only the cases whose name starts with this")
     ap.add_argument("--loads", action="store_true", help="cylinder Re = 40: monitor loads against a control volume")
     args = ap.parse_args()
     if not (args.check or args.loads):
         ap.error("choose --check or --loads")
-    raise SystemExit(check(7) if args.check else loads_study(args))
+    raise SystemExit(check(7, args.only) if args.check else loads_study(args))
 
 
 if __name__ == "__main__":

@@ -96,6 +96,8 @@ public:
     // i.e. the sum of their residuals R (from residual(U, R)) times the cell volume, body force
     // excluded: pressure and viscous parts together, for any shape. Per unit depth in 2-D.
     std::array<double, 3> ibm_loads(const Mesh& m, const ImmersedBoundary& ib, const Field& U, const Field& R) const;
+    // Pose of a body with a prescribed motion (ibm_vx, ibm_vy, ibm_omega) at time t: a pure function of t, so every MPI rank holds the same bits.
+    ImmersedBoundary::BodyPose prescribed_pose(double t) const;
 
     // Shared residual assembly for a (sub)domain, optionally with MPI halos.
     double assemble(const Mesh& m, const BoundaryManager& bm, const ImmersedBoundary* ib, const MusclReconstruction* mu,

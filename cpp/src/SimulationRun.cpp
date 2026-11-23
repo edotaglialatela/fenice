@@ -177,6 +177,17 @@ Simulation::LoopResult Simulation::run_loop(const LoopEngine& e) {
     return out;
 }
 
+ImmersedBoundary::BodyPose Simulation::prescribed_pose(double t) const {
+    ImmersedBoundary::BodyPose pose;
+    pose.x = p.ibm_vx * t;
+    pose.y = p.ibm_vy * t;
+    pose.angle = p.ibm_omega * t;
+    pose.u = p.ibm_vx;
+    pose.v = p.ibm_vy;
+    pose.omega = p.ibm_omega;
+    return pose;
+}
+
 // ---------------------------------------------------------------------------
 // Serial time loop
 // ---------------------------------------------------------------------------
@@ -206,14 +217,7 @@ void Simulation::solve() {
     const bool moving = p.use_ibm && ibm->moving();
     // the body at time `tt` (constant velocities from its placement at t = 0); the pose is fixed during a step
     const auto place_body = [&](double tt) {
-        ImmersedBoundary::BodyPose pose;
-        pose.x = p.ibm_vx * tt;
-        pose.y = p.ibm_vy * tt;
-        pose.angle = p.ibm_omega * tt;
-        pose.u = p.ibm_vx;
-        pose.v = p.ibm_vy;
-        pose.omega = p.ibm_omega;
-        if (ibm->move_to(mesh, pose)) {
+        if (ibm->move_to(mesh, prescribed_pose(tt))) {
             ibm->fill_fresh(U, fluid);   // the cells the body left take the state of the wall layer before any ghost fill
             hancock_sides_.clear();      // the solid-side flags of the MUSCL-Hancock predictor follow the mask
         }
@@ -677,7 +681,6 @@ void Simulation::run_mpi(MPI_Comm comm) {
     const bool root = (rank == 0);
 
     setup(p, root);
-    if (p.use_ibm && p.ibm_moving()) throw std::invalid_argument("a moving body runs on the serial uniform solver only (no MPI yet)");
     MPIDecomposition decomp(p.nx, p.ny, comm, p.nz);
 
     // Layout table
@@ -731,7 +734,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
                                                             p.weno_epsilon);
 
     std::unique_ptr<ImmersedBoundary> local_ibm;   // the strip's solid cells (the loads and the residual norms)
-    if (p.use_ibm) {
+    const auto build_local_ibm = [&] {   // again after the body moved
         const std::vector<char>& gm = ibm->mask();   // global mask: identical to the serial run
         auto gmask = [&](int k, int j, int i) {
             return gm[(static_cast<size_t>(k) * p.ny + (j + p.ny) % p.ny) * p.nx + (i + p.nx) % p.nx];
@@ -741,6 +744,9 @@ void Simulation::run_mpi(MPI_Comm comm) {
             for (int j = 0; j < lm.ny; ++j)
                 for (int i = 0; i < lm.nx; ++i) lmask.push_back(gmask(k, decomp.j_start + j, decomp.i_start + i));
         local_ibm = std::make_unique<ImmersedBoundary>(lm.nx, lm.ny, std::move(lmask), p.rho_in, p.p_out, lm.nz);
+    };
+    if (p.use_ibm) {
+        build_local_ibm();
         int mine = local_ibm->solid_count(), total = 0;
         MPI_Reduce(&mine, &total, 1, MPI_INT, MPI_SUM, 0, comm);
         if (root)
@@ -829,10 +835,12 @@ void Simulation::run_mpi(MPI_Comm comm) {
     MPIDecomposition::CellFetch ghost_fetch;
     std::vector<State> ghost_remote;
     std::unordered_map<int, int> ghost_pos;
-    if (ghost) {
+    const auto plan_ghost_fetch = [&] {   // collective; again after the body moved
         ghost_fetch = decomp.plan_fetch(ibm->ghost_inputs(local_of));
+        ghost_pos.clear();
         for (size_t k = 0; k < ghost_fetch.want.size(); ++k) ghost_pos[ghost_fetch.want[k]] = static_cast<int>(k);
-    }
+    };
+    if (ghost) plan_ghost_fetch();
     const auto cells_of = [&decomp](const Field& Ul, const std::vector<State>& remote, const std::unordered_map<int, int>& pos) {
         return [&decomp, &Ul, &remote, &pos](int c) -> const State& {
             const int l = decomp.local_index(c);
@@ -849,13 +857,15 @@ void Simulation::run_mpi(MPI_Comm comm) {
     // without the copy): the cells the ghost fill reads are fluid cells, which it never writes.
     std::vector<int> forced_local;
     std::vector<State> forced_saved;
-    if (ghost) {
+    const auto list_forced = [&] {
+        forced_local.clear();
         std::vector<char> solid(ibm->mask().size(), 0);
         for (size_t c = 0; c < solid.size(); ++c) solid[c] = ibm->mask()[c] ? 1 : 0;
         for (const int c : ibm->ghost_cell_list()) solid[static_cast<size_t>(c)] = 1;
         for (size_t c = 0; c < solid.size(); ++c)
             if (solid[c] && local_of(static_cast<int>(c)) >= 0) forced_local.push_back(local_of(static_cast<int>(c)));
-    }
+    };
+    if (ghost) list_forced();
     if (ghost && start == 0) fill_ghosts(Field(U_local), U_local, false);
     if (root)
         std::printf("[MPI] Initial field scattered to all ranks  (total cells: %d, per-rank avg: %d)\n\n",
@@ -885,8 +895,11 @@ void Simulation::run_mpi(MPI_Comm comm) {
     // MUSCL-Hancock with an immersed body: the sides of the strip's cells that face a solid cell, from the mask of the whole mesh (a cell next to
     // the interface sees the solid cells of the neighbouring strip, as in the serial run)
     std::vector<unsigned char> strip_sides;
-    if (p.use_ibm && dir == 'y') strip_sides = solid_side_mask(mesh, ibm->mask(), decomp.j_start, decomp.j_start + lm.ny);
-    if (p.use_ibm && dir == 'x') strip_sides = solid_side_mask(mesh, ibm->mask(), 0, -1, decomp.i_start, decomp.i_start + lm.nx);
+    const auto build_strip_sides = [&] {
+        if (p.use_ibm && dir == 'y') strip_sides = solid_side_mask(mesh, ibm->mask(), decomp.j_start, decomp.j_start + lm.ny);
+        if (p.use_ibm && dir == 'x') strip_sides = solid_side_mask(mesh, ibm->mask(), 0, -1, decomp.i_start, decomp.i_start + lm.nx);
+    };
+    build_strip_sides();
     const bool hancock = dynamic_cast<const MusclHancock*>(scheme.get()) != nullptr;
     const ResidualFn res = [&](const Field& Uin, Field& R) {
         const Field* Uc = &Uin;
@@ -968,16 +981,39 @@ void Simulation::run_mpi(MPI_Comm comm) {
         MPI_Allreduce(mine_rs.data(), rs.data(), 4, MPI_DOUBLE, MPI_SUM, comm);
         monitor_row(mon, st, v, p.use_ibm ? &loads : nullptr, residual_norms(rs));
     };
+    const bool moving = p.use_ibm && ibm->moving();
+    // Every rank places the body at the same time with the same bits (the pose is a function of t; the replicated ghost table is rebuilt
+    // everywhere together). What depends on the table is made again: the strip's solid cells, the ghost fetch plan (collective), the list of forced
+    // cells, the Hancock sides; the cells the body left take the wall-layer state from fluid cells fetched from the other strips.
+    const auto place_body = [&](double tt) {
+        if (!ibm->move_to(mesh, prescribed_pose(tt))) return;
+        MPIDecomposition::CellFetch plan = decomp.plan_fetch(ibm->fresh_inputs(local_of));
+        std::vector<State> remote;
+        decomp.fetch(plan, U_local, remote);
+        std::unordered_map<int, int> pos;
+        for (size_t k = 0; k < plan.want.size(); ++k) pos[plan.want[k]] = static_cast<int>(k);
+        ibm->fill_fresh_part(local_of, cells_of(U_local, remote, pos), U_local, fluid);
+        build_local_ibm();
+        plan_ghost_fetch();
+        list_forced();
+        build_strip_sides();
+    };
     const auto offer_residual = [&] {
-        if (r_valid) scheme->offer_first_residual(R_loads, r_speed);
+        if (r_valid && !moving) scheme->offer_first_residual(R_loads, r_speed);   // a moving body: the table changes before the next step
         r_valid = false;
     };
+    if (moving) place_body(t);
     if (monitoring && step == 0) row(step);
     offer_residual();
     LoopEngine engine;
     engine.advance = [&](int st, double t_stop) {
+        if (moving && st > start_step + 1) place_body(t);   // the first step of a run was placed above
         const StepResult sr = scheme->step(U_local, res, min_delta, t, std::min(p.t_end, t_stop), p.dt_max);
         check_progress(t, sr.dt, sr.s_max, st, p.time_scheme.c_str());
+        if (moving) {   // as in the serial loop: at most one cell per step
+            const double travel = sr.dt * std::max(std::abs(p.ibm_vx) / mesh.dx, std::abs(p.ibm_vy) / mesh.dy);
+            if (travel > 1.0) throw std::runtime_error("the moving body travelled more than one cell in a step (lower the CFL number)");
+        }
         if (p.use_ibm) solid_reset(U_local);
         t += sr.dt;
         scheme->stage_time = t;

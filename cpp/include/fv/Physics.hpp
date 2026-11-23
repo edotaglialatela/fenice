@@ -252,6 +252,10 @@ public:
     // pressure with zero normal gradient, the velocity linear from the wall velocity at the wall to the image velocity). Call before any
     // ghost fill; reads fluid cells only.
     void fill_fresh(Field& U, const EOS& eos);
+    // The same on a part of the mesh (MPI strips; local, in as in fill_ghosts_part): fills the fresh cells the part owns, with the bits of fill_fresh,
+    // and forgets the fresh cells. fresh_inputs: the global cells they read (the part's own are among them).
+    void fill_fresh_part(const CellIndex& local, const CellState& in, Field& U_part, const EOS& eos);
+    std::vector<int> fresh_inputs(const CellIndex& local) const;
     // Number of fresh cells of the last rebuild, and how many of them had no fluid around any image point (they copy the nearest settled
     // fluid cell at the wall velocity).
     int fresh_count() const { return static_cast<int>(fresh_.size()); }
