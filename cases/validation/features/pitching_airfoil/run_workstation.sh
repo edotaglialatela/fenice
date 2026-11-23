@@ -11,15 +11,19 @@
 #   B  fast  0 -> 15 degrees in 1.5 time units (k = 0.087): above the critical angle, a lift overshoot, separation and vortex shedding (showcase).
 #   static   0, 3, 6, 10, 15 degrees on the same mesh: the polar, and the steady / unsteady transition between 6 and 10 degrees.
 # Mesh: base BASE_NX x BASE_NY with LEVEL refinement levels, the body always at the finest level (default 720 x 360, level 3: 5760 x 2880 equivalent,
-# 480 cells per chord).
-# A is also run one level coarser (level 2, 240 cells per chord) to measure mesh convergence of the pitching lift.
+# 480 cells per chord). A is also run one level coarser (level 2, 240 cells per chord) to measure mesh convergence of the pitching lift.
+# Animation: run B writes a snapshot every FRAME_DT (default 0.1: about 8 frames per shedding period, 15 across the pitch); a watcher renders each
+# snapshot as soon as it appears and deletes it (disk stays small), only up to FRAME_TMAX (default 34); the movie plays 20 frames per second.
+#
+# Cores: the machine is split into JOBS lanes (default 3) of whole physical cores, each pinned. SMT=auto (default) benchmarks one thread per core against
+# all hardware threads on the first 150 steps and keeps the faster layout; SMT=0 or 1 forces one.
 #
 # Environment (all optional):
 #   REPO_URL REF            what to clone (default: the GitHub repository, branch main)
 #   WORK                    working directory (default ./fenice_pitching): clone in $WORK/fenice, results in $WORK/results
 #   REPO_DIR                use this existing checkout instead of cloning; SKIP_SETUP=1 also skips the build and the Python environment
-#   THREADS                 cores to use (default: the physical cores); JOBS: runs side by side (default 3), each with THREADS/JOBS cores, pinned
-#   BASE_NX BASE_NY LEVEL   the mesh; FRAME_DT time between the snapshots of run B (default 0.5); KEEP_VTU=1 keeps the snapshots after the frames
+#   CORES                   physical cores to use (default: all); JOBS: runs side by side (default 3); SMT: auto | 0 | 1
+#   BASE_NX BASE_NY LEVEL   the mesh; FRAME_DT, FRAME_TMAX the animation; KEEP_VTU=1 keeps the snapshots after rendering
 #   REF_CSV                 optional reference polar (columns alpha_deg,Cl,Cd) to compare the static runs with (not gated)
 set -euo pipefail
 
@@ -33,15 +37,16 @@ PYTHON=${PYTHON:-python3}
 if [[ $QUICK == 1 ]]; then   # the chain end to end, in minutes: coarse mesh, short times
     BASE_NX=${BASE_NX:-96}; BASE_NY=${BASE_NY:-48}; LEVEL=${LEVEL:-2}
     T_PRE=${T_PRE:-1.0}; T_RAMP_A=${T_RAMP_A:-1.5}; T_RAMP_B=${T_RAMP_B:-0.5}; T_END=${T_END:-5.0}; T_END_STATIC=${T_END_STATIC:-5.0}
-    FRAME_DT=${FRAME_DT:-0.5}; BENCH_STEPS=${BENCH_STEPS:-20}
+    FRAME_DT=${FRAME_DT:-0.25}; FRAME_TMAX=${FRAME_TMAX:-$T_END}; BENCH_STEPS=${BENCH_STEPS:-20}
 else
     BASE_NX=${BASE_NX:-720}; BASE_NY=${BASE_NY:-360}; LEVEL=${LEVEL:-3}
     T_PRE=${T_PRE:-15}; T_RAMP_A=${T_RAMP_A:-6}; T_RAMP_B=${T_RAMP_B:-1.5}; T_END=${T_END:-45}; T_END_STATIC=${T_END_STATIC:-40}
-    FRAME_DT=${FRAME_DT:-0.5}; BENCH_STEPS=${BENCH_STEPS:-150}
+    FRAME_DT=${FRAME_DT:-0.1}; FRAME_TMAX=${FRAME_TMAX:-34}; BENCH_STEPS=${BENCH_STEPS:-150}
 fi
 DALPHA_A=${DALPHA_A:-6}; DALPHA_B=${DALPHA_B:-15}
 STATICS=${STATICS:-"0 3 6 10 15"}
 JOBS=${JOBS:-3}
+SMT=${SMT:-auto}
 KEEP_VTU=${KEEP_VTU:-0}
 
 say() { printf '\n==== %s ====\n' "$*"; }
@@ -86,25 +91,35 @@ echo "solver: $FENICE"
 say "unit test of the rotation schedule"
 if [[ -x $(dirname "$FENICE")/fenice_tests ]]; then "$(dirname "$FENICE")/fenice_tests" prescribed_rotation | tail -1; fi
 
-# ---------------------------------------------------------------- 2. cores: one logical CPU per physical core, split into lanes
-NPROC=$(nproc)
-CORES=()
+# ---------------------------------------------------------------- 2. cores: whole physical cores (with or without their SMT siblings) per lane
+CORE_CPUS=()   # one entry per physical core: its logical CPUs, comma separated
 if command -v lscpu >/dev/null 2>&1; then
-    mapfile -t CORES < <(lscpu -p=CPU,CORE 2>/dev/null | grep -v '^#' | sort -t, -k2n -k1n | awk -F, '!seen[$2]++{print $1}')
+    mapfile -t CORE_CPUS < <(lscpu -p=CPU,CORE 2>/dev/null | grep -v '^#' | sort -t, -k2n -k1n | awk -F, '{c[$2]=($2 in c)?c[$2]","$1:$1} END{for(k in c) print k" "c[k]}' | sort -n | awk '{print $2}')
 fi
-if (( ${#CORES[@]} == 0 )); then for ((i = 0; i < NPROC; i++)); do CORES+=("$i"); done; fi
-THREADS=${THREADS:-${#CORES[@]}}
-(( THREADS > ${#CORES[@]} )) && THREADS=${#CORES[@]}
-(( JOBS > THREADS )) && JOBS=$THREADS
-PER=$(( THREADS / JOBS ))
-LANE_CPUS=()
-for ((j = 0; j < JOBS; j++)); do
-    LANE_CPUS+=("$(IFS=,; echo "${CORES[*]:$((j * PER)):$PER}")")
-done
-echo "physical cores: ${#CORES[@]}; using $THREADS in $JOBS lanes of $PER threads: ${LANE_CPUS[*]}"
+if (( ${#CORE_CPUS[@]} == 0 )); then for ((i = 0; i < $(nproc); i++)); do CORE_CPUS+=("$i"); done; fi
+NCORES=${CORES:-${#CORE_CPUS[@]}}
+(( NCORES > ${#CORE_CPUS[@]} )) && NCORES=${#CORE_CPUS[@]}
+(( JOBS > NCORES )) && JOBS=$NCORES
+CPL=$(( NCORES / JOBS ))   # physical cores per lane
+
+make_lanes() {   # smt (0: first CPU of each core, 1: all) -> LANE_CPUS, PER (threads per lane)
+    LANE_CPUS=()
+    PER=0
+    local j k list c cpus
+    for ((j = 0; j < JOBS; j++)); do
+        list=""
+        for ((k = 0; k < CPL; k++)); do
+            c=${CORE_CPUS[$((j * CPL + k))]}
+            if [[ $1 == 1 ]]; then cpus=$c; else cpus=${c%%,*}; fi
+            list+=${list:+,}$cpus
+        done
+        LANE_CPUS+=("$list")
+        PER=$(awk -F, '{print NF}' <<< "$list")
+    done
+}
+echo "physical cores: ${#CORE_CPUS[@]} (using $NCORES in $JOBS lanes of $CPL), hardware threads per core: $(awk -F, '{print NF; exit}' <<< "${CORE_CPUS[0]}")"
 
 # ---------------------------------------------------------------- 3. the runs
-pi_over_180() { awk 'BEGIN{printf "%.15f", atan2(0,-1)/180}'; }
 omega_for() { awk -v d="$1" -v T="$2" 'BEGIN{printf "%.15f", -d*atan2(0,-1)/180/T}'; }   # nose-up is clockwise: negative
 sum() { awk -v a="$1" -v b="$2" 'BEGIN{printf "%.10g", a+b}'; }
 lvl_a=$(( LEVEL - 1 ))   # the coarse twin of A (mesh convergence), if there is a level below
@@ -138,23 +153,45 @@ run_tag() {   # tag threads cpus [extra sets...]
     sets=(${SETS[$tag]})
     local args=()
     for s in "${sets[@]}" "$@"; do args+=(--set "$s"); done
-    OMP_NUM_THREADS=$thr OMP_PROC_BIND=close OMP_PLACES=cores \
+    OMP_NUM_THREADS=$thr OMP_PROC_BIND=close OMP_PLACES=threads \
         ${pin[@]+"${pin[@]}"} "$FENICE" --case "IBM Airfoil Pitch" --no-logo --threads "$thr" --set "output_root=$out" --set use_mpi=false \
         "${args[@]}" > "$out/log.txt" 2>&1
 }
 
+bench_layout() {   # smt -> prints the slowest lane's loop time; leaves $RES/bench*/
+    make_lanes "$1"
+    local pids=() j
+    for ((j = 0; j < JOBS; j++)); do
+        SETS["bench$j"]="nx=$BASE_NX ny=$BASE_NY amr_max_level=$LEVEL t_end=1000 ibm_aoa=10 max_steps=$BENCH_STEPS monitor_interval=1"
+        ( run_tag "bench$j" "$PER" "${LANE_CPUS[$j]}" ) &
+        pids+=($!)
+    done
+    for p in "${pids[@]}"; do wait "$p"; done
+    local worst=0 l
+    for ((j = 0; j < JOBS; j++)); do
+        l=$(grep -o 'time loop [0-9.]*' "$RES/bench$j/log.txt" | tail -1 | awk '{print $3}')
+        worst=$(awk -v a="$worst" -v b="${l:-1e9}" 'BEGIN{print (b > a ? b : a)}')
+    done
+    echo "$worst"
+}
+
 say "benchmark: $JOBS runs side by side, $BENCH_STEPS steps each"
-BENCH_PIDS=()
-for ((j = 0; j < JOBS; j++)); do
-    SETS["bench$j"]="nx=$BASE_NX ny=$BASE_NY amr_max_level=$LEVEL t_end=1000 ibm_aoa=10 max_steps=$BENCH_STEPS monitor_interval=1"
-    ( run_tag "bench$j" "$PER" "${LANE_CPUS[$j]}" ) &
-    BENCH_PIDS+=($!)
-done
-for p in "${BENCH_PIDS[@]}"; do wait "$p"; done
-LOOP=$(grep -o 'time loop [0-9.]*' "$RES/bench0/log.txt" | tail -1 | awk '{print $3}')
+HAS_SMT=0; [[ ${CORE_CPUS[0]} == *,* ]] && HAS_SMT=1
+if [[ $SMT == auto ]] && (( HAS_SMT )); then
+    make_lanes 0; P0=$PER; T0=$(bench_layout 0); echo "one thread per core  ($P0 threads per lane): $T0 s"
+    make_lanes 1; P1=$PER; T1=$(bench_layout 1); echo "all hardware threads ($P1 threads per lane): $T1 s"
+    if awk -v a="$T0" -v b="$T1" 'BEGIN{exit !(b < a)}'; then SMT=1; LOOP=$T1; else SMT=0; LOOP=$T0; fi
+    echo "layout kept: SMT=$SMT"
+else
+    [[ $SMT == auto ]] && SMT=0
+    make_lanes "$SMT"
+    LOOP=$(bench_layout "$SMT")
+fi
+make_lanes "$SMT"
+echo "layout: $PER threads per lane, cpus ${LANE_CPUS[*]}"
 DT=$("$PYTHON" "$STUDY/pitching_airfoil.py" dt "$RES/bench0")
 LEAVES=$(grep -o '[0-9]* leaves at the end' "$RES/bench0/log.txt" | tail -1 | awk '{print $1}')
-echo "time step dt = $DT, leaves after $BENCH_STEPS steps: ${LEAVES:-?}, $LOOP s for $BENCH_STEPS steps per lane (the start-up included: the estimate is an upper bound)"
+echo "time step dt = $DT, leaves after $BENCH_STEPS steps: ${LEAVES:-?}, $LOOP s for $BENCH_STEPS steps (the slowest lane, start-up included: the estimate is an upper bound)"
 "$PYTHON" - "$DT" "$LOOP" "$BENCH_STEPS" "$RUNS_TSV" "$JOBS" <<'PYEOF'
 import sys
 dt, loop, n, tsv, jobs = float(sys.argv[1]), float(sys.argv[2]), int(sys.argv[3]), sys.argv[4], int(sys.argv[5])
@@ -166,19 +203,28 @@ for r in rows:
     cost += steps * per_step
 print(f"estimate: {cost / jobs / 3600:.1f} h wall-clock for {len(rows)} runs in {jobs} lanes (the fine runs take about {float(rows[0][7]) / dt * per_step / 3600:.1f} h each; dt shrinks a little as the flow develops)")
 PYEOF
-SI=$(awk -v f="$FRAME_DT" -v dt="$DT" 'BEGIN{n=int(f/dt+0.5); if(n<1)n=1; print n}')
+# a snapshot every FRAME_DT, on a multiple of the monitor interval (5 steps: the renderer finds the time of a snapshot in the monitor file)
+SI=$(awk -v f="$FRAME_DT" -v dt="$DT" 'BEGIN{n=int(f/dt/5+0.5)*5; if(n<5)n=5; print n}')
+echo "snapshot every $SI steps (about $(awk -v s="$SI" -v dt="$DT" 'BEGIN{printf "%.3f", s*dt}') time units)"
 rm -rf "$RES"/bench*
 
 say "runs (logs in $RES/<tag>/log.txt)"
 # greedy balance of the runs over the lanes by their estimated cost
 declare -a LANE_TAGS LANE_LOAD
 for ((j = 0; j < JOBS; j++)); do LANE_TAGS[j]=""; LANE_LOAD[j]=0; done
-for tag in $(for t in "${!COST[@]}"; do [[ $t == bench* ]] || echo "${COST[$t]} $t"; done | sort -rn | awk '{print $2}'); do
+for tag in $(for t in "${!COST[@]}"; do echo "${COST[$t]} $t"; done | sort -rn | awk '{print $2}'); do
     best=0
     for ((j = 1; j < JOBS; j++)); do (( LANE_LOAD[j] < LANE_LOAD[best] )) && best=$j; done
     LANE_TAGS[best]+=" $tag"
     LANE_LOAD[best]=$(( LANE_LOAD[best] + COST[$tag] ))
 done
+
+# the watcher: renders the snapshots of run B while it runs, and deletes them (a flag file tells it that the run has ended)
+mkdir -p "$RES/B_L$LEVEL"
+rm -f "$RES/B_L$LEVEL/DONE"
+( nice "$PYTHON" "$STUDY/pitching_airfoil.py" frames "$RES/B_L$LEVEL" --follow --tmax "$FRAME_TMAX" --keep-vtu "$KEEP_VTU" > "$RES/frames.log" 2>&1 ) &
+FRAMES_PID=$!
+
 LANE_PIDS=()
 for ((j = 0; j < JOBS; j++)); do
     (
@@ -186,7 +232,10 @@ for ((j = 0; j < JOBS; j++)); do
             extra=()
             if [[ $tag == B_L$LEVEL ]]; then extra=(save_interval="$SI" vtk_format=binary); fi
             echo "[lane $j] $tag start $(date +%H:%M:%S)"
-            run_tag "$tag" "$PER" "${LANE_CPUS[$j]}" ${extra[@]+"${extra[@]}"} || { echo "[lane $j] $tag FAILED (see $RES/$tag/log.txt)"; exit 1; }
+            st=0
+            run_tag "$tag" "$PER" "${LANE_CPUS[$j]}" ${extra[@]+"${extra[@]}"} || st=1
+            [[ $tag == B_L$LEVEL ]] && touch "$RES/$tag/DONE"
+            (( st == 0 )) || { echo "[lane $j] $tag FAILED (see $RES/$tag/log.txt)"; exit 1; }
             echo "[lane $j] $tag done  $(date +%H:%M:%S)"
         done
     ) &
@@ -194,6 +243,8 @@ for ((j = 0; j < JOBS; j++)); do
 done
 FAIL=0
 for p in "${LANE_PIDS[@]}"; do wait "$p" || FAIL=1; done
+touch "$RES/B_L$LEVEL/DONE"
+wait "$FRAMES_PID" || echo "the frame renderer failed: see $RES/frames.log"
 (( FAIL == 0 )) || { echo "a run failed: see the logs above"; exit 1; }
 
 # ---------------------------------------------------------------- 4. post-processing
@@ -201,10 +252,10 @@ say "post-processing"
 set +e
 "$PYTHON" "$STUDY/pitching_airfoil.py" post "$RES" ${REF_CSV:+--reference "$REF_CSV"}
 POST=$?
-"$PYTHON" "$STUDY/pitching_airfoil.py" frames "$RES/B_L$LEVEL" --runs "$RUNS_TSV" ${KEEP_VTU:+--keep-vtu "$KEEP_VTU"}
 set -e
+tail -2 "$RES/frames.log" || true
 if command -v ffmpeg >/dev/null 2>&1 && ls "$RES/frames"/frame_*.png >/dev/null 2>&1; then
-    ffmpeg -y -loglevel error -framerate 12 -i "$RES/frames/frame_%04d.png" -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" "$RES/pitch_B_vorticity.mp4" || true
+    ffmpeg -y -loglevel error -framerate 20 -i "$RES/frames/frame_%04d.png" -pix_fmt yuv420p -vf "scale=trunc(iw/2)*2:trunc(ih/2)*2" "$RES/pitch_B_vorticity.mp4" || true
 fi
 ( cd "$WORK/results" && tar czf "$(basename "$RES").tar.gz" --exclude='*.vtu' --exclude='*.pvtu' "$(basename "$RES")" ) || true
 say "finished"

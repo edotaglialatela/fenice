@@ -2,7 +2,8 @@
 
     python pitching_airfoil.py dt DIR                        # time per step of a short run (used by the script to plan the frames)
     python pitching_airfoil.py post RESULTS [--reference polar.csv]   # statistics, gates, figures, report.md; exit code 1 if a gate fails
-    python pitching_airfoil.py frames RUN_B --runs runs.tsv  # vorticity frames and a GIF from the snapshots of the fast pitch-up
+    python pitching_airfoil.py frames RUN_B [--follow] [--tmax T] [--keep-vtu 1]   # vorticity frames and a GIF from the snapshots of the fast pitch-up
+                                                             # (--follow: render while the run is going, stop when RUN_B/DONE exists)
 
 The runs (``RESULTS/runs.tsv``): A (slow, 0 -> 6 degrees) at the fine and the coarser level, B (fast, 0 -> 15 degrees), and the static airfoil at several
 angles on the same mesh. What is checked, with the bands fixed BEFORE the runs (smoke runs, ``*_quick``, report them and always exit 0):
@@ -271,6 +272,12 @@ def cmd_post(a):
 
 # --------------------------------------------------------------------------------------------------------------------------- frames
 def cmd_frames(a):
+    """Vorticity frames of run B. Snapshots are named <prefix>_<step>.vtu and their time comes from the monitor file (the script writes them on a multiple
+    of the monitor interval). With --follow the renderer waits for new snapshots until the file DONE appears in the run folder: it draws each one
+    and deletes it (unless --keep-vtu), so the disk holds a few snapshots at a time; snapshots outside [rest - 1, --tmax] are deleted unrendered."""
+    import re
+    import time
+
     import matplotlib
     matplotlib.use("Agg")
     import matplotlib.pyplot as plt
@@ -280,24 +287,27 @@ def cmd_frames(a):
 
     from fenice.geometry import naca4, place_airfoil, polygon_contains
 
-    root = Path(a.run).parent
-    runs = load_runs(root)
-    run = runs[Path(a.run).name]
-    pvd = next(Path(a.run).rglob("*.pvd"), None)
-    if pvd is None:
-        print("no snapshots (.pvd) found: no frames")
-        return
-    snaps = fenice.read_pvd(pvd)
+    run_dir = Path(a.run)
+    root = run_dir.parent
+    run = load_runs(root)[run_dir.name]
     frames = root / "frames"
     frames.mkdir(exist_ok=True)
     xw, yw, px = (1.5, 8.5), (2.0, 4.0), 0.004
     X, Y = np.meshgrid(np.arange(xw[0], xw[1], px) + 0.5 * px, np.arange(yw[0], yw[1], px) + 0.5 * px)
     unit = naca4("0012")
     t_start = max(0.0, run.t_from - 1.0)
-    done = []
-    for t, path in snaps:
-        if t < t_start:
-            continue
+    seen, done = set(), []
+
+    def times():
+        """step -> time from the monitor file (it may be mid-write: then nothing is known yet)."""
+        try:
+            folder = next(f.parent for f in run_dir.rglob("*_monitor.csv"))
+            m = fenice.read_monitor(folder)
+            return dict(zip(m["step"].astype(int).tolist(), m["t"].tolist()))
+        except (StopIteration, ValueError, OSError, IndexError):
+            return {}
+
+    def render(t, path):
         d = fenice.read_vtu(path)
         cx, cy = 0.5 * (d["x0"] + d["x1"]), 0.5 * (d["y0"] + d["y1"])
         near = (cx > xw[0] - 0.1) & (cx < xw[1] + 0.1) & (cy > yw[0] - 0.1) & (cy < yw[1] + 0.1)
@@ -320,14 +330,42 @@ def cmd_frames(a):
         fig.savefig(name, dpi=100)
         plt.close(fig)
         done.append(name)
-        if not a.keep_vtu:
-            for f in Path(path).parent.glob(Path(path).stem + "*"):   # the snapshot is rendered: drop it (a .pvtu lists pieces next to it)
-                if f.suffix in (".vtu", ".pvtu"):
-                    f.unlink(missing_ok=True)
+
+    def sweep(final):
+        known = times()
+        snaps = []
+        for path in run_dir.rglob("*.vtu"):
+            mt = re.search(r"_(\d+)\.vtu$", path.name)
+            if mt and path not in seen:
+                snaps.append((int(mt.group(1)), path))
+        for step, path in sorted(snaps):
+            t = known.get(step)
+            if t is None and not final:
+                continue   # the monitor has not reached this step yet
+            seen.add(path)
+            if t is not None and t_start <= t <= a.tmax:
+                render(t, path)
+            if not a.keep_vtu:
+                path.unlink(missing_ok=True)
+
+    if a.follow:
+        while True:
+            finished = (run_dir / "DONE").exists()
+            sweep(finished)
+            if finished:
+                break
+            time.sleep(15)
+    else:
+        sweep(True)
     if done:
-        ims = [Image.open(f).convert("P", palette=Image.ADAPTIVE) for f in done]
-        ims[0].save(root / "pitch_B_vorticity.gif", save_all=True, append_images=ims[1:], duration=120, loop=0)
+        ims = []
+        for f in done:
+            im = Image.open(f).convert("RGB")
+            ims.append(im.resize((1000, int(im.height * 1000 / im.width))).convert("P", palette=Image.ADAPTIVE))
+        ims[0].save(root / "pitch_B_vorticity.gif", save_all=True, append_images=ims[1:], duration=50, loop=0)   # 20 frames per second
         print(f"{len(done)} frames in {frames}, GIF {root / 'pitch_B_vorticity.gif'}")
+    else:
+        print("no frames were rendered (no snapshot inside the time window)")
 
 
 def main():
@@ -344,6 +382,8 @@ def main():
     p.add_argument("run")
     p.add_argument("--runs")
     p.add_argument("--keep-vtu", type=int, default=0)
+    p.add_argument("--follow", action="store_true")
+    p.add_argument("--tmax", type=float, default=1e30)
     p.set_defaults(f=cmd_frames)
     a = ap.parse_args()
     a.f(a)
