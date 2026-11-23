@@ -78,7 +78,8 @@ std::FILE* Simulation::open_monitor() const {
     const std::string path = (fs::path(exporter.output_dir()) / (file_prefix + "_monitor.csv")).string();
     std::FILE* f = std::fopen(path.c_str(), start_step > 0 ? "a" : "w");
     if (f && start_step == 0)
-        std::fprintf(f, "step,t,mass,kinetic_energy,total_energy%s,res_rho,res_mom,res_E\n", p.use_ibm ? ",Fx,Fy,Cd,Cl,Cm" : "");
+        std::fprintf(f, "step,t,mass,kinetic_energy,total_energy%s%s,res_rho,res_mom,res_E\n", p.use_ibm ? ",Fx,Fy,Cd,Cl,Cm" : "",
+                     p.ibm_dynamic() ? ",body_x,body_y,body_u,body_v" : "");
     return f;
 }
 
@@ -100,6 +101,7 @@ void Simulation::monitor_row(std::FILE* f, int step, const std::array<double, 3>
         std::fprintf(f, ",%.10e,%.10e,%.10e,%.10e,%.10e", Fx, Fy, qA > 0 ? Fx / qA : 0.0, qA > 0 ? Fy / qA : 0.0,
                      qA > 0 ? -Mz / (qA * L) : 0.0);
     }
+    if (p.ibm_dynamic()) std::fprintf(f, ",%.15e,%.15e,%.15e,%.15e", body_.x, body_.y, body_.u, body_.v);   // at the end of the step
     std::fprintf(f, ",%.10e,%.10e,%.10e\n", res[0], res[1], res[2]);
     std::fflush(f);
 }
@@ -126,6 +128,7 @@ std::array<double, 3> Simulation::ibm_loads(const Mesh& m, const ImmersedBoundar
     const std::vector<char>& solid = ib.mask();
     const double vol = m.is3d() ? m.cell_volume() : m.cell_area();
     double fx = 0.0, fy = 0.0, mz = 0.0;
+    const double pivot_x = ib.moving() ? p.ibm_cx + ib.pose().x : p.ibm_cx, pivot_y = ib.moving() ? p.ibm_cy + ib.pose().y : p.ibm_cy;   // follows the body
     for (int c = 0; c < m.num_cells(); ++c) {
         if (!solid[c]) continue;
         double rx = R[c][1], ry = R[c][2];
@@ -136,7 +139,7 @@ std::array<double, 3> Simulation::ibm_loads(const Mesh& m, const ImmersedBoundar
         const double ex = rx * vol, ey = ry * vol;
         fx += ex;
         fy += ey;
-        mz += (m.xc(c % m.nx) - p.ibm_cx) * ey - (m.yc((c / m.nx) % m.ny) - p.ibm_cy) * ex;
+        mz += (m.xc(c % m.nx) - pivot_x) * ey - (m.yc((c / m.nx) % m.ny) - pivot_y) * ex;
     }
     return {fx, fy, mz};
 }
@@ -188,6 +191,71 @@ ImmersedBoundary::BodyPose Simulation::prescribed_pose(double t) const {
     return pose;
 }
 
+ImmersedBoundary::BodyPose Simulation::body_pose(double t) const {
+    if (!p.ibm_dynamic()) return prescribed_pose(t);
+    ImmersedBoundary::BodyPose pose;
+    pose.x = body_.x;
+    pose.y = body_.y;
+    pose.u = body_.u;
+    pose.v = body_.v;
+    return pose;
+}
+
+std::array<double, 2> Simulation::body_velocity() const {
+    return p.ibm_dynamic() ? std::array<double, 2>{body_.u, body_.v} : std::array<double, 2>{p.ibm_vx, p.ibm_vy};
+}
+
+void Simulation::advance_body(double dt) {
+    BodyDynamics& b = body_;
+    const double gx = body_force ? body_force->gx : 0.0, gy = body_force ? body_force->gy : 0.0;
+    const double ax = (b.fx - p.ibm_stiff_x * b.x - p.ibm_damp_x * b.u) / p.ibm_mass + gx;
+    const double ay = (b.fy - p.ibm_stiff_y * b.y - p.ibm_damp_y * b.v) / p.ibm_mass + gy;
+    double u1, v1;
+    if (b.dt > 0.0) {   // Adams-Bashforth 2 for a variable step: v1 = v + dt ((1 + r/2) a - r/2 a_prev), r = dt / dt_prev
+        const double r = dt / b.dt;
+        u1 = b.u + dt * ((1.0 + 0.5 * r) * ax - 0.5 * r * b.ax);
+        v1 = b.v + dt * ((1.0 + 0.5 * r) * ay - 0.5 * r * b.ay);
+    } else {
+        u1 = b.u + dt * ax;
+        v1 = b.v + dt * ay;
+    }
+    b.x += 0.5 * dt * (b.u + u1);
+    b.y += 0.5 * dt * (b.v + v1);
+    b.u = u1;
+    b.v = v1;
+    b.ax = ax;
+    b.ay = ay;
+    b.dt = dt;
+    b.captured = false;
+}
+
+void Simulation::ibm_load_terms(const Mesh& m, const Mesh& g, int i0, int j0, const std::vector<char>& solid, const Field& U, const Field& R,
+                                double pivot_x, double pivot_y, std::vector<LoadTerm>& out) const {
+    const double vol = g.cell_area();   // (2-D: a moving body)
+    for (int c = 0; c < m.num_cells(); ++c) {
+        if (!solid[static_cast<size_t>(c)]) continue;
+        double rx = R[static_cast<size_t>(c)][1], ry = R[static_cast<size_t>(c)][2];
+        if (body_force) {
+            rx -= U[static_cast<size_t>(c)][0] * body_force->gx;
+            ry -= U[static_cast<size_t>(c)][0] * body_force->gy;
+        }   // not a load
+        const double ex = rx * vol, ey = ry * vol;
+        const int i = i0 + c % m.nx, j = j0 + (c / m.nx) % m.ny;
+        out.push_back({static_cast<long long>(j) * g.nx + i, ex, ey, (g.xc(i) - pivot_x) * ey - (g.yc(j) - pivot_y) * ex});
+    }
+}
+
+std::array<double, 3> Simulation::sum_load_terms(std::vector<LoadTerm>& terms) {
+    std::sort(terms.begin(), terms.end(), [](const LoadTerm& a, const LoadTerm& b) { return a.cell < b.cell; });
+    double fx = 0.0, fy = 0.0, mz = 0.0;
+    for (const LoadTerm& t : terms) {
+        fx += t.fx;
+        fy += t.fy;
+        mz += t.mz;
+    }
+    return {fx, fy, mz};
+}
+
 // ---------------------------------------------------------------------------
 // Serial time loop
 // ---------------------------------------------------------------------------
@@ -217,10 +285,28 @@ void Simulation::solve() {
     const bool moving = p.use_ibm && ibm->moving();
     // the body at time `tt` (constant velocities from its placement at t = 0); the pose is fixed during a step
     const auto place_body = [&](double tt) {
-        if (ibm->move_to(mesh, prescribed_pose(tt))) {
+        if (ibm->move_to(mesh, body_pose(tt))) {
             ibm->fill_fresh(U, fluid);   // the cells the body left take the state of the wall layer before any ghost fill
             hancock_sides_.clear();      // the solid-side flags of the MUSCL-Hancock predictor follow the mask
         }
+    };
+    // A body driven by the flow: the loads of the first stage of each step, R of U^n at the pose and velocity of the step, summed in global cell order
+    // (the order of the serial sum, which any partition reproduces). The same evaluation the step needs anyway: no residual is added.
+    const bool dynamic = moving && p.ibm_dynamic();
+    bool stage1_done = false;
+    std::vector<LoadTerm> load_terms;
+    const ResidualFn res_body = [&](const Field& Uin, Field& R) {
+        const double s = residual(Uin, R);
+        if (!stage1_done) {
+            stage1_done = true;
+            load_terms.clear();
+            ibm_load_terms(mesh, mesh, 0, 0, ibm->mask(), Uin, R, p.ibm_cx + body_.x, p.ibm_cy + body_.y, load_terms);
+            const std::array<double, 3> F = sum_load_terms(load_terms);
+            body_.fx = F[0];
+            body_.fy = F[1];
+            body_.captured = true;
+        }
+        return s;
     };
     const auto offer_residual = [&] {
         // a moving body changes the ghost table before the next step: the residual of the old pose is not the first stage of the next step
@@ -257,13 +343,19 @@ void Simulation::solve() {
     LoopEngine engine;
     engine.advance = [&](int st, double t_stop) {
         if (moving && st > start_step + 1) place_body(t);   // the first step of a run was placed above
-        const StepResult r = scheme->step(U, res, min_delta, t, std::min(p.t_end, t_stop), p.dt_max);
+        stage1_done = false;
+        const StepResult r = scheme->step(U, dynamic ? res_body : res, min_delta, t, std::min(p.t_end, t_stop), p.dt_max);
         check_progress(t, r.dt, r.s_max, st, p.time_scheme.c_str());
         if (moving) {   // the body must not leave the ghost table behind: at most one cell per step
-            const double travel = r.dt * std::max(std::abs(p.ibm_vx) / mesh.dx, std::abs(p.ibm_vy) / mesh.dy);
+            const std::array<double, 2> w = body_velocity();
+            const double travel = r.dt * std::max(std::abs(w[0]) / mesh.dx, std::abs(w[1]) / mesh.dy);
             if (travel > 1.0) throw std::runtime_error("the moving body travelled more than one cell in a step (lower the CFL number)");
         }
         if (p.use_ibm) ibm->apply_solid_reset(U, fluid);
+        if (dynamic) {
+            if (!body_.captured) throw std::logic_error("the loads of the body were not taken from the first stage of the step");
+            advance_body(r.dt);
+        }
         t += r.dt;
         scheme->stage_time = t;
         return r;
@@ -1016,7 +1108,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
     // everywhere together). What depends on the table is made again: the strip's solid cells, the ghost fetch plan (collective), the list of forced
     // cells, the Hancock sides; the cells the body left take the wall-layer state from fluid cells fetched from the other strips.
     const auto place_body = [&](double tt) {
-        if (!ibm->move_to(mesh, prescribed_pose(tt))) return;
+        if (!ibm->move_to(mesh, body_pose(tt))) return;
         MPIDecomposition::CellFetch plan = decomp.plan_fetch(ibm->fresh_inputs(local_of));
         std::vector<State> remote;
         decomp.fetch(plan, U_local, remote);
@@ -1035,16 +1127,55 @@ void Simulation::run_mpi(MPI_Comm comm) {
     if (moving) place_body(t);
     if (monitoring && step == 0) row(step);
     offer_residual();
+    // A body driven by the flow: the loads of the first stage of each step (R of U^n at the pose of the step), the terms of every strip's solid cells
+    // gathered on every rank and summed in global cell order: the bits of the serial sum, the same on every rank, so every rank advances the same body.
+    const bool dynamic = moving && p.ibm_dynamic();
+    bool stage1_done = false;
+    std::vector<LoadTerm> load_terms;
+    const ResidualFn res_body = [&](const Field& Uin, Field& R) {
+        const double s = res(Uin, R);
+        if (!stage1_done) {
+            stage1_done = true;
+            load_terms.clear();
+            ibm_load_terms(lm, mesh, dir == 'x' ? decomp.i_start : 0, dir == 'y' ? decomp.j_start : 0, local_ibm->mask(), Uin, R,
+                           p.ibm_cx + body_.x, p.ibm_cy + body_.y, load_terms);
+            std::vector<double> mine;
+            for (const LoadTerm& lt : load_terms) mine.insert(mine.end(), {static_cast<double>(lt.cell), lt.fx, lt.fy, lt.mz});
+            std::vector<int> counts(static_cast<size_t>(decomp.n_ranks)), displs(static_cast<size_t>(decomp.n_ranks), 0);
+            int n_mine = static_cast<int>(mine.size());
+            MPI_Allgather(&n_mine, 1, MPI_INT, counts.data(), 1, MPI_INT, comm);
+            int total = 0;
+            for (int r = 0; r < decomp.n_ranks; ++r) {
+                displs[static_cast<size_t>(r)] = total;
+                total += counts[static_cast<size_t>(r)];
+            }
+            std::vector<double> all(static_cast<size_t>(total));
+            MPI_Allgatherv(mine.data(), n_mine, MPI_DOUBLE, all.data(), counts.data(), displs.data(), MPI_DOUBLE, comm);
+            load_terms.clear();
+            for (size_t q = 0; q < all.size(); q += 4) load_terms.push_back({static_cast<long long>(all[q]), all[q + 1], all[q + 2], all[q + 3]});
+            const std::array<double, 3> F = sum_load_terms(load_terms);
+            body_.fx = F[0];
+            body_.fy = F[1];
+            body_.captured = true;
+        }
+        return s;
+    };
     LoopEngine engine;
     engine.advance = [&](int st, double t_stop) {
         if (moving && st > start_step + 1) place_body(t);   // the first step of a run was placed above
-        const StepResult sr = scheme->step(U_local, res, min_delta, t, std::min(p.t_end, t_stop), p.dt_max);
+        stage1_done = false;
+        const StepResult sr = scheme->step(U_local, dynamic ? res_body : res, min_delta, t, std::min(p.t_end, t_stop), p.dt_max);
         check_progress(t, sr.dt, sr.s_max, st, p.time_scheme.c_str());
         if (moving) {   // as in the serial loop: at most one cell per step
-            const double travel = sr.dt * std::max(std::abs(p.ibm_vx) / mesh.dx, std::abs(p.ibm_vy) / mesh.dy);
+            const std::array<double, 2> w = body_velocity();
+            const double travel = sr.dt * std::max(std::abs(w[0]) / mesh.dx, std::abs(w[1]) / mesh.dy);
             if (travel > 1.0) throw std::runtime_error("the moving body travelled more than one cell in a step (lower the CFL number)");
         }
         if (p.use_ibm) solid_reset(U_local);
+        if (dynamic) {
+            if (!body_.captured) throw std::logic_error("the loads of the body were not taken from the first stage of the step");
+            advance_body(sr.dt);
+        }
         t += sr.dt;
         scheme->stage_time = t;
         update_boundary_values(t, lb);

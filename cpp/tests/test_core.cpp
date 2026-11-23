@@ -290,6 +290,76 @@ TEST(reynolds_and_ibm_loads) {
     CHECK(std::abs(loads[2]) < 1e-3 * loads[0]);
 }
 
+TEST(ordered_loads_equal_the_serial_loads_whatever_the_cut) {
+    // The loads that drive a body are the sum of per-cell terms in ascending global cell order: the bits of ibm_loads (which adds in that order), and
+    // the same bits from the terms of strips placed anywhere in the mesh, from global coordinates, handed over in any order.
+    Simulation sim;
+    sim.setup(params_for("IBM Flow over Cylinder", {{"nx", "160"}, {"ny", "80"}, {"use_mpi", "false"}}), false);
+    sim.initialize_field();
+    const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
+    double t = 0.0;
+    for (int k = 0; k < 40; ++k) {
+        t += sim.scheme->step(sim.U, res, sim.dt_length, t, 1e9).dt;
+        sim.ibm->apply_solid_reset(sim.U, sim.fluid);
+    }
+    Field R;
+    sim.residual(sim.U, R);
+    const std::array<double, 3> serial = sim.ibm_loads(sim.mesh, *sim.ibm, sim.U, R);
+    std::vector<Simulation::LoadTerm> whole;
+    sim.ibm_load_terms(sim.mesh, sim.mesh, 0, 0, sim.ibm->mask(), sim.U, R, sim.p.ibm_cx, sim.p.ibm_cy, whole);
+    CHECK(whole.size() > 30);
+    std::vector<Simulation::LoadTerm> all = whole;
+    const std::array<double, 3> sum = Simulation::sum_load_terms(all);
+    CHECK(sum[0] == serial[0] && sum[1] == serial[1] && sum[2] == serial[2]);
+    // strips of 17, 40 and 23 rows, the way the MPI loop cuts and places them (the local origin rounds differently from the global one)
+    std::vector<Simulation::LoadTerm> strips;
+    const int cuts[4] = {0, 17, 57, 80};
+    for (int s = 2; s >= 0; --s) {   // the last strip first: any order
+        const int j0 = cuts[s], nyl = cuts[s + 1] - cuts[s];
+        const double dy = sim.mesh.Ly / sim.mesh.ny;
+        Mesh lm = generate_cartesian_mesh_3d(sim.mesh.Lx, dy * nyl, sim.mesh.Lz, sim.mesh.nx, nyl, 1, 0.0, j0 * dy);
+        lm.dx = sim.mesh.dx;
+        lm.dy = sim.mesh.dy;
+        lm.dz = sim.mesh.dz;
+        const size_t c0 = static_cast<size_t>(j0) * sim.mesh.nx, n = static_cast<size_t>(nyl) * sim.mesh.nx;
+        const Field Ul(sim.U.begin() + c0, sim.U.begin() + c0 + n), Rl(R.begin() + c0, R.begin() + c0 + n);
+        const std::vector<char> ml(sim.ibm->mask().begin() + c0, sim.ibm->mask().begin() + c0 + n);
+        sim.ibm_load_terms(lm, sim.mesh, 0, j0, ml, Ul, Rl, sim.p.ibm_cx, sim.p.ibm_cy, strips);
+    }
+    CHECK(strips.size() == whole.size());
+    const std::array<double, 3> cut = Simulation::sum_load_terms(strips);
+    CHECK(cut[0] == serial[0] && cut[1] == serial[1] && cut[2] == serial[2]);
+    for (size_t q = 0; q < strips.size(); ++q)   // term by term
+        CHECK(strips[q].cell == whole[q].cell && strips[q].fx == whole[q].fx && strips[q].fy == whole[q].fy && strips[q].mz == whole[q].mz);
+    // the order matters: the same terms added in descending order are not the same bits (otherwise the test above would prove nothing)
+    double rev = 0.0;
+    for (size_t q = whole.size(); q-- > 0;) rev += whole[q].fx;
+    CHECK(rev != serial[0]);
+}
+
+TEST(body_update_is_second_order_on_a_spring) {
+    // A body on a spring with no fluid load (fx = fy = 0): x'' = -k x / m, x(0) = 0, x'(0) = 1, m = 1, k = 4: x = sin(2 t) / 2. The update is
+    // Adams-Bashforth 2 for the velocity and the trapezoid for the position, started with an Euler step: the error at t = 3 falls by a factor
+    // of about four when the step is halved (band: at least 3.2), and is below 2e-3 at 300 steps.
+    const auto run = [](int steps) {
+        Simulation sim;
+        sim.setup(params_for("IBM Flow over Cylinder", {{"nx", "40"}, {"ny", "20"}, {"ibm_mass", "1.0"}, {"ibm_stiff_x", "4.0"}, {"ibm_vx", "1.0"},
+                                                        {"use_mpi", "false"}}),
+                  false);
+        CHECK(sim.body_.u == 1.0 && sim.body_.x == 0.0);
+        const double dt = 3.0 / steps;
+        for (int k = 0; k < steps; ++k) {
+            sim.body_.captured = true;
+            sim.advance_body(dt);
+        }
+        return std::abs(sim.body_.x - 0.5 * std::sin(6.0));
+    };
+    const double e1 = run(300), e2 = run(600);
+    std::printf("    spring, no fluid: error %.3e at 300 steps, %.3e at 600 (ratio %.2f)\n", e1, e2, e1 / e2);
+    CHECK(e1 < 2e-3);
+    CHECK(e1 / e2 > 3.2);
+}
+
 TEST(moving_wall_piston_matches_the_exact_shock) {
     // A flat wall (a cylinder of radius 50, its sagitta over the 0.1 high tube is 1e-4) moves at u_p into a gas at rest: a shock runs ahead
     // of it and the gas between them is the exact piston state. Band fixed beforehand: plateau mean within 2 % of the Rankine-Hugoniot

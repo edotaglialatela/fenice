@@ -65,6 +65,16 @@ CHECK_CASES = {   # name: (case, overrides)
     "moving_airfoil": ("IBM Airfoil", ["nx=192", "ny=96", "max_steps=20", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_omega=2.0"]),
     "moving_cylinder_hancock": ("IBM Flow over Cylinder", ["nx=200", "ny=100", "max_steps=30", "ibm_vx=2.0", "ibm_vy=0.7",
                                                            "time_scheme=MUSCL-Hancock"]),
+    # a body driven by the flow (uniform mesh): the loads of the first stage of each step, summed in global cell order whatever the cut, advance
+    # the same body on every rank (the strips are cut along y, and along x in the last case); the body moves one to four cells
+    "dynamic_cylinder": ("IBM Flow over Cylinder", ["nx=200", "ny=100", "max_steps=80", "ibm_mass=0.02", "ibm_stiff_x=5", "ibm_stiff_y=5",
+                                                    "ibm_damp_x=0.05", "ibm_vx=0.5"]),
+    "dynamic_thin_strips": ("IBM Flow over Cylinder", ["Lx=1.5", "Ly=0.5", "nx=150", "ny=50", "ibm_cx=0.5", "ibm_cy=0.25", "max_steps=80",
+                                                       "ibm_mass=0.02", "ibm_stiff_x=5", "ibm_vy=0.3"]),
+    "dynamic_slip_cylinder": ("IBM Flow over Cylinder", ["use_viscous=false", "nx=200", "ny=100", "max_steps=80", "ibm_mass=0.02",
+                                                         "ibm_stiff_y=5", "ibm_vx=0.5"]),
+    "dynamic_xstrips": ("IBM Flow over Cylinder", ["Lx=1.5", "Ly=0.08", "nx=150", "ny=8", "ibm_cx=0.5", "ibm_cy=0.04", "ibm_radius=0.025",
+                                                   "max_steps=80", "ibm_mass=0.002", "ibm_stiff_x=5", "ibm_vx=0.5"]),
     # AMR: the ghost table on the finest level, the image leaves in the MPI halo
     "amr_airfoil": ("IBM Airfoil AMR", ["max_steps=12"]),
     "amr_cylinder_curv": ("IBM Flow over Cylinder", ["use_viscous=false", "ibm_curvature=true", "use_amr=true", "amr_max_level=2",

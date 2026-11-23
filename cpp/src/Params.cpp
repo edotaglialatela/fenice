@@ -185,6 +185,11 @@ const std::vector<ParamSpec>& parameter_table() {
     {"ibm_vx", "ibm", "0.0"},
     {"ibm_vy", "ibm", "0.0"},
     {"ibm_omega", "ibm", "0.0"},
+    {"ibm_mass", "ibm", "0.0"},
+    {"ibm_stiff_x", "ibm", "0.0"},
+    {"ibm_stiff_y", "ibm", "0.0"},
+    {"ibm_damp_x", "ibm", "0.0"},
+    {"ibm_damp_y", "ibm", "0.0"},
 
     {"use_hot_start", "hot_start", "false"},
     {"hot_start_file", "hot_start", ""},
@@ -305,6 +310,11 @@ SimParams SimParams::from(const Params& p) {
     s.ibm_vx = p.num("ibm_vx", 0.0);
     s.ibm_vy = p.num("ibm_vy", 0.0);
     s.ibm_omega = p.num("ibm_omega", 0.0);
+    s.ibm_mass = p.num("ibm_mass", 0.0);
+    s.ibm_stiff_x = p.num("ibm_stiff_x", 0.0);
+    s.ibm_stiff_y = p.num("ibm_stiff_y", 0.0);
+    s.ibm_damp_x = p.num("ibm_damp_x", 0.0);
+    s.ibm_damp_y = p.num("ibm_damp_y", 0.0);
     s.reynolds = p.num("reynolds", 0.0);
     s.muscl_limiter = p.str("muscl_limiter", "Van Leer");
     s.reconstruction = lower(p.str("reconstruction", "none"));
@@ -466,6 +476,19 @@ SimParams SimParams::from(const Params& p) {
     if (s.use_ibm && s.nz > 1 && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is 2-D only (for now)");
     if (s.use_ibm && s.ibm_moving() && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is not available for a moving body");
     if (s.use_ibm && s.ibm_moving() && s.nz > 1) throw std::invalid_argument("a moving body is 2-D only (for now)");
+    if (!(s.ibm_mass >= 0.0) || !(s.ibm_stiff_x >= 0.0) || !(s.ibm_stiff_y >= 0.0) || !(s.ibm_damp_x >= 0.0) || !(s.ibm_damp_y >= 0.0))
+        throw std::invalid_argument("ibm_mass, ibm_stiff_x/y and ibm_damp_x/y must be >= 0");
+    if (s.use_ibm && !s.ibm_dynamic() &&
+        (s.ibm_stiff_x != 0.0 || s.ibm_stiff_y != 0.0 || s.ibm_damp_x != 0.0 || s.ibm_damp_y != 0.0))
+        throw std::invalid_argument("ibm_stiff_* and ibm_damp_* act on a body driven by the flow: set ibm_mass > 0");
+    if (s.use_ibm && s.ibm_dynamic()) {
+        if (s.ibm_omega != 0.0) throw std::invalid_argument("a body driven by the flow translates only (ibm_omega must be 0)");
+        if (s.use_amr) throw std::invalid_argument("a body driven by the flow is not available with AMR yet (uniform mesh, serial or MPI)");
+        if (const std::string ts = lower(s.time_scheme); ts == "muscl-hancock" || ts == "hancock")
+            throw std::invalid_argument("a body driven by the flow needs a Runge-Kutta or Euler time scheme (its loads come from the first stage)");
+        if (s.positivity_fallback) throw std::invalid_argument("a body driven by the flow cannot use positivity_fallback");
+        if (s.resume) throw std::invalid_argument("a body driven by the flow cannot resume yet (its pose and velocity are not in the checkpoint)");
+    }
     if (s.reynolds < 0.0) throw std::invalid_argument("reynolds must be >= 0 (0: use mu)");
     if (s.reynolds > 0.0) {
         // mu from the Reynolds number on the body: rho_in u_in L / mu, L = chord or diameter

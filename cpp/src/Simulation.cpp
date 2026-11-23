@@ -283,7 +283,15 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                     return b;
                 };
             }
-            if (verbose)
+            body_ = BodyDynamics{};
+            if (p.ibm_dynamic()) {   // a body driven by the flow starts at its placement with the velocity given
+                body_.u = p.ibm_vx;
+                body_.v = p.ibm_vy;
+            }
+            if (verbose && p.ibm_dynamic())
+                std::printf("[IBM] Body driven by the flow: mass %g, springs (%g, %g), dampers (%g, %g), initial velocity (%g, %g)\n", p.ibm_mass,
+                            p.ibm_stiff_x, p.ibm_stiff_y, p.ibm_damp_x, p.ibm_damp_y, p.ibm_vx, p.ibm_vy);
+            else if (verbose)
                 std::printf("[IBM] Prescribed motion: v = (%g, %g), omega = %g about (%g, %g)\n", p.ibm_vx, p.ibm_vy, p.ibm_omega,
                             p.ibm_cx, p.ibm_cy);
         }

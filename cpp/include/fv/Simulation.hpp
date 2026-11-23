@@ -99,6 +99,33 @@ public:
     // Pose of a body with a prescribed motion (ibm_vx, ibm_vy, ibm_omega) at time t: a pure function of t, so every MPI rank holds the same bits.
     ImmersedBoundary::BodyPose prescribed_pose(double t) const;
 
+    // A body driven by the flow (ibm_mass > 0): translation of the body from its placement, its velocity, and what the second-order update needs.
+    // Every rank of an MPI run advances the same copy from the same loads, so the poses agree bit for bit.
+    struct BodyDynamics {
+        double x = 0.0, y = 0.0, u = 0.0, v = 0.0;   // displacement and velocity at the current time
+        double ax = 0.0, ay = 0.0, dt = 0.0;         // acceleration of the previous step and its length (dt = 0: no previous step)
+        double fx = 0.0, fy = 0.0;                   // loads of the first stage of the current step (R of U^n at the pose of the step)
+        bool captured = false;                       // fx, fy hold this step's loads
+    };
+    BodyDynamics body_;
+    // The pose of the body for the step starting at time t: the state of body_ if the body is driven by the flow, else the prescribed one.
+    ImmersedBoundary::BodyPose body_pose(double t) const;
+    // Velocity of the body during the step (the pose's).
+    std::array<double, 2> body_velocity() const;
+    // Advance body_ by dt from the loads it holds (explicit, second order: Adams-Bashforth for the velocity, trapezoid for the position;
+    // a first step is Euler). Springs and dampers act on the state at the start of the step; the weight m g acts with a body force.
+    void advance_body(double dt);
+    // The contribution of each solid cell of the part `m` of the whole mesh `g` (a strip placed at cell (i0, j0) of it; the whole mesh: m = g, 0, 0) to
+    // the loads: its global index and {Fx, Fy, Mz} about the pivot, from global coordinates so a strip gives the serial bits. The sum is taken in
+    // ascending global index (sum_load_terms), so it does not depend on how the mesh is cut.
+    struct LoadTerm {
+        long long cell;
+        double fx, fy, mz;
+    };
+    void ibm_load_terms(const Mesh& m, const Mesh& g, int i0, int j0, const std::vector<char>& solid, const Field& U, const Field& R, double pivot_x,
+                        double pivot_y, std::vector<LoadTerm>& out) const;
+    static std::array<double, 3> sum_load_terms(std::vector<LoadTerm>& terms);
+
     // Shared residual assembly for a (sub)domain, optionally with MPI halos.
     double assemble(const Mesh& m, const BoundaryManager& bm, const ImmersedBoundary* ib, const MusclReconstruction* mu,
                     const Field& U_in, Field& R, const StripHalos* halos);

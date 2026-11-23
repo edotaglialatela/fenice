@@ -86,6 +86,8 @@ GROUPS = {
         "cylinder_sensitivity_full": (["features/cylinder_sensitivity.py", "--full"], "long", 5.0),   # 32 base points = 161 runs, measured 18000 s of solver time (about 40 min on 8 workers)
         "sod_sensitivity": (["features/sod_sensitivity.py"], "quick", 0.01),   # C1c: Sobol indices of the Sod L1 error (CFL, resolution, limiter), 320 runs
         "cylinder_mesh_transition": (["features/cylinder_mesh_transition.py"], "long", None),
+        "ibm_spring": (["features/ibm_spring.py"], "quick", None),   # a cylinder on a spring in a gas at rest against the added-mass ODE (20 cells per diameter)
+        "ibm_spring_full": (["features/ibm_spring.py", "--full"], "medium", None),   # ... and 40 cells per diameter, and the time-step check
     },
 }
 STUDIES = {name: (group, *spec) for group, studies in GROUPS.items() for name, spec in studies.items()}
