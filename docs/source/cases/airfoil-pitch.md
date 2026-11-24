@@ -69,8 +69,7 @@ slip walls at ±3 chords and Ma = 0.2).</figcaption>
 The mean lift does not move while the oscillation decays (0.161, 0.284, 0.428). At 3° the decay has slowed to about 0.3 % per time unit by $t = 100$, so that run has not reached a steady state in the window; at 6° and 10° the amplitude is still falling.
 The transition from decaying to sustained oscillation lies between 10° and 15°: the angles in between were not run, so the onset is not bracketed.
 
-**The oscillation at $f\,c/u_{\rm in} = 2.7$.** The decaying oscillation at 3°, 6° and 10° has the same dominant frequency, 2.7 (at 10° the dominant peak moves to 0.9 once the amplitude is small, after $t = 70$). Its origin is not established. It does not depend on the
-remesh interval (`amr_refine_every` 5 or 10: same frequency, same amplitude to four digits) or on the time step (the whole 6° run at CFL 0.5 and at CFL 0.25: the same dominant frequency and amplitudes within 0.3 % in every window up to $t = 40$).
+**The oscillation at $f\,c/u_{\rm in} = 2.7$ is acoustic.** The decaying oscillation at 3°, 6° and 10° has the same dominant frequency, 2.7 (at 10° the dominant peak moves to 0.9 once the amplitude is small, after $t = 70$). It is not vortex shedding: it does not depend on the remesh interval (`amr_refine_every` 5 or 10: same frequency, same amplitude to four digits) or on the time step (the whole 6° run at CFL 0.5 and at CFL 0.25: the same dominant frequency and amplitudes within 0.3 % in every window up to $t = 40$), but it scales with the sound speed. At Ma = 0.3 the 6° run oscillates at $f\,c/u_{\rm in} = 1.8$ over $t = 10$-20, against 2.7 at Ma = 0.2, so $f\,\mathrm{Ma} = 0.54$ in both and the wavelength is $1/(f\,\mathrm{Ma}) = 1.85$ chords. The mean lift hardly changes (0.281 at Ma = 0.3, 0.286 at Ma = 0.2 over the same window). The acoustic path that sets the 1.85 chords is not identified.
 
 ## Pitching: the moving wall
 
