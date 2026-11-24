@@ -118,6 +118,10 @@ implementation of the physics. Periodic axes are supported at level 0 and at eve
 (the stencil wraps), the other boundary conditions use the same ghost states as the uniform
 solver.
 
+<img src="{{root}}img/amr_coarse_fine.png" style="width:80%; display:block; margin:0 auto;">
+
+*A coarse-fine face in 2-D: the coarse leaf meets two fine leaves, so the face is two faces, each computed once by the owner of its fine leaf. The fine side accumulates the flux in a register, and the coarse leaf uses that accumulated flux instead of its own.*
+
 ### Jump closure
 
 At a coarse-fine face the fine side is evaluated with the fine leaf's own (second order)
@@ -136,6 +140,10 @@ advance(L, dt):
     if a finer level exists: advance(L+1, dt/2); advance(L+1, dt/2)
     advance every leaf of level L by dt  (the time scheme's stages, other levels frozen)
 ```
+
+<img src="{{root}}img/amr_subcycling.png" style="width:100%">
+
+*The order of `advance` for three levels in one coarse step: the finest level takes four steps of $\Delta t_0/4$ and the middle one two, the coarsest level last.*
 
 Time is not interpolated: the coarse leaves are held at their value at the start of the
 coarse step while the fine levels run. At a coarse-fine face the fine side accumulates its

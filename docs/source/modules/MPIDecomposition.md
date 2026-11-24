@@ -21,6 +21,10 @@ Rows or columns are distributed as evenly as possible, the counts differing by a
 one. Every strip keeps at least two cells, the depth the halo exchange sends; a run
 whose ranks cannot all get two cells is rejected with an explicit error.
 
+<img src="{{root}}img/mpi_strips.png" style="width:100%">
+
+*Left: four y-strips and the two-row halo of rank 1 (it sends its two outer rows and receives the two outer rows of each neighbour). Right: a mesh with $n_y=2$ is cut into x-strips.*
+
 ## Halo exchange
 
 Before every residual evaluation each rank exchanges its two outermost rows or columns

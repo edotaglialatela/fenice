@@ -15,6 +15,9 @@ Figures:
   ibm_coupling.png         the fluid and the body exchange pose, wall velocity and load through the surface
   ibm_step.png             one coupled step n -> n+1: explicit, no sub-iterations
   ibm_fresh_cells.png      the cells a moving body uncovers and how one of them is filled
+  amr_coarse_fine.png      a coarse-fine face: one face per fine leaf, the virtual cell, the flux register
+  amr_subcycling.png       the order in which three levels advance in one coarse step
+  mpi_strips.png           y-strips with their two-row halo, and x-strips for a flat mesh
 """
 import os
 import sys
@@ -440,8 +443,103 @@ def fresh_cells():
     save(fig, "ibm_fresh_cells.png")
 
 
+# ------------------------------------------------------------------ the AMR and MPI pages
+
+def amr_coarse_fine():
+    fig, ax = plt.subplots(figsize=(9.5, 4.8))
+    # a coarse leaf (level l) next to four fine leaves (level l+1); two of them touch its right side
+    ax.add_patch(Rectangle((0, 0), 2, 2, fc="#eef5fb", ec=WALL, lw=1.6))
+    ax.text(1, 1, "coarse leaf\nlevel $\\ell$", ha="center", va="center", fontsize=11, color=WALL)
+    for (x, y) in ((2, 0), (2, 1), (3, 0), (3, 1)):
+        ax.add_patch(Rectangle((x, y), 1, 1, fc="#fbf3ec", ec=ACCENT, lw=1.2))
+    ax.text(2.7, 0.5, "$f_1$", ha="center", va="center", color=ACCENT, fontsize=11)
+    ax.text(2.7, 1.5, "$f_2$", ha="center", va="center", color=ACCENT, fontsize=11)
+    ax.text(3.5, 1.0, "level $\\ell+1$", ha="center", va="center", color=ACCENT, fontsize=10, rotation=90)
+    for yy in (0.5, 1.5):    # one face per fine leaf: its flux is computed once, by the owner of the fine leaf
+        arrow(ax, (1.55, yy), (2.45, yy), color=GREEN, lw=1.8, ms=11)
+    ax.plot([2, 2], [0, 2], color="k", lw=2.2, zorder=4)
+    ax.text(1.75, 0.62, "$F_1$", color=GREEN, fontsize=12, ha="center")
+    ax.text(1.75, 1.62, "$F_2$", color=GREEN, fontsize=12, ha="center")
+    ax.text(2.0, -0.3, "coarse-fine face = two faces, one per fine leaf", ha="center", fontsize=10)
+    ax.text(-0.3, -0.95, r"fine side: $F_k$ accumulated over the sub-steps with the stage weights (the register)", fontsize=10.5)
+    ax.text(-0.3, -1.4, r"coarse side: replaces its own flux by $\sum_k A_k F_k$, so both sides exchange the same amount", fontsize=10.5)
+    ax.set_xlim(-0.4, 6.6)
+    ax.set_ylim(-1.6, 2.4)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    save(fig, "amr_coarse_fine.png")
+
+
+def amr_subcycling():
+    fig, ax = plt.subplots(figsize=(11, 3.8))
+    cols = ["#4c78a8", "#e08e45", "#59a14f"]
+    order = []                                  # (level, t0, length) in the order advance() performs them
+
+    def advance(L, t0, dt, top=2):
+        if L < top:
+            advance(L + 1, t0, dt / 2, top)
+            advance(L + 1, t0 + dt / 2, dt / 2, top)
+        order.append((L, t0, dt))
+
+    advance(0, 0.0, 1.0)
+    for k, (L, t0, dt) in enumerate(order, 1):
+        y = (2 - L) * 1.2
+        ax.add_patch(Rectangle((t0 + 0.004, y), dt - 0.008, 0.9, fc=cols[L], ec="white"))
+        ax.text(t0 + dt / 2, y + 0.45, str(k), ha="center", va="center", color="white", fontsize=12, weight="bold")
+    for L in range(3):
+        ax.text(-0.02, (2 - L) * 1.2 + 0.45, f"level {L}\n" + (r"$\Delta t_0$" if L == 0 else rf"$\Delta t_0/{2**L}$"), ha="right", va="center", fontsize=10)
+    ax.annotate("", (1.0, -0.3), (0, -0.3), arrowprops=dict(arrowstyle="-|>", color="0.4"))
+    ax.text(0.5, -0.65, "one step of the coarsest level; the numbers give the order in which the levels advance (finer first)", ha="center", fontsize=10)
+    ax.text(0.5, 3.75, "the coarse leaves keep their value from the start of the step while the finer levels run;\nthe fluxes of the coarse-fine faces are replaced at the end", ha="center", fontsize=9.5, color="0.3")
+    ax.set_xlim(-0.25, 1.02)
+    ax.set_ylim(-0.9, 4.3)
+    ax.axis("off")
+    save(fig, "amr_subcycling.png")
+
+
+def mpi_strips():
+    fig, (ax, bx) = plt.subplots(1, 2, figsize=(11.5, 4.8), gridspec_kw={"wspace": 0.1})
+    N, nx, ny = 4, 8, 12
+    cols = ["#dbe7f3", "#f6e3d3", "#dcefdc", "#eee0f1"]
+    per = ny // N
+    for j in range(ny):
+        for i in range(nx):
+            ax.add_patch(Rectangle((i, j), 1, 1, fc=cols[j // per], ec=GRID, lw=0.5))
+    for r in range(N):
+        ax.text(nx + 0.25, r * per + per / 2, f"rank {r}", va="center", fontsize=10)
+        if r:
+            ax.plot([0, nx], [r * per, r * per], color="k", lw=1.6, zorder=4)
+    r = 1                                       # the two-cell halo of rank 1: the outer rows of its neighbours
+    for y0 in (r * per - 2, (r + 1) * per):
+        ax.add_patch(Rectangle((0, y0), nx, 2, fc="none", ec=ACCENT, lw=1.6, hatch="///", zorder=3))
+    arrow(ax, (nx / 2, r * per + 0.5), (nx / 2, r * per - 1.4), color=ACCENT, lw=1.6)
+    arrow(ax, (nx / 2, (r + 1) * per - 0.5), (nx / 2, (r + 1) * per + 1.4), color=ACCENT, lw=1.6)
+    ax.set_xlim(-0.1, nx + 1.8)
+    ax.set_ylim(-0.1, ny + 0.1)
+    ax.set_aspect("equal")
+    ax.axis("off")
+    ax.set_title("y-strips: rank 1 sends its two outer rows (arrows)\nand receives those of its neighbours (hatched)", fontsize=10.5)
+
+    nx2, ny2 = 16, 2                            # a mesh too flat for y-strips: x-strips
+    per2 = nx2 // 4
+    for j in range(ny2):
+        for i in range(nx2):
+            bx.add_patch(Rectangle((i, j), 1, 1, fc=cols[i // per2], ec=GRID, lw=0.5))
+    for r in range(1, 4):
+        bx.plot([r * per2, r * per2], [0, ny2], color="k", lw=1.6)
+    for r in range(4):
+        bx.text(r * per2 + per2 / 2, -0.6, f"rank {r}", ha="center", fontsize=10)
+    bx.text(nx2 / 2, 4.2, "x-strips when $n_y<2N$ (here $n_y=2$, $N=4$):\neach rank keeps at least two columns", ha="center", va="center", fontsize=10.5)
+    bx.set_xlim(-0.2, nx2 + 0.2)
+    bx.set_ylim(-1.2, 6)
+    bx.set_aspect("equal")
+    bx.axis("off")
+    save(fig, "mpi_strips.png")
+
+
 FIGURES = {"ibm_ghost_geometry": ghost_geometry, "ibm_loads": loads, "ibm_kinematics": kinematics,
-           "ibm_coupling": coupling, "ibm_step": step, "ibm_fresh_cells": fresh_cells}
+           "ibm_coupling": coupling, "ibm_step": step, "ibm_fresh_cells": fresh_cells,
+           "amr_coarse_fine": amr_coarse_fine, "amr_subcycling": amr_subcycling, "mpi_strips": mpi_strips}
 
 if __name__ == "__main__":
     pick = sys.argv[1:]
