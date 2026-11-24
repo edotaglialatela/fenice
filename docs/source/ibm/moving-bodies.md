@@ -21,7 +21,7 @@ nonzero value makes the body move. A circle only translates; a sphere translates
 
 The rotation can be limited in time: with `ibm_omega_from` $=t_0$ and `ibm_omega_until` $=t_1$ the angle is
 $\theta(t)=\Omega\,\bigl(\min(\max(t,t_0),t_1)-t_0\bigr)$ and $\Omega(t)=\Omega$ only for $t_0\le t<t_1$: the body rests, turns, and holds the new angle (`ibm_omega_until = 0`: it never stops).
-A nose-up pitch is clockwise, so `ibm_omega` is negative. The case `IBM Airfoil Pitch` uses it for a NACA 0012 at Re = 1000 that rests at 0 degrees, pitches to 15 degrees and holds.
+A nose-up pitch is clockwise, so `ibm_omega` is negative. The case [`IBM Airfoil Pitch`]({{root}}cases/airfoil-pitch.html) uses it for a NACA 0012 at Re = 1000 that rests at 0 degrees, pitches to 15 degrees and holds.
 
 <img src="{{root}}img/ibm_kinematics.png" style="width:100%">
 
