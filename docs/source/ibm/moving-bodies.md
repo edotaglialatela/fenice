@@ -23,6 +23,10 @@ The rotation can be limited in time: with `ibm_omega_from` $=t_0$ and `ibm_omega
 $\theta(t)=\Omega\,\bigl(\min(\max(t,t_0),t_1)-t_0\bigr)$ and $\Omega(t)=\Omega$ only for $t_0\le t<t_1$: the body rests, turns, and holds the new angle (`ibm_omega_until = 0`: it never stops).
 A nose-up pitch is clockwise, so `ibm_omega` is negative. The case `IBM Airfoil Pitch` uses it for a NACA 0012 at Re = 1000 that rests at 0 degrees, pitches to 15 degrees and holds.
 
+<img src="{{root}}img/ibm_kinematics.png" style="width:100%">
+
+*Left: the wall velocity $\mathbf u_w$ along the surface of an airfoil that rises at $\mathbf U_b$ and pitches nose up ($\Omega<0$) about its quarter chord. Right: the angle of a limited rotation: at rest until $t_0$, turning at $\Omega$ until $t_1$, then held.*
+
 ## The coupled system
 
 With a body driven by the flow (`ibm_mass` $= m > 0$) the unknowns are the fluid state $\mathbf U(\mathbf x,t)$ on the moving domain $\Omega_f(t)=\Omega\setminus\Omega_b(t)$ and the body
@@ -39,6 +43,10 @@ with $\mathbf g$ the gravity of `use_bodyforce` (zero without it), $\mathsf K=\o
 subsystems communicate through the surface only: the fluid sees the pose $\mathbf x_b(t)$ (the shape of $\Omega_f$) and the velocity $\mathbf U_b(t)$ (the wall condition); the body sees the load $\mathbf F_f$.
 The body translates only (`ibm_omega` $=0$ for a driven body).
 
+<img src="{{root}}img/ibm_coupling.png" style="width:100%">
+
+*The coupled system. The body hands the fluid its pose and velocity, and the fluid hands the body its load. The spring, damper and weight act on the body only. Buoyancy needs no term of its own: it is part of the pressure load $\mathbf F_f$.*
+
 | Symbol | Key | Meaning |
 |---|---|---|
 | $m$ | `ibm_mass` | mass [kg per unit depth in 2-D, kg in 3-D]; $>0$ switches the mode on |
@@ -54,6 +62,10 @@ The body translates only (`ibm_omega` $=0$ for a driven body).
 
 Let $\mathbf x_b^n,\mathbf U_b^n$ be the body at the start of step $n$ and $\Delta t=t^{n+1}-t^n$.
 
+<img src="{{root}}img/ibm_step.png" style="width:100%">
+
+*One coupled step. The fluid advances with the body frozen at its state at $t^n$. The load is read from the first stage, and only then does the body advance. The fluid is not solved again with the new pose within the step.*
+
 1. **Pose.** The pose is fixed during the step. The geometry (solid mask, ghost cells, image points) is rebuilt when $\max(|\mathbf x_b-\mathbf x_b^{\rm built}|,\ |\theta-\theta^{\rm built}|\,r_{\max})>h/4$,
    with $r_{\max}$ the largest distance of the body from its pivot ($h$: the finest cell size); in between only the wall velocity $\mathbf u_w$ is refreshed. A body may not travel more than one cell in a step:
    $\Delta t\,\max_d(|U_{b,d}|/h_d)\le1$, otherwise the run stops (lower the CFL number).
@@ -68,6 +80,10 @@ Let $\mathbf x_b^n,\mathbf U_b^n$ be the body at the start of step $n$ and $\Del
 
 $$\mathbf U_b^{n+1}=\mathbf U_b^n+\Delta t\Bigl[\bigl(1+\tfrac r2\bigr)\mathbf a^n-\tfrac r2\,\mathbf a^{n-1}\Bigr],\qquad
 \mathbf x_b^{n+1}=\mathbf x_b^n+\tfrac{\Delta t}{2}\bigl(\mathbf U_b^n+\mathbf U_b^{n+1}\bigr).$$
+
+<img src="{{root}}img/ibm_fresh_cells.png" style="width:100%">
+
+*Step 2 on a cylinder moving right (the displacement is exaggerated: the geometry is rebuilt once the body has moved $h/4$). The cells it leaves behind (blue) were solid and hold no flow state. Each one is filled from the image point of its own wall, like a ghost cell, but on the fluid side. The cells it covers (hatched) join the solid.*
 
 The coupling is explicit and loose: one fluid solve per step, no sub-iterations. It is stable for the bodies tested, down to a mass of 0.3 times that of the fluid the body displaces. The body law is integrated with a second-order scheme; the order of the coupled
 system as a whole is not established. The body needs a Runge-Kutta or Euler time scheme, no
@@ -97,7 +113,7 @@ $$(m+m_a)\,\ddot x + k\,x = 0 \ \ \Rightarrow\ \ \omega^2=\frac{k}{m+m_a},\qquad
 |---|---|
 | `features/ibm_ghost.py --check` | serial $=$ 2-7 ranks bit for bit, uniform and adaptive, prescribed and driven bodies (a sphere with strips along y and along x); resume with `--only resume` |
 | `features/ibm_spring.py` | the spring oscillator $(m+m_a)\ddot x+kx=0$: frequency within 0.4 %, stable down to $m=0.3\rho V$ |
-| `features/ibm_gravity.py`, `ibm_gravity3d.py` | $(m+m_a)\ddot{\mathbf x}=-(m-ho_cV)\mathbf g$ in a stratified isothermal gas: cylinder and sphere at mass ratios 3, 1 and 0.5 |
+| `features/ibm_gravity.py`, `ibm_gravity3d.py` | $(m+m_a)\ddot{\mathbf x}=-(m-\rho_cV)\mathbf g$ in a stratified isothermal gas: cylinder and sphere at mass ratios 3, 1 and 0.5 |
 
 The gravity studies agree for the sinking bodies (cylinder 0.8 %, sphere 0.3 % at the finest mesh) and the neutral body stays. A body lighter than the gas it displaces rises about 12 % faster than the
 reference in both the cylinder and the sphere. The cause is not isolated (it does not depend on the time step, and the 3-D start-up transient decays faster than the 2-D one), so that case is reported, not gated.

@@ -71,7 +71,13 @@ $-d_g$ along the normal) and $\mathbf x_i$ (at $+d_i$) takes at the wall the val
 $$\frac{d_i\,\mathbf u_g+d_g\,\mathbf u_i}{d_i+d_g}=\mathbf u_w \quad(\text{no-slip}),\qquad
 \text{and, for the normal part of } \mathbf u-\mathbf u_w,\ \ \frac{d_i(-\varsigma r_n)+d_g\,r_n}{d_i+d_g}=0 \quad(\text{slip}),$$
 
-and $\rho,p$ have zero slope across $\Gamma$ by $\rho_g=\rho_i$, $p_g=p_i$. In 3-D the velocity has three components: slip removes only the normal part (a spanwise velocity along an
+and $\rho,p$ have zero slope across $\Gamma$ by $\rho_g=\rho_i$, $p_g=p_i$.
+
+<img src="{{root}}img/ibm_ghost_geometry.png" style="width:100%">
+
+*Left: a ghost cell $\mathbf x_g$, its closest wall point $\mathbf x_w$ and its image point $\mathbf x_i$. The image state is interpolated from the four fluid cells around $\mathbf x_i$ (green). Ghost cells are the solid cells within two cells of the fluid; deeper solid cells are reset. Right: along the normal, the ghost velocity is chosen so that the line from $\mathbf u_g$ to $\mathbf u_i$ passes through the wall velocity on the true surface.*
+
+ In 3-D the velocity has three components: slip removes only the normal part (a spanwise velocity along an
 extruded body survives), no-slip scales all three.
 
 **Per step.**
@@ -115,6 +121,10 @@ the sphere's drag (`features/ibm_sphere.py`: Cd 3.46 and 3.51 at 10 and 20 cells
 </details>
 
 ## Loads on the body
+
+<img src="{{root}}img/ibm_loads.png" style="width:85%; display:block; margin:0 auto;">
+
+*Summing the momentum residuals of the solid cells. Each face between two solid cells appears twice with opposite signs (grey). Only the faces between fluid and solid (red) are left, and they carry the force the fluid exerts on the body.*
 
 Write the semi-discrete update of a cell as $V_c\,\dot{\mathbf U}_c = -\sum_{f\in\partial c}\mathbf F_f\!\cdot\!\mathbf n_f A_f + V_c\mathbf S_c$, with residual
 $\mathbf R_c=\dot{\mathbf U}_c$. Sum the momentum rows over all solid cells: the fluxes through faces between two solid cells cancel in pairs and only the faces
