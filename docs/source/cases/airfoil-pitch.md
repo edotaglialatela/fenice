@@ -103,6 +103,16 @@ $t = 16.25$, 1.25 time units after the start of the rotation, against the static
 <figcaption>The same run, $t = 14$ to 27.</figcaption>
 </figure>
 
+## Adaptive mesh
+
+The airfoil is kept at the finest level and the indicator (`density+velocity`) follows the shear layers and the vortices, so the refined region turns with the airfoil and then trails the leading-edge vortex. At $t = 20$, with the vortex over the airfoil,
+the mesh has 331 164 leaves: 256 758 at level 0, 3 162 at level 1, 11 484 at level 2 and 59 760 at level 3. A uniform mesh at the finest resolution would have $720 \times 360 \times 64 = 16.6$ million cells, so the leaves are 2 % of it.
+
+<figure>
+<img src="{{root}}img/airfoil_pitch_mesh.gif" style="width:100%">
+<figcaption>The leaves around the airfoil during the fast pitch-up, $t = 14$ to 34. Colour: refinement level (white: level 0, then three darker blues; the airfoil is black); the lines are the leaf edges.</figcaption>
+</figure>
+
 ## What the runs check
 
 | Check | Result |
