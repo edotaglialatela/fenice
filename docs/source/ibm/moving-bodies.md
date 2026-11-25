@@ -17,9 +17,9 @@ $\mathbf x_p$ (the quarter chord of an airfoil). The surface moves as a rigid bo
 $$\mathbf u_w(\mathbf x,t)=\mathbf U_b(t)+\Omega(t)\,\hat{\mathbf z}\times(\mathbf x-\mathbf x_p),\qquad \mathbf U_b=\dot{\mathbf x}_b,\ \ \Omega=\dot\theta .$$
 
 **Prescribed motion:** $\mathbf x_b = \mathbf x_b(0) + \mathbf U t$ and $\theta=\Omega t$ with constant $\mathbf U=$ (`ibm_vx`, `ibm_vy`, `ibm_vz`) and $\Omega=$ `ibm_omega`. Any
-nonzero value makes the body move. A circle only translates. A sphere also spins, about any axis through its centre: with $oldsymbol\Omega=$ (`ibm_omega_x`, `ibm_omega_y`, `ibm_omega`) the wall velocity is
+nonzero value makes the body move. A circle only translates. A sphere also spins, about any axis through its centre: with $\boldsymbol\Omega=$ (`ibm_omega_x`, `ibm_omega_y`, `ibm_omega`) the wall velocity is
 
-$$\mathbf u_w=\mathbf U_b+oldsymbol\Omega	imes(\mathbf x-\mathbf x_b),$$
+$$\mathbf u_w=\mathbf U_b+\boldsymbol\Omega\times(\mathbf x-\mathbf x_b),$$
 
 the sphere itself does not change, so a spin never rebuilds the geometry (only the wall velocity of the ghost cells and of the cells inside the body).
 
