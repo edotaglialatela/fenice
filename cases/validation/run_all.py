@@ -90,6 +90,7 @@ GROUPS = {
         "ibm_gravity": (["features/ibm_gravity.py"], "quick", None),   # a cylinder released in a stratified gas: weight and buoyancy against the added-mass ODE
         "ibm_spring_full": (["features/ibm_spring.py", "--full"], "medium", None),   # ... and 40 cells per diameter, and the time-step check
         "ibm_gravity3d": (["features/ibm_gravity3d.py"], "medium", None),   # the same with a sphere in 3-D (the rising body is reported, not gated)
+        "ibm_falling_sphere": (["features/ibm_falling_sphere.py"], "medium", None),   # a sphere falling to its terminal speed in a viscous stratified gas, on an octree
     },
 }
 STUDIES = {name: (group, *spec) for group, studies in GROUPS.items() for name, spec in studies.items()}

@@ -115,6 +115,7 @@ $$(m+m_a)\,\ddot x + k\,x = 0 \ \ \Rightarrow\ \ \omega^2=\frac{k}{m+m_a},\qquad
 | `features/ibm_ghost.py --check` | serial $=$ 2-7 ranks bit for bit, uniform and adaptive (quadtree and octree), prescribed and driven bodies (a sphere with strips along y and along x); a sphere started in a gas at rest on the octree against the uniform mesh of its finest resolution (the 40-step mean of the force within 2 % of the peak); resume with `--only resume` |
 | `features/ibm_spring.py` | the spring oscillator $(m+m_a)\ddot x+kx=0$: frequency within 0.4 %, stable down to $m=0.3\rho V$ |
 | `features/ibm_gravity.py`, `ibm_gravity3d.py` | $(m+m_a)\ddot{\mathbf x}=-(m-\rho_cV)\mathbf g$ in a stratified isothermal gas: cylinder and sphere at mass ratios 3, 1 and 0.5 |
+| `features/ibm_falling_sphere.py` | a sphere falling to its terminal speed (Re 32, Mach 0.13, octree, 30 diameters of fall): terminal speed 7 % below the Schiller-Naumann reference (band 10 %), the load of a sphere prescribed at that speed equal to the free fall's within 1 % |
 
 The gravity studies agree for the sinking bodies (cylinder 0.8 %, sphere 0.3 % at the finest mesh) and the neutral body stays. A body lighter than the gas it displaces rises about 12 % faster than the
 reference in both the cylinder and the sphere. The cause is not isolated (it does not depend on the time step, and the 3-D start-up transient decays faster than the 2-D one), so that case is reported, not gated.
