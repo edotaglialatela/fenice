@@ -18,8 +18,9 @@ fitted frequency within 1 %, the fitted amplitude within 3 %, the rms error of x
 (fluid scheme and coupling together: the same run at CFL 0.4 and 0.1, 1.1 % of the amplitude when measured) at most 2 % of the amplitude, so the coupling's
 own error is below that. On the adaptive mesh (60^2 base cells and two levels, the finest level the same 240^2 mesh), bands set after the first run
 (frequency 0.1 / 0.6 / 1.1 % off, amplitude 0.2 / 0.1 / 3.5 % off, rms error 2.1 / 9.5 / 11.3 % of the amplitude at mass ratios 10 / 1 / 0.3, 1.4 / 4.4 / 4.2 % from the
-uniform run): frequency within 1.5 %, amplitude within 4 %, rms error within 12 %, within 5 % of the uniform run. The cells the body leaves take the state of the wall layer from an image point (as on the uniform mesh);
-filling them changed none of these numbers, so the larger error at low mass ratio comes from the adaptive mesh itself (the coarse-fine seams around the band, the loads of a single residual). The fitted damping is not a band: the reference radiation damping is the one of a steady oscillation at w = 2, and the start
+uniform run): frequency within 1.5 %, amplitude within 4 %, rms error within 12 %, within 5 % of the uniform run. The cells the body leaves take the state of the wall layer from an image point (as on the uniform mesh).
+That fill read the wrong cells on the adaptive mesh until 2026-11-25 (the sparse wall decoded the finest level's cell numbers with the size of the coarse mesh it was built on, so every image point sat at the corner of the domain
+and nothing was filled); with the right cells the measurements are frequency 0.1 / 0.7 / 1.3 % off, amplitude 0.2 / 0.2 / 3.9 % off, rms error 1.0 / 7.4 / 10.5 %, 0.2 / 2.6 / 4.1 % from the uniform run (the bands were kept). The remaining difference at low mass ratio comes from the adaptive mesh itself (the coarse-fine seams around the band, the loads of a single residual). The fitted damping is not a band: the reference radiation damping is the one of a steady oscillation at w = 2, and the start
 excites a band of frequencies (fitted 0.040 / 0.067 against the reference 0.023 / 0.0345 at mass ratios 1 / 0.3 and 20 cells per diameter, 0.024 / 0.045 at 40).
 """
 import argparse

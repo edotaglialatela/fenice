@@ -663,6 +663,9 @@ void Simulation::solve_amr() {
             if (cell_par) cell_par->partition();
         }
         eng.fill_fresh_leaves(cm.U);   // the leaves the body left take the state of the wall layer
+        if (cell_par)   // (the other ranks hold them as halo leaves: a residual evaluated before the first stage, the loads of a body driven by the flow, reads them)
+            for (int l = 0; l <= cm.max_level; ++l)
+                if (cell_par->level_present(l)) cell_par->exchange_stage(l);
         S = wave_speed();
         cell_speed_ = S;
         remesh_wall += seconds_since(r0);

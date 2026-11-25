@@ -1214,7 +1214,7 @@ void ImmersedBoundary::build_fresh(const Mesh& m, const std::vector<int>& cells)
     const bool d3 = m.is3d();
     const double hh = d3 ? std::max(std::max(m.dx, m.dy), m.dz) : std::max(m.dx, m.dy);
     for (const int c : cells) {
-        const int i = c % nx_, j = (c / nx_) % ny_, k = c / (nx_ * ny_);
+        const int i = c % m.nx, j = (c / m.nx) % m.ny, k = c / (m.nx * m.ny);   // of the mesh given (a sparse wall is built on a coarse mesh: nx_ is not the finest level's)
         FreshCell f;
         f.cell = c;
         double wx, wy, wz = 0.0, nxw, nyw, nzw = 0.0;
@@ -1243,7 +1243,7 @@ void ImmersedBoundary::build_fresh(const Mesh& m, const std::vector<int>& cells)
                 for (int dj = -2; dj <= 2; ++dj)
                     for (int di = -2; di <= 2; ++di) {
                         const int ii = i + di, jj = j + dj, kk = k + dk;
-                        if (ii < 0 || ii >= nx_ || jj < 0 || jj >= ny_ || kk < 0 || kk >= nz_ || is_solid(m, ii, jj, kk)) continue;
+                        if (ii < 0 || ii >= m.nx || jj < 0 || jj >= m.ny || kk < 0 || kk >= m.nz || is_solid(m, ii, jj, kk)) continue;
                         const double d2 = static_cast<double>(di * di + dj * dj + dk * dk);
                         if (d2 < best) {
                             best = d2;
