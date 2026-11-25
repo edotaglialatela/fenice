@@ -19,18 +19,21 @@ spin) follows the same equation with the torque of the sphere that the spin-up s
 
 The run about z checks the moment about z, the one about x the moments that only 3-D has.
 
-The body is a disk of density rho_b (I = pi rho_b R^4 / 2): rho_b / rho = 10, 1 and 0.1. Measured (20 cells per diameter, h / R = 0.1): the angular velocity follows the exact
-one to 0.3 % of w0 at all three (0.0032, 0.0023, 0.0029); bands 1 % of w0, set after the first run.
+The body is a disk of density rho_b (I = pi rho_b R^4 / 2): rho_b / rho = 10, 1 and 0.1. The error is the largest |w - w_exact| / w0, taken from t = 0.1 (the shape of the decay)
+and from t = 0.01 (the first few steps after the release, where a light body has already lost most of its spin: a window that starts later cannot fail for it). Measured (20 cells
+per diameter, CFL 0.4), from t = 0.1 / from t = 0.01: 0.0032 / 0.0062 at rho_b / rho = 10, 0.0023 / 0.0251 at 1, 0.0029 / 0.0055 at 0.1. The sphere (10 cells per diameter): 0.0136 / 0.0188 at
+10 (about x; about z the same), 0.0013 / 0.0769 at 1. The early-time error is the first steps after an impulsive release, which this resolution does not follow. Bands, set after the
+first run: 1 % / 4 % for the cylinder, 3 % / 12 % for the sphere; the spin must also never exceed its initial value (a coupling gone unstable grows).
 
-The loose coupling (the torque of the first stage of a step advances the body for the whole step) has a limit in the density ratio. A rotating body has no added inertia, but the
-history torque of one step is that of a shear layer of thickness sqrt(nu dt), so the ratio of that torque to the body's inertia is of order (rho / rho_b) (h / R), and the update
-loses its accuracy when rho_b / rho falls to about h / R and diverges at about half of that (scratch sweep of the 2 x 2 box, t_end 0.3, error in w / w0 at the largest time step of
-the run, CFL 0.4 unless stated):
-    h / R = 0.2 (n = 100):  rho_b / rho 0.15 error 0.16, 0.10 error 0.22, 0.07 diverged
-    h / R = 0.1 (n = 200):  0.10 error 0.003, 0.07 error 0.17, 0.05 error 0.22, 0.035 error 33 (unstable), 0.02 diverged
-    h / R = 0.05 (n = 400): 0.05 error 0.17, 0.025 error 0.22 (still stable)
-    h / R = 0.1, CFL 0.2:   0.035 error 0.20, 0.02 error 0.34 (the limit does not move with the time step)
-A body lighter than that needs an implicit coupling (not built).
+The loose coupling (the torque of the first stage of a step advances the body for the whole step) is stable only above a density ratio. Scratch sweep of the same case (2 x 2 box,
+t_end 0.3, error as above, rho_b / rho from 0.3 down; "unstable" = the angular velocity grows, "diverged" = the run stops):
+    h / R = 0.2 (n = 100), CFL 0.4:  0.1 error 0.008;  0.07 unstable
+    h / R = 0.1 (n = 200), CFL 0.4:  0.1 error 0.006, 0.05 error 0.009;  0.035 unstable, 0.02 diverged
+    h / R = 0.1 (n = 200), CFL 0.2:  stable and accurate (0.005) down to 0.02, the lowest tried
+    h / R = 0.05 (n = 400), CFL 0.4: stable and accurate (0.008) down to 0.025, the lowest tried
+At CFL 0.4 the threshold is about 0.4 h / R; a smaller time step lowers it. Inside the stable range the error is within 1 % of w0 from t = 0.01 at 20 cells per diameter and finer
+(4.5 % at 10 cells per diameter, rho_b / rho = 0.3). A body lighter than the threshold
+needs a smaller CFL number or an implicit coupling (not built).
 """
 import argparse
 import math
@@ -194,24 +197,27 @@ def run(name, ratio, **kw):
     return d["t"], d["body_omega"], inertia
 
 
-def check(label, t, om, inertia, band, t_lo=0.1, exact=None):
-    sel = t >= t_lo
-    ref = np.array([(exact or exact_omega)(x, inertia) for x in t[sel]])
-    err = float(np.abs(om[sel] / W0 - ref).max())   # w0-normalised: the decay is O(1)
-    good = err < band
-    print(f"{label}: largest |w - w_exact| / w0 over t >= {t_lo:g}: {err:.4f} (w goes {om[0] / W0:.2f} -> {om[-1] / W0:.3f}, exact {ref[-1]:.3f})  {'ok' if good else 'OUT OF BAND'}", flush=True)
+def check(label, t, om, inertia, band_late, band_early, exact=None):
+    """The largest |w - w_exact| / w0 (the decay is O(1)) from t = 0.1 (the shape of the decay) and from t = 0.01 (which includes the first steps after the release)."""
+    errs = []
+    for t_lo in (0.1, 0.01):
+        sel = t >= t_lo
+        ref = np.array([(exact or exact_omega)(x, inertia) for x in t[sel]])
+        errs.append(float(np.abs(om[sel] / W0 - ref).max()))
+    good = errs[0] < band_late and errs[1] < band_early and float(np.abs(om).max()) <= 1.05 * W0   # (a spin that grows is a coupling gone unstable)
+    print(f"{label}: largest |w - w_exact| / w0: {errs[0]:.4f} from t = 0.1 (band {band_late:g}), {errs[1]:.4f} from t = 0.01 (band {band_early:g})  {'ok' if good else 'OUT OF BAND'}", flush=True)
     return good
 
 
 def main():
     argparse.ArgumentParser().parse_args()
     ok = True
-    for name, ratio, band in (("heavy", 10.0, 0.01), ("neutral", 1.0, 0.01), ("light", 0.1, 0.01)):
+    for name, ratio in (("heavy", 10.0), ("neutral", 1.0), ("light", 0.1)):
         t, om, inertia = run(name, ratio)
-        ok = check(f"rho_b / rho = {ratio:g}", t, om, inertia, band) and ok
-    for name, ratio, axis, band in (("sphere_heavy_x", 10.0, "x", 0.03), ("sphere_neutral_z", 1.0, "z", 0.03)):
+        ok = check(f"rho_b / rho = {ratio:g}", t, om, inertia, 0.01, 0.04) and ok
+    for name, ratio, axis in (("sphere_heavy_x", 10.0, "x"), ("sphere_neutral_z", 1.0, "z")):
         t, om, inertia = run_sphere(name, ratio, axis)
-        ok = check(f"sphere, rho_b / rho = {ratio:g}, spin about {axis}", t, om, inertia, band, exact=exact_omega_sphere) and ok
+        ok = check(f"sphere, rho_b / rho = {ratio:g}, spin about {axis}", t, om, inertia, 0.03, 0.12, exact=exact_omega_sphere) and ok
     print("ALL IN BAND" if ok else "OUT OF BAND")
 
 

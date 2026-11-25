@@ -109,8 +109,9 @@ system as a whole is not established. The body needs a Runge-Kutta or Euler time
 `positivity_fallback`, and no `ibm_curvature`.
 
 **A light rotating body.** The torque of a body turning in a viscous fluid has no inertial part (a sphere or a cylinder has no added moment of inertia: the torque grows only like $\sqrt{s}$ at high
-frequency, a history term), but one step's torque is that of a shear layer of thickness $\sqrt{\nu\,\Delta t}$, so the update loses accuracy when $\rho_b/\rho$ falls to about $h/R$ and diverges at about
-half of that. At 20 cells per diameter ($h/R=0.1$) a disk of $\rho_b/\rho=0.1$ is followed to 0.3 % of its initial spin, one of 0.05 is not; the limit does not move with the time step, so a lighter body needs an implicit coupling.
+frequency, a history term), yet the explicit coupling is unstable for a light enough body. Measured on a disk released with a spin: at CFL 0.4 it is stable down to $\rho_b/\rho\approx0.4\,h/R$ ($h$: cell size, $R$: radius)
+and at 20 cells per diameter follows the exact angular velocity to 1 % of its initial value (from $t=0.01$ on; 4.5 % at 10 cells per diameter); below that it grows without bound. A smaller CFL number lowers the threshold (at $h/R=0.1$ a disk of $\rho_b/\rho=0.02$ is stable and accurate at CFL 0.2 and
+diverges at CFL 0.4), so a lighter body needs a smaller time step or an implicit coupling (not built).
 
 ## What is supported
 
@@ -123,7 +124,7 @@ half of that. At 20 cells per diameter ($h/R=0.1$) a disk of $\rho_b/\rho=0.1$ i
 
 Not available: free translation together with rotation about a pivot other than the centre of mass, a rotation driven in 3-D for a body other than a sphere, `ibm_curvature`, the Hancock scheme, `positivity_fallback`.
 
-**Checkpoints.** The checkpoint keeps the pose the geometry was last built at and, for a driven body, its position, velocity and last acceleration (the key `body_pose`). A resumed run continues bit
+**Checkpoints.** The checkpoint keeps the pose the geometry was last built at and, for a driven body, its position, velocity and last acceleration, and for a driven rotation its angle, angular velocity and last angular acceleration (the key `body_pose`). A resumed run continues bit
 for bit, also on another rank count.
 
 ## Validation
@@ -139,7 +140,7 @@ $$(m+m_a)\,\ddot x + k\,x = 0 \ \ \Rightarrow\ \ \omega^2=\frac{k}{m+m_a},\qquad
 | `features/ibm_spring.py` | the spring oscillator $(m+m_a)\ddot x+kx=0$: frequency within 0.4 %, stable down to $m=0.3\rho V$ |
 | `features/ibm_gravity.py`, `ibm_gravity3d.py` | $(m+m_a)\ddot{\mathbf x}=-(m-\rho_cV)\mathbf g$ in a stratified isothermal gas: cylinder and sphere at mass ratios 3, 1 and 0.5 |
 | `features/ibm_spin_sphere.py` | a sphere spun up in a viscous gas at rest: the torque against the exact Stokes transient (within 2 % at 10 cells per diameter), spin about x and y equal to spin about z with the axes relabelled (roundoff) |
-| `features/ibm_spin_down.py` | a cylinder released with a spin in a viscous gas at rest, its rotation free: the angular velocity against the exact transient $\hat\omega=I\omega_0/\bigl(Is+2\pi\mu R^2(2+xK_0(x)/K_1(x))\bigr)$, $x=R\sqrt{s/\nu}$ (within 0.3 % of $\omega_0$ at $\rho_b/\rho=10$, 1 and 0.1); a sphere with $\hat\omega=I\omega_0/\bigl(Is+\tfrac{8\pi}{3}\mu R^3\,\tfrac{x^2+3x+3}{x+1}\bigr)$ (within 1.4 % of $\omega_0$ at 10 cells per diameter, spin about x and about z equal); the accuracy limit of the loose coupling in $\rho_b/\rho$ against $h/R$ |
+| `features/ibm_spin_down.py` | a cylinder released with a spin in a viscous gas at rest, its rotation free: the angular velocity against the exact transient $\hat\omega=I\omega_0/\bigl(Is+2\pi\mu R^2(2+xK_0(x)/K_1(x))\bigr)$, $x=R\sqrt{s/\nu}$ (within 0.3 % of $\omega_0$ from $t=0.1$ and within 2.5 % from $t=0.01$, at $\rho_b/\rho=10$, 1 and 0.1); a sphere with $\hat\omega=I\omega_0/\bigl(Is+\tfrac{8\pi}{3}\mu R^3\,\tfrac{x^2+3x+3}{x+1}\bigr)$ (within 1.4 % of $\omega_0$ from $t=0.1$ at 10 cells per diameter, 7.7 % from $t=0.01$: the first steps after an impulsive release are not resolved; spin about x and about z equal); the stability limit of the loose coupling in $\rho_b/\rho$ against $h/R$ and the CFL number |
 | `features/ibm_falling_sphere.py` | a sphere falling to its terminal speed (Re 32, Mach 0.13, octree, 30 diameters of fall): terminal speed 7 % below the Schiller-Naumann reference (band 10 %), the load of a sphere prescribed at that speed equal to the free fall's within 1 % |
 
 The gravity studies agree for the sinking bodies (cylinder 0.8 %, sphere 0.3 % at the finest mesh) and the neutral body stays. A body lighter than the gas it displaces rises about 12 % faster than the

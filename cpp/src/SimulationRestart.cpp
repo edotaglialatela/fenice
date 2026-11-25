@@ -102,7 +102,7 @@ void Simulation::restore_body_from_checkpoint() {
     const NpzFile file(path);
     if (!file.has("body_pose")) throw std::runtime_error("The checkpoint " + path + " has no pose of the moving body: it is from a static run");
     const std::vector<double> b = file.read("body_pose").as_doubles();
-    if (b.size() != (p.nz > 1 ? 14u : 10u) + (p.ibm_drives_rotation() ? (p.nz > 1 ? 7u : 3u) : 0u)) throw std::runtime_error("The checkpoint " + path + " has a malformed body pose (a 2-D file with a 3-D run, or the reverse)");
+    if (b.size() != (p.nz > 1 ? 14u : 10u) + (p.ibm_drives_rotation() ? (p.nz > 1 ? 7u : 3u) : 0u)) throw std::runtime_error("The checkpoint " + path + " has a malformed body pose (a 2-D file with a 3-D run, or the reverse, or a run whose rotation is driven with a file that has no angular state)");
     ImmersedBoundary::BodyPose g;
     g.x = b[0];
     g.y = b[1];

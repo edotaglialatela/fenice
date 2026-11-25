@@ -135,6 +135,7 @@ CHECK_CASES = {   # name: (case, overrides)
     "amr_dynamic_spin_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50", "max_steps=40",
                                                              "ibm_mass=0.02", "ibm_stiff_x=5", "ibm_vx=0.5", "ibm_inertia=0.002", "ibm_omega=5",
                                                              "ibm_stiff_theta=1", "ibm_damp_theta=0.01"]),
+    # (np 2, 4 and 6 cut the body band: a leaf the airfoil has just left, whose fill reads leaves on the other side of the cut, must be held by the share)
     "amr_dynamic_pitch_airfoil": ("IBM Airfoil", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=96", "ny=48", "max_steps=40", "ibm_inertia=0.01",
                                                   "ibm_omega=3", "ibm_stiff_theta=2", "ibm_damp_theta=0.01"]),
     # AMR with MUSCL-Hancock: the predicted side states of the leaves cross the rank interfaces
