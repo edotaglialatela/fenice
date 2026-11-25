@@ -90,6 +90,7 @@ GROUPS = {
         "ibm_gravity": (["features/ibm_gravity.py"], "quick", None),   # a cylinder released in a stratified gas: weight and buoyancy against the added-mass ODE
         "ibm_spring_full": (["features/ibm_spring.py", "--full"], "medium", None),   # ... and 40 cells per diameter, and the time-step check
         "ibm_gravity3d": (["features/ibm_gravity3d.py"], "medium", None),   # the same with a sphere in 3-D (the rising body is reported, not gated)
+        "ibm_pitch_response": (["features/ibm_pitch_response.py"], "medium", None),   # a sprung airfoil released in the flow: damping and the divergence boundary against the static polar
         "ibm_spin_down": (["features/ibm_spin_down.py"], "medium", None),   # a cylinder released with a spin: the driven rotation against the exact transient
         "ibm_spin_sphere": (["features/ibm_spin_sphere.py"], "medium", None),   # a sphere spun up in a gas at rest: torque against the exact transient, the three axes
         "ibm_falling_sphere": (["features/ibm_falling_sphere.py"], "medium", None),   # a sphere falling to its terminal speed in a viscous stratified gas, on an octree

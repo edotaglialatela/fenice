@@ -121,3 +121,33 @@ The runs used here are workstation runs (24 cores); the case is a few-hours job 
 `features/ibm_ghost.py --check` ([Moving bodies]({{root}}ibm/moving-bodies.html#validation)).
 
 **Limits.** Slip walls at ±3 chords and Ma = 0.2 differ from the free-air incompressible set-up of most published results; the rotation starts and stops impulsively (constant rate); the angle at the start of the rotation is exactly 0.
+
+## A sprung airfoil free to pitch
+
+The pitch can also be left to the flow: `ibm_inertia` ($I$, about the quarter chord), a torsional spring `ibm_stiff_theta` ($K$, rest position at `ibm_aoa`) and `ibm_damp_theta` make the airfoil a one-degree-of-freedom
+[driven body]({{root}}ibm/moving-bodies.html#the-coupled-system), $I\ddot\theta = M_f - K\theta - c\,\dot\theta$ ($M_f$: the moment of the flow about the quarter chord, positive nose-up on the airfoil). Here $I = 0.5$, no structural damping, the airfoil at
+0° released with $\dot\theta = 0.1$ (`ibm_omega` is then the initial spin; the angle in the figure is positive nose-down, like the monitor's `body_angle`):
+
+```powershell
+build\release\fenice.exe --case "IBM Airfoil Pitch" --set ibm_omega=0.1 --set ibm_omega_from=0 --set ibm_omega_until=0 --set ibm_aoa=0 `
+  --set ibm_inertia=0.5 --set ibm_stiff_theta=1 --set t_end=30 --set nx=360 --set ny=180 --set amr_max_level=2
+```
+
+<figure>
+<img src="{{root}}img/airfoil_pitch_response.png" style="width:100%">
+<figcaption>The pitch angle of the sprung airfoil after a release at 0°, for four spring stiffnesses; base mesh $360\times180$ (30 cells per chord), one refinement level (solid) and two (dashed, for $K = 0.3$ and 1).</figcaption>
+</figure>
+
+| $K$ | behaviour | period | peak ratio per half period | $\zeta$ | $K_{\rm eff}$ |
+|---:|---|---:|---:|---:|---:|
+| 0.05 | statically divergent: settles at 9° | | | | |
+| 0.1 | one overshoot, returns to 0.4° | | | | |
+| 0.3 | damped oscillation | 7.7 (7.6) | 0.44 (0.38) | 0.25 (0.30) | 0.35 (0.38) |
+| 1 | damped oscillation | 4.64 (4.67) | 0.70 (0.68) | 0.11 (0.12) | 0.93 (0.92) |
+
+(Two levels in brackets.) With no structural damping all of the damping is aerodynamic: the pitch is damped by the flow, with $\zeta \approx 0.1$ at $K = 1$ and more at the lower frequency. The flow also has a stiffness, destabilising: from the static polar above
+($C_m = +0.0079$ at 3°) $K_a = -\mathrm{d}C_m/\mathrm{d}\theta \cdot q c^2 = -0.075$, and the response at $K = 1$ gives $K_{\rm eff} - K = -0.08$. A spring weaker than $0.075$ cannot hold the airfoil at 0°: $K = 0.05$ leaves it at 9°, $K = 0.1$
+brings it back (`features/ibm_pitch_response.py` checks both against the polar and the two meshes).
+
+**This is not flutter.** One pitch degree of freedom about the quarter chord is damped by the flow; flutter needs the pitch to be coupled to a plunge, i.e. a body free to translate and to turn about a pivot away from its centre of mass,
+which is not built. A run at 15° with the same spring is a stall-driven problem and needs the three levels of the results above: on a $30$-cells-per-chord base mesh with one level the static 15° airfoil itself fails (an unphysical load at about $t = 50$), so no response at that angle is reported here.
