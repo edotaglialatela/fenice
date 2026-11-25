@@ -168,7 +168,7 @@ public:
     // band and every leaf classification follow it) and the pivot. Shared with the factory and the velocity function of the engine.
     struct MovingBodyState {
         ImmersedBoundary::BodyPose geo;
-        double px = 0.0, py = 0.0;
+        double px = 0.0, py = 0.0, pz = 0.0;
     };
     std::shared_ptr<MovingBodyState> amr_body_;   // same body on the uniform mesh of any level
     std::unique_ptr<TimeScheme> scheme;                         // time integrator

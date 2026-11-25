@@ -195,10 +195,15 @@ ImmersedBoundary::BodyPose Simulation::prescribed_pose(double t) const {
     pose.u = p.ibm_vx;
     pose.v = p.ibm_vy;
     pose.omega = p.ibm_omega;
+    pose.omega_x = p.ibm_omega_x;
+    pose.omega_y = p.ibm_omega_y;
     if (p.ibm_omega_from > 0.0 || p.ibm_omega_until > 0.0) {   // the rotation runs between two times and the angle is held outside (the pose is fixed during a step)
         const double t_off = p.ibm_omega_until > 0.0 ? p.ibm_omega_until : t;
         pose.angle = p.ibm_omega * (std::min(std::max(t, p.ibm_omega_from), std::max(t_off, p.ibm_omega_from)) - p.ibm_omega_from);
-        pose.omega = (t >= p.ibm_omega_from && (p.ibm_omega_until <= 0.0 || t < p.ibm_omega_until)) ? p.ibm_omega : 0.0;
+        const bool on = t >= p.ibm_omega_from && (p.ibm_omega_until <= 0.0 || t < p.ibm_omega_until);
+        pose.omega = on ? p.ibm_omega : 0.0;
+        pose.omega_x = on ? p.ibm_omega_x : 0.0;
+        pose.omega_y = on ? p.ibm_omega_y : 0.0;
     }
     return pose;
 }
@@ -653,7 +658,7 @@ void Simulation::solve_amr() {
             amr_body_->geo.w = pose.w;
             eng.set_body_velocity(pose.u, pose.v, pose.w);
         }
-        if (shift_z <= 0.25 * h_fine && pose.omega == g.omega) return;   // (the wall velocity of a rotation is that of the built pose: a stop rebuilds it)
+        if (shift_z <= 0.25 * h_fine && pose.omega == g.omega && pose.omega_x == g.omega_x && pose.omega_y == g.omega_y) return;   // (the wall velocity of a rotation is that of the built pose: a stop rebuilds it)
         const auto r0 = Clock::now();
         amr_body_->geo = pose;
         eng.body_changed();

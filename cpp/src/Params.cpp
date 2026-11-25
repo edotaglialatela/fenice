@@ -186,6 +186,8 @@ const std::vector<ParamSpec>& parameter_table() {
     {"ibm_vy", "ibm", "0.0"},
     {"ibm_vz", "ibm", "0.0"},
     {"ibm_omega", "ibm", "0.0"},
+    {"ibm_omega_x", "ibm", "0.0"},
+    {"ibm_omega_y", "ibm", "0.0"},
     {"ibm_omega_from", "ibm", "0.0"},
     {"ibm_omega_until", "ibm", "0.0"},
     {"ibm_mass", "ibm", "0.0"},
@@ -316,6 +318,8 @@ SimParams SimParams::from(const Params& p) {
     s.ibm_vy = p.num("ibm_vy", 0.0);
     s.ibm_vz = p.num("ibm_vz", 0.0);
     s.ibm_omega = p.num("ibm_omega", 0.0);
+    s.ibm_omega_x = p.num("ibm_omega_x", 0.0);
+    s.ibm_omega_y = p.num("ibm_omega_y", 0.0);
     s.ibm_omega_from = p.num("ibm_omega_from", 0.0);
     s.ibm_omega_until = p.num("ibm_omega_until", 0.0);
     s.ibm_mass = p.num("ibm_mass", 0.0);
@@ -485,13 +489,14 @@ SimParams SimParams::from(const Params& p) {
     if (s.use_ibm && airfoil && !(s.ibm_chord > 0.0)) throw std::invalid_argument("ibm_chord must be positive");
     if (s.use_ibm && s.nz > 1 && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is 2-D only (for now)");
     if (!(s.ibm_omega_from >= 0.0) || !(s.ibm_omega_until >= 0.0)) throw std::invalid_argument("ibm_omega_from and ibm_omega_until must be >= 0");
-    if ((s.ibm_omega_until > 0.0 || s.ibm_omega_from > 0.0) && s.ibm_omega == 0.0) throw std::invalid_argument("ibm_omega_from / ibm_omega_until need a rotation (ibm_omega)");
+    if ((s.ibm_omega_until > 0.0 || s.ibm_omega_from > 0.0) && s.ibm_omega == 0.0 && s.ibm_omega_x == 0.0 && s.ibm_omega_y == 0.0)
+        throw std::invalid_argument("ibm_omega_from / ibm_omega_until need a rotation (ibm_omega)");
     if (s.ibm_omega_until > 0.0 && s.ibm_omega_until <= s.ibm_omega_from) throw std::invalid_argument("ibm_omega_until must be later than ibm_omega_from");
     if (s.use_ibm && s.ibm_moving() && s.ibm_curvature) throw std::invalid_argument("ibm_curvature is not available for a moving body");
-    if (s.use_ibm && s.ibm_moving() && s.nz > 1) {   // in 3-D: a sphere that translates, on a uniform mesh
+    if (s.use_ibm && s.ibm_moving() && s.nz > 1) {   // in 3-D: a sphere that translates and spins
         if (shape != "sphere") throw std::invalid_argument("a moving body in 3-D is a sphere (for now)");
-        if (s.ibm_omega != 0.0) throw std::invalid_argument("a moving body in 3-D translates only (ibm_omega must be 0)");
     }
+    if (s.use_ibm && s.nz == 1 && (s.ibm_omega_x != 0.0 || s.ibm_omega_y != 0.0)) throw std::invalid_argument("ibm_omega_x and ibm_omega_y need a 3-D mesh (nz > 1)");
     if (s.use_ibm && s.ibm_moving() && s.nz == 1 && s.ibm_vz != 0.0) throw std::invalid_argument("ibm_vz needs a 3-D mesh (nz > 1)");
     if (!(s.ibm_mass >= 0.0) || !(s.ibm_stiff_x >= 0.0) || !(s.ibm_stiff_y >= 0.0) || !(s.ibm_stiff_z >= 0.0) || !(s.ibm_damp_x >= 0.0) ||
         !(s.ibm_damp_y >= 0.0) || !(s.ibm_damp_z >= 0.0))
@@ -500,7 +505,7 @@ SimParams SimParams::from(const Params& p) {
         (s.ibm_stiff_x != 0.0 || s.ibm_stiff_y != 0.0 || s.ibm_stiff_z != 0.0 || s.ibm_damp_x != 0.0 || s.ibm_damp_y != 0.0 || s.ibm_damp_z != 0.0))
         throw std::invalid_argument("ibm_stiff_* and ibm_damp_* act on a body driven by the flow: set ibm_mass > 0");
     if (s.use_ibm && s.ibm_dynamic()) {
-        if (s.ibm_omega != 0.0) throw std::invalid_argument("a body driven by the flow translates only (ibm_omega must be 0)");
+        if (s.ibm_omega != 0.0 || s.ibm_omega_x != 0.0 || s.ibm_omega_y != 0.0) throw std::invalid_argument("a body driven by the flow translates only (ibm_omega must be 0)");
         if (const std::string ts = lower(s.time_scheme); ts == "muscl-hancock" || ts == "hancock")
             throw std::invalid_argument("a body driven by the flow needs a Runge-Kutta or Euler time scheme (its loads come from the first stage)");
         if (s.positivity_fallback) throw std::invalid_argument("a body driven by the flow cannot use positivity_fallback");

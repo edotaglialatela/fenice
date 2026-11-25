@@ -17,7 +17,11 @@ $\mathbf x_p$ (the quarter chord of an airfoil). The surface moves as a rigid bo
 $$\mathbf u_w(\mathbf x,t)=\mathbf U_b(t)+\Omega(t)\,\hat{\mathbf z}\times(\mathbf x-\mathbf x_p),\qquad \mathbf U_b=\dot{\mathbf x}_b,\ \ \Omega=\dot\theta .$$
 
 **Prescribed motion:** $\mathbf x_b = \mathbf x_b(0) + \mathbf U t$ and $\theta=\Omega t$ with constant $\mathbf U=$ (`ibm_vx`, `ibm_vy`, `ibm_vz`) and $\Omega=$ `ibm_omega`. Any
-nonzero value makes the body move. A circle only translates; a sphere translates only ($\Omega=0$).
+nonzero value makes the body move. A circle only translates. A sphere also spins, about any axis through its centre: with $oldsymbol\Omega=$ (`ibm_omega_x`, `ibm_omega_y`, `ibm_omega`) the wall velocity is
+
+$$\mathbf u_w=\mathbf U_b+oldsymbol\Omega	imes(\mathbf x-\mathbf x_b),$$
+
+the sphere itself does not change, so a spin never rebuilds the geometry (only the wall velocity of the ghost cells and of the cells inside the body).
 
 The rotation can be limited in time: with `ibm_omega_from` $=t_0$ and `ibm_omega_until` $=t_1$ the angle is
 $\theta(t)=\Omega\,\bigl(\min(\max(t,t_0),t_1)-t_0\bigr)$ and $\Omega(t)=\Omega$ only for $t_0\le t<t_1$: the body rests, turns, and holds the new angle (`ibm_omega_until = 0`: it never stops).
@@ -95,8 +99,8 @@ system as a whole is not established. The body needs a Runge-Kutta or Euler time
 |---|---|---|---|
 | cylinder, airfoil | uniform, 2-D (serial, MPI) | translation, rotation (polygon) | translation |
 | cylinder, airfoil | adaptive, 2-D (serial, MPI) | translation, rotation (polygon) | translation |
-| sphere | uniform, 3-D (serial, MPI) | translation | translation |
-| sphere | adaptive, 3-D octree (serial, MPI) | translation | translation |
+| sphere | uniform, 3-D (serial, MPI) | translation, spin about any axis | translation |
+| sphere | adaptive, 3-D octree (serial, MPI) | translation, spin about any axis | translation |
 
 Not available: rotation of a driven body, `ibm_curvature`, the Hancock scheme, `positivity_fallback`.
 
@@ -115,6 +119,7 @@ $$(m+m_a)\,\ddot x + k\,x = 0 \ \ \Rightarrow\ \ \omega^2=\frac{k}{m+m_a},\qquad
 | `features/ibm_ghost.py --check` | serial $=$ 2-7 ranks bit for bit, uniform and adaptive (quadtree and octree), prescribed and driven bodies (a sphere with strips along y and along x); a sphere started in a gas at rest on the octree against the uniform mesh of its finest resolution (the 40-step mean of the force within 2 % of the peak); resume with `--only resume` |
 | `features/ibm_spring.py` | the spring oscillator $(m+m_a)\ddot x+kx=0$: frequency within 0.4 %, stable down to $m=0.3\rho V$ |
 | `features/ibm_gravity.py`, `ibm_gravity3d.py` | $(m+m_a)\ddot{\mathbf x}=-(m-\rho_cV)\mathbf g$ in a stratified isothermal gas: cylinder and sphere at mass ratios 3, 1 and 0.5 |
+| `features/ibm_spin_sphere.py` | a sphere spun up in a viscous gas at rest: the torque against the exact Stokes transient (within 2 % at 10 cells per diameter), spin about x and y equal to spin about z with the axes relabelled (roundoff) |
 | `features/ibm_falling_sphere.py` | a sphere falling to its terminal speed (Re 32, Mach 0.13, octree, 30 diameters of fall): terminal speed 7 % below the Schiller-Naumann reference (band 10 %), the load of a sphere prescribed at that speed equal to the free fall's within 1 % |
 
 The gravity studies agree for the sinking bodies (cylinder 0.8 %, sphere 0.3 % at the finest mesh) and the neutral body stays. A body lighter than the gas it displaces rises about 12 % faster than the

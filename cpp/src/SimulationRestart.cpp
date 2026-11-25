@@ -124,12 +124,18 @@ void Simulation::restore_body_from_checkpoint() {
         g.u = p.ibm_vx;
         g.v = p.ibm_vy;
         g.w = p.ibm_vz;
-        g.omega = prescribed_pose(file.read("t").scalar()).omega;   // zero once a rotation with ibm_omega_until has stopped
+        const ImmersedBoundary::BodyPose now = prescribed_pose(file.read("t").scalar());
+        g.omega = now.omega;   // zero once a rotation with ibm_omega_until has stopped
+        g.omega_x = now.omega_x;
+        g.omega_y = now.omega_y;
     }
     if (amr_body_) {
         amr_body_->geo = g;   // the factory builds the body at this pose
     } else {
-        g.omega = p.ibm_dynamic() ? 0.0 : prescribed_pose(file.read("t").scalar()).omega;
+        const ImmersedBoundary::BodyPose now = p.ibm_dynamic() ? ImmersedBoundary::BodyPose{} : prescribed_pose(file.read("t").scalar());
+        g.omega = now.omega;
+        g.omega_x = now.omega_x;
+        g.omega_y = now.omega_y;
         ibm->restore_geometry(mesh, g);
     }
 }

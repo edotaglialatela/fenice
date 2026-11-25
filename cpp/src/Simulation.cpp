@@ -281,6 +281,9 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                 amr_body_->geo.v = p.ibm_vy;
                 amr_body_->geo.w = p.ibm_vz;
                 amr_body_->geo.omega = prescribed_pose(0.0).omega;
+                amr_body_->geo.omega_x = prescribed_pose(0.0).omega_x;
+                amr_body_->geo.omega_y = prescribed_pose(0.0).omega_y;
+                amr_body_->pz = p.ibm_cz;
                 ibm_factory = [base = ibm_factory, st = amr_body_](const Mesh& m) {
                     ImmersedBoundary b = base(m);
                     b.enable_motion(st->px, st->py);
@@ -427,10 +430,16 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             cell_physics.ibm_curvature = p.ibm_curvature;
             cell_physics.ibm_slip = !p.use_viscous;
             if (amr_body_)
-                cell_physics.ibm_velocity = [st = amr_body_](double x, double y, double, double& bu, double& bv, double& bw) {
+                cell_physics.ibm_velocity = [st = amr_body_](double x, double y, double z, double& bu, double& bv, double& bw) {
                     bu = st->geo.u - st->geo.omega * (y - (st->py + st->geo.y));
                     bv = st->geo.v + st->geo.omega * (x - (st->px + st->geo.x));
                     bw = st->geo.w;
+                    if (st->geo.omega_x != 0.0 || st->geo.omega_y != 0.0) {   // a sphere spinning about x or y
+                        const double rx = x - (st->px + st->geo.x), ry = y - (st->py + st->geo.y), rz = z - (st->pz + st->geo.z);
+                        bu += st->geo.omega_y * rz;
+                        bv -= st->geo.omega_x * rz;
+                        bw += st->geo.omega_x * ry - st->geo.omega_y * rx;
+                    }
                 };
         }
         cell_engine = std::make_unique<CellFluxEngine>(fluid, riemann, muscl.get(), boundaries);

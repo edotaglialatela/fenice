@@ -2917,6 +2917,38 @@ TEST(positivity_fallback_keeps_the_wake_of_a_mach_10_cylinder_admissible) {
     CHECK(repairs > 0);
 }
 
+TEST(a_spinning_sphere_carries_the_rigid_rotation_velocity_in_its_deep_cells) {
+    // a sphere that translates (0.1, -0.2, 0.05) and spins about all three axes: the solid cells away from the wall hold rho (u_b + omega x r)
+    Simulation sim;
+    sim.setup(params_for("Sod Shock Tube", {{"Lx", "1.0"}, {"Ly", "1.0"}, {"Lz", "1.0"}, {"nx", "32"}, {"ny", "32"}, {"nz", "32"}, {"use_ibm", "true"},
+                                            {"ibm_shape", "Sphere"}, {"ibm_radius", "0.35"}, {"ibm_cx", "0.5"}, {"ibm_cy", "0.5"}, {"ibm_cz", "0.5"},
+                                            {"ibm_vx", "0.1"}, {"ibm_vy", "-0.2"}, {"ibm_vz", "0.05"}, {"ibm_omega", "0.9"}, {"ibm_omega_x", "0.4"},
+                                            {"ibm_omega_y", "-0.7"}, {"use_mpi", "false"}}),
+              false);
+    const ImmersedBoundary::BodyPose pose = sim.prescribed_pose(0.0);
+    CHECK(pose.omega == 0.9 && pose.omega_x == 0.4 && pose.omega_y == -0.7);
+    sim.ibm->move_to(sim.mesh, pose);
+    const double rho = 1.3;
+    Field U(static_cast<size_t>(sim.mesh.num_cells()), sim.fluid.prim_to_cons({rho, 0.0, 0.0, 1.0, 0.0}));
+    const Field before = U;
+    sim.ibm->apply_solid_reset(U, sim.fluid);
+    int deep = 0;
+    double worst = 0.0;
+    for (int c = 0; c < sim.mesh.num_cells(); ++c) {
+        if (U[static_cast<size_t>(c)] == before[static_cast<size_t>(c)]) continue;
+        const int i = c % sim.mesh.nx, j = (c / sim.mesh.nx) % sim.mesh.ny, k = c / (sim.mesh.nx * sim.mesh.ny);
+        const double rx = sim.mesh.xc(i) - 0.5, ry = sim.mesh.yc(j) - 0.5, rz = sim.mesh.zc(k) - 0.5;
+        if (rx * rx + ry * ry + rz * rz > 0.22 * 0.22) continue;   // the cells next to the wall are ghost cells
+        const double u = 0.1 - 0.9 * ry + (-0.7) * rz, v = -0.2 + 0.9 * rx - 0.4 * rz, w = 0.05 + 0.4 * ry - (-0.7) * rx;
+        const State W = sim.fluid.cons_to_prim(U[static_cast<size_t>(c)]);
+        worst = std::max({worst, std::abs(W[1] - u), std::abs(W[2] - v), std::abs(W[4] - w)});
+        ++deep;
+    }
+    CHECK(deep > 300);
+    CHECK(worst < 1e-12);
+    std::printf("    %d deep cells, worst velocity error %.2e\n", deep, worst);
+}
+
 TEST(prescribed_rotation_stops_at_ibm_omega_until_and_holds_the_angle) {
     const auto pose_at = [](const char* until, double t, const char* from = "0.0") {
         Simulation sim;

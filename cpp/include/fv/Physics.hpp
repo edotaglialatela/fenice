@@ -235,12 +235,14 @@ public:
     std::vector<int> solid_cells_near(const Mesh& fine) const;
 
     // Pose of a moving body relative to the geometry it was built with: translation (x, y, z), rotation `angle` [rad, counter-clockwise
-    // in the x-y plane] about the pivot given to enable_motion, and the velocities of the pivot (u, v, w) and the angular velocity omega.
+    // in the x-y plane] about the pivot given to enable_motion, and the velocities of the pivot (u, v, w) and the angular velocity omega (about z).
+    // A sphere in 3-D may also spin about x and y: omega_x, omega_y (its geometry does not change, only the wall velocity omega x r about its centre).
     struct BodyPose {
         double x = 0.0, y = 0.0, z = 0.0;
         double angle = 0.0;
         double u = 0.0, v = 0.0, w = 0.0;
         double omega = 0.0;
+        double omega_x = 0.0, omega_y = 0.0;
     };
     // Switch the wall to a moving one (after enable_ghost_cells; uniform meshes, geometry bodies, 2-D or a sphere). The geometry at
     // this moment is the reference; (px, py) is the pivot of the rotation. Until this call nothing changes: a static body runs the

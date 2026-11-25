@@ -1126,11 +1126,16 @@ bool ImmersedBoundary::is_solid(const Mesh& m, int i, int j, int k) const {
 }
 
 void ImmersedBoundary::body_velocity(double x, double y, double z, double& bu, double& bv, double& bw) const {
-    (void)z;
     const double px = pivot_x_ + built_.x, py = pivot_y_ + built_.y;   // the pivot where the geometry was built, the velocities of the pose
     bu = pose_.u - pose_.omega * (y - py);
     bv = pose_.v + pose_.omega * (x - px);
     bw = pose_.w;
+    if (pose_.omega_x != 0.0 || pose_.omega_y != 0.0) {   // a sphere spinning about x or y: the velocity of the rigid rotation about its centre
+        const double pz = ref_cz_ + built_.z, rx = x - px, ry = y - py, rz = z - pz;
+        bu += pose_.omega_y * rz;
+        bv -= pose_.omega_x * rz;
+        bw += pose_.omega_x * ry - pose_.omega_y * rx;
+    }
 }
 
 void ImmersedBoundary::refresh_wall_velocity() {
@@ -1535,7 +1540,7 @@ void ImmersedBoundary::fill_ghosts_part(const CellIndex& local, const CellState&
         if (l < 0) continue;
         if (moving_) {   // the deep cells ride with the body
             double bu, bv, bw;
-            body_velocity(mesh_.xc(c % nx_), mesh_.yc((c / nx_) % ny_), 0.0, bu, bv, bw);
+            body_velocity(mesh_.xc(c % nx_), mesh_.yc((c / nx_) % ny_), nz_ > 1 ? mesh_.zc(c / (nx_ * ny_)) : 0.0, bu, bv, bw);
             if (reset) {
                 U[static_cast<size_t>(l)] = eos.prim_to_cons({rho_ref_, bu, bv, p_ref_, bw});
             } else {

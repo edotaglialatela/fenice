@@ -85,6 +85,10 @@ CHECK_CASES = {   # name: (case, overrides)
     # the loads are summed in the global cell order with the layer in the index, so that no two cells tie
     "moving_sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=48", "ny=24", "nz=12", "Lz=1.0", "bc_zmin=wall",
                                                    "bc_zmax=wall", "max_steps=30", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_vz=0.2"]),
+    # a sphere that also spins about all three axes (the wall carries omega x r; the spin stops at ibm_omega_until, the translation goes on)
+    "spin_sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=48", "ny=24", "nz=12", "Lz=1.0", "bc_zmin=wall",
+                                                 "bc_zmax=wall", "max_steps=30", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_vz=0.2", "ibm_omega=2.0", "ibm_omega_x=1.5",
+                                                 "ibm_omega_y=-1.0", "ibm_omega_until=0.25"]),
     "dynamic_sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=48", "ny=24", "nz=12", "Lz=1.0", "bc_zmin=wall",
                                                     "bc_zmax=wall", "max_steps=60", "ibm_mass=0.1", "ibm_stiff_x=5", "ibm_stiff_z=3", "ibm_vx=0.5", "ibm_vz=0.2"]),
     "dynamic_sphere3d_xstrips": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "Lx=1.5", "Ly=0.4", "Lz=0.4", "nx=60", "ny=8", "nz=8", "ibm_cx=0.6", "ibm_cy=0.2",
@@ -123,6 +127,10 @@ CHECK_CASES = {   # name: (case, overrides)
     "amr3d_dynamic_sphere": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
                                                         "bc_zmin=wall", "bc_zmax=wall", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
                                                         "max_steps=30", "ibm_mass=0.1", "ibm_stiff_x=5", "ibm_stiff_z=3", "ibm_vx=0.5", "ibm_vz=0.2"]),
+    "amr3d_spin_sphere": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
+                                                     "bc_zmin=wall", "bc_zmax=wall", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
+                                                     "max_steps=24", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_vz=0.2", "ibm_omega=2.0", "ibm_omega_x=1.5",
+                                                     "ibm_omega_y=-1.0", "ibm_omega_until=0.25"]),
     "amr_cylinder_hancock": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
                                                         "max_steps=16", "time_scheme=MUSCL-Hancock"]),
     "amr_sphere3d_hancock": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
@@ -264,7 +272,7 @@ def amr3d_motion_check():
     return worst < 0.05
 
 
-RESUME_CASES = ("moving_cylinder", "moving_airfoil", "moving_airfoil_hold", "amr_moving_airfoil_hold", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder", "dynamic_sphere3d", "amr3d_dynamic_sphere", "amr3d_moving_sphere")
+RESUME_CASES = ("moving_cylinder", "moving_airfoil", "moving_airfoil_hold", "amr_moving_airfoil_hold", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder", "dynamic_sphere3d", "amr3d_dynamic_sphere", "amr3d_moving_sphere", "spin_sphere3d", "amr3d_spin_sphere")
 RESUME_PAIRS = ((None, None), (None, 3), (3, None), (2, 4))   # ranks of the first half and of the resumed half (None: serial)
 
 

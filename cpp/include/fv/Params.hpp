@@ -87,12 +87,13 @@ struct SimParams {
     // Prescribed motion of the body (provisional keys, constant velocities): translation (ibm_vx, ibm_vy) [m/s] and rotation ibm_omega
     // [rad/s] about (ibm_cx, ibm_cy), from the body's placement at t = 0. Zero everywhere: a static body.
     double ibm_vx = 0.0, ibm_vy = 0.0, ibm_vz = 0.0, ibm_omega = 0.0;
+    double ibm_omega_x = 0.0, ibm_omega_y = 0.0;   // a sphere in 3-D also spins about x and y (ibm_omega is the z component)
     double ibm_omega_from = 0.0, ibm_omega_until = 0.0;   // the prescribed rotation runs from ibm_omega_from to ibm_omega_until (0: it never stops); the angle is held outside
     // A body driven by the flow (provisional keys): ibm_mass > 0 [kg per unit depth in 2-D] frees its translation; ibm_vx, ibm_vy are then its
     // initial velocity. Springs (stiffness ibm_stiff_*, [N/m per unit depth]) pull it back to its placement, dampers ibm_damp_* oppose its velocity.
     double ibm_mass = 0.0, ibm_stiff_x = 0.0, ibm_stiff_y = 0.0, ibm_stiff_z = 0.0, ibm_damp_x = 0.0, ibm_damp_y = 0.0, ibm_damp_z = 0.0;
     bool ibm_dynamic() const { return ibm_mass > 0.0; }
-    bool ibm_moving() const { return ibm_dynamic() || ibm_vx != 0.0 || ibm_vy != 0.0 || ibm_vz != 0.0 || ibm_omega != 0.0; }
+    bool ibm_moving() const { return ibm_dynamic() || ibm_vx != 0.0 || ibm_vy != 0.0 || ibm_vz != 0.0 || ibm_omega != 0.0 || ibm_omega_x != 0.0 || ibm_omega_y != 0.0; }
     bool ibm_curvature = false;  // slip wall only: curvature pressure correction of the ghost cells (dp/dn = rho kappa u_t^2)
     double reynolds;             // > 0: sets mu = rho_in u_in L / reynolds (L: chord or diameter)
     std::string muscl_limiter;   // limiter of reconstruction = muscl
