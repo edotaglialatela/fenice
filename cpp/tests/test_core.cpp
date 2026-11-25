@@ -1756,6 +1756,36 @@ TEST(ibm_mask_and_reset) {
     CHECK(threw);   // unknown shape
 }
 
+TEST(ibm_ghost_pressure_follows_the_hydrostatic_gradient_with_gravity) {
+    // A gas of uniform density rho at rest under gravity g has the linear pressure p = p0 + rho g.x. The image state is bilinear, exact on it, so with
+    // set_gravity the ghost pressure is the exact extension of the field to the ghost cell; without it (the plain copy, zero normal gradient) it is not.
+    const EOS eos = EOS::ideal(1.4);
+    const double pi = std::acos(-1.0), a = pi / 6.0, tx = std::cos(a), ty = std::sin(a), nxw = -ty, nyw = tx;
+    const double ox = 0.2, oy = 0.3, rho = 1.2, p0 = 2.0, gx = 0.3, gy = -0.8;
+    Polygon2D poly;
+    for (const auto& q : std::vector<std::array<double, 2>>{{-1.0, 0.0}, {2.0, 0.0}, {2.0, -1.0}, {-1.0, -1.0}})
+        poly.pts.push_back({ox + q[0] * tx + q[1] * nxw, oy + q[0] * ty + q[1] * nyw});
+    const Mesh m = generate_cartesian_mesh(1.0, 1.0, 64, 64);
+    const auto pressure = [&](double x, double y) { return p0 + rho * (gx * x + gy * y); };
+    double worst_with = 0.0, worst_without = 0.0;
+    for (const bool gravity : {true, false}) {
+        ImmersedBoundary ib(m, poly, rho, p0);
+        if (gravity) ib.set_gravity(gx, gy, 0.0);
+        ib.enable_ghost_cells(m, false);
+        Field U(static_cast<size_t>(m.num_cells()));
+        for (int j = 0; j < m.ny; ++j)
+            for (int i = 0; i < m.nx; ++i) U[m.cell(i, j)] = eos.prim_to_cons({rho, 0.0, 0.0, pressure(m.xc(i), m.yc(j)), 0.0});
+        ib.apply_forcing(U, eos);
+        double& worst = gravity ? worst_with : worst_without;
+        for (const int c : ib.ghost_cell_list()) {
+            if (c % m.nx < 4) continue;   // the image stencils of the cells at the domain edge are clipped by it: not exact there
+            worst = std::max(worst, std::abs(eos.cons_to_prim(U[c])[3] - pressure(m.xc(c % m.nx), m.yc(c / m.nx))));
+        }
+    }
+    CHECK(worst_with < 1e-12);
+    CHECK(worst_without > 1e-3);   // the plain copy misses the gradient: the test can fail
+}
+
 TEST(ibm_ghost_cells_reproduce_a_linear_wall_profile) {
     // A rectangle tilted by 30 degrees (not aligned with the grid): with a velocity that grows linearly with the distance d from
     // its lower wall (u = k d t along the wall, zero at the wall) and a uniform pressure, the no-slip ghost state is the exact

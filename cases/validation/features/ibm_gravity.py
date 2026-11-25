@@ -14,12 +14,16 @@ a constant acceleration (the radiation damping, 0.0467 rho V w, is small at thes
 it must stay, the check of the buoyancy itself) and 0.5 (it rises). The acceleration is the quadratic fit y = y0 + a t^2 / 2 over t = 0.3 .. 1.2; the
 hydrostatic state is not exactly balanced by the scheme (a transient of the second order in the cell size) and the neutral body measures that.
 
-Bands, set after the first run (a first guess of 10 % for both bodies was missed by the rising one): measured at 20 / 40 cells per diameter the sinking
-body is +0.8 / +2.2 % off the reference, the rising one +12.0 / +10.8 %, the neutral one drifts with an acceleration of 0.0025 / 0.0016 (3 % of the
-sinking body's displacement at 20 cells per diameter, falling with the mesh: the hydrostatic imbalance of the scheme). The rising error does not fall with
-the mesh, so it is not the discretisation: the probable cause is the reference itself, a constant added mass of a steady oscillation (kR = 0.169) for a start
-from rest and a density that varies by 4 % across the body, which weighs most on the light body (added mass two thirds of the inertia). Bands: sinking
-within 5 %, rising within 15 %, neutral displaced at most 5 % of the sinking body's displacement at t = 1.2.
+Bands, set after the first run (a first guess of 10 % for both bodies was missed by the rising one): sinking within 5 %, rising within 15 %, neutral
+displaced at most 5 % of the sinking body's displacement at t = 1.2. Measured at 20 cells per diameter: sinking +2.0 %, rising +7.0 %, neutral 0.6 %.
+
+The ghost pressure follows the hydrostatic gradient of the gas (`use_bodyforce`). Before it, the wall gave a start-up pulse of the vertical load (a held body
+saw 12 % more than the buoyancy at 20 cells per diameter, 7 % at 40, for t < 0.4: a kick upwards for every released body), and the measurements were
+sinking +0.8 / +2.2 %, rising +12.0 / +10.8 % and a neutral drift of 3 % of the sinking displacement (20 / 40 cells per diameter).
+The constant added mass is itself only a reference for a steady oscillation: the exact response of a cylinder to a force step in a compressible gas,
+`m_a(s) = rho V K1(x) / (x K0(x) + K1(x))` with `x = s R / c` in `Y(s) = F0 / (s^3 (m + m_a(s)))` inverted numerically, differs from it by several percent for
+the light body. Against that response the displacements at t = 1.2 are +2.8 / +2.9 / +3.9 % (rising) and -0.8 / +0.5 / +1.2 % (sinking) at 10 / 20 / 40 cells
+per diameter; the rest of the rising offset is about 0.6 % of excess static buoyancy (the held body's load) multiplied by the small net force of the light body.
 """
 import math
 

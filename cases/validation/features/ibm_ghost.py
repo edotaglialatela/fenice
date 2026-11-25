@@ -1,6 +1,7 @@
 """Ghost-cell (sharp-interface) IBM wall: MPI against serial, bit for bit.
 
     python cases/validation/features/ibm_ghost.py --check     # serial against 2 to 7 MPI ranks, thirteen cases
+    python cases/validation/features/ibm_ghost.py --negative-control   # a resume from a changed body pose must differ (the resume check can fail)
     python cases/validation/features/ibm_ghost.py --loads     # cylinder Re = 40: monitor loads against a control volume (hours)
 
 Runs short immersed-body cases serially and on 2 to 7 MPI ranks and compares the final states bit for bit, and the loads
@@ -71,6 +72,9 @@ CHECK_CASES = {   # name: (case, overrides)
     # the same body on every rank (the strips are cut along y, and along x in the last case); the body moves one to four cells
     "dynamic_cylinder": ("IBM Flow over Cylinder", ["nx=200", "ny=100", "max_steps=80", "ibm_mass=0.02", "ibm_stiff_x=5", "ibm_stiff_y=5",
                                                     "ibm_damp_x=0.05", "ibm_vx=0.5"]),
+    # gravity: the ghost pressure follows the hydrostatic gradient (weight on the body, driven by the flow)
+    "dynamic_gravity_cylinder": ("IBM Flow over Cylinder", ["nx=200", "ny=100", "max_steps=80", "use_bodyforce=true", "gx=0.0", "gy=-3.0", "ibm_mass=0.02",
+                                                            "ibm_stiff_y=5", "ibm_damp_y=0.05"]),
     "dynamic_thin_strips": ("IBM Flow over Cylinder", ["Lx=1.5", "Ly=0.5", "nx=150", "ny=50", "ibm_cx=0.5", "ibm_cy=0.25", "max_steps=80",
                                                        "ibm_mass=0.02", "ibm_stiff_x=5", "ibm_vy=0.3"]),
     "dynamic_slip_cylinder": ("IBM Flow over Cylinder", ["use_viscous=false", "nx=200", "ny=100", "max_steps=80", "ibm_mass=0.02",
@@ -107,6 +111,8 @@ CHECK_CASES = {   # name: (case, overrides)
     # (level, ci, cj) order whatever the partition, the wall velocity of the ghost table refreshed every step, the geometry every quarter finest cell
     "amr_dynamic_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50", "max_steps=40",
                                                         "ibm_mass=0.02", "ibm_stiff_x=5", "ibm_stiff_y=5", "ibm_damp_x=0.05", "ibm_vx=0.5"]),
+    "amr_dynamic_gravity_cylinder": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50", "max_steps=40",
+                                                                "use_bodyforce=true", "gx=0.0", "gy=-3.0", "ibm_mass=0.02", "ibm_stiff_y=5", "ibm_damp_y=0.05"]),
     "amr_dynamic_slip_cylinder": ("IBM Flow over Cylinder", ["use_viscous=false", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
                                                              "nx=100", "ny=50", "max_steps=40", "ibm_mass=0.02", "ibm_stiff_y=5", "ibm_vx=0.5"]),
     # AMR with MUSCL-Hancock: the predicted side states of the leaves cross the rank interfaces
@@ -208,6 +214,50 @@ def resume_check():
             ok = ok and same
             line += f" | {a or 'serial'}->{b or 'serial'} {'==' if same else 'DIFFERS'}"
         print(line, flush=True)
+    return ok
+
+
+def perturb_body_pose(folder, index, delta):
+    """Add delta to entry `index` of the `body_pose` array of the checkpoint under folder (0: x of the geometry, 5: velocity u of the body)."""
+    import io
+    import zipfile
+    (path,) = list(Path(folder).rglob("*_restart.npz"))
+    tmp = path.with_suffix(".tmp")
+    with zipfile.ZipFile(path) as src, zipfile.ZipFile(tmp, "w", zipfile.ZIP_STORED) as dst:
+        for n in src.namelist():
+            data = src.read(n)
+            if n == "body_pose.npy":
+                arr = np.lib.format.read_array(io.BytesIO(data))
+                arr[index] += delta
+                buf = io.BytesIO()
+                np.lib.format.write_array(buf, arr)
+                data = buf.getvalue()
+            dst.writestr(n, data)
+    tmp.replace(path)
+
+
+# case: (entry of body_pose, change). A resume that reads a wrong pose must not end where the whole run does.
+NEGATIVE_CONTROL_CASES = {"amr_moving_slow_cylinder": (0, 0.002), "dynamic_cylinder": (5, 1e-4), "amr_dynamic_cylinder": (5, 1e-4)}
+
+
+def resume_negative_control():
+    """The resume check must be able to fail: the same serial resume with one entry of the checkpoint's `body_pose` changed (the geometry pose of a
+    slow prescribed motion, the velocity of a body driven by the flow) must end in another state than the uninterrupted run."""
+    ok = True
+    for name, (index, delta) in NEGATIVE_CONTROL_CASES.items():
+        case, sets = CHECK_CASES[name]
+        sets = [s for s in sets if not s.startswith("max_steps")]
+        half = 24 if name.startswith("amr_") else 40
+        out = study.study_dir(STUDY) / "check" / f"resume_{name}"
+        out.mkdir(parents=True, exist_ok=True)
+        fenice.run(case, *sets, f"max_steps={2 * half}", "save_interval=1000000000", "monitor_interval=10", out_root=out / "whole", dump=out / "whole.npz")
+        d = out / "perturbed"
+        fenice.run(case, *sets, f"max_steps={half}", f"save_interval={half}", "monitor_interval=10", out_root=d)
+        perturb_body_pose(d, index, delta)
+        fenice.run(case, *sets, f"max_steps={half}", "save_interval=1000000000", "monitor_interval=10", "resume=true", out_root=d, dump=out / "perturbed.npz")
+        differs = not np.array_equal(fenice.read_dump(out / "perturbed.npz")["U"], fenice.read_dump(out / "whole.npz")["U"])
+        ok = ok and differs
+        print(f"negative control {name:26s} body_pose[{index}] += {delta:g}: {'DIFFERS (the check can fail)' if differs else 'IDENTICAL (the check cannot tell)'}", flush=True)
     return ok
 
 
@@ -333,10 +383,13 @@ def main():
     ap = study.parser(__doc__.splitlines()[0])
     ap.add_argument("--check", action="store_true", help="MPI (2..7 ranks) against serial, bit for bit")
     ap.add_argument("--only", help="with --check: only the cases whose name starts with this")
+    ap.add_argument("--negative-control", action="store_true", help="a resume without the body pose in the checkpoint must differ from the whole run")
     ap.add_argument("--loads", action="store_true", help="cylinder Re = 40: monitor loads against a control volume")
     args = ap.parse_args()
+    if args.negative_control:
+        raise SystemExit(0 if resume_negative_control() else 1)
     if not (args.check or args.loads):
-        ap.error("choose --check or --loads")
+        ap.error("choose --check, --loads or --negative-control")
     raise SystemExit(check(7, args.only) if args.check else loads_study(args))
 
 

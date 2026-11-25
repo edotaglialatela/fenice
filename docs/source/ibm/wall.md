@@ -73,6 +73,11 @@ $$\frac{d_i\,\mathbf u_g+d_g\,\mathbf u_i}{d_i+d_g}=\mathbf u_w \quad(\text{no-s
 
 and $\rho,p$ have zero slope across $\Gamma$ by $\rho_g=\rho_i$, $p_g=p_i$.
 
+**Gravity (`use_bodyforce`).** A gas at rest under the body force $\mathbf g$ has the pressure gradient $\nabla p=\rho\,\mathbf g$, not zero. The ghost pressure then follows it from the
+image point to the ghost cell, $p_g=p_i-\rho_i\,(d_g+d_i)\,\mathbf g\!\cdot\!\mathbf n$ ($\mathbf n$ points into the fluid), so that the wall pressure of a hydrostatic gas is the hydrostatic one
+and the load on a held body is the weight of the gas it displaces from the first step. With the plain copy a held cylinder saw a vertical load 12 % above that weight (7 % at twice the resolution) for the
+first few sound crossing times, a kick that every released body took. Without gravity the ghost state is the plain copy above.
+
 <img src="{{root}}img/ibm_ghost_geometry.png" style="width:100%">
 
 *Left: a ghost cell $\mathbf x_g$, its closest wall point $\mathbf x_w$ and its image point $\mathbf x_i$. The image state is interpolated from the four fluid cells around $\mathbf x_i$ (green). Ghost cells are the solid cells within two cells of the fluid; deeper solid cells are reset. Right: along the normal, the ghost velocity is chosen so that the line from $\mathbf u_g$ to $\mathbf u_i$ passes through the wall velocity on the true surface.*

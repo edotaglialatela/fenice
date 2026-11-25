@@ -288,10 +288,21 @@ public:
     // The test the mask is made of: whether a cell centred at (x, y, z) is solid (z is read by the sphere only); the mask of
     // any mesh is this test at its cell centres (the adaptive mesh classifies its leaves with it). Throws for a mask-only body.
     bool solid_at(double x, double y, double z) const;
+    // The acceleration of the body force of the run. Not zero: the ghost pressure follows the hydrostatic gradient between the image point and
+    // the ghost cell, p_ghost = p_image - rho_image span (g . n) (span = their distance, n the wall normal pointing into the fluid), instead of
+    // copying the image pressure (zero normal gradient), so that a gas at rest under gravity keeps the pressure it has on the wall.
+    void set_gravity(double gx, double gy, double gz) {
+        gx_ = gx;
+        gy_ = gy;
+        gz_ = gz;
+        hydro_ = gx != 0.0 || gy != 0.0 || gz != 0.0;
+    }
 
 private:
     int nx_ = 0, ny_ = 0, nz_ = 1;
     double rho_ref_ = 1.0, p_ref_ = 1.0;
+    double gx_ = 0.0, gy_ = 0.0, gz_ = 0.0;   // gravity of the run (set_gravity)
+    bool hydro_ = false;                      // a nonzero gravity: the hydrostatic ghost pressure
     std::vector<char> mask_;
     // geometry (constructors from a shape or a polygon)
     enum class Shape { None, Circle, Ball, Polygon } shape_ = Shape::None;

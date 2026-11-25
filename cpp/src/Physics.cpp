@@ -1565,6 +1565,7 @@ void ImmersedBoundary::fill_ghost_cells(const CellIndex& local, const CellState&
         dst[static_cast<size_t>(k)] = local(g.cell);
         if (dst[static_cast<size_t>(k)] < 0) continue;
         State W = g.image.at(in, eos);
+        if (hydro_) W[3] -= W[0] * g.span * (gx_ * g.nx + gy_ * g.ny + (nz_ > 1 ? gz_ * g.nz : 0.0));   // hydrostatic pressure from the image point to the ghost cell
         const bool d3 = nz_ > 1;   // the 2-D lines stay as they were (no extra zero terms: the bits of the 2-D run are fixed)
         if (moving_) {   // the wall condition in the frame of the wall point: relative velocity through zero (no-slip) or reflected (slip)
             const double ru = W[1] - g.wu, rv = W[2] - g.wv, rw = d3 ? W[4] - g.ww : 0.0;

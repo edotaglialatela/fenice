@@ -235,12 +235,15 @@ void Simulation::setup(const SimParams& params, bool verbose) {
         fluid = EOS::stiffened(p.gamma, p.p_inf);
 
     if (p.use_ibm) {
+        const std::array<double, 3> grav = p.use_bodyforce ? std::array<double, 3>{p.gx, p.gy, mesh.is3d() ? p.gz : 0.0} : std::array<double, 3>{0.0, 0.0, 0.0};
         const std::string digits = naca_digits(p.ibm_shape);
         if (!digits.empty() || lower(p.ibm_shape) == "airfoil") {
             const Polygon2D unit = digits.empty() ? load_airfoil(airfoil_file_path()) : naca4(digits);
             const Polygon2D placed = place_airfoil(unit, p.ibm_chord, p.ibm_aoa, p.ibm_cx, p.ibm_cy);
-            ibm_factory = [placed, rho = p.rho_in, pout = p.p_out](const Mesh& m) {
-                return ImmersedBoundary(m, placed, rho, pout);
+            ibm_factory = [placed, rho = p.rho_in, pout = p.p_out, grav](const Mesh& m) {
+                ImmersedBoundary body(m, placed, rho, pout);
+                body.set_gravity(grav[0], grav[1], grav[2]);
+                return body;
             };
             ibm = std::make_unique<ImmersedBoundary>(ibm_factory(mesh));
             if (verbose)
@@ -249,8 +252,10 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                             p.ibm_cx, p.ibm_cy, ibm->solid_count());
         } else {
             ibm_factory = [shape = p.ibm_shape, r = p.ibm_radius, cx = p.ibm_cx, cy = p.ibm_cy, rho = p.rho_in,
-                           pout = p.p_out, cz = p.ibm_cz](const Mesh& m) {
-                return ImmersedBoundary(m, shape, r, cx, cy, rho, pout, cz);
+                           pout = p.p_out, cz = p.ibm_cz, grav](const Mesh& m) {
+                ImmersedBoundary body(m, shape, r, cx, cy, rho, pout, cz);
+                body.set_gravity(grav[0], grav[1], grav[2]);
+                return body;
             };
             ibm = std::make_unique<ImmersedBoundary>(ibm_factory(mesh));
             if (verbose)

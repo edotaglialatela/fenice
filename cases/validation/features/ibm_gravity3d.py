@@ -11,10 +11,12 @@ the incompressible added mass of a sphere (the compressible correction is of ord
 3 (sinks), 1 (neutral: must stay) and 0.5 (rises). Acceleration from the quadratic fit y = y0 + a t^2 / 2 over t = 0.25 .. 0.8.
 
 Bands fixed BEFORE the first run (at 64^3): sinking within 5 %, rising within 10 %, neutral displaced at most 5 % of the sinking body's displacement.
-Result: sinking -1.8 / -0.3 % (64^3 / 96^3), neutral drift 6.4 % at 64^3 and 1.8 % at 96^3 (the hydrostatic imbalance of the scheme, it falls with the mesh),
-so those two are gated at 96^3. The rising body missed its band and is NOT gated: +16.6 / +12.7 % (64^3 / 96^3), +15.4 % with the CFL number cut from 0.4 to
-0.1 (so not a lag of the explicit load coupling), the same size as in the 2-D twin (+12 %), where the start-up transient of the added mass was suspected; the
-3-D transient decays faster and the offset stays, so that explanation is not supported. The cause is not isolated: the printed number is a measurement.
+Result at 96^3: sinking +1.1 %, rising +7.5 %, neutral 0.4 % of the sinking displacement. The ghost pressure follows the hydrostatic gradient of the gas
+(`use_bodyforce`): before it, the wall gave a start-up pulse of the vertical load (a held body saw a load above the buoyancy that decayed within a few sound
+crossing times), a kick upwards for every released body, and the rising body measured +12.7 % at 96^3 (+16.6 % at 64^3, +15.4 % with the CFL number cut to 0.1),
+the sinking one -0.3 % and the neutral one drifted by 1.8 %. What is left of the rising offset is mostly the reference: a constant added mass for a start from rest.
+The exact response of a sphere to a force step in a compressible gas, `m_a(s) = rho V (x + 1) / (x^2 + 2 x + 2)` with `x = s R / c` in
+`Y(s) = F0 / (s^3 (m + m_a(s)))` inverted numerically, is +1.2 % (sinking) and +5..8 % (rising, t = 0.2 .. 0.8) from the runs.
 """
 import math
 
@@ -105,9 +107,9 @@ def main():
         drop[ratio] = float(y[min(i, len(y) - 1)])
         if ratio == 1:
             continue
-        good = abs(a / ref - 1.0) < 0.05 if ratio > 1 else True   # the rising body is reported, not gated (see the docstring)
+        good = abs(a / ref - 1.0) < (0.05 if ratio > 1 else 0.10)
         ok = ok and good
-        print(f"mass ratio {ratio:4g}: acceleration {a:+.4f}, reference {ref:+.4f} ({100 * (a / ref - 1):+.1f} %)  {('ok' if good else 'OUT OF BAND') if ratio > 1 else 'not gated'}", flush=True)
+        print(f"mass ratio {ratio:4g}: acceleration {a:+.4f}, reference {ref:+.4f} ({100 * (a / ref - 1):+.1f} %)  {'ok' if good else 'OUT OF BAND'}", flush=True)
     neutral = abs(drop[1]) / abs(drop[3])
     good = neutral < 0.05
     ok = ok and good
