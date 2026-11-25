@@ -189,11 +189,6 @@ uniform mesh at the finest resolution (leaves coloured by refinement level, the 
        alt="The leaves of the adaptive mesh around the pitching NACA 0012, coloured by refinement level">
 </p>
 
-<p align="center">
-  <img src="docs/img/airfoil_amr.png" width="90%"
-       alt="NACA 0012 with AMR: vorticity and refined leaves, drag and lift histories, wall time against load error for uniform and AMR runs">
-</p>
-
 ### Adding a test case
 
 Copy an existing case, edit it, run it:
