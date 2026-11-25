@@ -259,6 +259,8 @@ public:
     // Change the translational velocity of the pose without moving the geometry: the wall velocities of the ghost table follow (a body driven by the
     // flow on an adaptive mesh, whose table stays between geometry updates).
     void set_velocity(double u, double v, double w = 0.0);
+    // The same for the angular velocity (about z; omega_x, omega_y of a sphere): a body whose rotation is driven by the flow.
+    void set_angular_velocity(double omega, double omega_x = 0.0, double omega_y = 0.0);
     // The pose the geometry was last built at (move_to builds it every quarter cell; a checkpoint keeps it), and the way back: build the geometry
     // (mask and ghost table, no fresh cells) at `built` on a mesh, as a resumed run does before its first step.
     const BodyPose& built_pose() const { return built_; }

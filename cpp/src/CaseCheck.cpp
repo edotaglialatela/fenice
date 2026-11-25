@@ -41,7 +41,7 @@ const std::vector<Dependency>& dependencies() {
         {{"gz"}, [](const Params& p) { return p.integer("nz") > 1; }, "the run is 2-D (nz = 1)"},
         {{"Lz", "bc_zmin", "bc_zmax", "ibm_cz"}, [](const Params& p) { return p.integer("nz") > 1; }, "the run is 2-D (nz = 1)"},
         {{"ibm_shape", "ibm_radius", "ibm_cx", "ibm_cy", "ibm_cz", "ibm_file", "ibm_chord", "ibm_aoa", "ibm_curvature", "ibm_vx", "ibm_vy",
-          "ibm_omega", "ibm_omega_x", "ibm_omega_y", "ibm_omega_from", "ibm_omega_until", "ibm_mass", "ibm_stiff_x", "ibm_stiff_y", "ibm_damp_x", "ibm_damp_y"},
+          "ibm_omega", "ibm_omega_x", "ibm_omega_y", "ibm_omega_from", "ibm_omega_until", "ibm_mass", "ibm_inertia", "ibm_stiff_theta", "ibm_damp_theta", "ibm_stiff_x", "ibm_stiff_y", "ibm_damp_x", "ibm_damp_y"},
          [](const Params& p) { return p.flag("use_ibm"); }, "use_ibm is false"},
         {{"ibm_file", "ibm_chord", "ibm_aoa"},
          [](const Params& p) {

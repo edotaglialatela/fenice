@@ -96,6 +96,10 @@ void CellFluxEngine::body_changed() {
     ibm_geo_.reset();
 }
 
+void CellFluxEngine::set_body_angular_velocity(double omega, double omega_x, double omega_y) {
+    if (ghost_ib_) ghost_ib_->set_angular_velocity(omega, omega_x, omega_y);
+}
+
 void CellFluxEngine::set_body_velocity(double u, double v, double w) {
     if (ghost_ib_) ghost_ib_->set_velocity(u, v, w);   // no table yet: the next build takes the velocity of the body state
 }
@@ -1106,6 +1110,7 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
     ghost_ready_ = false;
     fine_leaf_.clear();
     ghost_reads_leaf_.clear();
+    fresh_reads_leaf_.clear();
     ghost_incomplete_.clear();
     ghost_leaf_mask_.assign(static_cast<size_t>(nleaf_), 0);
     if (!has_body()) return;
@@ -1139,7 +1144,11 @@ void CellFluxEngine::map_ghost_cells(const CellMesh& m, const CellMesh* whole) {
     }
     for (const auto& pr : ghost_ib_->fresh_reads()) {   // the fresh fill's leaves, where the share holds them at the finest level
         const int leaf = m.find(M, pr.second % NX, pr.second / NX);
-        if (leaf >= 0) fine_leaf_[pr.second] = leaf;
+        if (leaf >= 0) {
+            fine_leaf_[pr.second] = leaf;
+            const int fresh = m.find(M, pr.first % NX, pr.first / NX);
+            if (fresh >= 0) fresh_reads_leaf_.push_back({fresh, leaf});
+        }
     }
     ghost_ready_ = true;
 }
@@ -1228,7 +1237,11 @@ void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m, const CellMesh* whole
     }
     for (const auto& pr : ghost_ib_->fresh_reads()) {   // the fresh fill's leaves, where the share holds them at the finest level
         const int leaf = m.find(M, pr.second % NX, (pr.second / NX) % NY, pr.second / (NX * NY));
-        if (leaf >= 0) fine_leaf_[pr.second] = leaf;
+        if (leaf >= 0) {
+            fine_leaf_[pr.second] = leaf;
+            const int fresh = m.find(M, pr.first % NX, (pr.first / NX) % NY, pr.first / (NX * NY));
+            if (fresh >= 0) fresh_reads_leaf_.push_back({fresh, leaf});
+        }
     }
     ghost_ready_ = true;
 }

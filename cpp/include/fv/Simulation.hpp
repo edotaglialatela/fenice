@@ -106,6 +106,8 @@ public:
         double z = 0.0, w = 0.0, az = 0.0;           // the same along z (a 3-D body), and the acceleration of the previous step
         double ax = 0.0, ay = 0.0, dt = 0.0;         // acceleration of the previous step and its length (dt = 0: no previous step)
         double fx = 0.0, fy = 0.0, fz = 0.0;         // loads of the first stage of the current step (R of U^n at the pose of the step)
+        double th = 0.0, om = 0.0, aom = 0.0;        // a driven rotation: the angle from the placement, the angular velocity, the acceleration of the previous step
+        double mx = 0.0, my = 0.0, mz = 0.0;         // the torque of the first stage about the pivot (the centre of the body)
         bool captured = false;                       // fx, fy hold this step's loads
     };
     BodyDynamics body_;

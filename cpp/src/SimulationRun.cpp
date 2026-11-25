@@ -78,8 +78,9 @@ std::FILE* Simulation::open_monitor() const {
     const std::string path = (fs::path(exporter.output_dir()) / (file_prefix + "_monitor.csv")).string();
     std::FILE* f = std::fopen(path.c_str(), start_step > 0 ? "a" : "w");
     if (f && start_step == 0)
-        std::fprintf(f, "step,t,mass,kinetic_energy,total_energy%s%s,res_rho,res_mom,res_E\n", p.use_ibm ? ",Fx,Fy,Cd,Cl,Cm" : "",
-                     p.ibm_dynamic() ? (p.nz > 1 ? ",body_x,body_y,body_u,body_v,body_z,body_w" : ",body_x,body_y,body_u,body_v") : "");
+        std::fprintf(f, "step,t,mass,kinetic_energy,total_energy%s%s%s,res_rho,res_mom,res_E\n", p.use_ibm ? ",Fx,Fy,Cd,Cl,Cm" : "",
+                     p.ibm_dynamic() ? (p.nz > 1 ? ",body_x,body_y,body_u,body_v,body_z,body_w" : ",body_x,body_y,body_u,body_v") : "",
+                     p.ibm_drives_rotation() ? ",body_angle,body_omega" : "");
     return f;
 }
 
@@ -104,6 +105,7 @@ void Simulation::monitor_row(std::FILE* f, int step, const std::array<double, 3>
     if (p.ibm_dynamic()) {   // at the end of the step
         std::fprintf(f, ",%.15e,%.15e,%.15e,%.15e", body_.x, body_.y, body_.u, body_.v);
         if (p.nz > 1) std::fprintf(f, ",%.15e,%.15e", body_.z, body_.w);
+        if (p.ibm_drives_rotation()) std::fprintf(f, ",%.15e,%.15e", body_.th, body_.om);
     }
     std::fprintf(f, ",%.10e,%.10e,%.10e\n", res[0], res[1], res[2]);
     std::fflush(f);
@@ -217,6 +219,8 @@ ImmersedBoundary::BodyPose Simulation::body_pose(double t) const {
     pose.v = body_.v;
     pose.z = body_.z;
     pose.w = body_.w;
+    pose.angle = body_.th;   // (zero unless the rotation is driven)
+    pose.omega = body_.om;
     return pose;
 }
 
@@ -226,6 +230,24 @@ std::array<double, 3> Simulation::body_velocity() const {
 
 void Simulation::advance_body(double dt) {
     BodyDynamics& b = body_;
+    if (p.ibm_drives_rotation()) {   // the same second-order law: Adams-Bashforth for the angular velocity, trapezoid for the angle
+        const double a = (b.mz - p.ibm_stiff_theta * b.th - p.ibm_damp_theta * b.om) / p.ibm_inertia;
+        double om1;
+        if (b.dt > 0.0 && dt <= 2.0 * b.dt) {
+            const double r = dt / b.dt;
+            om1 = b.om + dt * ((1.0 + 0.5 * r) * a - 0.5 * r * b.aom);
+        } else {
+            om1 = b.om + dt * a;
+        }
+        b.th += 0.5 * dt * (b.om + om1);
+        b.om = om1;
+        b.aom = a;
+    }
+    if (!p.ibm_drives_translation()) {   // a body pinned at its placement turns only
+        b.dt = dt;
+        b.captured = false;
+        return;
+    }
     const double gx = body_force ? body_force->gx : 0.0, gy = body_force ? body_force->gy : 0.0;
     const double ax = (b.fx - p.ibm_stiff_x * b.x - p.ibm_damp_x * b.u) / p.ibm_mass + gx;
     const double ay = (b.fy - p.ibm_stiff_y * b.y - p.ibm_damp_y * b.v) / p.ibm_mass + gy;
@@ -344,6 +366,7 @@ void Simulation::solve() {
             body_.fx = F[0];
             body_.fy = F[1];
             body_.fz = F[3];
+            body_.mz = F[2];
             body_.captured = true;
         }
         return s;
@@ -390,6 +413,7 @@ void Simulation::solve() {
             const std::array<double, 3> w = body_velocity();
             double travel = r.dt * std::max(std::abs(w[0]) / mesh.dx, std::abs(w[1]) / mesh.dy);
             if (mesh.is3d()) travel = std::max(travel, r.dt * std::abs(w[2]) / mesh.dz);
+            if (p.ibm_drives_rotation()) travel = std::max(travel, r.dt * std::abs(body_.om) * ibm->rotation_reach() / std::min(mesh.dx, mesh.dy));
             if (travel > 1.0) throw std::runtime_error("the moving body travelled more than one cell in a step (lower the CFL number)");
         }
         if (p.use_ibm) ibm->apply_solid_reset(U, fluid);
@@ -657,6 +681,10 @@ void Simulation::solve_amr() {
             amr_body_->geo.v = pose.v;
             amr_body_->geo.w = pose.w;
             eng.set_body_velocity(pose.u, pose.v, pose.w);
+            if (p.ibm_drives_rotation()) {   // the angular velocity of the wall follows too; only the angle (reach times angle) rebuilds
+                amr_body_->geo.omega = pose.omega;
+                eng.set_body_angular_velocity(pose.omega);
+            }
         }
         if (shift_z <= 0.25 * h_fine && pose.omega == g.omega && pose.omega_x == g.omega_x && pose.omega_y == g.omega_y) return;   // (the wall velocity of a rotation is that of the built pose: a stop rebuilds it)
         const auto r0 = Clock::now();
@@ -702,9 +730,10 @@ void Simulation::solve_amr() {
                     if (octree) rz -= cm.U[static_cast<size_t>(c)][0] * body_force->gz;
                 }   // not a load
                 const double a = cm.volume(c);
+                const double mzc = octree ? 0.0 : (cm.xc(c) - (p.ibm_cx + body_.x)) * (ry * a) - (cm.yc(c) - (p.ibm_cy + body_.y)) * (rx * a);
                 mine.insert(mine.end(), {static_cast<double>(l), static_cast<double>(cm.ci[static_cast<size_t>(c)]),
                                          static_cast<double>(cm.cj[static_cast<size_t>(c)]), static_cast<double>(cm.ck[static_cast<size_t>(c)]),
-                                         rx * a, ry * a, rz * a});
+                                         rx * a, ry * a, rz * a, mzc});
             }
         std::vector<double> all;
         if (cell_par) {
@@ -724,23 +753,25 @@ void Simulation::solve_amr() {
         } else {
             all.swap(mine);
         }
-        const size_t n = all.size() / 7;
+        const size_t n = all.size() / 8;
         std::vector<size_t> order(n);
         for (size_t k = 0; k < n; ++k) order[k] = k;
         std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {   // (level, ci, cj, ck): the order of the sum, the same for any partition
-            const double* x = &all[7 * a];
-            const double* y = &all[7 * b];
+            const double* x = &all[8 * a];
+            const double* y = &all[8 * b];
             return x[0] != y[0] ? x[0] < y[0] : (x[1] != y[1] ? x[1] < y[1] : (x[2] != y[2] ? x[2] < y[2] : x[3] < y[3]));
         });
-        double fx = 0.0, fy = 0.0, fz = 0.0;
+        double fx = 0.0, fy = 0.0, fz = 0.0, mz = 0.0;
         for (const size_t k : order) {
-            fx += all[7 * k + 4];
-            fy += all[7 * k + 5];
-            fz += all[7 * k + 6];
+            fx += all[8 * k + 4];
+            fy += all[8 * k + 5];
+            fz += all[8 * k + 6];
+            mz += all[8 * k + 7];
         }
         body_.fx = fx;
         body_.fy = fy;
         body_.fz = fz;
+        body_.mz = mz;
         body_.captured = true;
     };
     engine.advance = [&](int st, double t_stop) {
@@ -1288,6 +1319,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
             body_.fx = F[0];
             body_.fy = F[1];
             body_.fz = F[3];
+            body_.mz = F[2];
             body_.captured = true;
         }
         return s;
@@ -1302,6 +1334,7 @@ void Simulation::run_mpi(MPI_Comm comm) {
             const std::array<double, 3> w = body_velocity();
             double travel = sr.dt * std::max(std::abs(w[0]) / mesh.dx, std::abs(w[1]) / mesh.dy);
             if (mesh.is3d()) travel = std::max(travel, sr.dt * std::abs(w[2]) / mesh.dz);
+            if (p.ibm_drives_rotation()) travel = std::max(travel, sr.dt * std::abs(body_.om) * local_ibm->rotation_reach() / std::min(mesh.dx, mesh.dy));
             if (travel > 1.0) throw std::runtime_error("the moving body travelled more than one cell in a step (lower the CFL number)");
         }
         if (p.use_ibm) solid_reset(U_local);

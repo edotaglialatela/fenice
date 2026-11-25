@@ -89,6 +89,7 @@ std::vector<double> Simulation::body_checkpoint() const {
     const ImmersedBoundary::BodyPose g = amr_body_ ? amr_body_->geo : ibm->built_pose();
     std::vector<double> v = {g.x, g.y, g.angle, body_.x, body_.y, body_.u, body_.v, body_.ax, body_.ay, body_.dt};
     if (p.nz > 1) v.insert(v.end(), {g.z, body_.z, body_.w, body_.az});   // a 3-D body: the z entries follow (a 2-D file keeps its ten)
+    if (p.ibm_drives_rotation()) v.insert(v.end(), {body_.th, body_.om, body_.aom});   // a driven rotation: its angle, angular velocity and acceleration
     return v;
 }
 
@@ -98,7 +99,7 @@ void Simulation::restore_body_from_checkpoint() {
     const NpzFile file(path);
     if (!file.has("body_pose")) throw std::runtime_error("The checkpoint " + path + " has no pose of the moving body: it is from a static run");
     const std::vector<double> b = file.read("body_pose").as_doubles();
-    if (b.size() != (p.nz > 1 ? 14u : 10u)) throw std::runtime_error("The checkpoint " + path + " has a malformed body pose (a 2-D file with a 3-D run, or the reverse)");
+    if (b.size() != (p.nz > 1 ? 14u : 10u) + (p.ibm_drives_rotation() ? 3u : 0u)) throw std::runtime_error("The checkpoint " + path + " has a malformed body pose (a 2-D file with a 3-D run, or the reverse)");
     ImmersedBoundary::BodyPose g;
     g.x = b[0];
     g.y = b[1];
@@ -114,6 +115,13 @@ void Simulation::restore_body_from_checkpoint() {
         body_.dt = b[9];
         g.u = body_.u;
         g.v = body_.v;
+        if (p.ibm_drives_rotation()) {
+            const size_t o = b.size() - 3;
+            body_.th = b[o];
+            body_.om = b[o + 1];
+            body_.aom = b[o + 2];
+            g.omega = body_.om;
+        }
         if (p.nz > 1) {
             body_.z = b[11];
             body_.w = b[12];
@@ -133,7 +141,7 @@ void Simulation::restore_body_from_checkpoint() {
         amr_body_->geo = g;   // the factory builds the body at this pose
     } else {
         const ImmersedBoundary::BodyPose now = p.ibm_dynamic() ? ImmersedBoundary::BodyPose{} : prescribed_pose(file.read("t").scalar());
-        g.omega = now.omega;
+        g.omega = p.ibm_drives_rotation() ? body_.om : now.omega;
         g.omega_x = now.omega_x;
         g.omega_y = now.omega_y;
         ibm->restore_geometry(mesh, g);

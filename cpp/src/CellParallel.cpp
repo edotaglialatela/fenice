@@ -120,6 +120,9 @@ bool CellParallel::partition_local(const CellMesh* whole, const GlobalFacts* fac
         // the solid reset reads the neighbours of the solid leaves it updates (ghost-cell wall: the image leaves of the ghost leaves)
         for (const auto& gr : engine_.ghost_reads())
             if (owner_[static_cast<size_t>(gr.first)] == me) held[static_cast<size_t>(gr.second)] = 1;
+        // a moving body: the leaves its freshly uncovered leaves are filled from (read once, when the body is built again)
+        for (const auto& fr : engine_.fresh_reads())
+            if (owner_[static_cast<size_t>(fr.first)] == me) held[static_cast<size_t>(fr.second)] = 1;
         if (engine_.has_body())
             for (int c = 0; c < N; ++c)
                 if (owner_[static_cast<size_t>(c)] == me && engine_.solid()[static_cast<size_t>(c)])

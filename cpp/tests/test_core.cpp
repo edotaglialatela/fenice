@@ -360,6 +360,29 @@ TEST(body_update_is_second_order_on_a_spring) {
     CHECK(e1 / e2 > 3.2);
 }
 
+TEST(body_rotation_update_is_second_order_on_a_torsional_spring) {
+    // The same law for the angle: a body pinned at its placement on a torsional spring with no fluid torque, I = 1, k = 4, theta(0) = 0, omega(0) = 1:
+    // theta = sin(2 t) / 2. The error at t = 3 falls by about four when the step is halved (band: at least 3.2) and is below 2e-3 at 300 steps.
+    const auto run = [](int steps) {
+        Simulation sim;
+        sim.setup(params_for("IBM Flow over Cylinder", {{"nx", "40"}, {"ny", "20"}, {"ibm_inertia", "1.0"}, {"ibm_stiff_theta", "4.0"}, {"ibm_omega", "1.0"},
+                                                        {"use_mpi", "false"}}),
+                  false);
+        CHECK(sim.body_.om == 1.0 && sim.body_.th == 0.0 && sim.body_.u == 0.0);
+        const double dt = 3.0 / steps;
+        for (int k = 0; k < steps; ++k) {
+            sim.body_.captured = true;
+            sim.advance_body(dt);
+        }
+        CHECK(sim.body_.x == 0.0 && sim.body_.y == 0.0);   // a pinned body does not translate
+        return std::abs(sim.body_.th - 0.5 * std::sin(6.0));
+    };
+    const double e1 = run(300), e2 = run(600);
+    std::printf("    torsional spring, no fluid: error %.3e at 300 steps, %.3e at 600 (ratio %.2f)\n", e1, e2, e1 / e2);
+    CHECK(e1 < 2e-3);
+    CHECK(e1 / e2 > 3.2);
+}
+
 TEST(moving_wall_piston_matches_the_exact_shock) {
     // A flat wall (a cylinder of radius 50, its sagitta over the 0.1 high tube is 1e-4) moves at u_p into a gas at rest: a shock runs ahead
     // of it and the gas between them is the exact piston state. Band fixed beforehand: plateau mean within 2 % of the Rankine-Hugoniot

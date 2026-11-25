@@ -1219,6 +1219,14 @@ void ImmersedBoundary::set_velocity(double u, double v, double w) {
     refresh_wall_velocity();
 }
 
+void ImmersedBoundary::set_angular_velocity(double omega, double omega_x, double omega_y) {
+    if (!moving_) throw std::logic_error("ImmersedBoundary::set_angular_velocity: enable_motion first");
+    pose_.omega = omega;
+    pose_.omega_x = omega_x;
+    pose_.omega_y = omega_y;
+    refresh_wall_velocity();
+}
+
 void ImmersedBoundary::build_fresh(const Mesh& m, const std::vector<int>& cells) {
     // Their probes read settled fluid only, so the fresh cells count as solid while they are made.
     fresh_.clear();

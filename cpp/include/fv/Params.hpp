@@ -92,7 +92,12 @@ struct SimParams {
     // A body driven by the flow (provisional keys): ibm_mass > 0 [kg per unit depth in 2-D] frees its translation; ibm_vx, ibm_vy are then its
     // initial velocity. Springs (stiffness ibm_stiff_*, [N/m per unit depth]) pull it back to its placement, dampers ibm_damp_* oppose its velocity.
     double ibm_mass = 0.0, ibm_stiff_x = 0.0, ibm_stiff_y = 0.0, ibm_stiff_z = 0.0, ibm_damp_x = 0.0, ibm_damp_y = 0.0, ibm_damp_z = 0.0;
-    bool ibm_dynamic() const { return ibm_mass > 0.0; }
+    // Driven rotation (provisional keys): ibm_inertia > 0 [kg m^2 per unit depth in 2-D] frees the rotation about the pivot (ibm_cx, ibm_cy); ibm_omega is then
+    // its initial angular velocity; ibm_stiff_theta, ibm_damp_theta [N m/rad, N m s/rad per unit depth] are a torsional spring and damper about the placement.
+    double ibm_inertia = 0.0, ibm_stiff_theta = 0.0, ibm_damp_theta = 0.0;
+    bool ibm_drives_translation() const { return ibm_mass > 0.0; }
+    bool ibm_drives_rotation() const { return ibm_inertia > 0.0; }
+    bool ibm_dynamic() const { return ibm_mass > 0.0 || ibm_inertia > 0.0; }
     bool ibm_moving() const { return ibm_dynamic() || ibm_vx != 0.0 || ibm_vy != 0.0 || ibm_vz != 0.0 || ibm_omega != 0.0 || ibm_omega_x != 0.0 || ibm_omega_y != 0.0; }
     bool ibm_curvature = false;  // slip wall only: curvature pressure correction of the ghost cells (dp/dn = rho kappa u_t^2)
     double reynolds;             // > 0: sets mu = rho_in u_in L / reynolds (L: chord or diameter)

@@ -191,6 +191,9 @@ const std::vector<ParamSpec>& parameter_table() {
     {"ibm_omega_from", "ibm", "0.0"},
     {"ibm_omega_until", "ibm", "0.0"},
     {"ibm_mass", "ibm", "0.0"},
+    {"ibm_inertia", "ibm", "0.0"},
+    {"ibm_stiff_theta", "ibm", "0.0"},
+    {"ibm_damp_theta", "ibm", "0.0"},
     {"ibm_stiff_x", "ibm", "0.0"},
     {"ibm_stiff_y", "ibm", "0.0"},
     {"ibm_stiff_z", "ibm", "0.0"},
@@ -323,6 +326,9 @@ SimParams SimParams::from(const Params& p) {
     s.ibm_omega_from = p.num("ibm_omega_from", 0.0);
     s.ibm_omega_until = p.num("ibm_omega_until", 0.0);
     s.ibm_mass = p.num("ibm_mass", 0.0);
+    s.ibm_inertia = p.num("ibm_inertia", 0.0);
+    s.ibm_stiff_theta = p.num("ibm_stiff_theta", 0.0);
+    s.ibm_damp_theta = p.num("ibm_damp_theta", 0.0);
     s.ibm_stiff_x = p.num("ibm_stiff_x", 0.0);
     s.ibm_stiff_y = p.num("ibm_stiff_y", 0.0);
     s.ibm_stiff_z = p.num("ibm_stiff_z", 0.0);
@@ -501,11 +507,24 @@ SimParams SimParams::from(const Params& p) {
     if (!(s.ibm_mass >= 0.0) || !(s.ibm_stiff_x >= 0.0) || !(s.ibm_stiff_y >= 0.0) || !(s.ibm_stiff_z >= 0.0) || !(s.ibm_damp_x >= 0.0) ||
         !(s.ibm_damp_y >= 0.0) || !(s.ibm_damp_z >= 0.0))
         throw std::invalid_argument("ibm_mass, ibm_stiff_x/y/z and ibm_damp_x/y/z must be >= 0");
-    if (s.use_ibm && !s.ibm_dynamic() &&
+    if (!(s.ibm_inertia >= 0.0) || !(s.ibm_stiff_theta >= 0.0) || !(s.ibm_damp_theta >= 0.0))
+        throw std::invalid_argument("ibm_inertia, ibm_stiff_theta and ibm_damp_theta must be >= 0");
+    if (s.use_ibm && !s.ibm_drives_translation() &&
         (s.ibm_stiff_x != 0.0 || s.ibm_stiff_y != 0.0 || s.ibm_stiff_z != 0.0 || s.ibm_damp_x != 0.0 || s.ibm_damp_y != 0.0 || s.ibm_damp_z != 0.0))
         throw std::invalid_argument("ibm_stiff_* and ibm_damp_* act on a body driven by the flow: set ibm_mass > 0");
+    if (s.use_ibm && !s.ibm_drives_rotation() && (s.ibm_stiff_theta != 0.0 || s.ibm_damp_theta != 0.0))
+        throw std::invalid_argument("ibm_stiff_theta and ibm_damp_theta act on a body whose rotation is driven by the flow: set ibm_inertia > 0");
     if (s.use_ibm && s.ibm_dynamic()) {
-        if (s.ibm_omega != 0.0 || s.ibm_omega_x != 0.0 || s.ibm_omega_y != 0.0) throw std::invalid_argument("a body driven by the flow translates only (ibm_omega must be 0)");
+        if (!s.ibm_drives_rotation() && (s.ibm_omega != 0.0 || s.ibm_omega_x != 0.0 || s.ibm_omega_y != 0.0))
+            throw std::invalid_argument("a body driven by the flow translates only unless its rotation is driven too (ibm_omega must be 0, or set ibm_inertia > 0: then it is the initial angular velocity)");
+        if (s.ibm_drives_rotation()) {
+            if (s.nz > 1) throw std::invalid_argument("a driven rotation is 2-D for now (the sphere follows)");
+            if (s.ibm_omega_from > 0.0 || s.ibm_omega_until > 0.0) throw std::invalid_argument("ibm_omega_from / ibm_omega_until act on a prescribed rotation, not on a driven one");
+            if (!s.ibm_drives_translation() && (s.ibm_vx != 0.0 || s.ibm_vy != 0.0 || s.ibm_vz != 0.0))
+                throw std::invalid_argument("a driven rotation with a prescribed translation is not available: the body is pinned at its placement (ibm_vx = ibm_vy = 0), or ibm_mass > 0 frees its translation too");
+            if (s.ibm_drives_translation() && shape != "cylinder")
+                throw std::invalid_argument("free translation and free rotation together are available for a cylinder only (the pivot is its centre of mass); a body whose pivot is not its centre of mass couples the two");
+        }
         if (const std::string ts = lower(s.time_scheme); ts == "muscl-hancock" || ts == "hancock")
             throw std::invalid_argument("a body driven by the flow needs a Runge-Kutta or Euler time scheme (its loads come from the first stage)");
         if (s.positivity_fallback) throw std::invalid_argument("a body driven by the flow cannot use positivity_fallback");

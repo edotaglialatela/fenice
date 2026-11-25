@@ -280,7 +280,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                 amr_body_->geo.u = p.ibm_vx;   // the pose at t = 0: no displacement, the velocities of the motion
                 amr_body_->geo.v = p.ibm_vy;
                 amr_body_->geo.w = p.ibm_vz;
-                amr_body_->geo.omega = prescribed_pose(0.0).omega;
+                amr_body_->geo.omega = p.ibm_drives_rotation() ? p.ibm_omega : prescribed_pose(0.0).omega;
                 amr_body_->geo.omega_x = prescribed_pose(0.0).omega_x;
                 amr_body_->geo.omega_y = prescribed_pose(0.0).omega_y;
                 amr_body_->pz = p.ibm_cz;
@@ -293,9 +293,12 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             }
             body_ = BodyDynamics{};
             if (p.ibm_dynamic()) {   // a body driven by the flow starts at its placement with the velocity given
-                body_.u = p.ibm_vx;
-                body_.v = p.ibm_vy;
-                body_.w = p.ibm_vz;
+                if (p.ibm_drives_translation()) {
+                    body_.u = p.ibm_vx;
+                    body_.v = p.ibm_vy;
+                    body_.w = p.ibm_vz;
+                }
+                if (p.ibm_drives_rotation()) body_.om = p.ibm_omega;
             }
             if (p.resume) restore_body_from_checkpoint();
             if (verbose && p.ibm_dynamic())

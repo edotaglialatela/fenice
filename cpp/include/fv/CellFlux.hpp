@@ -111,6 +111,8 @@ public:
     void body_changed();
     // A moving body between two body_changed calls: its translational velocity changed (a body driven by the flow); the ghost wall follows.
     void set_body_velocity(double u, double v, double w = 0.0);
+    // The same for the angular velocity of a body whose rotation is driven by the flow (about z; omega_x, omega_y of a sphere).
+    void set_body_angular_velocity(double omega, double omega_x = 0.0, double omega_y = 0.0);
     // After a build that followed body_changed: the leaves the body left take the state of the wall layer from image points in settled fluid
     // (the uniform solver's fresh cells), those this rank owns; the leaves they read are in its share.
     void fill_fresh_leaves(Field& U);
@@ -203,6 +205,8 @@ public:
     bool ghost_incomplete(int leaf) const { return !ghost_incomplete_.empty() && ghost_incomplete_[static_cast<size_t>(leaf)] != 0; }
     // (ghost leaf, leaf it reads) pairs: the reads of the ghost fill, for the MPI halo.
     const std::vector<std::pair<int, int>>& ghost_reads() const { return ghost_reads_leaf_; }
+    // (fresh leaf, leaf it reads) pairs of a moving body: the leaves its fill reads, where the mesh holds both; a rank that owns the fresh leaf must hold the other.
+    const std::vector<std::pair<int, int>>& fresh_reads() const { return fresh_reads_leaf_; }
     // Ghost-cell wall: loads on the body's true surface from the state U of every leaf (ImmersedBoundary::surface_loads).
     std::array<double, 3> ghost_loads(const Field& U, double mu, double cx, double cy) const;
 
@@ -391,7 +395,7 @@ private:
     std::shared_ptr<ImmersedBoundary> ghost_ib_;
     std::shared_ptr<ImmersedBoundary> ibm_geo_prev_;   // the geometry before the last body_changed (its solid cells are the fresh ones)
     std::unordered_map<int, int> fine_leaf_;
-    std::vector<std::pair<int, int>> ghost_reads_leaf_;
+    std::vector<std::pair<int, int>> ghost_reads_leaf_, fresh_reads_leaf_;
     std::vector<char> ghost_leaf_mask_, held_mask_, ghost_incomplete_;
     int ghost_whole_ready_ = -1;
     bool ghost_ready_ = false;
