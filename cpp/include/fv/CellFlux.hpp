@@ -46,8 +46,9 @@ struct CellPhysics {
     // the body at the finest level (a body band at least ImmersedBoundary::ghost_reach wide). Until then (ghost_ready false) the
     // solid leaves are only kept at rest at the reference state, with no wall condition: a run requires the wall.
     bool ibm_slip = false, ibm_curvature = false;
-    // A moving body: its velocity at a point (x, y) of the solid, for the deep solid leaves (empty: they rest). Constant between body_changed calls.
-    std::function<void(double, double, double&, double&)> ibm_velocity;
+    // A moving body: its velocity at a point (x, y, z) of the solid, for the deep solid leaves (empty: they rest; z is 0 in 2-D and w is then 0).
+    // Constant between body_changed calls.
+    std::function<void(double, double, double, double&, double&, double&)> ibm_velocity;
 };
 
 // Viscous cell kernels of the engine.  The range functions run four cells at a time with AVX2 where the CPU has it
@@ -109,13 +110,13 @@ public:
     // (no leaf keeps its old value), whatever the topology does.
     void body_changed();
     // A moving body between two body_changed calls: its translational velocity changed (a body driven by the flow); the ghost wall follows.
-    void set_body_velocity(double u, double v);
+    void set_body_velocity(double u, double v, double w = 0.0);
     // After a build that followed body_changed: the leaves the body left take the state of the wall layer from image points in settled fluid
     // (the uniform solver's fresh cells), those this rank owns; the leaves they read are in its share.
     void fill_fresh_leaves(Field& U);
     // 3-D: some leaf of `mesh` coarser than the finest level lies near the surface (the readiness rule of the wall): a rank tests its
     // own leaves and the ranks reduce the answer.
-    bool ghost_band_violated(const CellMesh& mesh) const;
+    bool ghost_band_violated(const CellMesh& mesh);
     // True if the side s (Face) has a mass-flow inlet.
     bool mass_flow_side(int s) const { return bc_.type(static_cast<Face>(s)) == BCType::MassflowInlet; }
     // True if every table of the build (virtual cells, neighbour codes, stencils, per-level lists, solid mask, steady sources,

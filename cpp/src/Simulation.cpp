@@ -279,6 +279,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                 amr_body_->py = p.ibm_cy;
                 amr_body_->geo.u = p.ibm_vx;   // the pose at t = 0: no displacement, the velocities of the motion
                 amr_body_->geo.v = p.ibm_vy;
+                amr_body_->geo.w = p.ibm_vz;
                 amr_body_->geo.omega = prescribed_pose(0.0).omega;
                 ibm_factory = [base = ibm_factory, st = amr_body_](const Mesh& m) {
                     ImmersedBoundary b = base(m);
@@ -291,6 +292,7 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             if (p.ibm_dynamic()) {   // a body driven by the flow starts at its placement with the velocity given
                 body_.u = p.ibm_vx;
                 body_.v = p.ibm_vy;
+                body_.w = p.ibm_vz;
             }
             if (p.resume) restore_body_from_checkpoint();
             if (verbose && p.ibm_dynamic())
@@ -425,9 +427,10 @@ void Simulation::setup(const SimParams& params, bool verbose) {
             cell_physics.ibm_curvature = p.ibm_curvature;
             cell_physics.ibm_slip = !p.use_viscous;
             if (amr_body_)
-                cell_physics.ibm_velocity = [st = amr_body_](double x, double y, double& bu, double& bv) {
+                cell_physics.ibm_velocity = [st = amr_body_](double x, double y, double, double& bu, double& bv, double& bw) {
                     bu = st->geo.u - st->geo.omega * (y - (st->py + st->geo.y));
                     bv = st->geo.v + st->geo.omega * (x - (st->px + st->geo.x));
+                    bw = st->geo.w;
                 };
         }
         cell_engine = std::make_unique<CellFluxEngine>(fluid, riemann, muscl.get(), boundaries);

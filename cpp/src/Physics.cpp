@@ -925,6 +925,16 @@ bool ImmersedBoundary::bounds(double& x0, double& x1, double& y0, double& y1) co
 }
 
 std::vector<int> ImmersedBoundary::solid_cells_near(const Mesh& fine) const {
+    if (fine.is3d() && shape_ == Shape::Ball) {   // a sphere: the cells of its bounding box
+        const auto lo = [](double a, double o, double h) { return std::max(0, static_cast<int>(std::floor((a - o) / h)) - 1); };
+        const auto hi = [](double a, double o, double h, int n) { return std::min(n - 1, static_cast<int>(std::floor((a - o) / h)) + 1); };
+        std::vector<int> cells;
+        for (int k = lo(cz_ - r_, fine.z0, fine.dz); k <= hi(cz_ + r_, fine.z0, fine.dz, fine.nz); ++k)
+            for (int j = lo(cy_ - r_, fine.y0, fine.dy); j <= hi(cy_ + r_, fine.y0, fine.dy, fine.ny); ++j)
+                for (int i = lo(cx_ - r_, fine.x0, fine.dx); i <= hi(cx_ + r_, fine.x0, fine.dx, fine.nx); ++i)
+                    if (solid_at(fine.xc(i), fine.yc(j), fine.zc(k))) cells.push_back(fine.cell(i, j, k));
+        return cells;
+    }
     double x0, x1, y0, y1;
     if (fine.is3d() || !bounds(x0, x1, y0, y1)) throw std::logic_error("ImmersedBoundary::solid_cells_near: a 2-D body built from its geometry only");
     const int i0 = std::max(0, static_cast<int>(std::floor((x0 - fine.x0) / fine.dx)) - 1),
@@ -1196,10 +1206,11 @@ void ImmersedBoundary::restore_geometry(const Mesh& m, const BodyPose& built) {
     fresh_.clear();
 }
 
-void ImmersedBoundary::set_velocity(double u, double v) {
+void ImmersedBoundary::set_velocity(double u, double v, double w) {
     if (!moving_) throw std::logic_error("ImmersedBoundary::set_velocity: enable_motion first");
     pose_.u = u;
     pose_.v = v;
+    pose_.w = w;
     refresh_wall_velocity();
 }
 
@@ -1279,7 +1290,7 @@ void ImmersedBoundary::make_fresh_sparse(const ImmersedBoundary& previous, const
     if (!sparse_) throw std::logic_error("ImmersedBoundary::make_fresh_sparse: a sparse ghost-cell wall");
     std::vector<int> cells;
     for (const int c : previous.solid_cells_near(fine))
-        if (!is_solid(fine, c % fine.nx, c / fine.nx, 0)) cells.push_back(c);
+        if (!is_solid(fine, c % fine.nx, (c / fine.nx) % fine.ny, c / (fine.nx * fine.ny))) cells.push_back(c);
     build_fresh(fine, cells);
 }
 

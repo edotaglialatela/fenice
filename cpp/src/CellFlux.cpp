@@ -96,8 +96,8 @@ void CellFluxEngine::body_changed() {
     ibm_geo_.reset();
 }
 
-void CellFluxEngine::set_body_velocity(double u, double v) {
-    if (ghost_ib_) ghost_ib_->set_velocity(u, v);   // no table yet: the next build takes the velocity of the body state
+void CellFluxEngine::set_body_velocity(double u, double v, double w) {
+    if (ghost_ib_) ghost_ib_->set_velocity(u, v, w);   // no table yet: the next build takes the velocity of the body state
 }
 
 void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
@@ -256,22 +256,13 @@ void CellFluxEngine::build(const CellMesh& m, const CellMesh* whole) {
     old_solid.swap(solid_);
     if (has_body() && m.dim == 3) {
         // per-leaf classification by the centre test of the body's geometry (the uniform mask is that test at the cell centres)
-        if (!ibm_geo_) {
-            // the body's shape follows the mesh it is built on (a sphere on a mesh with nz = 1 is a cylinder): an octree with a single
-            // base cell along z still has 3-D levels, so the geometry is built on a mesh with at least two
-            ibm_geo_ = std::make_shared<ImmersedBoundary>(
-                phys_.ibm_factory(generate_cartesian_mesh_3d(m.Lx, m.Ly, m.Lz, m.nx, m.ny, std::max(m.nz, 2), m.x0, m.y0, m.z0)));
-            if (!ibm_geo_->has_geometry())
-                throw std::invalid_argument("CellFluxEngine: a 3-D adaptive mesh needs a body built from its geometry (a mask-only body)");
-            ibm_rho_ref_ = ibm_geo_->rho_ref();
-            ibm_p_ref_ = ibm_geo_->p_ref();
-        }
+        moving_geometry(m);
         solid_.assign(static_cast<size_t>(nleaf_), 0);
         const ImmersedBoundary& ib = *ibm_geo_;
 #pragma omp parallel for schedule(static) if (nleaf_ >= kOmpMinWork)
         for (int c = 0; c < nleaf_; ++c)
-            solid_[c] = inc && m.prev_leaf[c] >= 0 ? old_solid[static_cast<size_t>(m.prev_leaf[c])]
-                                                   : static_cast<char>(ib.solid_at(m.xc(c), m.yc(c), m.zc(c)));
+            solid_[c] = inc && !body_dirty_ && m.prev_leaf[c] >= 0 ? old_solid[static_cast<size_t>(m.prev_leaf[c])]
+                                                                   : static_cast<char>(ib.solid_at(m.xc(c), m.yc(c), m.zc(c)));
         forced_.resize(static_cast<size_t>(nleaf_));
     } else if (has_body() && phys_.ibm_velocity) {
         // a moving body: the centre test of its geometry (a two-by-two mesh is enough for that) at the leaf centres, which is the uniform mask of
@@ -1041,7 +1032,7 @@ void CellFluxEngine::stop_solid(const CellMesh& m, int c, State& W) const {
     W[1] = 0.0;
     W[2] = 0.0;
     W[4] = 0.0;
-    if (phys_.ibm_velocity) phys_.ibm_velocity(m.xc(c), m.yc(c), W[1], W[2]);
+    if (phys_.ibm_velocity) phys_.ibm_velocity(m.xc(c), m.yc(c), m.dim == 3 ? m.zc(c) : 0.0, W[1], W[2], W[4]);
 }
 
 void CellFluxEngine::force_state(const CellMesh& m, const Field& U) {
@@ -1077,8 +1068,12 @@ void CellFluxEngine::force_level(const CellMesh& m, const Field& U, int l) {
 
 const ImmersedBoundary& CellFluxEngine::moving_geometry(const CellMesh& m) {
     if (!ibm_geo_) {
-        ibm_geo_ = std::make_shared<ImmersedBoundary>(phys_.ibm_factory(generate_cartesian_mesh(m.Lx, m.Ly, 2, 2, m.x0, m.y0)));
-        if (!ibm_geo_->has_geometry()) throw std::invalid_argument("CellFluxEngine: a moving body is built from its geometry");
+        // the body's shape follows the mesh it is built on (a sphere on a mesh with nz = 1 is a cylinder): an octree with a single
+        // base cell along z still has 3-D levels, so the geometry is built on a mesh with at least two
+        ibm_geo_ = std::make_shared<ImmersedBoundary>(
+            phys_.ibm_factory(m.dim == 3 ? generate_cartesian_mesh_3d(m.Lx, m.Ly, m.Lz, m.nx, m.ny, std::max(m.nz, 2), m.x0, m.y0, m.z0)
+                                         : generate_cartesian_mesh(m.Lx, m.Ly, 2, 2, m.x0, m.y0)));
+        if (!ibm_geo_->has_geometry()) throw std::invalid_argument("CellFluxEngine: an adaptive mesh needs a body built from its geometry (not a mask-only body)");
         ibm_rho_ref_ = ibm_geo_->rho_ref();
         ibm_p_ref_ = ibm_geo_->p_ref();
     }
@@ -1166,9 +1161,9 @@ bool near_body_surface(const ImmersedBoundary& body, const CellMesh& m, int leve
     return false;
 }
 
-bool CellFluxEngine::ghost_band_violated(const CellMesh& m) const {
+bool CellFluxEngine::ghost_band_violated(const CellMesh& m) {
     if (!has_body()) return false;
-    if (!ibm_geo_) throw std::logic_error("CellFluxEngine::ghost_band_violated: no engine build has made the body's geometry yet");
+    moving_geometry(m);   // (the geometry at the present pose, if no build has made it since the body changed)
     const int M = m.max_level;
     const double reach = 6.0 * std::max({m.dx(M), m.dy(M), m.dz(M)});
     for (int c = 0; c < m.num_leaves(); ++c)
@@ -1206,6 +1201,7 @@ void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m, const CellMesh* whole
     const Mesh fine = generate_cartesian_mesh_3d(m.Lx, m.Ly, m.Lz, NX, NY, NZ, m.x0, m.y0, m.z0);
     auto ib = std::make_shared<ImmersedBoundary>(geo);
     ib->enable_ghost_cells_sparse(fine, phys_.ibm_slip, phys_.ibm_curvature, cand);
+    if (ibm_geo_prev_) ib->make_fresh_sparse(*ibm_geo_prev_, fine);   // a moving body: the leaves it left (kept until fill_fresh_leaves has used them)
     ghost_ib_ = ib;
     // 3) every cell the wall reads is a finest leaf
     for (const int fc : ghost_ib_->referenced_cells()) {
@@ -1229,6 +1225,10 @@ void CellFluxEngine::map_ghost_cells_3d(const CellMesh& m, const CellMesh* whole
             ghost_incomplete_.resize(static_cast<size_t>(nleaf_), 0);
             ghost_incomplete_[static_cast<size_t>(a->second)] = 1;
         }
+    }
+    for (const auto& pr : ghost_ib_->fresh_reads()) {   // the fresh fill's leaves, where the share holds them at the finest level
+        const int leaf = m.find(M, pr.second % NX, (pr.second / NX) % NY, pr.second / (NX * NY));
+        if (leaf >= 0) fine_leaf_[pr.second] = leaf;
     }
     ghost_ready_ = true;
 }
@@ -1273,6 +1273,7 @@ void CellFluxEngine::fill_fresh_leaves(Field& U) {
             return it == fine_leaf_.end() ? nan_state : U[static_cast<size_t>(it->second)];
         },
         U, eos_);
+    ibm_geo_prev_.reset();   // (the fresh leaves are filled: a later build has none)
 }
 
 std::array<double, 3> CellFluxEngine::ghost_loads(const Field& U, double mu, double cx, double cy) const {

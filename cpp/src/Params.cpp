@@ -491,7 +491,6 @@ SimParams SimParams::from(const Params& p) {
     if (s.use_ibm && s.ibm_moving() && s.nz > 1) {   // in 3-D: a sphere that translates, on a uniform mesh
         if (shape != "sphere") throw std::invalid_argument("a moving body in 3-D is a sphere (for now)");
         if (s.ibm_omega != 0.0) throw std::invalid_argument("a moving body in 3-D translates only (ibm_omega must be 0)");
-        if (s.use_amr) throw std::invalid_argument("a moving body is 2-D only on an adaptive mesh (for now)");
     }
     if (s.use_ibm && s.ibm_moving() && s.nz == 1 && s.ibm_vz != 0.0) throw std::invalid_argument("ibm_vz needs a 3-D mesh (nz > 1)");
     if (!(s.ibm_mass >= 0.0) || !(s.ibm_stiff_x >= 0.0) || !(s.ibm_stiff_y >= 0.0) || !(s.ibm_stiff_z >= 0.0) || !(s.ibm_damp_x >= 0.0) ||

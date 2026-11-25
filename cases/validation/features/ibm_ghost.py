@@ -116,6 +116,13 @@ CHECK_CASES = {   # name: (case, overrides)
     "amr_dynamic_slip_cylinder": ("IBM Flow over Cylinder", ["use_viscous=false", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
                                                              "nx=100", "ny=50", "max_steps=40", "ibm_mass=0.02", "ibm_stiff_y=5", "ibm_vx=0.5"]),
     # AMR with MUSCL-Hancock: the predicted side states of the leaves cross the rank interfaces
+    # a sphere on an octree: the body is built again every quarter finest cell (leaf classification, ghost table, band, fresh leaves), prescribed and driven by the flow
+    "amr3d_moving_sphere": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
+                                                       "bc_zmin=wall", "bc_zmax=wall", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
+                                                       "max_steps=24", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_vz=0.2"]),
+    "amr3d_dynamic_sphere": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
+                                                        "bc_zmin=wall", "bc_zmax=wall", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
+                                                        "max_steps=30", "ibm_mass=0.1", "ibm_stiff_x=5", "ibm_stiff_z=3", "ibm_vx=0.5", "ibm_vz=0.2"]),
     "amr_cylinder_hancock": ("IBM Flow over Cylinder", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=100", "ny=50",
                                                         "max_steps=16", "time_scheme=MUSCL-Hancock"]),
     "amr_sphere3d_hancock": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
@@ -188,7 +195,76 @@ def amr_motion_check():
     print(f"moving cylinder in a gas at rest: AMR against uniform, largest difference of the 0.1 s mean of Fx {100 * worst:.2f} % of the peak", flush=True)
     return worst < 0.05
 
-RESUME_CASES = ("moving_cylinder", "moving_airfoil", "moving_airfoil_hold", "amr_moving_airfoil_hold", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder", "dynamic_sphere3d")
+QUIET_CASE_3D = """[case]
+name = "Quiet Moving Sphere"
+description = "a sphere started in a gas at rest (inviscid)"
+[mesh]
+Lx = 1.2
+Ly = 1.2
+Lz = 1.2
+nx = 96
+ny = 96
+nz = 96
+[physics]
+use_viscous = false
+use_bodyforce = false
+[boundaries]
+bc_xmin = "transmissive"
+bc_xmax = "transmissive"
+bc_ymin = "transmissive"
+bc_ymax = "transmissive"
+bc_zmin = "transmissive"
+bc_zmax = "transmissive"
+u_in = 0.0
+rho_in = 1.0
+p_out = 1.0
+[numerics]
+riemann_solver = "HLLC"
+reconstruction = "muscl"
+muscl_limiter = "Van Leer"
+time_scheme = "SSP Runge-Kutta 2"
+cfl = 0.5
+[run]
+t_end = 0.3
+save_interval = 100000
+monitor_interval = 1
+[parallel]
+use_mpi = true
+[ibm]
+use_ibm = true
+ibm_shape = "Sphere"
+ibm_radius = 0.1
+ibm_cx = 0.6
+ibm_cy = 0.6
+ibm_cz = 0.6
+ibm_vx = 0.05
+ibm_vy = 0.03
+ibm_vz = 0.02
+[initial]
+state = { rho = 1.0, u = 0.0, v = 0.0, p = 1.0 }
+"""
+
+
+def amr3d_motion_check():
+    """A sphere started in a gas at rest: the octree (24^3 base, two levels, the body rebuilt every quarter finest cell) against the uniform mesh of the
+    finest resolution (96^3). Band: the 40-step mean of the force differs by less than 5 % of its peak (measured 2.0 % of Fx, 1.8 % of Fy)."""
+    out = study.study_dir(STUDY) / "check" / "quiet3d"
+    out.mkdir(parents=True, exist_ok=True)
+    (out / "case.toml").write_text(QUIET_CASE_3D)
+    fenice.run(str(out), out_root=out / "uniform")
+    fenice.run(str(out), "nx=24", "ny=24", "nz=24", "use_amr=true", "amr_max_level=2", "amr_refine_every=4", out_root=out / "amr")
+    u, a = (fenice.read_monitor(study.case_output(out / k)) for k in ("uniform", "amr"))
+    t = np.linspace(0.0, 0.28, 281)
+    kernel = np.ones(40) / 40.0
+    worst = 0.0
+    for key in ("Fx", "Fy"):
+        fu, fa = (np.convolve(np.interp(t, s["t"], s[key]), kernel, "valid") for s in (u, a))
+        worst = max(worst, np.max(np.abs(fa - fu)) / np.max(np.abs(np.interp(t, u["t"], u[key]))))
+    print(f"moving sphere in a gas at rest: octree against uniform, largest difference of the 40-step mean of Fx, Fy {100 * worst:.2f} % of the peak", flush=True)
+    return worst < 0.05
+
+
+RESUME_CASES = ("moving_cylinder", "moving_airfoil", "moving_airfoil_hold", "amr_moving_airfoil_hold", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder", "dynamic_sphere3d", "amr3d_dynamic_sphere", "amr3d_moving_sphere")
 RESUME_PAIRS = ((None, None), (None, 3), (3, None), (2, 4))   # ranks of the first half and of the resumed half (None: serial)
 
 
@@ -199,7 +275,7 @@ def resume_check():
     for name in RESUME_CASES:
         case, sets = CHECK_CASES[name]
         sets = [s for s in sets if not s.startswith("max_steps")]
-        half = 24 if name.startswith("amr_") else 40
+        half = 24 if name.startswith("amr") else 40
         out = study.study_dir(STUDY) / "check" / f"resume_{name}"
         out.mkdir(parents=True, exist_ok=True)
         fenice.run(case, *sets, f"max_steps={2 * half}", "save_interval=1000000000", "monitor_interval=10", out_root=out / "whole", dump=out / "whole.npz")
@@ -247,7 +323,7 @@ def resume_negative_control():
     for name, (index, delta) in NEGATIVE_CONTROL_CASES.items():
         case, sets = CHECK_CASES[name]
         sets = [s for s in sets if not s.startswith("max_steps")]
-        half = 24 if name.startswith("amr_") else 40
+        half = 24 if name.startswith("amr") else 40
         out = study.study_dir(STUDY) / "check" / f"resume_{name}"
         out.mkdir(parents=True, exist_ok=True)
         fenice.run(case, *sets, f"max_steps={2 * half}", "save_interval=1000000000", "monitor_interval=10", out_root=out / "whole", dump=out / "whole.npz")
@@ -282,6 +358,8 @@ def check(ranks, only=None):
         print(line, flush=True)
     if not only or only.startswith("amr_moving"):
         ok = amr_motion_check() and ok
+    if not only or only.startswith("amr3d_moving"):
+        ok = amr3d_motion_check() and ok
     if not only or only == "resume":
         ok = resume_check() and ok
     print("ALL MATCH (bitwise)" if ok else "MISMATCH")

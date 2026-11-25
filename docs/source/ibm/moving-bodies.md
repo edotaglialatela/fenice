@@ -96,8 +96,9 @@ system as a whole is not established. The body needs a Runge-Kutta or Euler time
 | cylinder, airfoil | uniform, 2-D (serial, MPI) | translation, rotation (polygon) | translation |
 | cylinder, airfoil | adaptive, 2-D (serial, MPI) | translation, rotation (polygon) | translation |
 | sphere | uniform, 3-D (serial, MPI) | translation | translation |
+| sphere | adaptive, 3-D octree (serial, MPI) | translation | translation |
 
-Not available: the adaptive mesh in 3-D, rotation of a driven body, `ibm_curvature`, the Hancock scheme, `positivity_fallback`.
+Not available: rotation of a driven body, `ibm_curvature`, the Hancock scheme, `positivity_fallback`.
 
 **Checkpoints.** The checkpoint keeps the pose the geometry was last built at and, for a driven body, its position, velocity and last acceleration (the key `body_pose`). A resumed run continues bit
 for bit, also on another rank count.
@@ -111,7 +112,7 @@ $$(m+m_a)\,\ddot x + k\,x = 0 \ \ \Rightarrow\ \ \omega^2=\frac{k}{m+m_a},\qquad
 
 | Study | What it checks |
 |---|---|
-| `features/ibm_ghost.py --check` | serial $=$ 2-7 ranks bit for bit, uniform and adaptive, prescribed and driven bodies (a sphere with strips along y and along x); resume with `--only resume` |
+| `features/ibm_ghost.py --check` | serial $=$ 2-7 ranks bit for bit, uniform and adaptive (quadtree and octree), prescribed and driven bodies (a sphere with strips along y and along x); a sphere started in a gas at rest on the octree against the uniform mesh of its finest resolution (the 40-step mean of the force within 2 % of the peak); resume with `--only resume` |
 | `features/ibm_spring.py` | the spring oscillator $(m+m_a)\ddot x+kx=0$: frequency within 0.4 %, stable down to $m=0.3\rho V$ |
 | `features/ibm_gravity.py`, `ibm_gravity3d.py` | $(m+m_a)\ddot{\mathbf x}=-(m-\rho_cV)\mathbf g$ in a stratified isothermal gas: cylinder and sphere at mass ratios 3, 1 and 0.5 |
 

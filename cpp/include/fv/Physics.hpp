@@ -230,8 +230,8 @@ public:
     bool has_geometry() const { return shape_ != Shape::None; }
     // Bounding box of a 2-D body (circle or polygon; false for the others).
     bool bounds(double& x0, double& x1, double& y0, double& y1) const;
-    // The solid cells of ine (ascending index) found inside the bounding box, with no array over the mesh: the candidates of
-    // enable_ghost_cells_sparse for a 2-D body.
+    // The solid cells of `fine` (ascending index) found inside the bounding box, with no array over the mesh: the candidates of
+    // enable_ghost_cells_sparse for a 2-D body, or a sphere on a 3-D mesh.
     std::vector<int> solid_cells_near(const Mesh& fine) const;
 
     // Pose of a moving body relative to the geometry it was built with: translation (x, y, z), rotation `angle` [rad, counter-clockwise
@@ -256,7 +256,7 @@ public:
     bool move_to(const Mesh& mesh, const BodyPose& pose);
     // Change the translational velocity of the pose without moving the geometry: the wall velocities of the ghost table follow (a body driven by the
     // flow on an adaptive mesh, whose table stays between geometry updates).
-    void set_velocity(double u, double v);
+    void set_velocity(double u, double v, double w = 0.0);
     // The pose the geometry was last built at (move_to builds it every quarter cell; a checkpoint keeps it), and the way back: build the geometry
     // (mask and ghost table, no fresh cells) at `built` on a mesh, as a resumed run does before its first step.
     const BodyPose& built_pose() const { return built_; }

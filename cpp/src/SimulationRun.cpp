@@ -640,17 +640,20 @@ void Simulation::solve_amr() {
     // the body). The pose is fixed during a step.
     const bool moving = amr_body_ != nullptr;
     const bool dynamic = moving && p.ibm_dynamic();
-    const double h_fine = std::min(cm.dx(cm.max_level), cm.dy(cm.max_level));
+    const double h_fine = octree ? std::min(std::min(cm.dx(cm.max_level), cm.dy(cm.max_level)), cm.dz(cm.max_level))
+                                 : std::min(cm.dx(cm.max_level), cm.dy(cm.max_level));
     const auto place_body = [&] {
         const ImmersedBoundary::BodyPose pose = body_pose(t);
         const ImmersedBoundary::BodyPose& g = amr_body_->geo;
         const double shift = std::max(std::max(std::abs(pose.x - g.x), std::abs(pose.y - g.y)), std::abs(pose.angle - g.angle) * ibm->rotation_reach());
+        const double shift_z = octree ? std::max(shift, std::abs(pose.z - g.z)) : shift;   // (a sphere: translation only)
         if (dynamic) {   // the wall velocity changes every step, the geometry only when the body has moved a quarter cell
             amr_body_->geo.u = pose.u;
             amr_body_->geo.v = pose.v;
-            eng.set_body_velocity(pose.u, pose.v);
+            amr_body_->geo.w = pose.w;
+            eng.set_body_velocity(pose.u, pose.v, pose.w);
         }
-        if (shift <= 0.25 * h_fine && pose.omega == g.omega) return;   // (the wall velocity of a rotation is that of the built pose: a stop rebuilds it)
+        if (shift_z <= 0.25 * h_fine && pose.omega == g.omega) return;   // (the wall velocity of a rotation is that of the built pose: a stop rebuilds it)
         const auto r0 = Clock::now();
         amr_body_->geo = pose;
         eng.body_changed();
@@ -687,13 +690,16 @@ void Simulation::solve_amr() {
             for (int c = eng.owned_begin(l); c < eng.owned_end(l); ++c) {
                 if (!solid[static_cast<size_t>(c)]) continue;
                 double rx = Rl[static_cast<size_t>(c)][1], ry = Rl[static_cast<size_t>(c)][2];
+                double rz = octree ? Rl[static_cast<size_t>(c)][4] : 0.0;
                 if (body_force) {
                     rx -= cm.U[static_cast<size_t>(c)][0] * body_force->gx;
                     ry -= cm.U[static_cast<size_t>(c)][0] * body_force->gy;
+                    if (octree) rz -= cm.U[static_cast<size_t>(c)][0] * body_force->gz;
                 }   // not a load
                 const double a = cm.volume(c);
                 mine.insert(mine.end(), {static_cast<double>(l), static_cast<double>(cm.ci[static_cast<size_t>(c)]),
-                                         static_cast<double>(cm.cj[static_cast<size_t>(c)]), rx * a, ry * a});
+                                         static_cast<double>(cm.cj[static_cast<size_t>(c)]), static_cast<double>(cm.ck[static_cast<size_t>(c)]),
+                                         rx * a, ry * a, rz * a});
             }
         std::vector<double> all;
         if (cell_par) {
@@ -713,21 +719,23 @@ void Simulation::solve_amr() {
         } else {
             all.swap(mine);
         }
-        const size_t n = all.size() / 5;
+        const size_t n = all.size() / 7;
         std::vector<size_t> order(n);
         for (size_t k = 0; k < n; ++k) order[k] = k;
-        std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {
-            const double* x = &all[5 * a];
-            const double* y = &all[5 * b];
-            return x[0] != y[0] ? x[0] < y[0] : (x[1] != y[1] ? x[1] < y[1] : x[2] < y[2]);
+        std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {   // (level, ci, cj, ck): the order of the sum, the same for any partition
+            const double* x = &all[7 * a];
+            const double* y = &all[7 * b];
+            return x[0] != y[0] ? x[0] < y[0] : (x[1] != y[1] ? x[1] < y[1] : (x[2] != y[2] ? x[2] < y[2] : x[3] < y[3]));
         });
-        double fx = 0.0, fy = 0.0;
+        double fx = 0.0, fy = 0.0, fz = 0.0;
         for (const size_t k : order) {
-            fx += all[5 * k + 3];
-            fy += all[5 * k + 4];
+            fx += all[7 * k + 4];
+            fy += all[7 * k + 5];
+            fz += all[7 * k + 6];
         }
         body_.fx = fx;
         body_.fy = fy;
+        body_.fz = fz;
         body_.captured = true;
     };
     engine.advance = [&](int st, double t_stop) {
@@ -746,7 +754,7 @@ void Simulation::solve_amr() {
         cell_speed_ = S;
         if (moving) {
             const std::array<double, 3> w = body_velocity();
-            if (dt * std::max(std::abs(w[0]), std::abs(w[1])) > h_fine)
+            if (dt * std::max(std::max(std::abs(w[0]), std::abs(w[1])), octree ? std::abs(w[2]) : 0.0) > h_fine)
                 throw std::runtime_error("the moving body travelled more than one finest cell in a step (lower the CFL number)");
         }
         if (p.use_ibm) {
