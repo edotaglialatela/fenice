@@ -24,21 +24,12 @@ carries a bow shock. Three cases of the solver run on this body with the
 | [`IBM Supersonic Flow over Cylinder`](#mach-2-the-bow-shock) | Mach 2 | $8\times12$, $r = 0.25$ | uniform, 800×1200 | bow shock and its stand-off distance |
 | [the same case, heaving](#mach-2-a-cylinder-moving-up-and-down) | Mach 2 | $8\times12$, $r = 0.25$ | AMR, 200×300 + 3 levels | the bow shock following a cylinder that moves up and down |
 
-## Default parameters
+## Subsonic cylinder
 
-### Confined, Re = 100
+Two runs of the same flow at Re = 100 and Mach 0.085: a channel that blocks 10 % of the flow, and a box so large (blockage 1.7 %) that the Strouhal number
+is that of the unbounded cylinder, which is covered with adaptive meshing.
 
-{{defaults:IBM Flow over Cylinder}}
-
-### Large box, AMR
-
-{{defaults:IBM Cylinder Low Blockage AMR}}
-
-### Supersonic
-
-{{defaults:IBM Supersonic Flow over Cylinder}}
-
-## Re = 100 in a 4×2 box
+### Re = 100 in a 4×2 box
 
 The cylinder is centred at $(1, 1)$ in a $4\times2$ domain. The
 Reynolds number based on the diameter $D = 2r$ is
@@ -59,7 +50,11 @@ python cases\validation\benchmarks\ibm_loads.py cylinder                # loads,
 python cases\validation\features\cylinder_mesh_transition.py         # hot start 400×200 -> 800×400, from that run
 ```
 
-### Visualisation
+#### Default parameters, confined
+
+{{defaults:IBM Flow over Cylinder}}
+
+#### Visualisation
 
 <div style="display:flex; gap:1em; align-items:flex-start; flex-wrap:wrap;">
 <figure style="margin:0; flex:1 1 45%;">
@@ -76,7 +71,7 @@ One shedding period on a 1200 × 600 mesh (60 cells per diameter), hot-started f
 developed 400 × 200 street. `python docs/showcase.py run`, then `render`, regenerates both
 animations.
 
-### Aerodynamic coefficients
+#### Aerodynamic coefficients
 
 The default run ends at $t = 12$, before the shedding has grown: a symmetric body in a symmetric
 domain only sheds once the tiny numerical asymmetry has been amplified, which takes about 20 time units
@@ -140,7 +135,7 @@ circle just outside the cylinder (no viscous stresses).</figcaption>
 <figcaption>Stable case: without perturbations no vortex shedding develops.</figcaption>
 </figure>
 
-### Sensitivity of the drag at Re = 40
+#### Sensitivity of the drag at Re = 40
 
 <figure>
 <img src="{{root}}img/cylinder_sensitivity.png" style="width:100%">
@@ -156,7 +151,7 @@ and falls with the Reynolds number (rank correlation $-0.64$). At these meshes t
 a part of the variance as the whole 30-50 range of Re; the limiter hardly matters. A run at Re = 40 on 12 cells per diameter gives 1.918, 1.8 % above the converged 1.8836.
 The default mode (8 base points, 41 runs) is a smoke test: its intervals are wider than the indices.
 
-### Analysis in the workbench
+#### Analysis in the workbench
 
 The workbench's Analysis Tools module is general-purpose; these settings reproduce selected analyses above:
 
@@ -167,7 +162,7 @@ The workbench's Analysis Tools module is general-purpose; these settings reprodu
 | **POD / DMD** | On the confined run select `Velocity`, component `y`, first snapshot time 50, every snapshot, step tolerance 0.005, $L=0.2$ and $U=1$. The page reports the leading POD energy pair and phase, exact-DMD frequency and growth, and its projection onto the POD plane. For low-blockage AMR runs, whose snapshots are four time units apart, select `Cl`, compare `Cd`, set **Length L** to 0.2, **Speed U** to 1, **Load step** to 0.1 and **Delay rows** to 60, then use **Run time-delay DMD only**. |
 | **Sensitivity** | Load `results/validation/cylinder_sensitivity/summary.json` and its `a_sample.csv`. Choose `Re` for X, `Cd` for response Y, `cells_per_D` for point color and 1.8836 as the reference. The left plot shows $S_1$ and $S_T$ with bootstrap intervals; the right shows the sampled drag response. |
 
-## Re = 100 in a large box, AMR
+### Re = 100 in a large box, AMR
 
 The $4\times2$ box above blocks 10 % of the channel, which raises both the drag and the Strouhal number above the
 unbounded values. This case removes the confinement: the same cylinder and flow at $(3, 6)$ in a $16\times12$ box,
@@ -184,7 +179,11 @@ $3200\times2400 = 7.7$ million cells, so the case uses the [cell-based AMR]({{ro
 * a small transverse kick behind the cylinder (`[[initial.region]]`) that starts the shedding at once; a symmetric start takes
   about 25 time units.
 
-### The mesh
+#### Default parameters, large box
+
+{{defaults:IBM Cylinder Low Blockage AMR}}
+
+#### The mesh
 
 The $200\times150$ base mesh (level 0) has cells of size $h_0 = 16/200 = 0.08$, 2.5 per diameter. Every level halves the cell
 size, $h_\ell = 0.08/2^\ell$:
@@ -215,7 +214,7 @@ build\release\fenice.exe --case "IBM Cylinder Low Blockage AMR" --set amr_max_le
 python cases\validation\benchmarks\cylinder_low_blockage.py                          # the first two runs, loads, spectra, figure
 ```
 
-### Results
+#### Results
 
 Over $t \ge 25$ (to $t = 60$), 3, 4 and 5 levels (20, 40 and 80 cells per diameter at the body):
 
@@ -243,7 +242,7 @@ order is used), $F_s = 3$, fine-grid GCI 0.50 % of the finest value, extrapolate
 0.363 and 0.351, observed order 2.4, $F_s = 1.25$, GCI 1.5 %, extrapolated 0.347, asymptotic ratio 1.33. The 80-cell drag is 0.8 % above the
 upper end of the literature range and the lift amplitude about 6 % above 0.33.
 
-### Spectra of the loads
+#### Spectra of the loads
 
 The record $25 \le t \le 60$ (35 time units, 29 shedding periods; frequency resolution $D/T = 0.0057$ in St) is analysed with a
 Hann window and zero padding.
@@ -272,7 +271,12 @@ body resolution; the loads depend on the near body, where the finest level is ke
 an adaptive checkpoint is read as its finest-level field (each leaf fills the cells it covers) and an AMR target samples it at its
 leaf centres, a uniform target maps it onto its mesh. Resuming an AMR run on its own mesh (`resume = true`) works as before.
 
-## Mach 2: the bow shock
+## Supersonic cylinder
+
+At Mach 2 the body carries a bow shock. The first case is the fixed cylinder, whose stand-off distance is the validation quantity; the second moves the same
+cylinder up and down, and the shock follows it.
+
+### Mach 2: the bow shock
 
 At supersonic speed a **bow shock** forms ahead of the cylinder. The stand-off
 distance $\Delta$ between the shock and the stagnation point is the main validation
@@ -304,7 +308,11 @@ is the start-up wave of the impulsive start, which travels downstream, not a bou
 build\release\fenice.exe --case "IBM Supersonic Flow over Cylinder"
 ```
 
-### Visualisation
+#### Default parameters, bow shock
+
+{{defaults:IBM Supersonic Flow over Cylinder}}
+
+#### Visualisation
 
 <div style="display:flex; gap:1em; align-items:flex-start; flex-wrap:wrap;">
 <figure style="margin:0; flex:1 1 45%;">
@@ -320,12 +328,12 @@ build\release\fenice.exe --case "IBM Supersonic Flow over Cylinder"
 From t = 0 to 5 on a 1600 × 2400 mesh (100 cells per diameter) over the whole $8\times12$ box; `python docs/showcase.py run`,
 then `render`, regenerates both animations. They show only the part $1 \le x \le 8$, $3 \le y \le 9$ of the box (`SUP_VIEW` in `docs/showcase.py`), around the body, the bow shock and the wake.
 
-### Reference
+#### Reference
 
 * Ambrosio, A. & Wortman, A. (1962). Stagnation-point shock-detachment distance for flow
   around spheres and cylinders in air. *J. Aero/Space Sci.* 29(7), 875.
 
-## Mach 2: a cylinder moving up and down
+### Mach 2: a cylinder moving up and down
 
 The Mach 2 case with a cylinder that heaves in $y$: the [moving immersed boundary]({{root}}ibm/moving-bodies.html) gives the wall the velocity of the body, and the bow shock follows it. The body is a heavy cylinder on a spring, released
 from its placement with an initial velocity: a body [driven by the flow]({{root}}ibm/moving-bodies.html#the-coupled-system), $m\,\ddot y = F_y - k_y\,y$ (the load of the flow plus the spring), which for a heavy body is a sinusoidal heave
@@ -350,7 +358,7 @@ build\release\fenice.exe --case "IBM Supersonic Flow over Cylinder" --set use_mp
 The monitor records the position and velocity of the body (`body_y`, `body_v`; `body_y` is the displacement from the placement) with the loads. The path of the shock is read from the snapshots: for each height $y$, the front $x_s(y,t)$ is the first point from the inflow side
 where the density passes 1.25, and the stand-off distance at the height of the body is the distance from $x_s$ to the front of the cylinder, $(2 + x_b - r) - x_s(y_b, t)$.
 
-### Results
+#### Results
 
 The heave has period 6.29 ($= 2\pi/\omega$ with $\omega = 1.00$), and its peaks are 0.59, 0.57, 0.55, 0.54, 0.52 and 0.50 in turn; the cylinder drifts in $x$ by less than $6\cdot10^{-4}$. The bow shock follows the body:
 the **nose** of the front, its most upstream point, stays at $x \approx 1.40$, 0.35 ahead of the front of the cylinder, and its height moves with the cylinder with the same amplitude (0.56 against 0.54) and a **lag of 0.40 time units**
