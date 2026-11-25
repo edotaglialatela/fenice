@@ -8,28 +8,34 @@ in C++17 with OpenMP threading and MPI domain decomposition, and comes with a Py
 validation scripts and full documentation.
 
 <p align="center">
-  <img src="docs/img/cylinder_vortices.gif" height="260"
-       alt="Vorticity of the von Karman vortex street behind a cylinder at Re = 100">
+  <img src="docs/img/airfoil_pitch_vorticity.gif" width="92%"
+       alt="Vorticity of a NACA 0012 at Re = 1000 pitched nose-up from 0 to 15 degrees: the leading-edge vortex and the vortex street">
+</p>
+<p align="center">
   <img src="docs/img/supersonic_cylinder_schlieren.gif" height="260"
        alt="Numerical schlieren of Mach 2 flow over a cylinder, showing the bow shock">
 </p>
 <p align="center">
-  <em>Left: von Kármán vortex street behind a cylinder at Re = 100 (vorticity, 1200 × 600
-  cells, one shedding period). Right: Mach 2 flow over a cylinder forming its bow shock
-  (numerical schlieren, 1600 × 2400 cells over an 8 × 12 box, so that the bow shock leaves the domain without reflecting). Both use the immersed boundary method.</em>
+  <em>Top: a NACA 0012 at Re = 1000 pitched nose-up from 0 to 15° by the moving immersed boundary, on an adaptive mesh with three
+  refinement levels (vorticity: the leading-edge vortex, then the vortex street at 15°). Bottom: Mach 2 flow over a cylinder forming its
+  bow shock (numerical schlieren, 1600 × 2400 cells over an 8 × 12 box, so that the bow shock leaves the domain without reflecting).
+  Both use the immersed boundary method.</em>
 </p>
 
 ## Features
 
 - **Numerics:** HLLC and Low-Mach HLLC (Thornber) Riemann solvers; first order, 2nd-order MUSCL
   (Minmod, Van Leer, MC, Koren) or WENO3-Z / WENO5-Z reconstruction, with `boundary_order = 2` for second-order walls and outflows;
-  Explicit Euler, SSP-RK2 and SSP-RK3.
+  Explicit Euler, SSP-RK2, SSP-RK3 and MUSCL-Hancock (the default with MUSCL).
 - **Physics:** ideal and stiffened-gas equations of state, Navier-Stokes viscous and heat fluxes, body forces, source terms, and an
   immersed boundary method (cylinder, sphere, or an airfoil from the NACA 4-digit formulas or a coordinate file; a sharp ghost-cell
-  wall) with lift / drag monitoring. Slip and no-slip walls, moving walls, velocity and mass-flow
+  wall) with lift / drag / moment monitoring. Slip and no-slip walls, moving walls, velocity and mass-flow
   inlets, pressure outlets, transmissive and periodic boundaries.
+- **Moving bodies:** the immersed wall can translate and rotate on a prescribed schedule (a rotation that rests, turns and holds) or be driven
+  by the flow (mass, spring, damper, gravity), on uniform and adaptive meshes and in MPI runs: cylinders and airfoils in 2-D, spheres in 3-D
+  (translation). MPI runs reproduce the serial run bit for bit.
 - **Adaptive meshes in 2-D and 3-D:** cell-based AMR, a quadtree in 2-D and an octree in 3-D (`use_amr`, one engine for both), with
-  subcycling, conservative flux replacement, 2:1 balance, immersed bodies, bitwise restart and distributed MPI runs. On a 3-D sphere
+  subcycling, conservative flux replacement, 2:1 balance, immersed bodies (also moving ones), bitwise restart and distributed MPI runs. On a 3-D sphere
   the octree takes 0.1-0.2 of the uniform solver's time at the same finest resolution, with the drag within 1 %.
 - **Uniform meshes:** 2-D (`nz = 1`) or 3-D (`nz > 1`) Cartesian grids.
 - **Parallelism:** OpenMP everywhere, plus MPI (strips of rows or columns; for AMR, the leaves distributed over the ranks along a
@@ -38,7 +44,7 @@ validation scripts and full documentation.
   canvas. One Geometry can feed several Solvers. The workbench provides live monitors, result viewing, general-purpose field,
   signal, modal and sensitivity analysis, and saveable session state; new cases appear automatically from the solver.
 - **I/O:** VTK output for ParaView, `.npz` checkpoints with restart, and hot start that maps a solution onto a different resolution.
-- **Verification:** unit tests, 75 stored reference states, manufactured-solution and exact-solution studies, grid-convergence indices
+- **Verification:** unit tests, 86 stored reference states, manufactured-solution and exact-solution studies, grid-convergence indices
   and benchmark comparisons (see Testing).
 
 ## Build
@@ -103,6 +109,7 @@ Every run is a test case plus optional parameter overrides (`--set key=value`, o
 build/release/fenice --list-cases                       # fenice.exe on Windows
 build/release/fenice --case "Sod Shock Tube"
 build/release/fenice --case "Taylor-Green Vortex 3D" --set monitor_interval=10 --threads 8
+build/release/fenice --case "IBM Airfoil Pitch" --threads 8   # the pitching airfoil of the top figure
 mpiexec -n 8 build/release/fenice --case "IBM Supersonic Flow over Cylinder"
 ```
 
@@ -147,12 +154,17 @@ conditions, so adding a case needs no C++ and no recompilation. The shipped case
 | IBM Cylinder Low Blockage AMR | Re = 100 in a 1.7 % blockage box with AMR and the ghost-cell wall: St = 0.166 |
 | IBM Sphere | 3-D sphere in a channel, Re = 100, octree AMR with the ghost-cell wall |
 | IBM Airfoil | NACA 4-digit or any coordinate file, Re = 1000, lift / drag / moment |
+| IBM Airfoil AMR | the same airfoil on an adaptive mesh |
+| IBM Airfoil Pitch | NACA 0012 at Re = 1000 pitched nose-up from 0 to 15° (moving wall, AMR): after the hold the loads agree with the static airfoil's (0.2 %) |
 | Shu-Osher Test | Shock / entropy-wave interaction |
-| IBM Supersonic Flow over Cylinder | IBM at Mach 2, bow shock |
+| IBM Supersonic Flow over Cylinder | IBM at Mach 2, bow shock (also with the cylinder moving up and down on a spring) |
+| Woodward-Colella Blast Waves | interacting strong shocks |
+| Noh Implosion | implosion and Sedov-Taylor blast |
+| Kelvin-Helmholtz | shear-layer instability |
 | Taylor-Green Vortex | Viscous decay vs the exact solution |
 | Isentropic Vortex | 2nd-order accuracy on smooth advection |
 | Taylor-Green Vortex 3D | 3-D transition to turbulence at Re = 1600 |
-| Manufactured Solution (Euler, 3D) | Code verification by manufactured solutions: source terms, observed orders |
+| Manufactured Solution (and its Euler, 3D, Walls, Outflow, Unsteady Euler and Box variants) | Code verification by manufactured solutions: source terms, observed orders |
 
 <p align="center">
   <img src="docs/img/taylor_green_3d_vorticity_weno5.png" width="90%"
@@ -164,6 +176,14 @@ airfoil, AMR on a 192×96 base mesh with two levels reaches the loads of the 768
 cells) in 13.6 s against 200 s on the workstation, and it beats the uniform 384×192 mesh in both time and error
 (one run each, an impulsive start rather than a steady flow; see the
 [airfoil page](docs/source/cases/airfoil.md)).
+
+On the pitching airfoil the refined region turns with the body and trails the leading-edge vortex: 2 % of the cells of the
+uniform mesh at the finest resolution (leaves coloured by refinement level, the lines are the leaf edges).
+
+<p align="center">
+  <img src="docs/img/airfoil_pitch_mesh.gif" width="60%"
+       alt="The leaves of the adaptive mesh around the pitching NACA 0012, coloured by refinement level">
+</p>
 
 <p align="center">
   <img src="docs/img/airfoil_amr.png" width="90%"
@@ -193,7 +213,7 @@ build/release/fenice_tests                   # unit tests (fenice_tests.exe on W
 python cpp/tests/regression.py --mpi 4   # compare against the stored reference states
 ```
 
-`cpp/tests/reference/` holds the final states of 75 reference configurations; every change to the code must reproduce them (serial and on MPI
+`cpp/tests/reference/` holds the final states of 86 reference configurations; every change to the code must reproduce them (serial and on MPI
 ranks).
 
 > **Tested platforms:** Windows 11 (MSVC 19.50, MS-MPI 10.1), Ubuntu 26.04 (GCC 15.2,
