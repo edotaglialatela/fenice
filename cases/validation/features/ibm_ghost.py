@@ -98,6 +98,10 @@ CHECK_CASES = {   # name: (case, overrides)
                                                  "ibm_omega_y=-1.0", "ibm_omega_until=0.25"]),
     "dynamic_sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=48", "ny=24", "nz=12", "Lz=1.0", "bc_zmin=wall",
                                                     "bc_zmax=wall", "max_steps=60", "ibm_mass=0.1", "ibm_stiff_x=5", "ibm_stiff_z=3", "ibm_vx=0.5", "ibm_vz=0.2"]),
+    # a sphere whose spin is driven by the flow too (isotropic inertia about its centre, the three moments in the ordered sum; the torque of a sphere in a gas at rest spins it down)
+    "dynamic_spin_sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=48", "ny=24", "nz=12", "Lz=1.0", "bc_zmin=wall",
+                                                         "bc_zmax=wall", "max_steps=60", "ibm_mass=0.1", "ibm_stiff_x=5", "ibm_vx=0.5", "ibm_vz=0.2", "ibm_inertia=0.01",
+                                                         "ibm_omega=3", "ibm_omega_x=-2", "ibm_omega_y=1.5", "ibm_damp_theta=0.001"]),
     "dynamic_sphere3d_xstrips": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "Lx=1.5", "Ly=0.4", "Lz=0.4", "nx=60", "ny=8", "nz=8", "ibm_cx=0.6", "ibm_cy=0.2",
                                                             "ibm_cz=0.2", "ibm_radius=0.12", "bc_zmin=wall", "bc_zmax=wall", "max_steps=60", "ibm_mass=0.01",
                                                             "ibm_stiff_x=5", "ibm_stiff_z=3", "ibm_vx=0.5", "ibm_vz=0.2"]),
@@ -141,6 +145,10 @@ CHECK_CASES = {   # name: (case, overrides)
     "amr3d_dynamic_sphere": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
                                                         "bc_zmin=wall", "bc_zmax=wall", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
                                                         "max_steps=30", "ibm_mass=0.1", "ibm_stiff_x=5", "ibm_stiff_z=3", "ibm_vx=0.5", "ibm_vz=0.2"]),
+    "amr3d_dynamic_spin_sphere": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
+                                                             "bc_zmin=wall", "bc_zmax=wall", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
+                                                             "max_steps=30", "ibm_mass=0.1", "ibm_stiff_x=5", "ibm_vx=0.5", "ibm_vz=0.2", "ibm_inertia=0.01",
+                                                             "ibm_omega=3", "ibm_omega_x=-2", "ibm_omega_y=1.5", "ibm_damp_theta=0.001"]),
     "amr3d_spin_sphere": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
                                                      "bc_zmin=wall", "bc_zmax=wall", "use_amr=true", "amr_max_level=2", "amr_refine_every=4",
                                                      "max_steps=24", "ibm_vx=1.0", "ibm_vy=0.3", "ibm_vz=0.2", "ibm_omega=2.0", "ibm_omega_x=1.5",
@@ -286,7 +294,7 @@ def amr3d_motion_check():
     return worst < 0.05
 
 
-RESUME_CASES = ("moving_cylinder", "moving_airfoil", "moving_airfoil_hold", "amr_moving_airfoil_hold", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder", "dynamic_spin_cylinder", "dynamic_pitch_airfoil", "amr_dynamic_spin_cylinder", "amr_dynamic_pitch_airfoil", "dynamic_sphere3d", "amr3d_dynamic_sphere", "amr3d_moving_sphere", "spin_sphere3d", "amr3d_spin_sphere")
+RESUME_CASES = ("moving_cylinder", "moving_airfoil", "moving_airfoil_hold", "amr_moving_airfoil_hold", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder", "dynamic_spin_cylinder", "dynamic_pitch_airfoil", "amr_dynamic_spin_cylinder", "amr_dynamic_pitch_airfoil", "dynamic_sphere3d", "dynamic_spin_sphere3d", "amr3d_dynamic_sphere", "amr3d_dynamic_spin_sphere", "amr3d_moving_sphere", "spin_sphere3d", "amr3d_spin_sphere")
 RESUME_PAIRS = ((None, None), (None, 3), (3, None), (2, 4))   # ranks of the first half and of the resumed half (None: serial)
 
 
@@ -336,7 +344,8 @@ def perturb_body_pose(folder, index, delta):
 
 # case: (entry of body_pose, change). A resume that reads a wrong pose must not end where the whole run does.
 NEGATIVE_CONTROL_CASES = {"amr_moving_slow_cylinder": (0, 0.002), "dynamic_cylinder": (5, 1e-4), "amr_dynamic_cylinder": (5, 1e-4),
-                          "dynamic_pitch_airfoil": (11, 1e-3), "amr_dynamic_pitch_airfoil": (11, 1e-3)}
+                          "dynamic_pitch_airfoil": (11, 1e-3), "amr_dynamic_pitch_airfoil": (11, 1e-3),
+                          "dynamic_spin_sphere3d": (17, 1e-3), "amr3d_dynamic_spin_sphere": (17, 1e-3)}
 
 
 def resume_negative_control():

@@ -80,7 +80,7 @@ std::FILE* Simulation::open_monitor() const {
     if (f && start_step == 0)
         std::fprintf(f, "step,t,mass,kinetic_energy,total_energy%s%s%s,res_rho,res_mom,res_E\n", p.use_ibm ? ",Fx,Fy,Cd,Cl,Cm" : "",
                      p.ibm_dynamic() ? (p.nz > 1 ? ",body_x,body_y,body_u,body_v,body_z,body_w" : ",body_x,body_y,body_u,body_v") : "",
-                     p.ibm_drives_rotation() ? ",body_angle,body_omega" : "");
+                     p.ibm_drives_rotation() ? (p.nz > 1 ? ",body_omega_x,body_omega_y,body_omega_z" : ",body_angle,body_omega") : "");
     return f;
 }
 
@@ -105,7 +105,10 @@ void Simulation::monitor_row(std::FILE* f, int step, const std::array<double, 3>
     if (p.ibm_dynamic()) {   // at the end of the step
         std::fprintf(f, ",%.15e,%.15e,%.15e,%.15e", body_.x, body_.y, body_.u, body_.v);
         if (p.nz > 1) std::fprintf(f, ",%.15e,%.15e", body_.z, body_.w);
-        if (p.ibm_drives_rotation()) std::fprintf(f, ",%.15e,%.15e", body_.th, body_.om);
+        if (p.ibm_drives_rotation()) {
+            if (p.nz > 1) std::fprintf(f, ",%.15e,%.15e,%.15e", body_.omx, body_.omy, body_.om);
+            else std::fprintf(f, ",%.15e,%.15e", body_.th, body_.om);
+        }
     }
     std::fprintf(f, ",%.10e,%.10e,%.10e\n", res[0], res[1], res[2]);
     std::fflush(f);
@@ -221,6 +224,8 @@ ImmersedBoundary::BodyPose Simulation::body_pose(double t) const {
     pose.w = body_.w;
     pose.angle = body_.th;   // (zero unless the rotation is driven)
     pose.omega = body_.om;
+    pose.omega_x = body_.omx;
+    pose.omega_y = body_.omy;
     return pose;
 }
 
@@ -231,15 +236,21 @@ std::array<double, 3> Simulation::body_velocity() const {
 void Simulation::advance_body(double dt) {
     BodyDynamics& b = body_;
     if (p.ibm_drives_rotation()) {   // the same second-order law: Adams-Bashforth for the angular velocity, trapezoid for the angle
+        const bool ab = b.dt > 0.0 && dt <= 2.0 * b.dt;
+        const double r = ab ? dt / b.dt : 0.0;
+        const auto advance = [&](double om, double prev, double a) { return ab ? om + dt * ((1.0 + 0.5 * r) * a - 0.5 * r * prev) : om + dt * a; };
         const double a = (b.mz - p.ibm_stiff_theta * b.th - p.ibm_damp_theta * b.om) / p.ibm_inertia;
-        double om1;
-        if (b.dt > 0.0 && dt <= 2.0 * b.dt) {
-            const double r = dt / b.dt;
-            om1 = b.om + dt * ((1.0 + 0.5 * r) * a - 0.5 * r * b.aom);
+        const double om1 = advance(b.om, b.aom, a);
+        if (p.nz > 1) {   // a sphere (isotropic: no gyroscopic term): the three components, and no angle
+            const double ax = (b.mx - p.ibm_damp_theta * b.omx) / p.ibm_inertia, ay = (b.my - p.ibm_damp_theta * b.omy) / p.ibm_inertia;
+            const double omx1 = advance(b.omx, b.aomx, ax), omy1 = advance(b.omy, b.aomy, ay);
+            b.omx = omx1;
+            b.omy = omy1;
+            b.aomx = ax;
+            b.aomy = ay;
         } else {
-            om1 = b.om + dt * a;
+            b.th += 0.5 * dt * (b.om + om1);
         }
-        b.th += 0.5 * dt * (b.om + om1);
         b.om = om1;
         b.aom = a;
     }
@@ -283,7 +294,7 @@ void Simulation::advance_body(double dt) {
 }
 
 void Simulation::ibm_load_terms(const Mesh& m, const Mesh& g, int i0, int j0, const std::vector<char>& solid, const Field& U, const Field& R,
-                                double pivot_x, double pivot_y, std::vector<LoadTerm>& out) const {
+                                double pivot_x, double pivot_y, std::vector<LoadTerm>& out, double pivot_z) const {
     const double vol = g.is3d() ? g.cell_volume() : g.cell_area();
     for (int c = 0; c < m.num_cells(); ++c) {
         if (!solid[static_cast<size_t>(c)]) continue;
@@ -294,27 +305,32 @@ void Simulation::ibm_load_terms(const Mesh& m, const Mesh& g, int i0, int j0, co
         }   // not a load
         const double ex = rx * vol, ey = ry * vol;
         const int i = i0 + c % m.nx, j = j0 + (c / m.nx) % m.ny, k = c / (m.nx * m.ny);
-        double ez = 0.0;
+        double ez = 0.0, mx = 0.0, my = 0.0;
         if (g.is3d()) {
             double rz = R[static_cast<size_t>(c)][4];
             if (body_force) rz -= U[static_cast<size_t>(c)][0] * body_force->gz;
             ez = rz * vol;
+            const double x = g.xc(i) - pivot_x, y = g.yc(j) - pivot_y, z = g.zc(k) - pivot_z;
+            mx = y * ez - z * ey;
+            my = z * ex - x * ez;
         }
         // (the order of the sum: the global index with the layer, so that no two cells tie in 3-D)
-        out.push_back({(static_cast<long long>(k) * g.ny + j) * g.nx + i, ex, ey, (g.xc(i) - pivot_x) * ey - (g.yc(j) - pivot_y) * ex, ez});
+        out.push_back({(static_cast<long long>(k) * g.ny + j) * g.nx + i, ex, ey, (g.xc(i) - pivot_x) * ey - (g.yc(j) - pivot_y) * ex, ez, mx, my});
     }
 }
 
-std::array<double, 4> Simulation::sum_load_terms(std::vector<LoadTerm>& terms) {
+std::array<double, 6> Simulation::sum_load_terms(std::vector<LoadTerm>& terms) {
     std::sort(terms.begin(), terms.end(), [](const LoadTerm& a, const LoadTerm& b) { return a.cell < b.cell; });
-    double fx = 0.0, fy = 0.0, mz = 0.0, fz = 0.0;
+    double fx = 0.0, fy = 0.0, mz = 0.0, fz = 0.0, mx = 0.0, my = 0.0;
     for (const LoadTerm& t : terms) {
         fx += t.fx;
         fy += t.fy;
         mz += t.mz;
         fz += t.fz;
+        mx += t.mx;
+        my += t.my;
     }
-    return {fx, fy, mz, fz};
+    return {fx, fy, mz, fz, mx, my};
 }
 
 // ---------------------------------------------------------------------------
@@ -361,12 +377,14 @@ void Simulation::solve() {
         if (!stage1_done) {
             stage1_done = true;
             load_terms.clear();
-            ibm_load_terms(mesh, mesh, 0, 0, ibm->mask(), Uin, R, p.ibm_cx + body_.x, p.ibm_cy + body_.y, load_terms);
-            const std::array<double, 4> F = sum_load_terms(load_terms);
+            ibm_load_terms(mesh, mesh, 0, 0, ibm->mask(), Uin, R, p.ibm_cx + body_.x, p.ibm_cy + body_.y, load_terms, p.ibm_cz + body_.z);
+            const std::array<double, 6> F = sum_load_terms(load_terms);
             body_.fx = F[0];
             body_.fy = F[1];
             body_.fz = F[3];
             body_.mz = F[2];
+            body_.mx = F[4];
+            body_.my = F[5];
             body_.captured = true;
         }
         return s;
@@ -683,7 +701,9 @@ void Simulation::solve_amr() {
             eng.set_body_velocity(pose.u, pose.v, pose.w);
             if (p.ibm_drives_rotation()) {   // the angular velocity of the wall follows too; only the angle (reach times angle) rebuilds
                 amr_body_->geo.omega = pose.omega;
-                eng.set_body_angular_velocity(pose.omega);
+                amr_body_->geo.omega_x = pose.omega_x;
+                amr_body_->geo.omega_y = pose.omega_y;
+                eng.set_body_angular_velocity(pose.omega, pose.omega_x, pose.omega_y);
             }
         }
         if (shift_z <= 0.25 * h_fine && pose.omega == g.omega && pose.omega_x == g.omega_x && pose.omega_y == g.omega_y) return;   // (the wall velocity of a rotation is that of the built pose: a stop rebuilds it)
@@ -730,10 +750,17 @@ void Simulation::solve_amr() {
                     if (octree) rz -= cm.U[static_cast<size_t>(c)][0] * body_force->gz;
                 }   // not a load
                 const double a = cm.volume(c);
-                const double mzc = octree ? 0.0 : (cm.xc(c) - (p.ibm_cx + body_.x)) * (ry * a) - (cm.yc(c) - (p.ibm_cy + body_.y)) * (rx * a);
+                const double px = cm.xc(c) - (p.ibm_cx + body_.x), py = cm.yc(c) - (p.ibm_cy + body_.y);
+                const double mzc = px * (ry * a) - py * (rx * a);
+                double mxc = 0.0, myc = 0.0;
+                if (octree) {   // the moments about x and y of a sphere
+                    const double pz = cm.zc(c) - (p.ibm_cz + body_.z);
+                    mxc = py * (rz * a) - pz * (ry * a);
+                    myc = pz * (rx * a) - px * (rz * a);
+                }
                 mine.insert(mine.end(), {static_cast<double>(l), static_cast<double>(cm.ci[static_cast<size_t>(c)]),
                                          static_cast<double>(cm.cj[static_cast<size_t>(c)]), static_cast<double>(cm.ck[static_cast<size_t>(c)]),
-                                         rx * a, ry * a, rz * a, mzc});
+                                         rx * a, ry * a, rz * a, mzc, mxc, myc});
             }
         std::vector<double> all;
         if (cell_par) {
@@ -753,25 +780,29 @@ void Simulation::solve_amr() {
         } else {
             all.swap(mine);
         }
-        const size_t n = all.size() / 8;
+        const size_t n = all.size() / 10;
         std::vector<size_t> order(n);
         for (size_t k = 0; k < n; ++k) order[k] = k;
         std::sort(order.begin(), order.end(), [&](size_t a, size_t b) {   // (level, ci, cj, ck): the order of the sum, the same for any partition
-            const double* x = &all[8 * a];
-            const double* y = &all[8 * b];
+            const double* x = &all[10 * a];
+            const double* y = &all[10 * b];
             return x[0] != y[0] ? x[0] < y[0] : (x[1] != y[1] ? x[1] < y[1] : (x[2] != y[2] ? x[2] < y[2] : x[3] < y[3]));
         });
-        double fx = 0.0, fy = 0.0, fz = 0.0, mz = 0.0;
+        double fx = 0.0, fy = 0.0, fz = 0.0, mz = 0.0, mx = 0.0, my = 0.0;
         for (const size_t k : order) {
-            fx += all[8 * k + 4];
-            fy += all[8 * k + 5];
-            fz += all[8 * k + 6];
-            mz += all[8 * k + 7];
+            fx += all[10 * k + 4];
+            fy += all[10 * k + 5];
+            fz += all[10 * k + 6];
+            mz += all[10 * k + 7];
+            mx += all[10 * k + 8];
+            my += all[10 * k + 9];
         }
         body_.fx = fx;
         body_.fy = fy;
         body_.fz = fz;
         body_.mz = mz;
+        body_.mx = mx;
+        body_.my = my;
         body_.captured = true;
     };
     engine.advance = [&](int st, double t_stop) {
@@ -1299,9 +1330,9 @@ void Simulation::run_mpi(MPI_Comm comm) {
             stage1_done = true;
             load_terms.clear();
             ibm_load_terms(lm, mesh, dir == 'x' ? decomp.i_start : 0, dir == 'y' ? decomp.j_start : 0, local_ibm->mask(), Uin, R,
-                           p.ibm_cx + body_.x, p.ibm_cy + body_.y, load_terms);
+                           p.ibm_cx + body_.x, p.ibm_cy + body_.y, load_terms, p.ibm_cz + body_.z);
             std::vector<double> mine;
-            for (const LoadTerm& lt : load_terms) mine.insert(mine.end(), {static_cast<double>(lt.cell), lt.fx, lt.fy, lt.mz, lt.fz});
+            for (const LoadTerm& lt : load_terms) mine.insert(mine.end(), {static_cast<double>(lt.cell), lt.fx, lt.fy, lt.mz, lt.fz, lt.mx, lt.my});
             std::vector<int> counts(static_cast<size_t>(decomp.n_ranks)), displs(static_cast<size_t>(decomp.n_ranks), 0);
             int n_mine = static_cast<int>(mine.size());
             MPI_Allgather(&n_mine, 1, MPI_INT, counts.data(), 1, MPI_INT, comm);
@@ -1313,13 +1344,15 @@ void Simulation::run_mpi(MPI_Comm comm) {
             std::vector<double> all(static_cast<size_t>(total));
             MPI_Allgatherv(mine.data(), n_mine, MPI_DOUBLE, all.data(), counts.data(), displs.data(), MPI_DOUBLE, comm);
             load_terms.clear();
-            for (size_t q = 0; q < all.size(); q += 5)
-                load_terms.push_back({static_cast<long long>(all[q]), all[q + 1], all[q + 2], all[q + 3], all[q + 4]});
-            const std::array<double, 4> F = sum_load_terms(load_terms);
+            for (size_t q = 0; q < all.size(); q += 7)
+                load_terms.push_back({static_cast<long long>(all[q]), all[q + 1], all[q + 2], all[q + 3], all[q + 4], all[q + 5], all[q + 6]});
+            const std::array<double, 6> F = sum_load_terms(load_terms);
             body_.fx = F[0];
             body_.fy = F[1];
             body_.fz = F[3];
             body_.mz = F[2];
+            body_.mx = F[4];
+            body_.my = F[5];
             body_.captured = true;
         }
         return s;

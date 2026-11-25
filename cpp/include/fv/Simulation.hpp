@@ -108,6 +108,7 @@ public:
         double fx = 0.0, fy = 0.0, fz = 0.0;         // loads of the first stage of the current step (R of U^n at the pose of the step)
         double th = 0.0, om = 0.0, aom = 0.0;        // a driven rotation: the angle from the placement, the angular velocity, the acceleration of the previous step
         double mx = 0.0, my = 0.0, mz = 0.0;         // the torque of the first stage about the pivot (the centre of the body)
+        double omx = 0.0, omy = 0.0, aomx = 0.0, aomy = 0.0;   // a sphere: the angular velocity about x, y (om is the one about z) and the accelerations of the previous step
         bool captured = false;                       // fx, fy hold this step's loads
     };
     BodyDynamics body_;
@@ -128,10 +129,11 @@ public:
     struct LoadTerm {
         long long cell;
         double fx, fy, mz, fz;
+        double mx = 0.0, my = 0.0;   // 3-D: the moments about x and y
     };
     void ibm_load_terms(const Mesh& m, const Mesh& g, int i0, int j0, const std::vector<char>& solid, const Field& U, const Field& R, double pivot_x,
-                        double pivot_y, std::vector<LoadTerm>& out) const;
-    static std::array<double, 4> sum_load_terms(std::vector<LoadTerm>& terms);   // Fx, Fy, Mz, Fz
+                        double pivot_y, std::vector<LoadTerm>& out, double pivot_z = 0.0) const;
+    static std::array<double, 6> sum_load_terms(std::vector<LoadTerm>& terms);   // Fx, Fy, Mz, Fz, Mx, My
 
     // Shared residual assembly for a (sub)domain, optionally with MPI halos.
     double assemble(const Mesh& m, const BoundaryManager& bm, const ImmersedBoundary* ib, const MusclReconstruction* mu,

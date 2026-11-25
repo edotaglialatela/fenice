@@ -298,7 +298,11 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                     body_.v = p.ibm_vy;
                     body_.w = p.ibm_vz;
                 }
-                if (p.ibm_drives_rotation()) body_.om = p.ibm_omega;
+                if (p.ibm_drives_rotation()) {
+                    body_.om = p.ibm_omega;
+                    body_.omx = p.ibm_omega_x;
+                    body_.omy = p.ibm_omega_y;
+                }
             }
             if (p.resume) restore_body_from_checkpoint();
             if (verbose && p.ibm_dynamic())

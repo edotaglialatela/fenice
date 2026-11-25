@@ -46,13 +46,16 @@ $$\begin{aligned}
 with $\mathbf g$ the gravity of `use_bodyforce` (zero without it), $\mathsf K=\operatorname{diag}(k_x,k_y,k_z)$ and $\mathsf C=\operatorname{diag}(c_x,c_y,c_z)$. The two
 subsystems communicate through the surface only: the fluid sees the pose $\mathbf x_b(t)$ (the shape of $\Omega_f$) and the velocity $\mathbf U_b(t)$ (the wall condition); the body sees the load $\mathbf F_f$.
 
-**A rotation driven by the flow** (`ibm_inertia` $=I>0$, a polygon or a cylinder, 2-D) adds the angle $\theta$ about the pivot $\mathbf x_p$ (`ibm_cx`, `ibm_cy`) to the body state:
+**A rotation driven by the flow** (`ibm_inertia` $=I>0$: a polygon or a cylinder in 2-D, a sphere in 3-D) adds the angle $\theta$ about the pivot $\mathbf x_p$ (`ibm_cx`, `ibm_cy`) to the body state:
 
 $$I\,\ddot\theta = M_f(t) - k_\theta\,\theta - c_\theta\,\dot\theta,\qquad M_f=-\oint_{\Gamma(t)}(\mathbf x-\mathbf x_p)\times\bigl(p\,\mathbf n-\boldsymbol\tau\,\mathbf n\bigr)\,\mathrm dS ,$$
 
 the moment of the same surface load, summed over the solid cells about the pivot of the current pose in the same global order as the force. The body is either pinned at its placement (`ibm_mass` $=0$:
-it only turns, about the pivot) or, for a cylinder only, free to translate too (the pivot is its centre of mass, so the two motions are not coupled). A body that translates freely and turns about a pivot
+it only turns, about the pivot) or, for a cylinder and a sphere, free to translate too (the pivot is its centre of mass, so the two motions are not coupled). A body that translates freely and turns about a pivot
 other than its centre of mass needs the coupling of the two (static imbalance), which is not built, and is rejected.
+
+A **sphere** has the isotropic inertia $I$ and no angle (its geometry does not change): the state is the angular velocity vector $\boldsymbol\Omega=(\Omega_x,\Omega_y,\Omega_z)$, started from (`ibm_omega_x`, `ibm_omega_y`, `ibm_omega`),
+$I\,\dot{\boldsymbol\Omega}=\mathbf M_f-c_\theta\boldsymbol\Omega$ (no gyroscopic term, as $I$ is a scalar; no spring: `ibm_stiff_theta` is rejected), and the three moments are summed in the same global order.
 
 <img src="{{root}}img/ibm_coupling.png" style="width:100%">
 
@@ -94,7 +97,7 @@ Let $\mathbf x_b^n,\mathbf U_b^n$ be the body at the start of step $n$ and $\Del
 $$\mathbf U_b^{n+1}=\mathbf U_b^n+\Delta t\Bigl[\bigl(1+\tfrac r2\bigr)\mathbf a^n-\tfrac r2\,\mathbf a^{n-1}\Bigr],\qquad
 \mathbf x_b^{n+1}=\mathbf x_b^n+\tfrac{\Delta t}{2}\bigl(\mathbf U_b^n+\mathbf U_b^{n+1}\bigr).$$
 
-A driven rotation is advanced by the same law, with $\alpha^n=(M_f^n-k_\theta\theta^n-c_\theta\Omega^n)/I$ in place of $\mathbf a^n$ and $\theta,\Omega$ in place of $\mathbf x_b,\mathbf U_b$. The wall
+A driven rotation is advanced by the same law, with $\alpha^n=(M_f^n-k_\theta\theta^n-c_\theta\Omega^n)/I$ in place of $\mathbf a^n$ and $\theta,\Omega$ in place of $\mathbf x_b,\mathbf U_b$ (a sphere: each component of $\boldsymbol\Omega$). The wall
 velocity of the rotation is refreshed every step (the geometry only follows the quarter-cell rule above), and a rotation counts in the one-cell-per-step limit through $\Delta t\,|\Omega|\,r_{\max}/h$.
 
 <img src="{{root}}img/ibm_fresh_cells.png" style="width:100%">
@@ -115,10 +118,10 @@ half of that. At 20 cells per diameter ($h/R=0.1$) a disk of $\rho_b/\rho=0.1$ i
 |---|---|---|---|
 | cylinder, airfoil | uniform, 2-D (serial, MPI) | translation, rotation (polygon) | translation; rotation (pinned airfoil, cylinder with free translation) |
 | cylinder, airfoil | adaptive, 2-D (serial, MPI) | translation, rotation (polygon) | translation; rotation (pinned airfoil, cylinder with free translation) |
-| sphere | uniform, 3-D (serial, MPI) | translation, spin about any axis | translation |
-| sphere | adaptive, 3-D octree (serial, MPI) | translation, spin about any axis | translation |
+| sphere | uniform, 3-D (serial, MPI) | translation, spin about any axis | translation; spin about any axis |
+| sphere | adaptive, 3-D octree (serial, MPI) | translation, spin about any axis | translation; spin about any axis |
 
-Not available: rotation of a driven sphere (3-D), free translation together with rotation about a pivot other than the centre, `ibm_curvature`, the Hancock scheme, `positivity_fallback`.
+Not available: free translation together with rotation about a pivot other than the centre of mass, a rotation driven in 3-D for a body other than a sphere, `ibm_curvature`, the Hancock scheme, `positivity_fallback`.
 
 **Checkpoints.** The checkpoint keeps the pose the geometry was last built at and, for a driven body, its position, velocity and last acceleration (the key `body_pose`). A resumed run continues bit
 for bit, also on another rank count.
@@ -136,7 +139,7 @@ $$(m+m_a)\,\ddot x + k\,x = 0 \ \ \Rightarrow\ \ \omega^2=\frac{k}{m+m_a},\qquad
 | `features/ibm_spring.py` | the spring oscillator $(m+m_a)\ddot x+kx=0$: frequency within 0.4 %, stable down to $m=0.3\rho V$ |
 | `features/ibm_gravity.py`, `ibm_gravity3d.py` | $(m+m_a)\ddot{\mathbf x}=-(m-\rho_cV)\mathbf g$ in a stratified isothermal gas: cylinder and sphere at mass ratios 3, 1 and 0.5 |
 | `features/ibm_spin_sphere.py` | a sphere spun up in a viscous gas at rest: the torque against the exact Stokes transient (within 2 % at 10 cells per diameter), spin about x and y equal to spin about z with the axes relabelled (roundoff) |
-| `features/ibm_spin_down.py` | a cylinder released with a spin in a viscous gas at rest, its rotation free: the angular velocity against the exact transient $\hat\omega=I\omega_0/\bigl(Is+2\pi\mu R^2(2+xK_0(x)/K_1(x))\bigr)$, $x=R\sqrt{s/\nu}$ (within 0.3 % of $\omega_0$ at $\rho_b/\rho=10$, 1 and 0.1); the accuracy limit of the loose coupling in $\rho_b/\rho$ against $h/R$ |
+| `features/ibm_spin_down.py` | a cylinder released with a spin in a viscous gas at rest, its rotation free: the angular velocity against the exact transient $\hat\omega=I\omega_0/\bigl(Is+2\pi\mu R^2(2+xK_0(x)/K_1(x))\bigr)$, $x=R\sqrt{s/\nu}$ (within 0.3 % of $\omega_0$ at $\rho_b/\rho=10$, 1 and 0.1); a sphere with $\hat\omega=I\omega_0/\bigl(Is+\tfrac{8\pi}{3}\mu R^3\,\tfrac{x^2+3x+3}{x+1}\bigr)$ (within 1.4 % of $\omega_0$ at 10 cells per diameter, spin about x and about z equal); the accuracy limit of the loose coupling in $\rho_b/\rho$ against $h/R$ |
 | `features/ibm_falling_sphere.py` | a sphere falling to its terminal speed (Re 32, Mach 0.13, octree, 30 diameters of fall): terminal speed 7 % below the Schiller-Naumann reference (band 10 %), the load of a sphere prescribed at that speed equal to the free fall's within 1 % |
 
 The gravity studies agree for the sinking bodies (cylinder 0.8 %, sphere 0.3 % at the finest mesh) and the neutral body stays. A body lighter than the gas it displaces rises about 12 % faster than the
