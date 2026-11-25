@@ -23,7 +23,11 @@ What the study measures, with bands set AFTER the sizing runs (the first runs we
 
 Measured while sizing (not gated): the fall at 10 / 20 / 40 cells per diameter is within 0.7 % in distance at t = 20 (speed over the reference 0.918 / 0.924 / 0.917);
 a box 4 x 8 x 4 gives the same fall (0.920); the terminal drag implied by the free fall is about 10 % above Schiller-Naumann (6 % above the correlation
-Cd = 24 / Re (1 + 0.1935 Re^0.6305)) and its cause was not isolated (a fixed sphere in a uniform stream would tell the wall from the rest). The gas at rest without the body
+Cd = 24 / Re (1 + 0.1935 Re^0.6305)). A fixed sphere in a uniform stream (same gas state as the end of the fall, rho = 0.953, u = 0.1516, Re = 32.5, Mach 0.128, a
+5.12 x 2 x 2 slip box, same octree and base mesh, no gravity) gives the same excess, so it is not the motion or the coupling: Cd (surface load of the monitor) is
+2.125 at 10 cells per diameter (+9 % over Schiller-Naumann, +5 % over the other fit), 2.086 at 20 (-1.8 %), and 2.111 in a box of 4 x 4 (-0.7 %); with the usual
+extrapolation in both (the blockage goes with (D / W)^2) the unbounded value is about 2.04-2.06, which is 1-2 % over the second fit. What is left is the fit itself (the
+Schiller-Naumann curve is about 4 % low at this Reynolds number) and the compressibility. The gas at rest without the body
 keeps 0.4 % of the terminal speed as a spurious vertical momentum after 300 steps (the hydrostatic balance of the scheme).
 """
 import argparse
