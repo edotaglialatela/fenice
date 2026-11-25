@@ -22,6 +22,7 @@ carries a bow shock. Three cases of the solver run on this body with the
 | [`IBM Flow over Cylinder`](#re-100-in-a-42-box) | Re = 100, Ma 0.085 | $4\times2$, $r = 0.1$, blockage 10 % | uniform, 400×200 | shedding, loads, spectra, hot start across meshes |
 | [`IBM Cylinder Low Blockage AMR`](#re-100-in-a-large-box-amr) | Re = 100, Ma 0.085 | $16\times12$, blockage 1.7 % | AMR, 20 or 40 cells per diameter | Strouhal number free of confinement, ghost-cell wall |
 | [`IBM Supersonic Flow over Cylinder`](#mach-2-the-bow-shock) | Mach 2 | $8\times12$, $r = 0.25$ | uniform, 800×1200 | bow shock and its stand-off distance |
+| [the same case, heaving](#mach-2-a-cylinder-moving-up-and-down) | Mach 2 | $8\times12$, $r = 0.25$ | AMR, 200×300 + 3 levels | the bow shock following a cylinder that moves up and down |
 
 ## Default parameters
 
@@ -323,3 +324,28 @@ then `render`, regenerates both animations. They show only the part $1 \le x \le
 
 * Ambrosio, A. & Wortman, A. (1962). Stagnation-point shock-detachment distance for flow
   around spheres and cylinders in air. *J. Aero/Space Sci.* 29(7), 875.
+
+## Mach 2: a cylinder moving up and down
+
+The Mach 2 case with a cylinder that heaves in $y$: the [moving immersed boundary]({{root}}ibm/moving-bodies.html) gives the wall the velocity of the body, and the bow shock follows it. The body is a heavy cylinder on a spring, released
+from its placement with an initial velocity: a body [driven by the flow]({{root}}ibm/moving-bodies.html#the-coupled-system), $m\,\ddot y = F_y - k_y\,y$ (the load of the flow plus the spring), which for a heavy body is a sinusoidal heave
+
+$$y(t) \approx A \sin \omega t, \qquad \omega = \sqrt{\frac{k_y}{m + m_a}} \approx \sqrt{\frac{k_y}{m}}, \qquad A = \frac{v_0}{\omega}.$$
+
+| key | value | role |
+|---|---:|---|
+| `ibm_mass` | 60 | mass per unit depth, about 300 times the gas the cylinder displaces ($\rho\pi r^2 = 0.196$): the loads of the flow only perturb the heave |
+| `ibm_stiff_y` | 60 | spring in $y$: $\omega \approx 1$, period $2\pi \approx 6.3$ |
+| `ibm_vy` | 0.6 | initial velocity (the key is the initial velocity of a driven body): amplitude $A = 0.6$, 1.2 diameters, peak lateral Mach number 0.6 |
+| `ibm_stiff_x` | 6000 | pins the cylinder in $x$: the drag moves it by less than $10^{-3}$ |
+
+The aerodynamic damping of the heave is small for a body this heavy. In a coarse test with a third of the mass the amplitude fell by about 10 % per half period, so the amplitude here decays more slowly (the damping force does not depend on the mass, the rate falls like $1/m$).
+The mesh is $200 \times 300$ with three levels: the finest cell is 0.005 (100 cells per diameter), the body is kept at the finest level and the shock is followed by the indicator.
+
+```powershell
+build\release\fenice.exe --case "IBM Supersonic Flow over Cylinder" --set use_mpi=false --set nx=200 --set ny=300 --set use_amr=true --set amr_max_level=3 `
+  --set ibm_mass=60 --set ibm_stiff_y=60 --set ibm_stiff_x=6000 --set ibm_vy=0.6 --set t_end=20 --set save_interval=100 --set monitor_interval=5
+```
+
+The monitor records the position and velocity of the body (`body_y`, `body_v`; `body_y` is the displacement from the placement) with the loads. The path of the shock is read from the snapshots: for each height $y$, the front $x_s(y,t)$ is the first point from the inflow side
+where the density passes 1.25, and the stand-off distance at the height of the body is the distance from $x_s$ to the front of the cylinder, $(2 + x_b - r) - x_s(y_b, t)$.

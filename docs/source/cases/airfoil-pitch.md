@@ -94,13 +94,8 @@ $t = 16.25$, 1.25 time units after the start of the rotation, against the static
 </figure>
 
 <figure>
-<img src="{{root}}img/airfoil_pitch_vorticity.png" style="width:100%">
-<figcaption>Vorticity (red: counter-clockwise) after the fast pitch-up, at $t = 18.5$ (the leading-edge vortex and the starting wake) and at $t = 28.9$ (the established vortex street at 15°). Three levels.</figcaption>
-</figure>
-
-<figure>
 <img src="{{root}}img/airfoil_pitch_vorticity.gif" style="width:100%">
-<figcaption>The same run, $t = 14$ to 27.</figcaption>
+<figcaption>Vorticity (red: counter-clockwise) after the fast pitch-up, $t = 14$ to 27: the leading-edge vortex and the starting wake, then the vortex street at 15° (three levels).</figcaption>
 </figure>
 
 ## Adaptive mesh
