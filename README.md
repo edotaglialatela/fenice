@@ -12,14 +12,18 @@ validation scripts and full documentation.
        alt="Vorticity of a NACA 0012 at Re = 1000 pitched nose-up from 0 to 15 degrees: the leading-edge vortex and the vortex street">
 </p>
 <p align="center">
-  <img src="docs/img/supersonic_cylinder_schlieren.gif" height="260"
+  <img src="docs/img/taylor_green_3d_q.gif" height="280"
+       alt="Q-criterion isosurfaces of the 3-D Taylor-Green vortex breaking down into turbulence">
+  &nbsp;
+  <img src="docs/img/supersonic_cylinder_schlieren.gif" height="280"
        alt="Numerical schlieren of Mach 2 flow over a cylinder, showing the bow shock">
 </p>
 <p align="center">
   <em>Top: a NACA 0012 at Re = 1000 pitched nose-up from 0 to 15° by the moving immersed boundary, on an adaptive mesh with three
-  refinement levels (vorticity: the leading-edge vortex, then the vortex street at 15°). Bottom: Mach 2 flow over a cylinder forming its
-  bow shock (numerical schlieren, 1600 × 2400 cells over an 8 × 12 box, so that the bow shock leaves the domain without reflecting).
-  Both use the immersed boundary method.</em>
+  refinement levels (vorticity: the leading-edge vortex, then the vortex street at 15°). Bottom left: the 3-D Taylor-Green vortex
+  breaking down (isosurfaces of the Q-criterion). Bottom right: Mach 2 flow over a cylinder forming its
+  bow shock (numerical schlieren, 1600 × 2400 cells over an 8 × 12 box, so that the bow shock leaves the domain without reflecting;
+  immersed boundary method).</em>
 </p>
 
 ## Features
