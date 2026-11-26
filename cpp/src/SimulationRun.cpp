@@ -233,13 +233,29 @@ std::array<double, 3> Simulation::body_velocity() const {
     return p.ibm_dynamic() ? std::array<double, 3>{body_.u, body_.v, body_.w} : std::array<double, 3>{p.ibm_vx, p.ibm_vy, p.ibm_vz};
 }
 
+std::array<double, 3> Simulation::coupled_accelerations() const {
+    const BodyDynamics& b = body_;
+    const double c = std::cos(b.th), s = std::sin(b.th);
+    const double rx = body_cm0_[0] * c - body_cm0_[1] * s, ry = body_cm0_[0] * s + body_cm0_[1] * c;   // pivot to centre of mass, now
+    // forces on the body but its weight: the flow, and the springs and dampers at the pivot
+    const double fx = b.fx - p.ibm_stiff_x * b.x - p.ibm_damp_x * b.u, fy = b.fy - p.ibm_stiff_y * b.y - p.ibm_damp_y * b.v;
+    const double mp = b.mz - p.ibm_stiff_theta * b.th - p.ibm_damp_theta * b.om;   // the couples about the pivot
+    const double icm = p.ibm_inertia - p.ibm_mass * (rx * rx + ry * ry);
+    const double alpha = (mp - (rx * fy - ry * fx)) / icm;
+    const double gx = body_force ? body_force->gx : 0.0, gy = body_force ? body_force->gy : 0.0;
+    // a(pivot) = a(centre of mass) - alpha z x r + omega^2 r
+    return {fx / p.ibm_mass + gx + alpha * ry + b.om * b.om * rx, fy / p.ibm_mass + gy - alpha * rx + b.om * b.om * ry, alpha};
+}
+
 void Simulation::advance_body(double dt) {
     BodyDynamics& b = body_;
+    const bool coupled = p.ibm_cm_offset();   // (taken here: the rotation below moves th and om on)
+    const std::array<double, 3> acc = coupled ? coupled_accelerations() : std::array<double, 3>{0.0, 0.0, 0.0};
     if (p.ibm_drives_rotation()) {   // the same second-order law: Adams-Bashforth for the angular velocity, trapezoid for the angle
         const bool ab = b.dt > 0.0 && dt <= 2.0 * b.dt;
         const double r = ab ? dt / b.dt : 0.0;
         const auto advance = [&](double om, double prev, double a) { return ab ? om + dt * ((1.0 + 0.5 * r) * a - 0.5 * r * prev) : om + dt * a; };
-        const double a = (b.mz - p.ibm_stiff_theta * b.th - p.ibm_damp_theta * b.om) / p.ibm_inertia;
+        const double a = coupled ? acc[2] : (b.mz - p.ibm_stiff_theta * b.th - p.ibm_damp_theta * b.om) / p.ibm_inertia;
         const double om1 = advance(b.om, b.aom, a);
         if (p.nz > 1) {   // a sphere (isotropic: no gyroscopic term): the three components, and no angle
             const double ax = (b.mx - p.ibm_damp_theta * b.omx) / p.ibm_inertia, ay = (b.my - p.ibm_damp_theta * b.omy) / p.ibm_inertia;
@@ -260,8 +276,8 @@ void Simulation::advance_body(double dt) {
         return;
     }
     const double gx = body_force ? body_force->gx : 0.0, gy = body_force ? body_force->gy : 0.0;
-    const double ax = (b.fx - p.ibm_stiff_x * b.x - p.ibm_damp_x * b.u) / p.ibm_mass + gx;
-    const double ay = (b.fy - p.ibm_stiff_y * b.y - p.ibm_damp_y * b.v) / p.ibm_mass + gy;
+    const double ax = coupled ? acc[0] : (b.fx - p.ibm_stiff_x * b.x - p.ibm_damp_x * b.u) / p.ibm_mass + gx;
+    const double ay = coupled ? acc[1] : (b.fy - p.ibm_stiff_y * b.y - p.ibm_damp_y * b.v) / p.ibm_mass + gy;
     const bool d3 = p.nz > 1;   // the 2-D expressions are not touched
     const double gz = body_force && d3 ? body_force->gz : 0.0;
     const double az = d3 ? (b.fz - p.ibm_stiff_z * b.z - p.ibm_damp_z * b.w) / p.ibm_mass + gz : 0.0;
@@ -431,7 +447,10 @@ void Simulation::solve() {
             const std::array<double, 3> w = body_velocity();
             double travel = r.dt * std::max(std::abs(w[0]) / mesh.dx, std::abs(w[1]) / mesh.dy);
             if (mesh.is3d()) travel = std::max(travel, r.dt * std::abs(w[2]) / mesh.dz);
-            if (p.ibm_drives_rotation()) travel = std::max(travel, r.dt * std::abs(body_.om) * ibm->rotation_reach() / std::min(mesh.dx, mesh.dy));
+            if (p.ibm_drives_rotation()) {   // (with the pivot moving too, the two add)
+                const double turn = r.dt * std::abs(body_.om) * ibm->rotation_reach() / std::min(mesh.dx, mesh.dy);
+                travel = p.ibm_cm_offset() ? travel + turn : std::max(travel, turn);
+            }
             if (travel > 1.0) throw std::runtime_error("the moving body travelled more than one cell in a step (lower the CFL number)");
         }
         if (p.use_ibm) ibm->apply_solid_reset(U, fluid);
@@ -1367,7 +1386,10 @@ void Simulation::run_mpi(MPI_Comm comm) {
             const std::array<double, 3> w = body_velocity();
             double travel = sr.dt * std::max(std::abs(w[0]) / mesh.dx, std::abs(w[1]) / mesh.dy);
             if (mesh.is3d()) travel = std::max(travel, sr.dt * std::abs(w[2]) / mesh.dz);
-            if (p.ibm_drives_rotation()) travel = std::max(travel, sr.dt * std::abs(body_.om) * local_ibm->rotation_reach() / std::min(mesh.dx, mesh.dy));
+            if (p.ibm_drives_rotation()) {   // (with the pivot moving too, the two add)
+                const double turn = sr.dt * std::abs(body_.om) * local_ibm->rotation_reach() / std::min(mesh.dx, mesh.dy);
+                travel = p.ibm_cm_offset() ? travel + turn : std::max(travel, turn);
+            }
             if (travel > 1.0) throw std::runtime_error("the moving body travelled more than one cell in a step (lower the CFL number)");
         }
         if (p.use_ibm) solid_reset(U_local);

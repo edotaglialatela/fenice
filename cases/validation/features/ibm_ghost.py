@@ -86,8 +86,14 @@ CHECK_CASES = {   # name: (case, overrides)
     "dynamic_spin_cylinder": ("IBM Flow over Cylinder", ["nx=200", "ny=100", "max_steps=80", "ibm_mass=0.02", "ibm_stiff_x=5", "ibm_vx=0.5", "ibm_inertia=0.002",
                                                          "ibm_omega=5", "ibm_stiff_theta=1", "ibm_damp_theta=0.01"]),
     "dynamic_pitch_airfoil": ("IBM Airfoil", ["nx=192", "ny=96", "max_steps=80", "ibm_inertia=0.01", "ibm_omega=3", "ibm_stiff_theta=2", "ibm_damp_theta=0.01"]),
+    # pitch and plunge: the translation freed too, the centre of mass behind and above the pivot (the coupled accelerations)
+    "dynamic_plunge_airfoil": ("IBM Airfoil", ["nx=192", "ny=96", "max_steps=80", "ibm_inertia=0.5", "ibm_omega=1", "ibm_stiff_theta=2", "ibm_damp_theta=0.01",
+                                               "ibm_mass=2", "ibm_stiff_y=5", "ibm_stiff_x=50", "ibm_vy=0.5", "ibm_cm_x=0.15", "ibm_cm_y=0.02"]),
     "dynamic_pitch_airfoil_xstrips": ("IBM Airfoil", ["Lx=1.5", "Ly=0.08", "nx=150", "ny=8", "ibm_cx=0.5", "ibm_cy=0.04", "ibm_shape=NACA 0040", "ibm_chord=0.07", "max_steps=60",
                                                       "ibm_inertia=0.00005", "ibm_omega=3", "ibm_stiff_theta=0.01"]),
+    "dynamic_plunge_airfoil_xstrips": ("IBM Airfoil", ["Lx=1.5", "Ly=0.08", "nx=150", "ny=8", "ibm_cx=0.5", "ibm_cy=0.04", "ibm_shape=NACA 0040", "ibm_chord=0.07",
+                                                       "max_steps=60", "ibm_inertia=0.00005", "ibm_omega=3", "ibm_stiff_theta=0.01", "ibm_mass=0.02", "ibm_stiff_y=0.5",
+                                                       "ibm_stiff_x=5", "ibm_vy=0.2", "ibm_cm_x=0.01", "ibm_cm_y=0.002"]),
     # a sphere in 3-D (uniform mesh): prescribed, and driven by the flow with the strips cut along y (2-4 ranks) and along x (more ranks on the thin mesh);
     # the loads are summed in the global cell order with the layer in the index, so that no two cells tie
     "moving_sphere3d": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=48", "ny=24", "nz=12", "Lz=1.0", "bc_zmin=wall",
@@ -138,6 +144,9 @@ CHECK_CASES = {   # name: (case, overrides)
     # (np 2, 4 and 6 cut the body band: a leaf the airfoil has just left, whose fill reads leaves on the other side of the cut, must be held by the share)
     "amr_dynamic_pitch_airfoil": ("IBM Airfoil", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=96", "ny=48", "max_steps=40", "ibm_inertia=0.01",
                                                   "ibm_omega=3", "ibm_stiff_theta=2", "ibm_damp_theta=0.01"]),
+    "amr_dynamic_plunge_airfoil": ("IBM Airfoil", ["use_amr=true", "amr_max_level=2", "amr_refine_every=4", "nx=96", "ny=48", "max_steps=40", "ibm_inertia=0.5",
+                                                  "ibm_omega=1", "ibm_stiff_theta=2", "ibm_damp_theta=0.01", "ibm_mass=2", "ibm_stiff_y=5", "ibm_stiff_x=50",
+                                                  "ibm_vy=0.5", "ibm_cm_x=0.15", "ibm_cm_y=0.02"]),
     # AMR with MUSCL-Hancock: the predicted side states of the leaves cross the rank interfaces
     # a sphere on an octree: the body is built again every quarter finest cell (leaf classification, ghost table, band, fresh leaves), prescribed and driven by the flow
     "amr3d_moving_sphere": ("IBM Flow over Cylinder", ["ibm_shape=Sphere", "ibm_cz=0.5", "ibm_radius=0.3", "nx=24", "ny=12", "nz=6", "Lz=1.0",
@@ -295,7 +304,7 @@ def amr3d_motion_check():
     return worst < 0.05
 
 
-RESUME_CASES = ("moving_cylinder", "moving_airfoil", "moving_airfoil_hold", "amr_moving_airfoil_hold", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder", "dynamic_spin_cylinder", "dynamic_pitch_airfoil", "amr_dynamic_spin_cylinder", "amr_dynamic_pitch_airfoil", "dynamic_sphere3d", "dynamic_spin_sphere3d", "amr3d_dynamic_sphere", "amr3d_dynamic_spin_sphere", "amr3d_moving_sphere", "spin_sphere3d", "amr3d_spin_sphere")
+RESUME_CASES = ("moving_cylinder", "moving_airfoil", "moving_airfoil_hold", "amr_moving_airfoil_hold", "dynamic_cylinder", "amr_moving_cylinder", "amr_moving_slow_cylinder", "amr_moving_airfoil", "amr_dynamic_cylinder", "dynamic_spin_cylinder", "dynamic_pitch_airfoil", "dynamic_plunge_airfoil", "amr_dynamic_plunge_airfoil", "amr_dynamic_spin_cylinder", "amr_dynamic_pitch_airfoil", "dynamic_sphere3d", "dynamic_spin_sphere3d", "amr3d_dynamic_sphere", "amr3d_dynamic_spin_sphere", "amr3d_moving_sphere", "spin_sphere3d", "amr3d_spin_sphere")
 RESUME_PAIRS = ((None, None), (None, 3), (3, None), (2, 4))   # ranks of the first half and of the resumed half (None: serial)
 
 
@@ -345,7 +354,7 @@ def perturb_body_pose(folder, index, delta):
 
 # case: (entry of body_pose, change). A resume that reads a wrong pose must not end where the whole run does.
 NEGATIVE_CONTROL_CASES = {"amr_moving_slow_cylinder": (0, 0.002), "dynamic_cylinder": (5, 1e-4), "amr_dynamic_cylinder": (5, 1e-4),
-                          "dynamic_pitch_airfoil": (11, 1e-3), "amr_dynamic_pitch_airfoil": (11, 1e-3),
+                          "dynamic_pitch_airfoil": (11, 1e-3), "dynamic_plunge_airfoil": (11, 1e-3), "amr_dynamic_plunge_airfoil": (11, 1e-3), "amr_dynamic_pitch_airfoil": (11, 1e-3),
                           "dynamic_spin_sphere3d": (17, 1e-3), "amr3d_dynamic_spin_sphere": (17, 1e-3)}
 
 

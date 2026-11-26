@@ -47,7 +47,7 @@ DOCS = [
 ]
 
 ANALYSIS = [
-    ("scipy",      "scipy",      "Sobol sequence (fenice.uq.sobol_sampler), image smoothing in the cylinder studies, the Bessel functions of the exact spin-down in features/ibm_spin_down.py", True),
+    ("scipy",      "scipy",      "Sobol sequence (fenice.uq.sobol_sampler), image smoothing in the cylinder studies, the Bessel functions of the exact spin-down in features/ibm_spin_down.py, the Hankel functions of the flutter reference in features/ibm_flutter.py", True),
 ]
 
 VIZ3D = [

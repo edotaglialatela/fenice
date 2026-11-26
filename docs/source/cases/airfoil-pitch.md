@@ -149,5 +149,31 @@ build\release\fenice.exe --case "IBM Airfoil Pitch" --set ibm_omega=0.1 --set ib
 ($C_m = +0.0079$ at 3°) $K_a = -\mathrm{d}C_m/\mathrm{d}\theta \cdot q c^2 = -0.075$, and the response at $K = 1$ gives $K_{\rm eff} - K = -0.08$. A spring weaker than $0.075$ cannot hold the airfoil at 0°: $K = 0.05$ leaves it at 9°, $K = 0.1$
 brings it back (`features/ibm_pitch_response.py` checks both against the polar and the two meshes).
 
-**This is not flutter.** One pitch degree of freedom about the quarter chord is damped by the flow; flutter needs the pitch to be coupled to a plunge, i.e. a body free to translate and to turn about a pivot away from its centre of mass,
-which is not built. A run at 15° with the same spring is a stall-driven problem and needs the three levels of the results above: on a $30$-cells-per-chord base mesh with one level the static 15° airfoil itself fails (an unphysical load at about $t = 50$), so no response at that angle is reported here.
+**This is not flutter.** One pitch degree of freedom about the quarter chord is damped by the flow; flutter needs the pitch to be coupled to a plunge ([below](#pitch-and-plunge-flutter)). A run at 15° with the same spring is a stall-driven problem and needs the three levels of the results above: on a $30$-cells-per-chord base mesh with one level the static 15° airfoil itself fails (an unphysical load at about $t = 50$), so no response at that angle is reported here.
+
+## Pitch and plunge: flutter
+
+With the plunge free as well, and the centre of mass behind the elastic axis (`ibm_cm_x`, see [Moving bodies]({{root}}ibm/moving-bodies.html#the-coupled-system)), the airfoil is the typical section of flutter. Here: $m=4$,
+$I=0.5$ about the quarter chord, the centre of mass $0.15\,c$ behind it, springs in plunge and pitch with uncoupled frequencies in the ratio $\omega_h/\omega_\theta=0.5$, a stiff spring in $x$, no structural damping, released at 0° with
+$\dot\theta=0.05$. The reduced velocity $U^*=u_{\rm in}/(b\,\omega_\theta)$, $b=c/2$, is set by the springs ($K_\theta=I\omega_\theta^2$, $K_h=m\omega_h^2$). At $U^*=2$:
+
+```powershell
+build\release\fenice.exe --case "IBM Airfoil Pitch" --set ibm_omega=0.05 --set ibm_omega_from=0 --set ibm_omega_until=0 --set ibm_mass=4 --set ibm_inertia=0.5 `
+  --set ibm_cm_x=0.15 --set ibm_cm_y=0 --set ibm_stiff_theta=0.5 --set ibm_stiff_y=1 --set ibm_stiff_x=100 --set t_end=40 --set nx=360 --set ny=180 --set amr_max_level=1
+```
+
+<figure>
+<img src="{{root}}img/airfoil_pitch_flutter.png" style="width:100%">
+<figcaption>Plunge and pitch of the sprung section at four reduced velocities; base mesh $360\times180$ with one refinement level (colour) and, for $U^*=1.5$ and 2, two (dashed).</figcaption>
+</figure>
+
+| $U^*$ | pitch peaks, factor per half period: one level (two) | $\omega/\omega_\theta$ | behaviour |
+|---:|---:|---:|---|
+| 1 | 0.87 | 1.07 | decays |
+| 1.5 | 0.91 (0.82) | 0.81 (0.95) | decays |
+| 2 | 1.36 (1.39) | 0.86 (0.85) | grows: flutter |
+| 3 | | | grows faster, 72° of pitch by $t=30$ |
+
+The reference is Theodorsen's theory of the thin section (inviscid, incompressible, free air): flutter at $U^*=1.70$ with $\omega/\omega_\theta=0.87$. The runs decay at 1.5 and grow at 2, at a frequency of $0.86\,\omega_\theta$. The comparison is not a
+validation of the onset: it only brackets it, and the flow here is viscous ($Re=1000$), compressible ($Ma=0.2$) and between slip walls three chords away. The factors at small amplitude come from few peaks, and those at $U^*=1.5$ differ between the two
+meshes. A growing oscillation is not followed to saturation: it ends the run when the airfoil reaches a wall (at $U^*=3$ near $t=65$). The study is `features/ibm_flutter.py`.

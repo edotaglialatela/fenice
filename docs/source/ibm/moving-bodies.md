@@ -51,8 +51,16 @@ subsystems communicate through the surface only: the fluid sees the pose $\mathb
 $$I\,\ddot\theta = M_f(t) - k_\theta\,\theta - c_\theta\,\dot\theta,\qquad M_f=-\oint_{\Gamma(t)}(\mathbf x-\mathbf x_p)\times\bigl(p\,\mathbf n-\boldsymbol\tau\,\mathbf n\bigr)\,\mathrm dS ,$$
 
 the moment of the same surface load, summed over the solid cells about the pivot of the current pose in the same global order as the force. The body is either pinned at its placement (`ibm_mass` $=0$:
-it only turns, about the pivot) or, for a cylinder and a sphere, free to translate too (the pivot is its centre of mass, so the two motions are not coupled). A body that translates freely and turns about a pivot
-other than its centre of mass needs the coupling of the two (static imbalance), which is not built, and is rejected.
+it only turns, about the pivot) or free to translate too: a cylinder or a sphere about its centre of mass (the two motions are not coupled), or, in 2-D, any body whose centre of mass is given relative to the pivot (`ibm_cm_x`, `ibm_cm_y`).
+
+**A centre of mass away from the pivot** (the typical section of pitch and plunge). The state stays that of the pivot, $\mathbf x_p$ and $\theta$; with $\mathbf r(\theta)$ the vector from the pivot to the centre of mass, $\mathbf F$ the load of the flow plus the
+springs and dampers at the pivot, $M_p$ the moment of the flow about the pivot minus $k_\theta\theta+c_\theta\Omega$, and $I_p$ the inertia about the pivot (`ibm_inertia`), Newton's and Euler's laws about the centre of mass give
+
+$$
+\dot\Omega=\frac{M_p-(\mathbf r\times\mathbf F)_z}{I_p-m|\mathbf r|^2},\qquad \ddot{\mathbf x}_p=\frac{\mathbf F}{m}+\mathbf g-\dot\Omega\,\hat{\mathbf z}\times\mathbf r+\Omega^2\mathbf r,
+$$
+
+both evaluated at the start of the step and advanced by the same law as above (the weight acts at the centre of mass). The loads are those already summed, so serial and MPI runs agree bit for bit.
 
 A **sphere** has the isotropic inertia $I$ and no angle (its geometry does not change): the state is the angular velocity vector $\boldsymbol\Omega=(\Omega_x,\Omega_y,\Omega_z)$, started from (`ibm_omega_x`, `ibm_omega_y`, `ibm_omega`),
 $I\,\dot{\boldsymbol\Omega}=\mathbf M_f-c_\theta\boldsymbol\Omega$ (no gyroscopic term, as $I$ is a scalar; no spring: `ibm_stiff_theta` is rejected), and the three moments are summed in the same global order.
@@ -122,7 +130,7 @@ diverges at CFL 0.4), so a lighter body needs a smaller time step or an implicit
 | sphere | uniform, 3-D (serial, MPI) | translation, spin about any axis | translation; spin about any axis |
 | sphere | adaptive, 3-D octree (serial, MPI) | translation, spin about any axis | translation; spin about any axis |
 
-Not available: free translation together with rotation about a pivot other than the centre of mass, a rotation driven in 3-D for a body other than a sphere, `ibm_curvature`, the Hancock scheme, `positivity_fallback`.
+Not available: a centre of mass away from the pivot in 3-D, a rotation driven in 3-D for a body other than a sphere, `ibm_curvature`, the Hancock scheme, `positivity_fallback`.
 
 **Checkpoints.** The checkpoint keeps the pose the geometry was last built at and, for a driven body, its position, velocity and last acceleration, and for a driven rotation its angle, angular velocity and last angular acceleration (the key `body_pose`). A resumed run continues bit
 for bit, also on another rank count.
@@ -140,6 +148,7 @@ $$(m+m_a)\,\ddot x + k\,x = 0 \ \ \Rightarrow\ \ \omega^2=\frac{k}{m+m_a},\qquad
 | `features/ibm_spring.py` | the spring oscillator $(m+m_a)\ddot x+kx=0$: frequency within 0.4 %, stable down to $m=0.3\rho V$ |
 | `features/ibm_gravity.py`, `ibm_gravity3d.py` | $(m+m_a)\ddot{\mathbf x}=-(m-\rho_cV)\mathbf g$ in a stratified isothermal gas: cylinder and sphere at mass ratios 3, 1 and 0.5 |
 | `features/ibm_spin_sphere.py` | a sphere spun up in a viscous gas at rest: the torque against the exact Stokes transient (within 2 % at 10 cells per diameter), spin about x and y equal to spin about z with the axes relabelled (roundoff) |
+| `features/ibm_flutter.py` | pitch and plunge of a sprung NACA 0012: decay at the reduced velocity 1.5, growth at 2, against the inviscid flutter boundary 1.70 (reported, not gated) ([pitching airfoil]({{root}}cases/airfoil-pitch.html#pitch-and-plunge-flutter)) |
 | `features/ibm_pitch_response.py` | a sprung NACA 0012 released in the flow, its pitch free: damping, effective stiffness, and the divergence boundary $K<0.075$ against the static polar (two meshes) ([pitching airfoil]({{root}}cases/airfoil-pitch.html)) |
 | `features/ibm_spin_down.py` | a cylinder released with a spin in a viscous gas at rest, its rotation free: the angular velocity against the exact transient $\hat\omega=I\omega_0/\bigl(Is+2\pi\mu R^2(2+xK_0(x)/K_1(x))\bigr)$, $x=R\sqrt{s/\nu}$ (within 0.3 % of $\omega_0$ from $t=0.1$ and within 2.5 % from $t=0.01$, at $\rho_b/\rho=10$, 1 and 0.1); a sphere with $\hat\omega=I\omega_0/\bigl(Is+\tfrac{8\pi}{3}\mu R^3\,\tfrac{x^2+3x+3}{x+1}\bigr)$ (within 1.4 % of $\omega_0$ from $t=0.1$ at 10 cells per diameter, 7.7 % from $t=0.01$: the first steps after an impulsive release are not resolved; spin about x and about z equal); the stability limit of the loose coupling in $\rho_b/\rho$ against $h/R$ and the CFL number |
 | `features/ibm_falling_sphere.py` | a sphere falling to its terminal speed (Re 32, Mach 0.13, octree, 30 diameters of fall): terminal speed 7 % below the Schiller-Naumann reference (band 10 %), the load of a sphere prescribed at that speed equal to the free fall's within 1 % |

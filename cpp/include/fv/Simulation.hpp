@@ -112,6 +112,10 @@ public:
         bool captured = false;                       // fx, fy hold this step's loads
     };
     BodyDynamics body_;
+    std::array<double, 2> body_cm0_{0.0, 0.0};   // the centre of mass from the pivot at the placement (mesh axes; zero: at the pivot)
+    // The accelerations of the pivot {x, y} and of the angle for a body whose centre of mass is off its pivot: Newton and Euler about the centre of
+    // mass, from the loads in body_ and the state at the start of the step.
+    std::array<double, 3> coupled_accelerations() const;
     // The moving body in a checkpoint ("body_pose": the pose the geometry was built at, and for a body driven by the flow its state): written with
     // every checkpoint, read at setup of a resumed run on every rank, before anything is built from the body.
     std::vector<double> body_checkpoint() const;

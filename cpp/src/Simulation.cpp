@@ -292,6 +292,12 @@ void Simulation::setup(const SimParams& params, bool verbose) {
                 };
             }
             body_ = BodyDynamics{};
+            body_cm0_ = {0.0, 0.0};
+            if (p.ibm_cm_offset()) {   // body frame to mesh axes: an airfoil is placed turned by ibm_aoa, nose up (clockwise), as place_airfoil does
+                const bool airfoil = !naca_digits(p.ibm_shape).empty() || lower(p.ibm_shape) == "airfoil";
+                const double a = airfoil ? p.ibm_aoa * std::acos(-1.0) / 180.0 : 0.0, ca = std::cos(a), sa = std::sin(a);
+                body_cm0_ = {p.ibm_cm_x * ca + p.ibm_cm_y * sa, -p.ibm_cm_x * sa + p.ibm_cm_y * ca};
+            }
             if (p.ibm_dynamic()) {   // a body driven by the flow starts at its placement with the velocity given
                 if (p.ibm_drives_translation()) {
                     body_.u = p.ibm_vx;

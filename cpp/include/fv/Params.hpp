@@ -98,6 +98,12 @@ struct SimParams {
     bool ibm_drives_translation() const { return ibm_mass > 0.0; }
     bool ibm_drives_rotation() const { return ibm_inertia > 0.0; }
     bool ibm_dynamic() const { return ibm_mass > 0.0 || ibm_inertia > 0.0; }
+    // The centre of mass of a body driven in translation and rotation, from its pivot (ibm_cx, ibm_cy) [m], in the body frame: for an airfoil x along the
+    // chord toward the trailing edge and y normal to it (the frame turns with ibm_aoa), otherwise the axes of the mesh at the placement. ibm_cm_given:
+    // both keys are set (2-D); a polygon that translates and turns needs them.
+    double ibm_cm_x = 0.0, ibm_cm_y = 0.0;
+    bool ibm_cm_given = false;
+    bool ibm_cm_offset() const { return ibm_cm_x != 0.0 || ibm_cm_y != 0.0; }
     bool ibm_moving() const { return ibm_dynamic() || ibm_vx != 0.0 || ibm_vy != 0.0 || ibm_vz != 0.0 || ibm_omega != 0.0 || ibm_omega_x != 0.0 || ibm_omega_y != 0.0; }
     bool ibm_curvature = false;  // slip wall only: curvature pressure correction of the ghost cells (dp/dn = rho kappa u_t^2)
     double reynolds;             // > 0: sets mu = rho_in u_in L / reynolds (L: chord or diameter)

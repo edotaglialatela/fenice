@@ -383,6 +383,85 @@ TEST(body_rotation_update_is_second_order_on_a_torsional_spring) {
     CHECK(e1 / e2 > 3.2);
 }
 
+TEST(body_with_an_off_centre_mass_follows_rigid_body_motion) {
+    // No fluid loads. (a) Free fall with the centre of mass off the pivot: it falls with g (x_cm = x0 + u t, y_cm = y0 + v t - g t^2 / 2) and the body
+    // turns at the constant rate, so the pivot is the centre of mass minus the turned offset. (b) The two linear degrees of freedom of a sprung
+    // section (plunge y and angle, the centre of mass behind the pivot at S = m r_x): second order against the normal-mode solution.
+    const double m = 2.0, rx = 0.3, ip = 0.5;
+    {
+        const auto run = [&](int steps) {
+            Simulation sim;
+            sim.setup(params_for("IBM Flow over Cylinder", {{"nx", "40"}, {"ny", "20"}, {"ibm_mass", "2.0"}, {"ibm_inertia", "0.5"}, {"ibm_cm_x", "0.3"}, {"ibm_cm_y", "0.0"},
+                                                            {"use_bodyforce", "true"}, {"gx", "0"}, {"gy", "-1.5"}, {"ibm_omega", "2.0"}, {"ibm_vx", "0.4"}, {"ibm_vy", "0.2"},
+                                                            {"use_mpi", "false"}}),
+                      false);
+            const double dt = 1.0 / steps;
+            for (int k = 0; k < steps; ++k) {
+                sim.body_.captured = true;
+                sim.advance_body(dt);
+            }
+            CHECK_NEAR(sim.body_.om, 2.0, 1e-12);
+            CHECK_NEAR(sim.body_.th, 2.0, 1e-12);
+            // initial velocity of the centre of mass = pivot velocity + omega z x r
+            const double ucm = 0.4, vcm = 0.2 + 2.0 * rx;
+            const double xp = rx + ucm * 1.0 - rx * std::cos(2.0), yp = vcm * 1.0 - 0.5 * 1.5 - rx * std::sin(2.0);
+            return std::hypot(sim.body_.x - xp, sim.body_.y - yp);
+        };
+        const double e1 = run(400), e2 = run(800);
+        std::printf("    free fall, offset centre of mass: pivot error %.3e at 400 steps, %.3e at 800 (ratio %.2f)\n", e1, e2, e1 / e2);
+        CHECK(e1 < 2e-3);
+        CHECK(e1 / e2 > 3.2);
+    }
+    {
+        // M q'' + K q = 0, q = (y, theta), M = [[m, S], [S, I_P]], S = m r_x, K = diag(ky, kt): released from y = a, theta = 0 at rest (small a).
+        const double ky = 3.0, kt = 1.0, S = m * rx, a = 1e-9, T = 3.0;
+        const double A = m * ip - S * S, B = -(m * kt + ip * ky), C = ky * kt;
+        const double w1 = std::sqrt((-B - std::sqrt(B * B - 4 * A * C)) / (2 * A)), w2 = std::sqrt((-B + std::sqrt(B * B - 4 * A * C)) / (2 * A));
+        const auto mode = [&](double w) { return -(ky - w * w * m) / (-w * w * S); };   // theta per unit y in the mode (first row)
+        const double r1 = mode(w1), r2 = mode(w2);
+        const double c1 = a * r2 / (r2 - r1), c2 = -a * r1 / (r2 - r1);   // y = c1 cos w1 t + c2 cos w2 t, theta = c1 r1 cos + c2 r2 cos
+        const auto run = [&](int steps) {
+            Simulation sim;
+            sim.setup(params_for("IBM Flow over Cylinder", {{"nx", "40"}, {"ny", "20"}, {"ibm_mass", "2.0"}, {"ibm_inertia", "0.5"}, {"ibm_cm_x", "0.3"}, {"ibm_cm_y", "0.0"},
+                                                            {"ibm_stiff_y", "3.0"}, {"ibm_stiff_theta", "1.0"}, {"use_mpi", "false"}}),
+                      false);
+            sim.body_.y = a;
+            const double dt = T / steps;
+            double worst = 0.0;   // over the whole record: at one instant the errors of the two modes can cancel
+            for (int k = 1; k <= steps; ++k) {
+                sim.body_.captured = true;
+                sim.advance_body(dt);
+                const double y = c1 * std::cos(w1 * k * dt) + c2 * std::cos(w2 * k * dt), th = c1 * r1 * std::cos(w1 * k * dt) + c2 * r2 * std::cos(w2 * k * dt);
+                worst = std::max(worst, (std::abs(sim.body_.y - y) + std::abs(sim.body_.th - th)) / a);
+            }
+            return worst;
+        };
+        const double e1 = run(600), e2 = run(1200);
+        std::printf("    two degrees of freedom (w = %.3f, %.3f): relative error %.3e at 600 steps, %.3e at 1200 (ratio %.2f)\n", w1, w2, e1, e2, e1 / e2);
+        CHECK(e1 < 5e-3);
+        CHECK(e1 / e2 > 3.2);
+    }
+}
+
+TEST(centre_of_mass_offset_is_in_the_body_frame) {
+    // An airfoil is placed turned by ibm_aoa, nose up: an offset along x of the body frame must point from the pivot (the quarter chord) to the trailing
+    // edge of the placed polygon.
+    Simulation sim;
+    sim.setup(params_for("IBM Airfoil Pitch", {{"nx", "120"}, {"ny", "60"}, {"use_amr", "false"}, {"ibm_aoa", "20"}, {"ibm_omega", "0"}, {"ibm_omega_from", "0"},
+                                               {"ibm_omega_until", "0"}, {"ibm_mass", "2"}, {"ibm_inertia", "1"}, {"ibm_cm_x", "0.2"}, {"ibm_cm_y", "0"}}),
+              false);
+    const Polygon2D placed = place_airfoil(naca4("0012"), 1.0, 20.0, 0.0, 0.0);
+    double tx = -1e9, ty = 0.0;
+    for (const auto& q : placed.pts)
+        if (q[0] > tx) {
+            tx = q[0];
+            ty = q[1];
+        }
+    CHECK(ty < 0.0);   // nose up: the trailing edge is below the pivot
+    CHECK_NEAR(sim.body_cm0_[0], 0.2 * std::cos(20.0 * std::acos(-1.0) / 180.0), 1e-12);
+    CHECK_NEAR(sim.body_cm0_[1] / sim.body_cm0_[0], ty / tx, 0.01);
+}
+
 TEST(moving_wall_piston_matches_the_exact_shock) {
     // A flat wall (a cylinder of radius 50, its sagitta over the 0.1 high tube is 1e-4) moves at u_p into a gas at rest: a shock runs ahead
     // of it and the gas between them is the exact piston state. Band fixed beforehand: plateau mean within 2 % of the Rankine-Hugoniot
