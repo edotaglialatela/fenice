@@ -16,8 +16,7 @@ Read from the response (the angle is theta, positive nose-down, as the monitor w
     (per radian, q = rho u^2 / 2 = 0.5, unit chord); the measured K_a is read at K = 1 (the quasi-steady value: at K = 0.3 the oscillation is slow and strongly damped and few extrema are left to fit).
 A spring weaker than that, K < 0.075, is statically divergent: the airfoil leaves 0 degrees and settles where K theta equals the moment of the flow (here K = 0.05 settles at 9 degrees, K = 0.1 returns to 0).
 
-What this is not: flutter. One pitch degree of freedom about the quarter chord is damped by the flow (the lift builds up behind the motion); classical flutter needs the coupling to a plunge, which a body
-free to translate and turn about a pivot away from its centre of mass would have, and that is not built (it is rejected). The study reports the numbers; it checks only that the runs agree with the
+What this is not: flutter. One pitch degree of freedom about the quarter chord is damped by the flow; flutter needs the coupling to a plunge (`ibm_cm_x`, `features/ibm_flutter.py`). The study reports the numbers; it checks only that the runs agree with the
 finer mesh (period within 5 %, decay ratio per half period within 0.07: the K = 0.3 ratio differs by 0.06, 0.438 against 0.378, the K = 1 one by 0.014) and with the static polar (the divergence at K = 0.05 and
 the stable return at K = 0.1, the aerodynamic stiffness of K = 1 within -0.12 .. -0.04). The bands were set after the first run.
 """

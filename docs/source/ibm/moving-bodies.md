@@ -125,8 +125,8 @@ diverges at CFL 0.4), so a lighter body needs a smaller time step or an implicit
 
 | Body | Mesh | Prescribed | Driven by the flow |
 |---|---|---|---|
-| cylinder, airfoil | uniform, 2-D (serial, MPI) | translation, rotation (polygon) | translation; rotation (pinned airfoil, cylinder with free translation) |
-| cylinder, airfoil | adaptive, 2-D (serial, MPI) | translation, rotation (polygon) | translation; rotation (pinned airfoil, cylinder with free translation) |
+| cylinder, airfoil | uniform, 2-D (serial, MPI) | translation, rotation (polygon) | translation; rotation (pinned, or with free translation about a pivot on or off the centre of mass) |
+| cylinder, airfoil | adaptive, 2-D (serial, MPI) | translation, rotation (polygon) | translation; rotation (pinned, or with free translation about a pivot on or off the centre of mass) |
 | sphere | uniform, 3-D (serial, MPI) | translation, spin about any axis | translation; spin about any axis |
 | sphere | adaptive, 3-D octree (serial, MPI) | translation, spin about any axis | translation; spin about any axis |
 

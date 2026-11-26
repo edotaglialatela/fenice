@@ -26,10 +26,11 @@ STUDY = "ibm_flutter"
 MASS, INERTIA, CM, RATIO, W0, B = 4.0, 0.5, 0.15, 0.5, 0.05, 0.5
 
 
-def inviscid_boundary(a=-0.5, rho=1.0):
-    """(U*, k, w / w_theta) at the first crossing of an eigenvalue through the real axis (Theodorsen, harmonic motion q = (plunge down, pitch nose up))."""
+def inviscid_boundary(m=MASS, ine=INERTIA, cm=CM, ratio=RATIO, a=-0.5, rho=1.0):
+    """(U*, k, w / w_theta) at the first crossing of an eigenvalue through the real axis (Theodorsen, harmonic motion q = (plunge down, pitch nose up)):
+    mass m and inertia ine about the elastic axis at a b from mid-chord (b = 0.5), the centre of mass cm behind the axis, ratio = w_h / w_theta."""
     from scipy.special import hankel2
-    m, ine, s = MASS, INERTIA, MASS * CM
+    s = m * cm
 
     def lam(k):
         h0, h1 = hankel2(0, k), hankel2(1, k)
@@ -41,7 +42,7 @@ def inviscid_boundary(a=-0.5, rho=1.0):
                + 2 * np.pi * rho * u * B ** 2 * (a + 0.5) * c * w34)
         aero = np.array([-lift, mom])
         mass = np.array([[m, s], [s, ine]])
-        stiff = np.diag([m * RATIO ** 2, ine])   # in units of w_theta^2
+        stiff = np.diag([m * ratio ** 2, ine])   # in units of w_theta^2
         return np.linalg.eigvals(np.linalg.solve(mass + aero, stiff))   # w^2 / w_theta^2
 
     prev = None

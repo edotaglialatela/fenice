@@ -174,6 +174,6 @@ build\release\fenice.exe --case "IBM Airfoil Pitch" --set ibm_omega=0.05 --set i
 | 2 | 1.36 (1.39) | 0.86 (0.85) | grows: flutter |
 | 3 | | | grows faster, 72° of pitch by $t=30$ |
 
-The reference is Theodorsen's theory of the thin section (inviscid, incompressible, free air): flutter at $U^*=1.70$ with $\omega/\omega_\theta=0.87$. The runs decay at 1.5 and grow at 2, at a frequency of $0.86\,\omega_\theta$. The comparison is not a
+The reference is our evaluation of Theodorsen's loads on the thin section (inviscid, incompressible, free air; harmonic motion, a scan in the reduced frequency): flutter at $U^*=1.70$ with $\omega/\omega_\theta=0.87$. The runs decay at 1.5 and grow at 2, at a frequency of $0.86\,\omega_\theta$. The comparison is not a
 validation of the onset: it only brackets it, and the flow here is viscous ($Re=1000$), compressible ($Ma=0.2$) and between slip walls three chords away. The factors at small amplitude come from few peaks, and those at $U^*=1.5$ differ between the two
 meshes. A growing oscillation is not followed to saturation: it ends the run when the airfoil reaches a wall (at $U^*=3$ near $t=65$). The study is `features/ibm_flutter.py`.
