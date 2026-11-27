@@ -83,7 +83,9 @@ The adaptive-mesh path does not take it yet.
 
 ## MUSCL-Hancock
 
-A one-stage, second-order scheme for `reconstruction = muscl`. Each cell first advances its own limited face states by half a step with its
+A one-stage scheme for `reconstruction = muscl`, second order for inviscid flow when mesh and time step are refined together; with
+viscosity it is first order in time (the viscous term enters only the corrector;
+[measured]({{root}}cases/manufactured-solution.html#muscl-hancock)). Each cell first advances its own limited face states by half a step with its
 own flux difference (the predictor),
 
 $$\mathbf U^{\pm}_{f} \leftarrow \mathbf U^{\pm}_{f} - \frac{\Delta t}{2}\Bigl(\frac{\mathbf F(\mathbf U^{+}_{x}) - \mathbf F(\mathbf U^{-}_{x})}{\Delta x} + \frac{\mathbf F(\mathbf U^{+}_{y}) - \mathbf F(\mathbf U^{-}_{y})}{\Delta y} + \dots\Bigr) + \frac{\Delta t}{2}\,\mathbf S,$$

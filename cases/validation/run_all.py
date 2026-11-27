@@ -54,7 +54,12 @@ GROUPS = {
         "mms_full": (["verification/mms.py", "--full"], "long", None),   # up to 128^2 / 96^3 (about 20 minutes), as in the docs
         "mms_weno": (["verification/mms_weno.py"], "quick", None),   # periodic manufactured solutions with WENO3-Z / WENO5-Z, up to 64^2 / 48^3
         "mms_time_weno": (["verification/mms_time_weno.py"], "quick", None),   # time order with WENO3-Z / WENO5-Z (a few minutes)
-        "mms_amr_weno": (["verification/mms_amr_weno.py"], "quick", None),   # interior level jumps, WENO3-Z / WENO5-Z / MUSCL, 16 to 64
+        "mms_amr_weno": (["verification/mms_amr_weno.py"], "quick", None),   # interior level jumps, WENO3-Z / WENO5-Z / MUSCL / MUSCL-Hancock, 16 to 64
+        "mms_time_full": (["verification/mms_time.py", "--full"], "medium", None),   # ... and the time order on the Navier-Stokes solution
+        "mms_boundary": (["verification/mms_boundary.py", "--boundary-order", "2"], "medium", None),   # walls, outflow and box per scheme (reported)
+        "mms_amr_boundary": (["verification/mms_amr_boundary.py"], "medium", None),   # the same with a refined region meeting the walls
+        "flux_quadrature_order": (["verification/flux_quadrature_order.py"], "quick", None),   # midpoint against fourth-order flux quadrature
+        "sod_schemes": (["verification/sod_schemes.py"], "medium", None),   # Sod for every scheme against the exact solution and a published table
     },
     "benchmarks": {
         "shu_osher": (["benchmarks/shu_osher.py"], "quick", None),
@@ -86,6 +91,7 @@ GROUPS = {
         "cylinder_sensitivity_full": (["features/cylinder_sensitivity.py", "--full"], "long", 5.0),   # 32 base points = 161 runs, measured 18000 s of solver time (about 40 min on 8 workers)
         "sod_sensitivity": (["features/sod_sensitivity.py"], "quick", 0.01),   # C1c: Sobol indices of the Sod L1 error (CFL, resolution, limiter), 320 runs
         "cylinder_mesh_transition": (["features/cylinder_mesh_transition.py"], "long", None),
+        "ibm_free_stream": (["features/ibm_free_stream.py"], "quick", None),   # a body carried by a uniform stream leaves it uniform (uniform / AMR, 2-D / 3-D)
         "ibm_spring": (["features/ibm_spring.py"], "quick", None),   # a cylinder on a spring in a gas at rest against the added-mass ODE (20 cells per diameter)
         "ibm_gravity": (["features/ibm_gravity.py"], "quick", None),   # a cylinder released in a stratified gas: weight and buoyancy against the added-mass ODE
         "ibm_spring_full": (["features/ibm_spring.py", "--full"], "medium", None),   # ... and 40 cells per diameter, and the time-step check

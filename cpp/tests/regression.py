@@ -124,6 +124,7 @@ CASES = {
     "mms_walls":           ("Manufactured Solution Walls", dict(nx=24, ny=24, t_end=0.1)),
     "mms_unsteady_rk3":    ("Manufactured Solution Unsteady Euler", dict(nx=16, ny=16, t_end=0.1, time_scheme="SSP Runge-Kutta 3")),
     "mms_unsteady_rk2":    ("Manufactured Solution Unsteady Euler", dict(nx=16, ny=16, t_end=0.1, time_scheme="SSP Runge-Kutta 2")),
+    "mms_unsteady_hancock": ("Manufactured Solution Unsteady Euler", dict(nx=16, ny=16, t_end=0.1, time_scheme="MUSCL-Hancock")),
     "mms_outflow_xdecomp": ("Manufactured Solution Outflow", dict(nx=32, ny=6, t_end=0.1)),
     # Added 2026-10-20 (C++ references, validated against the exact solutions)
     "taylor_green_visc":   ("Taylor-Green Vortex", dict(nx=32, ny=32, t_end=0.5, mu=0.05)),

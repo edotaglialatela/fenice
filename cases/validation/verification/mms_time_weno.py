@@ -57,7 +57,7 @@ def slug(label):
 
 
 def run(tag, args, n, *sets):
-    return base.state(study.run_cached(STUDY, tag, base.CASE, f"nx={n}", f"ny={n}", f"t_end={base.T_END}",
+    return base.state(study.run_cached(STUDY, tag, base.CASES["Euler"][0], f"nx={n}", f"ny={n}", f"t_end={base.T_END}",
                                        "save_interval=1000000000", *sets, mpi=args.mpi, force=args.force))
 
 

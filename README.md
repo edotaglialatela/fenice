@@ -48,7 +48,7 @@ validation scripts and full documentation.
   canvas. One Geometry can feed several Solvers. The workbench provides live monitors, result viewing, general-purpose field,
   signal, modal and sensitivity analysis, and saveable session state; new cases appear automatically from the solver.
 - **I/O:** VTK output for ParaView, `.npz` checkpoints with restart, and hot start that maps a solution onto a different resolution.
-- **Verification:** unit tests, 86 stored reference states, manufactured-solution and exact-solution studies, grid-convergence indices
+- **Verification:** unit tests, 87 stored reference states, manufactured-solution and exact-solution studies, grid-convergence indices
   and benchmark comparisons (see Testing).
 
 ## Build

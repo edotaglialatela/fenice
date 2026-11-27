@@ -51,6 +51,8 @@ error of WENO5-Z is smaller, so the seam error dominates the maximum one grid ea
 row. The finest L2 density error is 6.3e-4 against 8.1e-4 (WENO3-Z) on the same mesh, and about 3 times the uniform WENO5-Z error on n
 cells. After the result this row was given a floor (KNOWN, 0.5): it is printed as BELOW and fails the study only under the floor. The
 band of 1.0 was not moved.
+MUSCL-Hancock (row added later; its predictor exchanges side states and limited coarse sides at the level jumps): the
+bands 1 of MUSCL, fixed before its first run.
 Table: results/validation/mms_amr_weno/mms_amr_weno.md.
 """
 import sys
@@ -68,6 +70,7 @@ SCHEMES = {
     "WENO3-Z": ["reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"],
     "WENO5-Z": ["reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3"],
     "MUSCL": ["reconstruction=muscl", "muscl_limiter=Van Leer", "time_scheme=SSP Runge-Kutta 2"],
+    "MUSCL-Hancock": ["reconstruction=muscl", "muscl_limiter=Van Leer", "time_scheme=MUSCL-Hancock"],
 }
 BOX = "0.25 0.75 0.25 0.75"
 FROZEN = ["use_amr=true", "amr_max_level=1", "amr_refine_threshold=1e9", "amr_derefine_threshold=1e9", "amr_refine_every=1000000",

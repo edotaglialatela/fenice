@@ -15,7 +15,8 @@ measured at a fixed time on a sequence of grids refined by 2 in every direction,
 2. residual: from the exact state, one Euler step gives (U1 - U0)/dt = R_h(U_m) + S, the local truncation error,
    which must fall with refinement (a floor would mean the generator's equations differ from the solver's);
 3. order: the error of rho, u, v, (w), p at t = 0.5 in the L1, L2 and Linf norms and the observed orders, for the
-   second-order scheme (MUSCL, Van Leer, SSP-RK2) and the first-order one (Godunov, SSP-RK2).
+   second-order scheme (MUSCL, Van Leer, SSP-RK2), the one-stage MUSCL-Hancock scheme (what time_scheme = auto picks
+   with MUSCL) and the first-order one (Godunov, SSP-RK2).
 
 Expected orders, fixed before the first run: 1.0 +- 0.1 for the first-order scheme in every norm; for MUSCL
 between 1.5 and 2.5 in L1 and L2 and between 1.0 and 2.5 in Linf (a TVD limiter clips the reconstruction at smooth
@@ -23,7 +24,10 @@ extrema, which costs order, most of all in Linf; an order above 2.5 would be sus
 finest pair of grids. The quick mode stops at 64^2 and 48^3, where the errors are still pre-asymptotic (the first
 order from below, the 3-D MUSCL Linf a little above 2.5): it allows 0.1 below the lower bounds and enforces no
 upper bound, to catch gross regressions; the bands as fixed, and the diagnostic of the documented deviation, need
---full. Figure: mms.png; table: results/validation/mms/mms_table.md.
+--full. The MUSCL-Hancock rows were added later, with the bands of MUSCL fixed before their first run. They cover the periodic
+solutions only: the first run with walls and outflow fell outside the bands, there more than SSP-RK2 on the viscous
+outflow solution, and the boundary behaviour of every scheme is the subject of mms_boundary.py.
+Figure: mms.png; table: results/validation/mms/mms_table.md.
 """
 import re
 import sys
@@ -39,10 +43,13 @@ T_END = 0.5
 GRIDS_FULL = {2: (16, 32, 64, 128), 3: (12, 24, 48, 96)}
 GRIDS_QUICK = {2: (16, 32, 64), 3: (12, 24, 48)}
 GRIDS = GRIDS_QUICK
-SCHEMES = {"MUSCL": "muscl", "1st order": "none"}
+SCHEMES = {"MUSCL": ("reconstruction=muscl",),
+           "MUSCL-Hancock": ("reconstruction=muscl", "time_scheme=MUSCL-Hancock"),   # overrides the case's SSP-RK2
+           "1st order": ("reconstruction=none",)}
 NORMS = ("L1", "L2", "Linf")
 BANDS = {"1st order": {"L1": (0.9, 1.1), "L2": (0.9, 1.1), "Linf": (0.9, 1.1)},
          "MUSCL": {"L1": (1.5, 2.5), "L2": (1.5, 2.5), "Linf": (1.0, 2.5)}}
+BANDS["MUSCL-Hancock"] = BANDS["MUSCL"]
 VARS = ("rho", "u", "v", "w", "p")
 # Deviations from the bands above that were observed and explained (the bands stay as they were fixed): the
 # first-order scheme on the Euler case approaches order 1 from below, because an h^2 term of opposite sign competes
@@ -57,6 +64,11 @@ FLOOR = 0.7
 KNOWN = {("Manufactured Solution Euler", "1st order"): None,   # pre-asymptotic, see the diagnostic below
          ("Manufactured Solution Walls", "MUSCL"): FLOOR, ("Manufactured Solution Walls", "1st order"): FLOOR,
          ("Manufactured Solution Outflow", "MUSCL"): FLOOR}
+
+
+def schemes_of(sol):
+    """The schemes run on a solution: MUSCL-Hancock on the periodic ones (the others: mms_boundary.py)."""
+    return [s for s in SCHEMES if s != "MUSCL-Hancock" or sol.kind == "periodic"]
 
 
 def centres(n, dim):
@@ -127,8 +139,7 @@ def transcription(sol, args):
 
 def run_error(sol, n, scheme, args):
     d = study.run_cached(STUDY, f"{sol.folder()}_{scheme.replace(' ', '')}_n{n}", sol.name(), *grid_sets(sol, n),
-                         f"t_end={T_END}", "save_interval=1000000000", f"reconstruction={SCHEMES[scheme]}",
-                         mpi=args.mpi, force=args.force)
+                         f"t_end={T_END}", "save_interval=1000000000", *SCHEMES[scheme], mpi=args.mpi, force=args.force)
     U = fenice.read_dump(d / "final.npz")["U"]
     got = primitive(U, sol.gamma, sol.dim)
     X, Y, Z = centres(n, sol.dim)
@@ -145,7 +156,7 @@ def run_error(sol, n, scheme, args):
 def residual(sol, n, scheme, args):
     d = study.run_cached(STUDY, f"resid_{sol.folder()}_{scheme.replace(' ', '')}_n{n}", sol.name(), *grid_sets(sol, n),
                          "time_scheme=Explicit Euler", "max_steps=1", "save_interval=1000000000",
-                         f"reconstruction={SCHEMES[scheme]}", mpi=args.mpi, force=args.force)
+                         *SCHEMES[scheme], mpi=args.mpi, force=args.force)   # Hancock: its own one step, not Euler's
     dump = fenice.read_dump(d / "final.npz")
     r = (dump["U"] - exact_conservative(sol, n)) / float(dump["t"])
     return float(np.sqrt(np.mean(r ** 2)))
@@ -174,7 +185,7 @@ def main():
     print("[2/3] truncation error: rms of (U1 - U0)/dt from the exact state ...")
     resid = {}
     for sol in sols:
-        for scheme in SCHEMES:
+        for scheme in schemes_of(sol):
             r = [residual(sol, n, scheme, args) for n in GRIDS[sol.dim]]
             resid[sol.name(), scheme] = r
             o = observed_orders([1.0 / n for n in GRIDS[sol.dim]], r)
@@ -188,7 +199,7 @@ def main():
     for sol in sols:
         grids = GRIDS[sol.dim]
         h = [1.0 / n for n in grids]
-        for scheme in SCHEMES:
+        for scheme in schemes_of(sol):
             errs = [run_error(sol, n, scheme, args) for n in grids]
             names = [v for v in VARS if v in errs[0]]
             for norm in NORMS:
@@ -241,13 +252,13 @@ def main():
     fig, ax = plt.subplots(1, 3, figsize=(17, 5.4))
     colors = {"Manufactured Solution": "C0", "Manufactured Solution Euler": "C1", "Manufactured Solution 3D": "C2",
               "Manufactured Solution Walls": "C3", "Manufactured Solution Outflow": "C4"}
-    marks = {"MUSCL": "o-", "1st order": "s--"}
+    marks = {"MUSCL": "o-", "MUSCL-Hancock": "^:", "1st order": "s--"}
     short = {"Manufactured Solution": "NS 2-D", "Manufactured Solution Euler": "Euler 2-D", "Manufactured Solution 3D": "NS 3-D",
              "Manufactured Solution Walls": "Walls", "Manufactured Solution Outflow": "Outflow"}
-    short_scheme = {"MUSCL": "MUSCL", "1st order": "1st"}
+    short_scheme = {"MUSCL": "MUSCL", "MUSCL-Hancock": "Hancock", "1st order": "1st"}
     for sol in sols:
         h = [1.0 / n for n in GRIDS[sol.dim]]
-        for scheme in SCHEMES:
+        for scheme in schemes_of(sol):
             lab = f"{short[sol.name()]} {short_scheme[scheme]}"
             ax[0].loglog(h, resid[sol.name(), scheme], marks[scheme], color=colors[sol.name()], label=lab)
             for k, norm in enumerate(("L2", "Linf")):

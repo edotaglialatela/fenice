@@ -5,7 +5,7 @@ section: Verification
 order: 15
 ---
 
-> **Run it:** `build\release\fenice.exe --case "Manufactured Solution"`, or one of its variants (`Manufactured Solution Euler`, `... 3D`, `... Walls`, `... Outflow`, `... Unsteady Euler`, `... Box`); output in `results/`, [how to open it]({{root}}guide/getting-started.html#your-first-run).
+> **Run it:** `build\release\fenice.exe --case "Manufactured Solution"`, or one of its variants (`Manufactured Solution Euler`, `... 3D`, `... Walls`, `... Outflow`, `... Unsteady Euler`, `... Unsteady`, `... Box`); output in `results/`, [how to open it]({{root}}guide/getting-started.html#your-first-run).
 
 Exact solutions of the full compressible Navier-Stokes equations hardly exist, and the few that do
 exercise only some terms. The **method of manufactured solutions** (MMS) turns the problem around: a
@@ -38,8 +38,8 @@ source_E   = "..."
 
 Each expression is evaluated at the cell centres of the mesh the residual is assembled on (so MPI strips work) and
 added to the residual of every stage. It may use the time `t`: then it is evaluated at the time of every stage (see
-[An unsteady solution](#an-unsteady-solution-time-accuracy)); without `t` it is evaluated once. Sources are not
-available with AMR or the immersed boundary.
+[An unsteady solution](#an-unsteady-solution-time-accuracy)); without `t` it is evaluated once. Sources also work with AMR and
+the immersed boundary.
 
 ## The manufactured solution
 
@@ -460,6 +460,7 @@ is still evaluated once.
 | Case (`--case`) | Equations | Default mesh |
 |---|---|---|
 | `Manufactured Solution Unsteady Euler` | 2-D Euler, periodic, travelling waves | 32² |
+| `Manufactured Solution Unsteady` | 2-D Navier-Stokes, periodic, travelling waves (`mms_time.py --full`) | 32² |
 
 The stage times are checked first by a **unit test** that does not depend on the spatial scheme: on a uniform state,
 with a cubic polynomial in $t$ as the density source, one step of each scheme must equal its own quadrature rule to
@@ -493,6 +494,33 @@ first run.
 * **SSP-RK3:** order 3.0 and 2.9 with first-order space. With MUSCL the order falls from 3.0 (CFL 0.4 to 0.2) to 2.3 at the
   finest pair, inside its band: the right-hand side with the limiter (a min / max, not smooth at extrema) limits the order
   of a high-order integrator. This is consistent with the data, not proven.
+
+### MUSCL-Hancock
+
+`time_scheme = auto` runs MUSCL with [MUSCL-Hancock]({{root}}modules/TimeScheme.html#muscl-hancock), so the studies run it too.
+
+* **Space and time together** (`mms.py`, periodic solutions, quick grids up to 64² and 48³): finest-pair orders 1.85 to 2.43 in
+  $L_1$ and $L_2$ and 1.46 to 2.45 in $L_\infty$ (Navier-Stokes 2-D and 3-D, Euler 2-D), inside the MUSCL bands.
+* **Adaptive mesh** (`mms_amr_weno.py`): $L_2$ orders 1.86 and 1.90, $L_\infty$ 1.21 and 1.30, inside the bands.
+* **Time order.** On a fixed mesh the scheme does not tend to the semi-discrete solution at second order, because its predictor
+  uses the cell's own flux difference: the orders against the small-step reference are 0.95 to 1.00 (reported, not banded). With
+  CFL 0.4 and the mesh refined, the difference to the SSP-RK3 solution of the same grid is:
+
+| equations | | 16² | 32² | 64² | finest-pair order |
+|---|---|---:|---:|---:|---:|
+| Euler | difference | 9.29e-03 | 1.65e-03 | 3.20e-04 | 2.37 |
+| Euler | difference / $\Delta t$ | 0.697 | 0.239 | 0.093 | |
+| Navier-Stokes | difference | 8.38e-03 | 2.57e-03 | 7.32e-04 | 1.81 |
+| Navier-Stokes | difference / $\Delta t$ | 1.676 | 1.656 | 1.669 | |
+
+* **With viscosity the scheme is first order in time**: the coefficient difference / $\Delta t$ does not fall with the mesh. The
+  viscous term enters only the corrector. The order above 1 in the Navier-Stokes row comes from the viscous step limit, with
+  which $\Delta t$ falls nearly as $h^2$ on these grids. With $\mu = 0.002$ (grids 16² to 128², a one-off run of the same
+  solution) the step becomes convection-limited, the order falls (2.45, 1.88, 1.53) and the coefficient settles (0.72, 0.30,
+  0.21, 0.20); at 128² the difference is $1.5\cdot10^{-4}$, against $9\cdot10^{-7}$ for SSP-RK2.
+* **Walls and outflow** (`mms_boundary.py`, `boundary_order = 2`, grids 16² to 128²): on the Euler solutions the $L_2$ errors are
+  close to those of SSP-RK2; on the Navier-Stokes outflow solution (no-slip wall) MUSCL-Hancock has $L_2$ orders 1.42, 1.05,
+  0.93 and twice the finest error of SSP-RK2 (2.00, 1.47, 0.99).
 
 ### With WENO-Z
 
@@ -537,9 +565,11 @@ failure).
   conservation tests of `fenice_tests` do.
 * **Shocks and discontinuities.** The solution is smooth; the treatment of shocks by the limiters and the Riemann
   solvers is checked by Sod and Shu-Osher against the exact and reference solutions (Roache, sec. 3.7).
-* **AMR and the immersed boundary.** Sources are not available with AMR or the IBM.
-* **Viscous terms in time.** The unsteady case is Euler; the viscous residual enters the integrators the same way, but
-  its time accuracy is not measured separately.
+* **The immersed boundary.** No manufactured solution has a body; the wall is checked against exact solutions
+  (`ibm_wedge.py`, `ibm_vortex.py`, the studies of moving bodies).
+* **SSP-RK3 with viscosity.** On the Navier-Stokes unsteady solution (`mms_time.py --full`) the finest-pair order of SSP-RK3
+  falls to 2.0 (first-order space) and 1.45 (MUSCL), at differences of $2\cdot10^{-10}$ and $3\cdot10^{-9}$. A finer reference
+  does not change the first-order row; the cause was not found.
 
 ## Adding a manufactured solution
 

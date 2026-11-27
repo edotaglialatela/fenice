@@ -16,6 +16,8 @@ a second-order approximation of the cell averages: no order above 2 can show her
 reports the observed order of every pair of grids (16 -> 32 -> 64 -> 128) of the worst variable, in L2 and Linf, and the
 density error on the finest grid. The reference table of the first-order boundary faces is mms_boundary_baseline.md.
 
+The MUSCL-Hancock row was added later (what time_scheme = auto picks with MUSCL), with the same bands.
+
 Bands, fixed before the first run with boundary_order = 2 (the finest pair of grids, worst variable): L2 order at least
 1.7 and Linf order at least 1.3 for every scheme on the Euler solutions; the same on the Navier-Stokes ones if the
 viscous wall closure does not limit them. Reported as 'ok' / 'below'; the exit code is 0 either way (a study, not a test).
@@ -32,6 +34,7 @@ STUDY = "mms_boundary"
 GRIDS = (16, 32, 64, 128)
 SCHEMES = {
     "muscl": ("MUSCL VL, SSP-RK2", ["reconstruction=muscl", "muscl_limiter=Van Leer", "time_scheme=SSP Runge-Kutta 2"]),
+    "hancock": ("MUSCL VL, MUSCL-Hancock", ["reconstruction=muscl", "muscl_limiter=Van Leer", "time_scheme=MUSCL-Hancock"]),
     "weno3": ("WENO3-Z, SSP-RK3", ["reconstruction=weno3", "time_scheme=SSP Runge-Kutta 3"]),
     "weno5": ("WENO5-Z, SSP-RK3", ["reconstruction=weno5", "time_scheme=SSP Runge-Kutta 3"]),
 }
@@ -72,7 +75,7 @@ def errors(sol, n, key, sets, args):
 def main():
     ap = study.parser(__doc__.splitlines()[0])
     ap.add_argument("--boundary-order", type=int, default=1, choices=(1, 2))
-    ap.add_argument("--schemes", default="muscl,weno3,weno5")
+    ap.add_argument("--schemes", default="muscl,hancock,weno3,weno5")
     ap.add_argument("--euler-only", action="store_true")
     ap.add_argument("--viscous-only", action="store_true")
     ap.add_argument("--kinds", default=",".join(KINDS), help="solutions to run; with a subset the table rows of the others are kept")

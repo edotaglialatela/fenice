@@ -924,3 +924,36 @@ TEST(positivity_fallback_extruded_3d_equals_2d) {
     CHECK(diff < 1e-10);
     CHECK(wmax < 1e-12);
 }
+
+TEST(positivity_fallback_leaves_a_smooth_flow_untouched) {
+    // Where no cell loses density or pressure the key must change nothing: smooth WENO runs with the fallback on and off give the same bits
+    // and count no repair (2-D vortex and 3-D Taylor-Green, WENO3-Z and WENO5-Z).
+    struct Case { const char* name; const char* n; const char* nz; };
+    for (const Case& cs : {Case{"Isentropic Vortex", "48", "1"}, Case{"Taylor-Green Vortex 3D", "16", "16"}})
+        for (const char* rec : {"weno3", "weno5"}) {
+            long long repairs = -1;
+            const auto run = [&](const char* fb) {
+                std::vector<std::pair<const char*, const char*>> kv = {{"nx", cs.n}, {"ny", cs.n}, {"nz", cs.nz}, {"reconstruction", rec},
+                                                                         {"riemann_solver", "HLLC"}, {"time_scheme", "SSP Runge-Kutta 3"}, {"cfl", "0.4"},
+                                                                         {"use_mpi", "false"}, {"positivity_fallback", fb}};
+                Params pr = baseline_defaults();
+                pr.merge(get_test_case(cs.name).defaults);
+                pr.set("test_case", cs.name);
+                pr.set("output_root", tmp_dir().string());
+                for (const auto& e : kv) pr.set(e.first, e.second);
+                Simulation sim;
+                sim.setup(SimParams::from(pr), false);
+                sim.U = sim.initial_field();
+                const Field start = sim.U;
+                const ResidualFn res = [&](const Field& Uin, Field& R) { return sim.residual(Uin, R); };
+                double t = 0.0;
+                for (int k = 0; k < 10; ++k) t += sim.scheme->step(sim.U, res, sim.dt_length, t, 1e9).dt;
+                CHECK(sim.U != start);   // the run did something
+                if (std::string(fb) == "true") repairs = sim.positivity_repairs();
+                return sim.U;
+            };
+            const Field off = run("false"), on = run("true");
+            CHECK(repairs == 0);
+            CHECK(off == on);
+        }
+}

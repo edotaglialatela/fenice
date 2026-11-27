@@ -280,7 +280,7 @@ class Solution:
         order = {("periodic", 2, True): 100, ("periodic", 2, False): 101, ("periodic", 3, True): 102,
                  ("walls", 2, True): 103, ("outflow", 2, True): 104, ("box", 2, True): 106}.get((self.kind, self.dim, self.viscous), 105)
         if self.unsteady:
-            order = 105
+            order = 107 if self.viscous else 105
         n = 32 if self.dim == 2 else 16
         lines = [
             f"# Manufactured solution of the {'Navier-Stokes' if self.viscous else 'Euler'} equations, {self.dim}-D, "
@@ -375,9 +375,9 @@ def tinyexpr(e: sp.Expr) -> str:
 
 
 def default_solutions() -> list[Solution]:
-    """The three cases of the repository."""
+    """The manufactured cases of the repository."""
     return [Solution(2, True), Solution(2, False), Solution(3, True), Solution(kind="walls"), Solution(kind="outflow"),
-            Solution(2, False, unsteady=True), Solution(kind="box")]
+            Solution(2, False, unsteady=True), Solution(kind="box"), Solution(2, True, unsteady=True)]
 
 
 def main(argv=None) -> int:

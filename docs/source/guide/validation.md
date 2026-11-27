@@ -45,8 +45,8 @@ accuracy are measured, not estimated.
 | `taylor_green.py` | Taylor-Green kinetic-energy decay and grid convergence |
 | `taylor_green_animation.py` | animation of the Taylor-Green vorticity surface decaying, against the exact solution |
 | `poiseuille.py` | Poiseuille parabola, grid convergence; serial vs 4 MPI ranks |
-| `mms_time.py` | time accuracy: unsteady manufactured solution, Euler / SSP-RK2 / SSP-RK3 against a small-step reference ([page]({{root}}cases/manufactured-solution.html)) |
-| `mms.py` | manufactured solutions (Euler, Navier-Stokes, 2-D and 3-D, periodic and with walls / outflow): source transcription, truncation error, observed orders ([page]({{root}}cases/manufactured-solution.html)) |
+| `mms_time.py` | time accuracy: unsteady manufactured solution, Euler / SSP-RK2 / SSP-RK3 / MUSCL-Hancock against a small-step reference; `--full` adds the Navier-Stokes solution ([page]({{root}}cases/manufactured-solution.html)) |
+| `mms.py` | manufactured solutions (Euler, Navier-Stokes, 2-D and 3-D, periodic and with walls / outflow): source transcription, truncation error, observed orders (MUSCL-Hancock on the periodic ones) ([page]({{root}}cases/manufactured-solution.html)) |
 | `blast_waves.py` | Woodward-Colella blast waves: conservation, positivity, self-convergence against a 3200-cell run ([page]({{root}}cases/blast-waves.html)) |
 | `implosions.py` | Noh implosion against its exact solution, Sedov blast scaling laws ([page]({{root}}cases/implosions.html)) |
 | `kelvin_helmholtz.py` | linear growth rate of a smooth shear layer against the analytic value ([page]({{root}}cases/kelvin-helmholtz.html)) |
@@ -54,8 +54,8 @@ accuracy are measured, not estimated.
 | `stress_shocks.py` | strong-shock robustness: pressure ratio 1000, vacuum, Mach 10-100, Mach 10 cylinder, odd-even test, also with `flux_quadrature = fourth` ([page]({{root}}guide/studies.html)) |
 | `mms_weno.py` | the periodic manufactured solutions (Euler 2-D, Navier-Stokes 2-D / 3-D) with WENO3-Z and WENO5-Z: observed orders, bands fixed beforehand, WENO3-Z reported above the band ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_time_weno.py` | time order of the unsteady manufactured solution with WENO3-Z and WENO5-Z (SSP-RK3); the default-epsilon WENO5-Z row is reported, not banded ([page]({{root}}cases/manufactured-solution.html)) |
-| `mms_amr_weno.py` | periodic manufactured solutions on an adaptive mesh with a static refined square (interior level jumps and corners), WENO3-Z, WENO5-Z and MUSCL; `--full` adds the grid 128, where most of the $L_\infty$ orders and the WENO5-Z $L_2$ order of the Navier-Stokes solution fall below their bands ([page]({{root}}cases/manufactured-solution.html)) |
-| `mms_boundary.py` | order of the manufactured solutions with walls / outflow (Euler and Navier-Stokes) per reconstruction, with `--boundary-order 1` or 2; the tables are committed next to it ([page]({{root}}cases/manufactured-solution.html)) |
+| `mms_amr_weno.py` | periodic manufactured solutions on an adaptive mesh with a static refined square (interior level jumps and corners), WENO3-Z, WENO5-Z, MUSCL and MUSCL-Hancock; `--full` adds the grid 128, where most of the $L_\infty$ orders and the WENO5-Z $L_2$ order of the Navier-Stokes solution fall below their bands ([page]({{root}}cases/manufactured-solution.html)) |
+| `mms_boundary.py` | order of the manufactured solutions with walls / outflow (Euler and Navier-Stokes) per reconstruction (and MUSCL-Hancock), with `--boundary-order 1` or 2; the tables are committed next to it ([page]({{root}}cases/manufactured-solution.html)) |
 | `mms_amr_boundary.py` | the same solutions on an adaptive mesh with a static refined region (`amr_force_box`) whose seams meet the walls, boundary orders 1 and 2 ([page]({{root}}cases/manufactured-solution.html)); the table is committed next to it |
 | `ibm_wedge.py` | Mach 2 flow along a 10 degree wedge against the exact oblique shock (order 3.6), and the curvature variant on a flat wall ([page]({{root}}modules/Physics.html)) |
 | `ibm_vortex.py` | supersonic vortex around a cylinder against its exact solution: the first-order curved-wall error of the ghost wall and the curvature correction, plus the cold-start Mach 2 cylinder bow shock ([page]({{root}}modules/Physics.html)) |
@@ -92,6 +92,7 @@ uncertainty of the reference too.
 | Script | Shows |
 |---|---|
 | `cylinder_mesh_transition.py` | cylinder loads across a 400×200 → 800×400 hot start (animation) |
+| `ibm_free_stream.py` | a cylinder or sphere carried by a uniform stream leaves it uniform to roundoff: the wall and solid states of a moving body (slip and no-slip, uniform and adaptive mesh, 2-D and 3-D), with a body at rest as the negative control; it cannot see a wrongly filled fresh cell (`ibm_ghost.py --check` covers those) |
 | `ibm_ghost.py --check` | the sharp IBM wall, serial against 2 to 7 MPI ranks bit for bit: 2-D cylinder, thin strips, Mach 2, airfoil, curvature cases, AMR, and in 3-D a no-slip sphere, a slip sphere and a cylinder along z |
 
 ### Order of accuracy at a shock (`verification/shock_order.py`)
