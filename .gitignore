@@ -37,3 +37,6 @@ Thumbs.db
 desktop.ini
 # Generated documentation site (python docs/build.py; published by .github/workflows/docs.yml)
 docs/site/
+
+# the identity kit (fonts, banners, splash): only the files the site uses are tracked (git add -f)
+docs/img/brand/
