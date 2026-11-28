@@ -608,8 +608,11 @@ def thumbnail(spec: str):
 def tile(cur, p) -> str:
     src, w, h, fit = thumbnail(p.meta["thumb"])
     size = f' width="{w}" height="{h}"' if w else ""
+    gif = p.meta["thumb"].split()[0]
+    # an animation behind the still: site.js plays it on hover (only when the still is a separate thumbnail)
+    anim = f' data-anim="{cur.rel_root}{gif}"' if gif.lower().endswith(".gif") and src != gif else ""
     return (f'<a class="tile fit-{fit}" href="{link(cur, p)}"><span class="tile-img"><img src="{cur.rel_root}{src}" '
-            f'alt="" loading="lazy" decoding="async"{size}></span><span class="tile-name">{label(p)}</span>'
+            f'alt="" loading="lazy" decoding="async"{size}{anim}></span><span class="tile-name">{label(p)}</span>'
             f'<span class="tile-sum">{html.escape(p.meta.get("summary", ""))}</span></a>')
 
 

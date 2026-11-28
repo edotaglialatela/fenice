@@ -1,5 +1,5 @@
-// Fenice documentation: search, the page list on small screens, copy buttons on code blocks,
-// and the highlight of the current section in "On this page". Pages work without it.
+// Fenice documentation: search, the page list on small screens, copy buttons on code blocks, the highlight of the
+// current section in "On this page", and the animations of the gallery tiles on hover. Pages work without it.
 (function () {
   "use strict";
   const root = document.body.dataset.root || "";
@@ -138,5 +138,25 @@
     };
     addEventListener("scroll", () => { if (!frame) frame = requestAnimationFrame(update); }, { passive: true });
     update();
+  }
+
+  // ---- Gallery tiles: the animation behind a still plays while the pointer is on the tile (or it has the focus).
+  // The GIF is fetched on the first hover only; nothing moves on touch screens or when reduced motion is asked for.
+  const hover = matchMedia("(hover: hover)"), calm = matchMedia("(prefers-reduced-motion: reduce)");
+  for (const img of document.querySelectorAll(".tile img[data-anim]")) {
+    const tile = img.closest(".tile"), still = img.currentSrc || img.src;
+    let on = false;
+    const play = (e) => {
+      if (calm.matches || (e.type === "pointerenter" && (!hover.matches || e.pointerType !== "mouse"))) return;
+      on = true;
+      const anim = new Image();
+      anim.onload = () => { if (on) img.src = anim.src; };   // swap only once loaded: the still stays until then
+      anim.src = img.dataset.anim;
+    };
+    const stop = () => { on = false; if (img.src !== still) img.src = still; };
+    tile.addEventListener("pointerenter", play);
+    tile.addEventListener("pointerleave", stop);
+    tile.addEventListener("focus", play);
+    tile.addEventListener("blur", stop);
   }
 })();
