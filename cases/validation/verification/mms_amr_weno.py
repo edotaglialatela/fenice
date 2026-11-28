@@ -47,12 +47,21 @@ uniform 2n mesh, and far from the seam 1.57 and 1.14 times the uniform base mesh
 WENO5-Z (row added later; a face takes six cells only where they are leaves of its level, the seam is that of WENO3-Z). L2 orders
 1.84, 1.71 (Navier-Stokes) and 1.97, 1.99 (Euler), Linf of Euler 1.75, 1.13: inside band 1. Linf of the Navier-Stokes solution
 (pressure): 1.48, 0.68, below 1.0 on the quick grids already, where WENO3-Z and MUSCL fall below only with --full (0.60). The smooth
-error of WENO5-Z is smaller, so the seam error dominates the maximum one grid earlier; where the maximum sits was not checked for this
-row. The finest L2 density error is 6.3e-4 against 8.1e-4 (WENO3-Z) on the same mesh, and about 3 times the uniform WENO5-Z error on n
+error of WENO5-Z is smaller, so the seam error dominates the maximum one grid earlier. With --full: L2 order 1.26 (Navier-Stokes,
+below 1.5) and Linf 0.72 (Navier-Stokes) and 0.59 (Euler); the maxima of the Navier-Stokes solution sit on a seam in the first fine
+leaf, 1.25 to 1.75 base cells from a corner (velocity at the corner itself), those of the Euler solution where they sit with WENO3-Z
+(see below). The finest L2 density error is 6.3e-4 against 8.1e-4 (WENO3-Z) on the same mesh, and about 3 times the uniform WENO5-Z error on n
 cells. After the result this row was given a floor (KNOWN, 0.5): it is printed as BELOW and fails the study only under the floor. The
 band of 1.0 was not moved.
 MUSCL-Hancock (row added later; its predictor exchanges side states and limited coarse sides at the level jumps): the
-bands 1 of MUSCL, fixed before its first run.
+bands 1 of MUSCL, fixed before its first run. The quick mode meets them (L2 1.86, 1.90; Linf 1.21, 1.30, Navier-Stokes and Euler);
+with --full the Linf order of the Navier-Stokes solution is 0.66 (below 1.0, like MUSCL's 0.61), the others are inside (L2 1.62,
+2.00; Linf of Euler 1.15). L2 ratio to the uniform base mesh at n = 128: 1.24 and 1.28.
+
+Where the maxima sit (2026-11-28, all four schemes, n = 32 to 128): for the Navier-Stokes solution in the first fine leaf at a
+corner or on a seam next to it from n = 64 on, as above. For the Euler solution the pressure maximum (the worst Linf variable)
+sits on a seam about 4 base cells from a corner, and the maxima of density and velocity inside the refined square at a fixed
+distance from a seam (4 to 5 base cells at n = 128, half that at n = 64): not at the corner.
 Table: results/validation/mms_amr_weno/mms_amr_weno.md.
 """
 import sys

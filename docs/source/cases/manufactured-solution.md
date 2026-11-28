@@ -397,7 +397,7 @@ python cases\validation\verification\mms_amr_weno.py --full     # and 128
 The boundary study above has its level jumps at the walls. `mms_amr_weno.py` puts them in the interior: the periodic Euler and
 Navier-Stokes solutions (2-D) run with `use_amr`, one level, and a static refined square (`amr_force_box = 0.25 0.75 0.25 0.75`), so
 that all four seams and the four corners, where a coarse and a fine cell meet diagonally, are interior and no boundary closure is
-involved. WENO3-Z (SSP-RK3) is run with MUSCL (Van Leer, SSP-RK2) as the control. The errors are area-weighted over the leaves and
+involved. WENO3-Z (SSP-RK3) is run with MUSCL (Van Leer, SSP-RK2 and MUSCL-Hancock) as the control. The errors are area-weighted over the leaves and
 compared with the uniform mesh on $n$ and on $2n$ cells. Bands fixed before the first run: $L_2$ order of the finest pair at least 1.5
 and $L_\infty$ at least 1.0 (the bands of the boundary study; a higher order is not a failure), and an $L_2$ error not larger than that
 of the uniform base mesh.
@@ -406,14 +406,18 @@ of the uniform base mesh.
 |---|---|---|---|---|
 | Navier-Stokes | WENO3-Z | 1.92, 1.87, 1.53 | 1.24, 2.34, **0.60** | 0.97, 1.15, 1.83, 4.16 |
 | Navier-Stokes | MUSCL | 1.83, 1.84, 1.52 | 1.45, 2.02, **0.61** | 0.95, 1.03, 1.16, 1.44 |
+| Navier-Stokes | MUSCL-Hancock | 1.77, 1.86, 1.62 | 1.46, 1.75, **0.66** | 0.96, 1.01, 1.07, 1.24 |
 | Euler | WENO3-Z | 1.98, 2.15, 2.13 | 1.89, 1.87, **0.94** | 0.94, 1.02, 1.23, 1.72 |
 | Euler | MUSCL | 1.93, 1.92, 2.01 | 1.63, 2.01, 1.12 | 0.94, 1.03, 1.16, 1.27 |
+| Euler | MUSCL-Hancock | 1.81, 1.90, 2.00 | 1.79, 1.98, 1.15 | 0.95, 1.05, 1.17, 1.28 |
 
 * **The $L_2$ orders meet the band** (1.5 to 2.1 on the finest pair), and in the quick mode (finest pair 32→64) so do the $L_\infty$
-  orders. With the grid 128 the $L_\infty$ order of the finest pair is **below** its band in three of four rows (0.60, 0.61, 0.94).
-* **The maximum error sits at a corner of the refined square** from $n = 64$ on, within 0.2 base cells of both seam lines, with
-  WENO3-Z and with MUSCL, where a coarse and a fine cell meet diagonally. This is a property of the adaptive mesh, not of the
-  reconstruction; nothing was changed in the solver.
+  orders. With the grid 128 the $L_\infty$ order of the finest pair is **below** its band in four of six rows (0.60, 0.61, 0.66, 0.94).
+* **The maximum error of the Navier-Stokes solution sits at a corner of the refined square** from $n = 64$ on, in the first fine
+  leaf next to both seam lines, with WENO3-Z, MUSCL and MUSCL-Hancock, where a coarse and a fine cell meet diagonally. On the Euler
+  solution the maximum pressure error (the worst $L_\infty$ variable) sits on a seam about 4 base cells from the corner, and the
+  maxima of density and velocity lie inside the refined square at a fixed distance from a seam (4 to 5 base cells at $n = 128$, half
+  that at $n = 64$). This is a property of the adaptive mesh, not of the reconstruction; nothing was changed in the solver.
 * **Refining the square does not improve the global error.** The $L_2$ error is above that of the uniform base mesh from $n = 32$
   on (last column; the second band, not met). By region (Navier-Stokes), far from the seam the adaptive error is close to the
   uniform base mesh up to $n = 64$, but inside the refined square it is several times that of the uniform $2n$ mesh:
@@ -422,6 +426,7 @@ of the uniform base mesh.
 |---|---|---|---|---|
 | WENO3-Z | 16, 32, 64, 128 | 0.95, 1.05, 1.15, 1.57 | 0.92, 1.01, 1.26, 2.50 | 1.32, 2.14, 4.25, 13.55 |
 | MUSCL | 16, 32, 64, 128 | 0.93, 1.00, 1.02, 1.14 | 0.91, 0.93, 1.07, 1.62 | 1.39, 1.72, 2.32, 4.34 |
+| MUSCL-Hancock | 16, 32, 64, 128 | 0.92, 0.93, 0.90, 0.94 | 0.87, 0.83, 0.88, 1.23 | 1.35, 1.53, 1.81, 3.17 |
 
   The fine leaves do not reach the accuracy of a fine mesh, and the gap grows with $n$. The data are consistent with an error made
   at the seam (second-order jump closure) and carried through the domain; this is not proven (a shorter final time would separate the
@@ -431,9 +436,13 @@ of the uniform base mesh.
 * **WENO5-Z** (six cells where they are leaves of the face's level, the WENO3-Z stencil at the seam; grids 16→32→64→128). $L_2$ orders
   1.84, 1.71, **1.26** (Navier-Stokes) and 1.86, 2.11, 1.56 (Euler); $L_\infty$ 1.25, 1.17, **0.72** (Navier-Stokes, density) and 0.68, 1.19,
   **0.59** (Euler, velocity). The $L_2$ order of the finest pair of the Navier-Stokes solution is below its band, and the $L_\infty$ orders are below
-  theirs on the finest pair: the smooth error is smaller, so the seam shows in the maximum earlier than for the other two schemes. The finest $L_2$
+  theirs on the finest pair: the smooth error is smaller, so the seam shows in the maximum earlier than for the other two schemes. The maxima
+  of the Navier-Stokes solution sit on a seam in the first fine leaf, 1.25 to 1.75 base cells from a corner (the velocity at the corner itself),
+  those of the Euler solution where they sit with WENO3-Z. The finest $L_2$
   density error is $2.6\cdot10^{-4}$ against $2.8\cdot10^{-4}$ for WENO3-Z and for MUSCL on the same mesh, so the fifth-order stencil buys nothing there, and
-  3 to 5 times that of the uniform WENO5-Z run on $n$ cells. The $L_\infty$ rows are kept with a floor of 0.5 (decided after the result; the band is not moved).
+  3 to 5 times that of the uniform WENO5-Z run on $n$ cells. The $L_\infty$ row of the Navier-Stokes solution, below its band on the quick grids already
+  (0.68), is kept with a floor of 0.5 (decided after the result; the band is not moved); the rows below their bands only with the grid 128 fail `--full`
+  like those of WENO3-Z and MUSCL.
 
 ## WENO-Z reconstruction on the periodic cases
 
