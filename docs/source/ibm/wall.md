@@ -95,7 +95,12 @@ extruded body survives), no-slip scales all three.
 **Properties.**
 
 * The wall position is exact, so no staircase waves are shed and the solution converges fast with the grid: on a cylinder at Re = 40 the drag is within 0.15 % of its converged value at 20 cells per diameter.
-* The wall is not conservative: in a closed inviscid box the fluid mass grows by about 0.2 % by $t=4$.
+* The wall is not conservative. A slip ghost cell mirrors the velocity about the true wall normal, but the fluxes are taken on the
+  axis-aligned faces of the cells around the body; there the flow along the wall crosses the faces of the staircase, and the faces of
+  neighbouring cells do not cancel exactly. In a closed $2\times2$ box with slip walls and a cylinder of radius 0.15 (inviscid, Mach 0.17
+  at the start) the fluid mass grows steadily, by 0.86 %, 0.62 % and 0.36 % by $t = 4$ on $80^2$, $160^2$ and $320^2$ cells (first order
+  in $h$), the energy a little more; the gain is the same with a smaller time step or another Runge-Kutta scheme, about half with
+  first-order faces, and zero with the fluid at rest. For long runs, resolve the wall more finely.
 * Under MPI each rank fills its own ghost cells and fetches the few cells of other strips their image points read, so the result is identical for any number of ranks (also in 3-D). With AMR the
   body is kept at the finest level in a band as wide as the ghost stencils (2-D; in 3-D the band is six finest cells wide, and the wall is active once no leaf coarser than the finest level lies
   within that reach of the surface, a fact the ranks settle together; a run stops if that cannot be reached).
