@@ -14,7 +14,8 @@
 // sparse table of the finest level).
 // The viscous terms use the same neighbour codes: the cell-centre gradients (central differences of the four
 // neighbouring values, virtual cells across a jump, the diffusive ghost at a physical edge) feed the cross
-// derivatives, the normal derivative of a face is the two-point difference over the distance of its two cell centres.
+// derivatives, the normal derivative of a face is the two-point difference over the distance of its two cell centres (at a
+// coarse-fine face the coarse side is the fine leaf's interpolated virtual cell, one fine width away on the normal through the fine centre).
 // With level-0 leaves only the residual is bit-identical to Simulation::assemble.
 #pragma once
 
@@ -133,6 +134,8 @@ public:
     std::array<int, 2> far_cells_of(int f) const { return far_.empty() ? std::array<int, 2>{-1, -1} : far_[static_cast<size_t>(f)]; }
     // Convective flux of face f (per unit length) as of the last residual / level pass.
     const State& face_flux(int f) const { return F_[static_cast<size_t>(f)]; }
+    // Viscous flux of face f (times its length or area) of the last residual or level pass; only with viscous terms.
+    const State& viscous_face_flux(int f) const { return Fv_[static_cast<size_t>(f)]; }
 
     // R = dU/dt for the state U (one entry per leaf); returns the largest wave speed (convective, or the viscous
     // bound of the explicit time step when larger).
@@ -347,6 +350,13 @@ private:
     // injected, or with `interpolate` replaced by the interpolated virtual cell; a finer one is the mean-type virtual cell
     int beyond(const CellMesh& m, int c, Face side, bool interpolate) const;
     void leaf_codes(const CellMesh& m, int c);   // nbr_raw_ and nbr_ of leaf c
+    // Code of the interpolated virtual cell that the fine leaf of coarse-fine face `face` sees across it (`sides` per leaf: 4 or 6),
+    // or -1 without one (no reconstruction: the coarse value is injected)
+    int jump_virtual(const CellMesh& m, const CellFace& face, int sides) const {
+        const bool fine_left = m.level[face.left] > m.level[face.right];
+        const int code = nbr_[static_cast<size_t>(sides) * (fine_left ? face.left : face.right) + 2 * face.axis + (fine_left ? 1 : 0)];
+        return code >= nleaf_ + static_cast<int>(vroot_.size()) ? code : -1;
+    }
     void face_stencil(const CellMesh& m, int f);   // stencil_ of face f
     void eval_interp(const double* u_target);   // u_target: the mass-flow inlet velocity of each side (boundary_order = 2)
     void force_all(const CellMesh& m, const Field& U);   // every leaf (the full residual, whatever the partition)

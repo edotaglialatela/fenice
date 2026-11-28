@@ -710,6 +710,18 @@ void CellFluxEngine::viscous_fluxes(const CellMesh& m, const std::vector<int>& f
             vR = sv_[R];
             TR = sT_[R];
             h = ax == 0 ? 0.5 * (m.dx(m.level[L]) + m.dx(m.level[R])) : 0.5 * (m.dy(m.level[L]) + m.dy(m.level[R]));
+            int iv_code;
+            if (face.kind == CellFaceKind::CoarseFine && (iv_code = jump_virtual(m, face, 4)) >= 0) {
+                // the coarse side is the fine leaf's interpolated virtual cell: on the normal through the fine centre, one fine width
+                // away (the coarse leaf's centre is offset along the face, and its difference with the fine value is not a normal one)
+                const State Wv = eos_.cons_to_prim(cell_state(iv_code));
+                const bool fine_left = m.level[L] > m.level[R];
+                (fine_left ? uR : uL) = Wv[1];
+                (fine_left ? vR : vL) = Wv[2];
+                (fine_left ? TR : TL) = Wv[3] / Wv[0];
+                const int F = fine_left ? L : R;
+                h = ax == 0 ? m.dx(m.level[F]) : m.dy(m.level[F]);
+            }
             ca = ax == 0 ? 0.5 * (dudy_[L] + dudy_[R]) : 0.5 * (dudx_[L] + dudx_[R]);
             cb = ax == 0 ? 0.5 * (dvdy_[L] + dvdy_[R]) : 0.5 * (dvdx_[L] + dvdx_[R]);
         }
@@ -897,6 +909,15 @@ void CellFluxEngine::viscous_fluxes_3d(const CellMesh& m, const std::vector<int>
             TL = sT_[L];
             TR = sT_[R];
             h = 0.5 * (hsz(d, m.level[L]) + hsz(d, m.level[R]));
+            int iv_code;
+            if (face.kind == CellFaceKind::CoarseFine && (iv_code = jump_virtual(m, face, 6)) >= 0) {
+                // the coarse side is the fine leaf's interpolated virtual cell (as in viscous_fluxes)
+                const State Wv = eos_.cons_to_prim(cell_state(iv_code));
+                const bool fine_left = m.level[L] > m.level[R];
+                for (int a = 0; a < 3; ++a) (fine_left ? vR : vL)[a] = Wv[kMom[a]];
+                (fine_left ? TR : TL) = Wv[3] / Wv[0];
+                h = hsz(d, m.level[fine_left ? L : R]);
+            }
             for (const auto& pr : kPairs[d]) Gc[pr[0]][pr[1]] = 0.5 * (G[pr[0]][pr[1]][L] + G[pr[0]][pr[1]][R]);
         }
         double Gn[3], vf[3];

@@ -131,6 +131,14 @@ both on). With the unreconstructed coarse state the scheme loses an order of acc
 across every level jump (the manufactured-solution test would not reach the bound on the
 adaptive mesh); this closure keeps it.
 
+The viscous flux of a coarse-fine face takes its normal derivatives (velocity and temperature)
+between the fine leaf and the same interpolated value: it lies on the normal through the fine
+centre, one fine width away. The coarse leaf's own centre is offset along the face by a quarter
+of its width, so a difference with it is not a normal derivative (its error is a third of the
+tangential derivative, of either sign on the two fine faces), and on a Navier-Stokes solution the
+whole domain would converge at first order. The cross derivatives are the mean of the two leaves'
+cell gradients, as on any other face.
+
 ## Subcycling and flux replacement
 
 A level $\ell$ advances with $\Delta t_\ell = \Delta t_0/2^\ell$, the finer level first:

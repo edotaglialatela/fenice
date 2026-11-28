@@ -247,6 +247,89 @@ TEST(celladvance_fully_refined_mesh_equals_the_finer_uniform_mesh) {
     CHECK(amr.U == uni.U);
 }
 
+TEST(cellflux_viscous_jump_faces_are_exact_for_a_linear_field) {
+    // Linear u, v (and w), p at constant density: T = p / rho is linear, every gradient is constant, so the viscous flux of every
+    // face is the same exact value. A coarse-fine face differences the fine leaf against its interpolated virtual cell (on the
+    // normal through the fine centre) and is exact; control: the difference with the coarse leaf itself, whose centre is offset
+    // along the face by a quarter of its width, is wrong by a third of the tangential derivative.
+    const EOS eos = EOS::ideal(1.4);
+    const double mu = 0.05, pr = 0.72, k = eos.transport_law().thermal_conductivity(mu, pr);
+    NavierStokes ns(eos, mu, pr);
+    const double g[3][3] = {{0.04, -0.03, 0.02}, {0.025, 0.035, -0.015}, {-0.01, 0.02, 0.03}};   // du_a / dx_b
+    const double gp[3] = {-0.06, 0.05, 0.04};
+    for (const int dim : {2, 3}) {
+        CellMesh m = dim == 2 ? CellMesh(8.0, 8.0, 8, 8, 1) : CellMesh::make_3d(8.0, 8.0, 8.0, 8, 8, 8, 1);
+        std::vector<char> r(static_cast<size_t>(m.num_leaves()), 0);
+        r[m.find(0, 3, 3, dim == 3 ? 3 : 0)] = 1;   // one interior block
+        m.adapt(r);
+        BoundaryManager bm(dim == 2 ? generate_cartesian_mesh(8.0, 8.0, 8, 8) : generate_cartesian_mesh_3d(8.0, 8.0, 8.0, 8, 8, 8), eos);
+        bm.set_boundary_types(BCType::Transmissive, BCType::Transmissive, BCType::Transmissive, BCType::Transmissive);
+        if (dim == 3) {   // front / back are periodic by default
+            bm.set_type(Face::Front, BCType::Transmissive);
+            bm.set_type(Face::Back, BCType::Transmissive);
+        }
+        RiemannSolver rs(eos, RiemannType::HLLC);
+        MusclReconstruction mus(eos, Limiter::VanLeer);
+        CellFluxEngine eng(eos, rs, &mus, bm);
+        CellPhysics ph;
+        ph.ns = &ns;
+        eng.set_physics(ph);
+        eng.build(m);
+        const auto pos = [&](int c) { return std::array<double, 3>{m.xc(c), m.yc(c), dim == 3 ? m.zc(c) : 0.0}; };
+        const auto vel = [&](const std::array<double, 3>& x, int a) {
+            const double base[3] = {0.3, -0.2, dim == 3 ? 0.1 : 0.0};
+            if (a == 2 && dim == 2) return 0.0;
+            return base[a] + g[a][0] * x[0] + g[a][1] * x[1] + (dim == 3 ? g[a][2] * x[2] : 0.0);
+        };
+        const auto pres = [&](const std::array<double, 3>& x) { return 2.0 + gp[0] * x[0] + gp[1] * x[1] + (dim == 3 ? gp[2] * x[2] : 0.0); };
+        m.U.resize(m.num_leaves());
+        for (int c = 0; c < m.num_leaves(); ++c) {
+            const auto x = pos(c);
+            m.U[c] = eos.prim_to_cons({1.0, vel(x, 0), vel(x, 1), pres(x), vel(x, 2)});
+        }
+        Field R;
+        eng.residual(m, m.U, R);
+        double worst = 0.0, control = 0.0;
+        int nfaces = 0;
+        for (int f = 0; f < static_cast<int>(m.faces.size()); ++f) {
+            const CellFace& face = m.faces[static_cast<size_t>(f)];
+            if (face.kind != CellFaceKind::CoarseFine) continue;
+            ++nfaces;
+            const int d = face.axis;
+            const bool fine_left = m.level[face.left] > m.level[face.right];
+            const int F = fine_left ? face.left : face.right, C = fine_left ? face.right : face.left;
+            const double hf = d == 0 ? m.dx(1) : (d == 1 ? m.dy(1) : m.dz(1));
+            std::array<double, 3> xf = pos(F);
+            xf[static_cast<size_t>(d)] += fine_left ? 0.5 * hf : -0.5 * hf;   // the face centre
+            double tau[3], vf[3];
+            const int nd = dim;
+            double div = 0.0;
+            for (int a = 0; a < nd; ++a) div += g[a][a];
+            for (int a = 0; a < 3; ++a) {
+                vf[a] = vel(xf, a);
+                if (a >= nd) { tau[a] = 0.0; continue; }
+                tau[a] = a == d ? mu * (4.0 / 3.0 * g[d][d] - 2.0 / 3.0 * (div - g[d][d])) : mu * (g[a][d] + g[d][a]);
+            }
+            const double q = -k * gp[d];   // T = p / rho with rho = 1
+            const double want[4] = {tau[0], tau[1], vf[0] * tau[0] + vf[1] * tau[1] + vf[2] * tau[2] - q, tau[2]};
+            const State& got = eng.viscous_face_flux(f);
+            const double slot[4] = {got[1], got[2], got[3], got[4]};
+            for (int q2 = 0; q2 < (dim == 3 ? 4 : 3); ++q2) worst = std::max(worst, std::abs(slot[q2] / face.length - want[q2]));
+            // control: the normal difference of u_t with the coarse leaf itself
+            const int t = (d + 1) % dim;
+            const double hcf = 0.75 * (d == 0 ? m.dx(0) : (d == 1 ? m.dy(0) : m.dz(0)));
+            const double raw = (vel(pos(fine_left ? C : F), t) - vel(pos(fine_left ? F : C), t)) / hcf;
+            control = std::max(control, std::abs(mu * (raw + g[d][t]) - mu * (g[t][d] + g[d][t])));
+        }
+        std::printf("    %d-D: %d coarse-fine faces, worst viscous flux error %.3e (raw coarse leaf: %.3e)\n", dim, nfaces, worst, control);
+        CHECK(nfaces == (dim == 2 ? 8 : 24));
+        // not to roundoff: the coarse leaves' slopes over the refined block read the mean of conservative fine values (see the
+        // interpolated-values test); the control is a hundred times worse
+        CHECK(worst < 1e-5);
+        CHECK(control > 1e-4 && worst < 1e-2 * control);
+    }
+}
+
 TEST(celladvance_adapted_manufactured_solutions_regression_guards) {
     // Base 32x32 with the lower half refined once, against the uniform 32 (coarse) and 64 (fine, the reference). Acceptance,
     // fixed before the first run: the error to the fine solution is below 0.75 x the coarse one. With the injected jump closure

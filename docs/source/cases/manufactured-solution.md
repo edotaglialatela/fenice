@@ -352,26 +352,26 @@ for the seam); the first-order columns are the baseline and have no band.
 | Walls, Euler | MUSCL VL, SSP-RK2 | Linf | 0.27, 0.53 (u), 2.12e-02 | 2.09, 1.38 (p), 1.83e-03 | 10240 | ok (1.0) |
 | Walls, Euler | WENO3-Z, SSP-RK3 | L2 | 1.05, 1.15 (u), 7.72e-04 | 2.11, 1.90 (u), 2.92e-04 | 10240 | ok (1.5) |
 | Walls, Euler | WENO3-Z, SSP-RK3 | Linf | 0.37, 0.52 (u), 2.17e-02 | 1.77, 1.22 (u), 1.81e-03 | 10240 | ok (1.0) |
-| Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.57, 1.34 (rho), 8.22e-04 | 2.23, 1.83 (rho), 2.71e-04 | 10240 | ok (1.5) |
-| Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.63, 0.81 (rho), 9.09e-03 | 1.64, 1.61 (p), 1.47e-03 | 10240 | ok (1.0) |
-| Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.75, 1.37 (rho), 8.33e-04 | 2.31, 2.03 (u), 2.64e-04 | 10240 | ok (1.5) |
-| Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 1.04, 0.77 (rho), 9.14e-03 | 1.55, 1.56 (p), 1.88e-03 | 10240 | ok (1.0) |
+| Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.66, 1.34 (rho), 8.26e-04 | 2.27, 1.82 (p), 2.74e-04 | 10240 | ok (1.5) |
+| Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.65, 0.81 (rho), 9.03e-03 | 2.04, 1.43 (rho), 1.83e-03 | 10240 | ok (1.0) |
+| Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.82, 1.38 (rho), 8.38e-04 | 2.41, 2.01 (p), 2.68e-04 | 10240 | ok (1.5) |
+| Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 1.06, 0.77 (rho), 9.08e-03 | 1.59, 1.59 (p), 2.21e-03 | 10240 | ok (1.0) |
 | Outflow, Euler | MUSCL VL, SSP-RK2 | L2 | 1.30, 1.26 (v), 4.40e-04 | 1.81, 1.50 (v), 3.67e-04 | 10240 | **below** (1.5) |
 | Outflow, Euler | MUSCL VL, SSP-RK2 | Linf | 0.37, 0.58 (v), 4.20e-03 | 1.71, 1.25 (v), 2.11e-03 | 10240 | ok (1.0) |
 | Outflow, Euler | WENO3-Z, SSP-RK3 | L2 | 1.26, 1.24 (v), 3.82e-04 | 1.76, 1.51 (p), 3.39e-04 | 10240 | ok (1.5) |
 | Outflow, Euler | WENO3-Z, SSP-RK3 | Linf | 0.41, 0.53 (v), 4.45e-03 | 1.58, 1.43 (v), 1.75e-03 | 10240 | ok (1.0) |
-| Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.87, 1.04 (u), 4.46e-04 | 1.67, 0.98 (u), 2.97e-04 | 10240 | **below** (1.5) |
-| Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 1.30, 0.78 (u), 5.63e-03 | 1.18, 0.84 (u), 1.49e-03 | 10240 | **below** (1.0) |
-| Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.62, 1.08 (u), 4.86e-04 | 1.26, 1.46 (u), 3.15e-04 | 10240 | **below** (1.5) |
-| Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.73, 0.79 (rho), 5.91e-03 | 0.58, 1.17 (u), 1.63e-03 | 10240 | ok (1.0) |
+| Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.80, 1.02 (u), 4.39e-04 | 1.59, 0.98 (u), 2.90e-04 | 10240 | **below** (1.5) |
+| Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 1.14, 0.74 (u), 5.62e-03 | 1.05, 0.82 (u), 1.43e-03 | 10240 | **below** (1.0) |
+| Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.58, 1.03 (u), 4.81e-04 | 1.21, 1.42 (u), 3.07e-04 | 10240 | **below** (1.5) |
+| Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.66, 0.79 (rho), 5.90e-03 | 0.54, 1.19 (u), 1.56e-03 | 10240 | ok (1.0) |
 | Box, Euler | MUSCL VL, SSP-RK2 | L2 | 1.52, 1.39 (u), 2.04e-03 | 2.06, 1.97 (v), 4.05e-04 | 7168 | ok (1.5) |
 | Box, Euler | MUSCL VL, SSP-RK2 | Linf | 0.70, 0.48 (v), 1.67e-02 | 1.52, 1.47 (u), 3.34e-03 | 7168 | ok (1.0) |
 | Box, Euler | WENO3-Z, SSP-RK3 | L2 | 1.52, 1.39 (u), 2.06e-03 | 2.10, 2.02 (v), 3.35e-04 | 7168 | ok (1.5) |
 | Box, Euler | WENO3-Z, SSP-RK3 | Linf | 0.81, 0.49 (v), 1.70e-02 | 1.77, 1.43 (u), 4.93e-03 | 7168 | ok (1.0) |
-| Box, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.38, 1.45 (rho), 2.49e-03 | 2.23, 1.93 (v), 2.68e-04 | 7168 | ok (1.5) |
-| Box, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.83, 0.96 (rho), 2.58e-02 | 1.34, 0.93 (rho), 4.63e-03 | 7168 | **below** (1.0) |
-| Box, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.44, 1.45 (rho), 2.51e-03 | 2.50, 1.95 (v), 2.90e-04 | 7168 | ok (1.5) |
-| Box, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.83, 0.95 (rho), 2.60e-02 | 1.93, 0.90 (rho), 5.10e-03 | 7168 | **below** (1.0) |
+| Box, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.39, 1.45 (rho), 2.49e-03 | 2.52, 2.12 (rho), 2.33e-04 | 7168 | ok (1.5) |
+| Box, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.83, 0.96 (rho), 2.58e-02 | 1.76, 0.97 (rho), 4.35e-03 | 7168 | **below** (1.0) |
+| Box, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.47, 1.45 (rho), 2.51e-03 | 2.57, 2.30 (p), 2.54e-04 | 7168 | ok (1.5) |
+| Box, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.83, 0.95 (rho), 2.60e-02 | 2.29, 0.90 (rho), 5.20e-03 | 7168 | **below** (1.0) |
 
 </details>
 
@@ -380,9 +380,9 @@ for the seam); the first-order columns are the baseline and have no band.
   (outflow) to 5 (box), so the seam does not undo the closure: the ghost layers of a leaf next to a level jump are taken from the same
   virtual or interpolated cell an interior face uses.
 * Six entries are **below** their band, all on the finest pair: the outflow solution with MUSCL ($L_2$ 1.50 on the Euler solution, which
-  prints as the band but is under it; $L_2$ 0.98 and $L_\infty$ 0.84 on Navier-Stokes) and with WENO3-Z ($L_2$ 1.46, Navier-Stokes), and the
-  Navier-Stokes box solution in $L_\infty$ (0.93 and 0.90). The uniform study shows the same slow layer on the outflow solution with MUSCL
-  (above); on the box solution the order of the second pair is lower than that of the first (1.3 and 1.9 on the first). They are reported,
+  prints as the band but is under it; $L_2$ 0.98 and $L_\infty$ 0.82 on Navier-Stokes) and with WENO3-Z ($L_2$ 1.42, Navier-Stokes), and the
+  Navier-Stokes box solution in $L_\infty$ (0.97 and 0.90). The uniform study shows the same slow layer on the outflow solution with MUSCL
+  (above); on the box solution the order of the second pair is lower than that of the first (1.8 and 2.3 on the first). They are reported,
   not moved.
 * Level jumps themselves: the second-order faces use the coarse-fine closure unchanged (interpolated fine side, second-order coarse side),
   so a seam in smooth flow costs the order of its interpolated and averaged values, and the orders above are those of the whole mesh.
@@ -404,45 +404,44 @@ of the uniform base mesh.
 
 | Solution | Scheme | $L_2$ orders (16→32→64→128) | $L_\infty$ orders | $L_2$ error / uniform $n$ (n = 16, 32, 64, 128) |
 |---|---|---|---|---|
-| Navier-Stokes | WENO3-Z | 1.92, 1.87, 1.53 | 1.24, 2.34, **0.60** | 0.97, 1.15, 1.83, 4.16 |
-| Navier-Stokes | MUSCL | 1.83, 1.84, 1.52 | 1.45, 2.02, **0.61** | 0.95, 1.03, 1.16, 1.44 |
-| Navier-Stokes | MUSCL-Hancock | 1.77, 1.86, 1.62 | 1.46, 1.75, **0.66** | 0.96, 1.01, 1.07, 1.24 |
+| Navier-Stokes | WENO3-Z | 1.95, 2.04, 2.13 | 1.22, 1.92, **0.85** | 0.93, 0.97, 1.12, 1.48 |
+| Navier-Stokes | MUSCL | 1.81, 1.92, 1.92 | 1.62, 1.63, **0.99** | 0.92, 0.91, 0.94, 0.98 |
+| Navier-Stokes | MUSCL-Hancock | 1.72, 1.89, 1.92 | 1.64, 1.45, 1.03 | 0.93, 0.90, 0.87, 0.84 |
 | Euler | WENO3-Z | 1.98, 2.15, 2.13 | 1.89, 1.87, **0.94** | 0.94, 1.02, 1.23, 1.72 |
 | Euler | MUSCL | 1.93, 1.92, 2.01 | 1.63, 2.01, 1.12 | 0.94, 1.03, 1.16, 1.27 |
 | Euler | MUSCL-Hancock | 1.81, 1.90, 2.00 | 1.79, 1.98, 1.15 | 0.95, 1.05, 1.17, 1.28 |
 
-* **The $L_2$ orders meet the band** (1.5 to 2.1 on the finest pair), and in the quick mode (finest pair 32→64) so do the $L_\infty$
-  orders. With the grid 128 the $L_\infty$ order of the finest pair is **below** its band in four of six rows (0.60, 0.61, 0.66, 0.94).
-* **The maximum error of the Navier-Stokes solution sits within 2 base cells of a corner of the refined square** from $n = 64$ on,
-  where a coarse and a fine cell meet diagonally: at the corner with WENO3-Z, on a seam 1.75 base cells from it with WENO5-Z, MUSCL
-  and MUSCL-Hancock (density, the worst $L_\infty$ variable in every row). On the Euler solution the rows below their band have it away
-  from the corner (WENO3-Z: pressure, on a seam 4.25 base cells from it; WENO5-Z: velocity, inside the refined square 4.75 base cells
-  from a seam), the rows inside it at the corner (MUSCL and MUSCL-Hancock, pressure). This is a property of the adaptive mesh, not of
-  the reconstruction; nothing was changed in the solver.
-* **Refining the square does not improve the global error.** The $L_2$ error is above that of the uniform base mesh from $n = 32$
-  on (last column; the second band, not met). By region (Navier-Stokes), far from the seam the adaptive error is close to the
-  uniform base mesh up to $n = 64$, but inside the refined square it is several times that of the uniform $2n$ mesh:
+* **The $L_2$ orders meet the band** (1.9 to 2.1 on the finest pair), and in the quick mode (finest pair 32→64) so do the $L_\infty$
+  orders. With the grid 128 the $L_\infty$ order of the finest pair is **below** its band in three of six rows (0.85, 0.99, 0.94).
+* **The $L_\infty$ error is made at the seam**, from the first step: it is the same with a time step 4 to 8 times smaller and on the
+  unsteady solution, and the initial state is exact. On the Navier-Stokes solution the maximum sits in the first fine leaf next to a
+  seam (WENO3-Z at a corner of the square, WENO5-Z 1.75 base cells from one, MUSCL and MUSCL-Hancock about 10 base cells from one);
+  on the Euler solution the WENO3-Z maximum sits on a seam 4.25 base cells from a corner and the WENO5-Z one inside the refined
+  square 4.75 base cells from a seam, while MUSCL and MUSCL-Hancock have theirs at a corner. On the Euler solution the seam itself
+  converges at about second order and the corner at first order in $L_\infty$; on the Navier-Stokes solution the seam converges at
+  first order in $L_\infty$. Where in the viscous closure this comes from is not established.
+* **The viscous closure of the seam keeps the solution second order away from it.** The viscous flux of a coarse-fine face takes its
+  normal derivatives against the interpolated coarse value on the normal through the fine centre ([AMR]({{root}}modules/AMR.html#jump-closure));
+  a difference with the coarse leaf itself put the whole Navier-Stokes solution at first order. By region (Navier-Stokes):
 
 | scheme | n | far coarse: AMR / uniform $n$ | near seam: AMR / uniform $n$ | deep fine: AMR / uniform $2n$ |
 |---|---|---|---|---|
-| WENO3-Z | 16, 32, 64, 128 | 0.95, 1.05, 1.15, 1.57 | 0.92, 1.01, 1.26, 2.50 | 1.32, 2.14, 4.25, 13.55 |
-| MUSCL | 16, 32, 64, 128 | 0.93, 1.00, 1.02, 1.14 | 0.91, 0.93, 1.07, 1.62 | 1.39, 1.72, 2.32, 4.34 |
-| MUSCL-Hancock | 16, 32, 64, 128 | 0.92, 0.93, 0.90, 0.94 | 0.87, 0.83, 0.88, 1.23 | 1.35, 1.53, 1.81, 3.17 |
+| WENO3-Z | 16, 32, 64, 128 | 0.94, 1.01, 1.04, 1.05 | 0.90, 0.93, 1.02, 1.47 | 1.09, 1.51, 1.80, 3.08 |
+| MUSCL | 16, 32, 64, 128 | 0.92, 0.97, 0.97, 0.97 | 0.89, 0.88, 0.91, 1.05 | 1.26, 1.43, 1.67, 1.84 |
+| MUSCL-Hancock | 16, 32, 64, 128 | 0.91, 0.91, 0.87, 0.85 | 0.85, 0.80, 0.79, 0.87 | 1.26, 1.35, 1.52, 1.64 |
 
-  The fine leaves do not reach the accuracy of a fine mesh, and the gap grows with $n$. The data are consistent with an error made
-  at the seam (second-order jump closure) and carried through the domain; this is not proven (a shorter final time would separate the
-  error made at the seam from the error transported), and WENO3-Z shows it more than MUSCL because its own smooth error is smaller.
+  Far from the seam the adaptive error equals that of the uniform base mesh; inside the refined square it is 1.6 to 3 times that of
+  the uniform $2n$ mesh at $n = 128$, the error of the seam carried into it. The $L_2$ error is at most that of the uniform base mesh
+  with MUSCL and MUSCL-Hancock at every $n$, and above it from $n = 64$ with WENO3-Z (1.12, 1.48), whose own smooth error is smaller.
   After the first run the ratio to the uniform base mesh was made a reported column and not a failure of the study; the decision was
   taken after the result. Tables: `results/validation/mms_amr_weno/mms_amr_weno.md` and `mms_amr_weno_regions.md`.
 * **WENO5-Z** (six cells where they are leaves of the face's level, the WENO3-Z stencil at the seam; grids 16→32→64→128). $L_2$ orders
-  1.84, 1.71, **1.26** (Navier-Stokes) and 1.86, 2.11, 1.56 (Euler); $L_\infty$ 1.25, 1.17, **0.72** (Navier-Stokes, density) and 0.68, 1.19,
-  **0.59** (Euler, velocity). The $L_2$ order of the finest pair of the Navier-Stokes solution is below its band, and the $L_\infty$ orders are below
-  theirs on the finest pair: the smooth error is smaller, so the seam shows in the maximum earlier than for the other two schemes. Where the
-  maxima sit: see the second bullet above. The finest $L_2$
-  density error is $2.6\cdot10^{-4}$ against $2.8\cdot10^{-4}$ for WENO3-Z and for MUSCL on the same mesh, so the fifth-order stencil buys nothing there, and
-  3 to 5 times that of the uniform WENO5-Z run on $n$ cells. The $L_\infty$ row of the Navier-Stokes solution, below its band on the quick grids already
-  (0.68), is kept with a floor of 0.5 (decided after the result; the band is not moved); the rows below their bands only with the grid 128 fail `--full`
-  like those of WENO3-Z and MUSCL.
+  2.07, 2.02, 1.77 (Navier-Stokes) and 1.86, 2.11, 1.56 (Euler), inside the band; $L_\infty$ 1.43, 0.92, **0.92** (Navier-Stokes, pressure)
+  and 0.68, 1.19, **0.59** (Euler, velocity), below theirs: the smooth error is smaller, so the seam shows in the maximum earlier than for
+  the other schemes. The finest $L_2$ density error is $1.3\cdot10^{-4}$ (Navier-Stokes) against $1.6\cdot10^{-4}$ for WENO3-Z and
+  $2.0\cdot10^{-4}$ for MUSCL on the same mesh, and 2.3 to 2.8 times that of the uniform WENO5-Z run on $n$ cells. The $L_\infty$ row of the
+  Navier-Stokes solution, below its band on the quick grids already (0.79), is kept with a floor of 0.5 (decided after the result; the
+  band is not moved); the rows below their bands only with the grid 128 fail `--full` like those of WENO3-Z and MUSCL.
 
 ## WENO-Z reconstruction on the periodic cases
 
@@ -541,8 +540,8 @@ studies run it too, by name also on the viscous solutions.
 
 * **Space and time together** (`mms.py`, periodic solutions, quick grids up to 64² and 48³): finest-pair orders 1.85 to 2.43 in
   $L_1$ and $L_2$ and 1.46 to 2.45 in $L_\infty$ (Navier-Stokes 2-D and 3-D, Euler 2-D), inside the MUSCL bands.
-* **Adaptive mesh** (`mms_amr_weno.py`, quick grids up to 64): $L_2$ orders 1.86 and 1.90, $L_\infty$ 1.21 and 1.30, inside the bands;
-  with the grid 128 the $L_\infty$ order of the Navier-Stokes solution is 0.66, below its band like that of MUSCL (0.61).
+* **Adaptive mesh** (`mms_amr_weno.py`, quick grids up to 64): $L_2$ orders 1.89 and 1.90, $L_\infty$ 1.02 and 1.30, inside the bands;
+  with the grid 128 too (Navier-Stokes $L_2$ 1.92, $L_\infty$ 1.03), where MUSCL with SSP-RK2 has $L_\infty$ 0.99.
 * **Time order.** On a fixed mesh the scheme does not tend to the semi-discrete solution at second order, because its predictor
   uses the cell's own flux difference: the orders against the small-step reference are 0.95 to 1.00 (reported, not banded). With
   CFL 0.4 and the mesh refined, the difference to the SSP-RK3 solution of the same grid is:

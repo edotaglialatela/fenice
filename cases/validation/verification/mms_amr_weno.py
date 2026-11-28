@@ -62,6 +62,17 @@ a seam 1.75 base cells from a corner (0.25, 1.75); the same places at n = 64. Al
 rows below their band have the maximum away from the corner, WENO3-Z (pressure) on a seam at (0.25, 4.25) and WENO5-Z
 (velocity v) inside the refined square at (4.75, 13.75); the rows inside it, MUSCL and MUSCL-Hancock (pressure), at a corner
 (0.75, 0.25). Whether the Euler maxima away from the corner are seam error carried by the flow is not established.
+
+Viscous closure of the seam (2026-11-28, results/validation/amr_corner): the Navier-Stokes numbers above are those of a closure whose
+coarse-fine viscous faces differenced the fine leaf against the coarse leaf itself (centre offset along the face); the whole
+Navier-Stokes solution converged at first order (L2 orders 1.0 in every region at n = 256). The faces now difference against the
+interpolated virtual cell, and the Euler rows are unchanged. Navier-Stokes with --full, finest pair: L2 2.13 (WENO3-Z), 1.77
+(WENO5-Z), 1.92 (MUSCL and MUSCL-Hancock), inside band 1; Linf 0.85, 0.92, 0.99, 1.03 (WENO5-Z on the quick grids 0.79, under its
+floor of 0.5 still). L2 ratio to the uniform base mesh at n = 128: 1.48, 2.65, 0.98, 0.84 (band 2 met by MUSCL and MUSCL-Hancock at
+every n); inside the refined square 3.1 (WENO3-Z) and 1.8 (MUSCL) times the uniform 2n mesh, far from the seam 1.05 and 0.97 times
+the uniform base mesh. The Navier-Stokes maxima sit in the first fine leaf next to a seam (WENO3-Z at a corner, WENO5-Z 1.75 base
+cells from one, MUSCL and MUSCL-Hancock about 10): the seam stays first order in Linf. It is made from the first step and does not
+depend on the time step; a quadratic coarse value for the viscous normal derivatives did not change it. Its source is not established.
 Table: results/validation/mms_amr_weno/mms_amr_weno.md.
 """
 import sys

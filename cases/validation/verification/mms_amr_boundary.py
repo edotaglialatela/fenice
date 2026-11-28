@@ -76,7 +76,7 @@ def main():
                 sol = mms.Solution(dim=2, viscous=viscous, kind=kind)
                 for key in args.schemes.split(","):
                     label, sets = SCHEMES[key]
-                    sets = list(sets) + ([f"boundary_order={bo}"] if bo == 2 else [])
+                    sets = list(sets) + [f"boundary_order={bo}"]   # always: the solver's default is 2
                     res = [errors(sol, n, key, sets, args) for n in GRIDS]
                     errs, leaves = [r[0] for r in res], res[-1][1]
                     for norm, band in (("L2", BAND_L2), ("Linf", BAND_LINF)):
