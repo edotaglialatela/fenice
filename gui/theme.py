@@ -13,12 +13,18 @@ Public API
 ``COLORS``         dict of role -> hex string (the single source of truth).
 ``build_stylesheet(colors=COLORS)``  -> the full QSS string.
 ``apply_theme(app, colors=COLORS)``  install Fusion base + palette + font + QSS.
+``brand_icon()``   the application icon of the Fenice identity (window title bars, task bar).
+``brand_pixmap(name, width)``  a picture of the identity (gui/brand/), scaled for the screen.
 """
 
+import os
 from string import Template
 
-from PyQt6.QtGui import QColor, QFont, QPalette
+from PyQt6.QtCore import Qt
+from PyQt6.QtGui import QColor, QFont, QIcon, QPalette, QPixmap
 from PyQt6.QtWidgets import QApplication
+
+BRAND_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "brand")
 
 
 # --- Palette -------------------------------------------------------------
@@ -414,3 +420,25 @@ def apply_theme(app, colors=COLORS):
     app.setFont(font)
 
     app.setStyleSheet(build_stylesheet(colors))
+
+
+def brand_icon() -> QIcon:
+    """The application icon of the Fenice identity: the multi-size .ico, with the 256 px picture as a fallback."""
+    icon = QIcon()
+    for name in ("fenice.ico", "fenice-icon-256.png"):
+        path = os.path.join(BRAND_DIR, name)
+        if os.path.exists(path):
+            icon.addFile(path)
+    return icon
+
+
+def brand_pixmap(name: str, width: int) -> QPixmap:
+    """A picture of gui/brand/ (drawn at twice its size) scaled to `width` logical pixels for the current screen; null if missing."""
+    pix = QPixmap(os.path.join(BRAND_DIR, name))
+    if pix.isNull():
+        return pix
+    app = QApplication.instance()
+    ratio = app.devicePixelRatio() if app is not None else 1.0
+    pix = pix.scaledToWidth(round(width * ratio), Qt.TransformationMode.SmoothTransformation)
+    pix.setDevicePixelRatio(ratio)
+    return pix

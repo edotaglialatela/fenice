@@ -26,11 +26,10 @@ from matplotlib.backends.backend_qtagg import FigureCanvasQTAgg, NavigationToolb
 from matplotlib.collections import PolyCollection  # noqa: E402
 from matplotlib.figure import Figure  # noqa: E402
 from PyQt6.QtCore import Qt, QTimer, pyqtSignal  # noqa: E402
-from PyQt6.QtGui import QIcon  # noqa: E402
 from PyQt6.QtWidgets import (QApplication, QCheckBox, QComboBox, QFileDialog, QHBoxLayout, QLabel, QMainWindow,  # noqa: E402
                              QPushButton, QSlider, QTabWidget, QVBoxLayout, QWidget)
 
-from gui.theme import COLORS, apply_theme  # noqa: E402
+from gui.theme import COLORS, apply_theme, brand_icon  # noqa: E402
 from gui.viewer_data import Frame, Series  # noqa: E402
 
 _COLORMAPS = ("viridis", "turbo", "coolwarm", "magma", "gray", "Spectral_r")
@@ -533,9 +532,7 @@ class ViewerWindow(QMainWindow):
     def __init__(self, folder: str | None = None, step: int | None = None):
         super().__init__()
         self.setWindowTitle("Fenice results")
-        icon_path = os.path.join(ROOT_DIR, "gui", "logo.png")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        self.setWindowIcon(brand_icon())
         self.panel = ViewerPanel(folder, step)
         self.panel.title_changed.connect(self.setWindowTitle)
         self.setCentralWidget(self.panel)

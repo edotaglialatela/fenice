@@ -20,17 +20,17 @@ if ROOT_DIR not in sys.path:
     sys.path.insert(0, ROOT_DIR)
 
 from PyQt6.QtCore import QByteArray, QPointF, QRectF, QSize, Qt, QTimer, QUrl  # noqa: E402
-from PyQt6.QtGui import QDesktopServices, QIcon, QTransform  # noqa: E402
+from PyQt6.QtGui import QDesktopServices, QTransform  # noqa: E402
 from PyQt6.QtWidgets import (QApplication, QFileDialog, QHBoxLayout, QLabel, QListWidgetItem, QMainWindow, QMenu, QMessageBox,
-                             QPushButton, QSizePolicy, QSplitter, QStackedLayout, QStackedWidget, QTabWidget, QVBoxLayout,
-                             QWidget)  # noqa: E402
+                             QPushButton, QSizePolicy, QSplashScreen, QSplitter, QStackedLayout, QStackedWidget, QTabWidget,
+                             QVBoxLayout, QWidget)  # noqa: E402
 
 from gui.canvas import NODE_W, GraphScene, GraphView, LinkItem, NodeItem, Palette  # noqa: E402
 from gui.graph import Graph, Link  # noqa: E402
 from gui.modules import ModuleSpec, discover  # noqa: E402
 from gui.project import IDLE, Project  # noqa: E402
 from gui.solver import SolverNotFound, available_cases  # noqa: E402
-from gui.theme import apply_theme  # noqa: E402
+from gui.theme import apply_theme, brand_icon, brand_pixmap  # noqa: E402
 from gui.workbench_state import new_state, read_state, write_state  # noqa: E402
 
 
@@ -69,9 +69,7 @@ class Workbench(QMainWindow):
         screen = QApplication.primaryScreen().availableGeometry() if QApplication.primaryScreen() is not None else None
         self.resize(min(1600, screen.width() - 40) if screen else 1600, min(980, screen.height() - 40) if screen else 980)
         self.setMinimumSize(1120, 720)
-        icon_path = os.path.join(ROOT_DIR, "gui", "logo.png")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        self.setWindowIcon(brand_icon())
         self.graph = Graph()
         self.specs = {s.name: s for s in discover()}
         self.items: dict[int, NodeItem] = {}
@@ -127,7 +125,13 @@ class Workbench(QMainWindow):
         palette_layout = QVBoxLayout(palette_panel)
         palette_layout.setContentsMargins(16, 20, 16, 16)
         palette_layout.setSpacing(10)
-        brand = QLabel("Fenice")
+        brand = QLabel()
+        logo = brand_pixmap("fenice-logo-on-dark@2x.png", 132)
+        if logo.isNull():
+            brand.setText("Fenice")
+        else:
+            brand.setPixmap(logo)
+        brand.setAccessibleName("Fenice")
         brand.setObjectName("sidebarTitle")
         brand_note = QLabel("Simulation workbench")
         brand_note.setObjectName("sidebarNote")
@@ -866,13 +870,24 @@ class Workbench(QMainWindow):
 def main() -> int:
     app = QApplication(sys.argv[:1])
     apply_theme(app)
+    app.setWindowIcon(brand_icon())
+    splash = None
+    picture = brand_pixmap("fenice-splash@2x.png", 640)
+    if not picture.isNull():   # the identity's splash while the solver is asked for its cases and the window is built
+        splash = QSplashScreen(picture)
+        splash.show()
+        app.processEvents()
     try:
         available_cases()
     except SolverNotFound as exc:
+        if splash is not None:
+            splash.close()
         QMessageBox.critical(None, "Fenice", str(exc))
         return 1
     win = Workbench()
     win.show()
+    if splash is not None:
+        splash.finish(win)
     return app.exec()
 
 

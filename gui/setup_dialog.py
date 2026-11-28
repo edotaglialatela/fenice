@@ -17,14 +17,13 @@ import os
 
 import numpy as np
 from PyQt6.QtCore import Qt
-from PyQt6.QtGui import QIcon
 from PyQt6.QtWidgets import (QCheckBox, QComboBox, QDialog, QDialogButtonBox, QFileDialog, QFormLayout, QFrame,
                              QInputDialog,
                              QGroupBox, QHBoxLayout, QLabel, QLineEdit, QMessageBox, QPushButton, QScrollArea,
                              QSpinBox, QTabWidget, QVBoxLayout, QWidget)
 
 from gui.solver import ROOT_DIR, amr_gui_defaults, available_cases, available_templates, case_defaults, check_run, save_case
-from gui.theme import COLORS
+from gui.theme import COLORS, brand_icon
 
 _BOOL_KEYS = {"use_viscous", "use_bodyforce", "resume", "use_mpi", "use_ibm", "use_hot_start", "use_amr"}
 
@@ -110,9 +109,7 @@ class SetupDialog(QDialog):
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Fenice — Run setup")
-        icon_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "logo.png")
-        if os.path.exists(icon_path):
-            self.setWindowIcon(QIcon(icon_path))
+        self.setWindowIcon(brand_icon())
         self.resize(1120, 820)
         self.setMinimumWidth(960)
         self.setMinimumHeight(660)
