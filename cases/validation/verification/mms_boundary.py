@@ -16,7 +16,7 @@ a second-order approximation of the cell averages: no order above 2 can show her
 reports the observed order of every pair of grids (16 -> 32 -> 64 -> 128) of the worst variable, in L2 and Linf, and the
 density error on the finest grid. The reference table of the first-order boundary faces is mms_boundary_baseline.md.
 
-The MUSCL-Hancock row was added later (what time_scheme = auto picks with MUSCL), with the same bands.
+The MUSCL-Hancock row was added later (what time_scheme = auto picks for inviscid MUSCL flow), with the same bands.
 
 Bands, fixed before the first run with boundary_order = 2 (the finest pair of grids, worst variable): L2 order at least
 1.7 and Linf order at least 1.3 for every scheme on the Euler solutions; the same on the Navier-Stokes ones if the

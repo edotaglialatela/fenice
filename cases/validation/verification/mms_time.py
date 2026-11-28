@@ -20,7 +20,7 @@ stage. The study verifies the time integration inside the whole solver (spatial 
 With --full the same two steps run on the Navier-Stokes solution with travelling waves ("Manufactured Solution
 Unsteady").
 
-3. MUSCL-Hancock (what time_scheme = auto picks with MUSCL). It is a fully discrete scheme: its predictor advances the
+3. MUSCL-Hancock (what time_scheme = auto picks for inviscid MUSCL flow). It is a fully discrete scheme: its predictor advances the
    face states with the cell's own flux difference, not with the semi-discrete right-hand side, so on a fixed mesh it
    differs from the semi-discrete solution at first order in dt, with a coefficient that is a spatial truncation term.
    Its fixed-mesh row in step 2 is therefore reported, not banded, and its order is measured with mesh and step refined

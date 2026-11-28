@@ -15,7 +15,7 @@ measured at a fixed time on a sequence of grids refined by 2 in every direction,
 2. residual: from the exact state, one Euler step gives (U1 - U0)/dt = R_h(U_m) + S, the local truncation error,
    which must fall with refinement (a floor would mean the generator's equations differ from the solver's);
 3. order: the error of rho, u, v, (w), p at t = 0.5 in the L1, L2 and Linf norms and the observed orders, for the
-   second-order scheme (MUSCL, Van Leer, SSP-RK2), the one-stage MUSCL-Hancock scheme (what time_scheme = auto picks
+   second-order scheme (MUSCL, Van Leer, SSP-RK2), the one-stage MUSCL-Hancock scheme (what time_scheme = auto picks for inviscid flow
    with MUSCL) and the first-order one (Godunov, SSP-RK2).
 
 Expected orders, fixed before the first run: 1.0 +- 0.1 for the first-order scheme in every norm; for MUSCL

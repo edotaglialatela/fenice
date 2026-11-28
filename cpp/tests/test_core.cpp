@@ -2359,6 +2359,23 @@ TEST(ibm_mask_shapes) {
     CHECK(other == 0);
 }
 
+TEST(time_scheme_auto_takes_ssp_rk2_for_viscous_muscl) {
+    const auto resolved = [](const char* scheme, const char* reconstruction, const char* viscous) {
+        Params p = baseline_defaults();
+        p.merge(get_test_case("Sod Shock Tube").defaults);
+        p.set("test_case", "Sod Shock Tube");
+        p.set("time_scheme", scheme);
+        p.set("reconstruction", reconstruction);
+        p.set("use_viscous", viscous);
+        return SimParams::from(p).time_scheme;
+    };
+    CHECK(resolved("auto", "muscl", "false") == "MUSCL-Hancock");
+    CHECK(resolved("auto", "muscl", "true") == "SSP Runge-Kutta 2");
+    CHECK(resolved("auto", "none", "false") == "Explicit Euler");
+    CHECK(resolved("auto", "none", "true") == "Explicit Euler");
+    CHECK(resolved("MUSCL-Hancock", "muscl", "true") == "MUSCL-Hancock");   // by name it stays available
+}
+
 TEST(time_scheme_stages) {
     int calls = 0;
     double smax_seq[4] = {1.0, 3.0, 2.0, 0.5};

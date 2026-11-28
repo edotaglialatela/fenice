@@ -357,8 +357,10 @@ SimParams SimParams::from(const Params& p) {
             s.reconstruction = "muscl";
         }
     }
-    // auto: MUSCL-Hancock with the MUSCL reconstruction, Explicit Euler otherwise (the first-order default)
-    if (lower(s.time_scheme) == "auto") s.time_scheme = s.reconstruction == "muscl" ? "MUSCL-Hancock" : "Explicit Euler";
+    // auto: with the MUSCL reconstruction MUSCL-Hancock for inviscid flow and SSP-RK2 with viscosity (Hancock takes the viscous term in its
+    // corrector only, which is first order in time); Explicit Euler otherwise (the first-order default)
+    if (lower(s.time_scheme) == "auto")
+        s.time_scheme = s.reconstruction != "muscl" ? "Explicit Euler" : s.use_viscous ? "SSP Runge-Kutta 2" : "MUSCL-Hancock";
     s.weno_epsilon = p.num("weno_epsilon", 1e-6);
     s.positivity_fallback = p.flag("positivity_fallback");
     s.boundary_order = p.integer("boundary_order", 2);

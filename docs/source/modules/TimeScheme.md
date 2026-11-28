@@ -99,8 +99,9 @@ step costs one flux evaluation and one Riemann solve per face, where SSP-RK2 nee
 * Body forces and sources enter the predictor (sources at $t + \Delta t/2$) and the corrector; the viscous term only the corrector.
 * The step uses the largest wave speed of the previous step, so a step needs no extra pass; the first step of a run (or of a hot start from another
   scheme) seeds it, and a checkpoint stores it (key `S`).
-* `time_scheme = auto` (the default) means MUSCL-Hancock with `reconstruction = muscl` and explicit Euler otherwise. The scheme needs MUSCL (the WENO
-  schemes keep SSP-RK3) and is refused with `positivity_fallback`.
+* `time_scheme = auto` (the default) with `reconstruction = muscl` means MUSCL-Hancock for inviscid flow and SSP-RK2 with `use_viscous`; without MUSCL it
+  means explicit Euler. MUSCL-Hancock needs MUSCL (the WENO schemes keep SSP-RK3) and is refused with `positivity_fallback`. It can be asked for by name
+  in a viscous run, with the first-order time accuracy above.
 * It runs on uniform meshes (2-D and 3-D, OpenMP, MPI strips along y or x) and with [AMR]({{root}}modules/AMR.html) (quadtree and octree, MPI ranks). It gives the same bits for any thread count, rank count and
   SIMD setting, and an AMR run at level 0 equals the uniform run. Fused and two-pass residuals agree bit for bit.
 * A wall modelled by an immersed boundary carries a small remaining offset of order $\Delta t$ (cylinder at Re 40: 0.08 % in the drag at CFL 0.25, 0.14 % at CFL 0.5, against SSP-RK2).

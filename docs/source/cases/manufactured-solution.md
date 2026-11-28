@@ -515,7 +515,8 @@ first run.
 
 ### MUSCL-Hancock
 
-`time_scheme = auto` runs MUSCL with [MUSCL-Hancock]({{root}}modules/TimeScheme.html#muscl-hancock), so the studies run it too.
+`time_scheme = auto` runs inviscid MUSCL flow with [MUSCL-Hancock]({{root}}modules/TimeScheme.html#muscl-hancock) (viscous flow with SSP-RK2), so the
+studies run it too, by name also on the viscous solutions.
 
 * **Space and time together** (`mms.py`, periodic solutions, quick grids up to 64² and 48³): finest-pair orders 1.85 to 2.43 in
   $L_1$ and $L_2$ and 1.46 to 2.45 in $L_\infty$ (Navier-Stokes 2-D and 3-D, Euler 2-D), inside the MUSCL bands.

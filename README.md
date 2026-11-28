@@ -30,7 +30,7 @@ validation scripts and full documentation.
 
 - **Numerics:** HLLC and Low-Mach HLLC (Thornber) Riemann solvers; first order, 2nd-order MUSCL
   (Minmod, Van Leer, MC, Koren) or WENO3-Z / WENO5-Z reconstruction, with `boundary_order = 2` for second-order walls and outflows;
-  Explicit Euler, SSP-RK2, SSP-RK3 and MUSCL-Hancock (the default with MUSCL).
+  Explicit Euler, SSP-RK2, SSP-RK3 and MUSCL-Hancock (the default with MUSCL for inviscid flow; SSP-RK2 with viscosity).
 - **Physics:** ideal and stiffened-gas equations of state, Navier-Stokes viscous and heat fluxes, body forces, source terms, and an
   immersed boundary method (cylinder, sphere, or an airfoil from the NACA 4-digit formulas or a coordinate file; a sharp ghost-cell
   wall) with lift / drag / moment monitoring. Slip and no-slip walls, moving walls, velocity and mass-flow
