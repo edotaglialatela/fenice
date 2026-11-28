@@ -71,7 +71,10 @@ REF_BANDS = {"1st order": 0.7, "MUSCL": 1.5}
 # (equations, scheme, space) found outside their band -> a floor that keeps a worse loss from passing.
 # SSP-RK3 on the Navier-Stokes solution (--full): finest-pair orders 2.03 (1st order space) and 1.45 (MUSCL) after 2.81 and
 # 2.75, 2.19 on the coarser pairs, at differences of 2e-10 and 3e-9. For the first-order run a reference with a quarter of
-# the CFL moved by 3e-12 and left the orders unchanged, so it is not the reference; the cause was not found.
+# the CFL moved by 3e-12 and left the orders unchanged, so it is not the reference. Cause: the HLLC flux is not differentiable
+# where the contact speed changes sign, which limits a third-order integrator to order 2 once the dt^3 term is below that
+# constant (the small viscous steps get there first; the Euler solution does at CFL <= 0.025); with an HLL flux on averaged
+# wave speeds the order is 3.00. With MUSCL the limiter keeps it near 2, irregular (the 1.45 is one pair; the next gives 2.31).
 DOCUMENTED = {("Navier-Stokes", "SSP-RK3", "1st order"): 1.8, ("Navier-Stokes", "SSP-RK3", "MUSCL"): 1.2}
 
 

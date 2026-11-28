@@ -586,9 +586,16 @@ failure).
   solvers is checked by Sod and Shu-Osher against the exact and reference solutions (Roache, sec. 3.7).
 * **The immersed boundary.** No manufactured solution has a body; the wall is checked against exact solutions
   (`ibm_wedge.py`, `ibm_vortex.py`, the studies of moving bodies).
-* **SSP-RK3 with viscosity.** On the Navier-Stokes unsteady solution (`mms_time.py --full`) the finest-pair order of SSP-RK3
-  falls to 2.0 (first-order space) and 1.45 (MUSCL), at differences of $2\cdot10^{-10}$ and $3\cdot10^{-9}$. A finer reference
-  does not change the first-order row; the cause was not found.
+* **Third order in time below a small error.** On the Navier-Stokes unsteady solution (`mms_time.py --full`) the finest-pair
+  order of SSP-RK3 falls to 2.0 (first-order space) and 1.45 (MUSCL), at differences of $2\cdot10^{-10}$ and $3\cdot10^{-9}$.
+  The cause is the right-hand side, not the integrator or the viscous term: the HLLC flux is continuous but not differentiable
+  where the contact speed changes sign (the switch between its two star states), and a right-hand side with such kinks, crossed
+  a finite number of times per face, limits a third-order integrator to order 2 with a small constant. The order drops once the
+  $\Delta t^3$ term falls below that constant (differences below about $10^{-8}$ here). The viscous step limit makes $\Delta t$
+  small at a given CFL, so the Navier-Stokes rows reach this inside the CFL range of the study; the Euler solution reaches it at
+  CFL 0.025 and below (orders 2.58, 2.67), with viscosity or without. With an HLL flux on averaged wave speeds, which has no kink
+  in subsonic flow, the order is 3.00 on both solutions down to CFL 0.0125. With MUSCL the limiter (not smooth at extrema) keeps
+  the order near 2 and irregular even with that flux: the 1.45 is one pair, and the next one gives 2.31.
 
 ## Adding a manufactured solution
 
