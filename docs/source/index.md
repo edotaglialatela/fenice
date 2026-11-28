@@ -3,13 +3,14 @@ title: Fenice
 nav: Overview
 section: Start here
 order: 0
+layout: home
+tagline: A finite-volume solver for compressible flow. Euler and Navier-Stokes in 2-D and 3-D on Cartesian grids, with adaptive refinement and bodies immersed in the mesh.
 ---
 
 **Fenice** (Italian for *phoenix*) simulates compressible gas flow: shock tubes, blast waves, flow past a cylinder, a wing or
-a sphere, turbulence in a box. It solves the **Euler and Navier-Stokes equations** in 2-D and 3-D on a Cartesian grid, with
-optional adaptive mesh refinement around the features that matter. You describe a problem in a small text file, run one
-command, and open the result in ParaView. The solver is written in C++17 and uses OpenMP and MPI; the result does not
-depend on how many threads or ranks you use.
+a sphere, turbulence in a box. You describe a problem in a small text file, run one command, and open the result in
+ParaView. The solver is written in C++17 and uses OpenMP and MPI; the result does not depend on how many threads or ranks
+you use.
 
 ## Try it in three commands
 
@@ -22,6 +23,12 @@ python gui\run.py                                       # or set up and start a 
 Results go to `results/<case>/`: open the `<case>.pvd` file in ParaView. The
 [Getting started]({{root}}guide/getting-started.html) page walks through the first run step by step.
 
+## Results
+
+{{showcase}}
+
+Every benchmark, with the command that reproduces it, is in the [gallery]({{root}}cases/index.html).
+
 ## I want to...
 
 | Goal | Go to |
@@ -32,7 +39,7 @@ Results go to `results/<case>/`: open the `<case>.pvd` file in ParaView. The
 | use the graphical front end | [GUI]({{root}}guide/gui.html) |
 | make a run faster, or use more cores | [Performance]({{root}}guide/performance.html), [Switches]({{root}}guide/switches.html) |
 | choose a numerical scheme and understand what it does | [How Fenice works]({{root}}modules/overview.html) and the Methods pages |
-| see a worked example with results | the [Test cases](#test-cases) below |
+| see a worked example with results | the [gallery of test cases]({{root}}cases/index.html) |
 | judge how far the results can be trusted | [Testing]({{root}}guide/testing.html), [Validation]({{root}}guide/validation.html) |
 | read or extend the C++ code | [API reference]({{root}}api/index.html) |
 
@@ -54,25 +61,3 @@ Results go to `results/<case>/`: open the `<case>.pvd` file in ParaView. The
 * **Tools.** A PyQt6 workbench with a post-processing viewer and analysis tools (spectra, modal decomposition, sensitivity), and
   a library of verification and validation studies. See [GUI]({{root}}guide/gui.html) and
   [Validation]({{root}}guide/validation.html).
-
-## How the documentation is organised
-
-| Section | What is in it |
-|---|---|
-| **Start here** | this page and the first-run walkthrough |
-| **User guide** | how to write a case, every parameter, the GUI, performance and the environment switches |
-| **Methods** | what the solver does and why: equations, schemes, boundaries, physics, time integration, AMR, I/O, parallelism |
-| **Test cases** | one page per benchmark, with the command, the setting and the results against exact solutions or data |
-| **Verification** | the unit tests, the regression references, the [manufactured solutions]({{root}}cases/manufactured-solution.html) and the validation studies |
-| **API reference** | the C++ declarations of each header, extracted from the comments in the source |
-
-## Test cases
-
-Each page gives the command that reproduces it and the results: [Sod shock tube]({{root}}cases/sod.html),
-[Shu-Osher]({{root}}cases/shu-osher.html), [blast waves]({{root}}cases/blast-waves.html),
-[2-D Riemann problems]({{root}}cases/riemann-2d.html), [implosions]({{root}}cases/implosions.html),
-[Kelvin-Helmholtz]({{root}}cases/kelvin-helmholtz.html), [isentropic vortex]({{root}}cases/isentropic-vortex.html),
-[Taylor-Green vortex]({{root}}cases/taylor-green.html) (and [in 3-D]({{root}}cases/taylor-green-3d.html)),
-[lid-driven cavity]({{root}}cases/cavity.html), [Poiseuille flow]({{root}}cases/poiseuille.html),
-[flow past a cylinder]({{root}}cases/cylinder.html), [a sphere]({{root}}cases/sphere.html) and [an airfoil]({{root}}cases/airfoil.html).
-The manufactured solutions, which verify the code rather than a flow, are under Verification.

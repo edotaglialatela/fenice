@@ -3,6 +3,9 @@ title: Manufactured solutions - code verification
 nav: Manufactured solutions
 section: Verification
 order: 15
+group: Code verification
+thumb: img/mms.png
+summary: Exact solutions built for the equations: observed orders of every term, in space and time.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "Manufactured Solution"`, or one of its variants (`Manufactured Solution Euler`, `... 3D`, `... Walls`, `... Outflow`, `... Unsteady Euler`, `... Unsteady`, `... Box`); output in `results/`, [how to open it]({{root}}guide/getting-started.html#your-first-run).

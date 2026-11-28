@@ -33,7 +33,7 @@ jobs:
           cmake --build --preset release -j 4
       - name: Site
         run: |
-          pip install markdown2 -e python
+          pip install markdown2 pillow -e python
           python docs/build.py
       - uses: actions/configure-pages@v6
       - uses: actions/upload-pages-artifact@v5

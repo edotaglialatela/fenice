@@ -3,6 +3,9 @@ title: Woodward-Colella interacting blast waves
 nav: Blast waves
 section: Test cases
 order: 52
+group: Shocks and Riemann problems
+thumb: img/blast_waves.png
+summary: Two blast waves collide between reflecting walls: shock capturing and positivity under extreme pressure ratios.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "Woodward-Colella Blast Waves"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).

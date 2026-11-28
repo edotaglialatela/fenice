@@ -131,7 +131,7 @@ Solver runs, and a Solver can connect to monitoring, result viewing and analysis
 so new cases appear automatically. Build the solver, then:
 
 ```bash
-python prerequisites.py      # one-time: PyQt6, numpy, matplotlib, sympy, scipy, markdown2
+python prerequisites.py      # one-time: PyQt6, numpy, matplotlib, sympy, scipy, markdown2, pillow
 python gui/workbench.py      # the workbench; python gui/run.py is the original single-window setup dialog
 ```
 

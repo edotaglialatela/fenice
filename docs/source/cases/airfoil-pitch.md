@@ -3,6 +3,9 @@ title: Pitching airfoil - a NACA 0012 turned about its quarter chord
 nav: Pitching airfoil (IBM, Re = 1000)
 section: Test cases
 order: 46
+group: Bodies in the flow
+thumb: img/airfoil_pitch_vorticity.gif cover
+summary: An airfoil pitching nose-up on an adaptive mesh, and a sprung airfoil free to pitch.
 ---
 
 > **Run it** (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)):

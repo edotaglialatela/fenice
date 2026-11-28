@@ -3,6 +3,9 @@ title: Two-dimensional Riemann problems
 nav: 2-D Riemann
 section: Test cases
 order: 58
+group: Shocks and Riemann problems
+thumb: img/riemann_2d.png
+summary: Four constant states meeting at a point: interacting shocks, contacts and rarefactions in 2-D.
 ---
 
 The unit square is cut at $(0.5, 0.5)$ into four constant states (quadrants NE, NW, SW, SE). Four configurations of the Lax-Liu

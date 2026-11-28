@@ -15,6 +15,10 @@ Pages are Markdown files in ``docs/source/`` with a small front-matter block::
     header: Schemes.hpp          # optional: C++ header documented on this page
     ---
 
+Optional keys: ``layout: home`` with ``tagline:`` (the landing page); on a case page ``group:`` (one of
+``GROUPS``), ``thumb: img/NAME.png`` (add ``cover`` to fill the tile, a GIF gives a still frame) and ``summary:``
+(one sentence, also the page description) put it in the gallery.
+
 Directives inside a page:
 
 * ``{{widget:NAME}}``  inlines ``docs/widgets/NAME.html`` (interactive explorers)
@@ -25,13 +29,17 @@ Directives inside a page:
                        built solver (``fenice --case CASE --print-case-defaults``)
 * ``{{switches}}``     table of the FENICE_* environment switches, read from the
                        built solver (``fenice --print-switches``)
+* ``{{gallery}}``      thumbnail grid of the case pages, one heading per group
+* ``{{showcase}}``     the ``SHOWCASE`` case pages as a mosaic (landing page)
 
 Math is written as ``$...$`` / ``$$...$$`` and rendered by MathJax.  The API
 reference is parsed from the ``//`` comments above each declaration in
-``cpp/include/fv/*.hpp``, so it always matches the code.  The look reuses
-pdoc's stylesheet (``_templates/pdoc_base.css``) plus ``_templates/custom.css``.
+``cpp/include/fv/*.hpp``, so it always matches the code.  The look and the
+behaviour (search, page list, copy buttons) are ``_templates/site.css`` and
+``_templates/site.js``, copied next to the pages.
 
-Requires the ``markdown2`` package (installed with pdoc).
+Requires the ``markdown2`` package; with ``Pillow`` the gallery gets small
+thumbnails (else it shows the full images).
 """
 from __future__ import annotations
 
@@ -367,67 +375,187 @@ def api_html(header: str):
 
 
 # ---------------------------------------------------------------------------
-# Rendering
+# Site frame: top bar, page tree, on-this-page column, gallery
 # ---------------------------------------------------------------------------
 
-PAGE = """<!doctype html>
+REPO = "https://github.com/edotaglialatela/fenice"
+# Top-bar tabs: label, the page sections it covers, the page it opens.
+TABS = [("Guide", ("Start here", "User guide"), "guide/getting-started.html"),
+        ("Methods", ("Methods", "Immersed boundary"), "modules/overview.html"),
+        ("Gallery", ("Test cases",), "cases/index.html"),
+        ("Verification", ("Verification",), "guide/testing.html"),
+        ("API", ("API reference",), "api/index.html")]
+# Gallery groups (the ``group:`` of a case page), in display order.
+GROUPS = ["Shocks and Riemann problems", "Vortices, instabilities and turbulence", "Viscous flows with walls",
+          "Bodies in the flow", "Code verification"]
+# Case pages shown on the home page ({{showcase}}), by file name; the first is shown large.
+SHOWCASE = ["cylinder", "taylor-green-3d", "cylinder-supersonic", "sphere", "airfoil-pitch", "cavity"]
+THUMB = (720, 450)   # gallery thumbnail size (16:10)
+
+ICON_MENU = ('<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h16M4 12h16M4 17h16"/></svg>')
+ICON_GITHUB = ('<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 '
+               '7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28'
+               '-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64'
+               '-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82.64-.18 1.32-.27 2-.27'
+               '.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87'
+               ' 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.01 8.01 0 0016 8c0-4.42'
+               '-3.58-8-8-8z"/></svg>')
+
+HEAD = """<!doctype html>
 <html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} - Fenice</title>
-<style>{base_css}</style>
-<style>{custom_css}</style>
-<style>
-  .fv-pagelist h3 {{ margin: 1.2em 0 .3em; font-size: .8rem; text-transform: uppercase; letter-spacing: .06em; color: var(--muted, #51606f); }}
-  .fv-search-results li {{ margin: .4em 0; }}
-  .fv-search-results small {{ color: var(--muted, #51606f); }}
-  main.pdoc figure {{ margin: 1.2em 0; }}
-  main.pdoc figure img {{ max-width: 100%; }}
-  main.pdoc figcaption {{ font-size: .9em; color: var(--muted, #51606f); }}
-</style>
+<meta name="color-scheme" content="light dark">
+<title>{title}</title>
+<meta name="description" content="{description}">
+<link rel="icon" type="image/png" href="{root}img/site_mark.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
+<link rel="stylesheet" href="{root}site.css">
 <script>window.MathJax = {{ tex: {{ inlineMath: [['$', '$'], ['\\\\(', '\\\\)']] }} }};</script>
 <script id="MathJax-script" async src="https://cdn.jsdelivr.net/npm/mathjax@3/es5/tex-mml-chtml.js"></script>
-<script src="{root}search_index.js"></script>
+<script src="{root}search_index.js" defer></script>
+<script src="{root}site.js" defer></script>
 </head>
-<body>
-<nav class="pdoc">
-  <label id="navtoggle" for="togglestate" class="pdoc-button"><svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 30 30'><path stroke-linecap='round' stroke="currentColor" stroke-miterlimit='10' stroke-width='2' d='M4 7h22M4 15h22M4 23h22'/></svg></label>
-  <input id="togglestate" type="checkbox" aria-hidden="true" tabindex="-1">
-  <div>
-    {back}
-    <input type="search" id="fv-search" placeholder="Search..." role="searchbox" aria-label="search">
-    {contents}
-    {api_nav}
-    {pagelist}
+"""
+
+TOPBAR = """<a class="skip" href="#content">Skip to content</a>
+<header class="topbar">
+  {menu}
+  <a class="brand" href="{root}index.html"><img src="{root}img/site_mark.png" alt="" width="28" height="28"><span>Fenice</span></a>
+  <nav class="tabs" aria-label="Sections">{tabs}</nav>
+  <div class="search" role="search">
+    <input type="search" id="fv-search" placeholder="Search" aria-label="Search the documentation" autocomplete="off" aria-controls="fv-results" aria-expanded="false">
+    <kbd aria-hidden="true">/</kbd>
+    <div id="fv-results" class="search-results" role="listbox" aria-label="Search results" hidden></div>
   </div>
+  <a class="icon-link" href="{repo}" aria-label="Fenice on GitHub">{github}</a>
+</header>
+"""
+
+DOC = """<body data-root="{root}">
+{topbar}
+<div class="frame">
+<nav class="sidebar" id="sidebar" aria-label="All pages">
+{tree}
 </nav>
-<main class="pdoc">
-  <section class="module-info">
-    <h1 class="modulename">{heading}</h1>
-    <div class="docstring">
+<main id="content" class="doc">
+{crumbs}
+<article class="doc-article">
+<section class="module-info">
+<h1 class="page-title">{heading}</h1>
+{toc_inline}
+<div class="docstring">
 {body}
-    </div>
-  </section>
+</div>
+</section>
 {api}
+</article>
+{pager}
+{footer}
 </main>
-<script>
-(function () {{
-  const box = document.getElementById("fv-search"), main = document.querySelector("main.pdoc"), original = main.innerHTML;
-  const esc = s => s.replace(/[&<>"]/g, c => ({{"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}})[c]);
-  box.addEventListener("input", () => {{
-    const q = box.value.trim().toLowerCase();
-    if (!q) {{ main.innerHTML = original; if (window.MathJax && MathJax.typeset) MathJax.typeset(); return; }}
-    const terms = q.split(/\\s+/);
-    const hits = (window.FV_SEARCH || []).filter(e => terms.every(t => (e.title + " " + e.heading + " " + e.text).toLowerCase().includes(t))).slice(0, 60);
-    main.innerHTML = "<h1>Search results</h1>" + (hits.length ? "<ul class='fv-search-results'>" + hits.map(e =>
-      `<li><a href="{root}${{e.url}}">${{esc(e.heading || e.title)}}</a> <small>${{esc(e.title)}}</small><br><small>${{esc(e.text.slice(0, 160))}}</small></li>`).join("") + "</ul>" : "<p>No results.</p>");
-  }});
-}})();
-</script>
+<aside class="toc" aria-label="On this page">
+{toc}
+</aside>
+</div>
 </body>
 </html>
 """
+
+HOME = """<body class="home" data-root="{root}">
+{topbar}
+<section class="hero" aria-label="Fenice">
+<div class="hero-inner">
+<div class="hero-text">
+<h1 class="hero-title">Fenice</h1>
+<p class="hero-tagline">{tagline}</p>
+<p class="hero-actions"><a class="btn btn-primary" href="{root}guide/getting-started.html">Get started</a>
+<a class="btn btn-quiet" href="{root}cases/index.html">Browse the gallery</a>
+<a class="btn btn-quiet" href="{repo}">Source on GitHub</a></p>
+<p class="hero-meta">C++17 &middot; OpenMP and MPI &middot; 2-D and 3-D &middot; Windows, Linux and macOS &middot; MIT licence</p>
+</div>
+<img class="hero-art" src="{root}img/site_painting.jpg" width="560" height="871" fetchpriority="high"
+     alt="The Fenice emblem: a painted figure with three faces holding an orb">
+</div>
+</section>
+<main id="content" class="home-main">
+<div class="docstring">
+{body}
+</div>
+{footer}
+</main>
+</body>
+</html>
+"""
+
+
+def ordered(pages):
+    """The pages of the tree, section by section, each section by ``order``."""
+    return sorted((p for p in pages if p.meta.get("section") in SECTIONS),
+                  key=lambda p: (SECTIONS.index(p.meta["section"]), int(p.meta.get("order", 99))))
+
+
+def link(cur, p) -> str:
+    return cur.rel_root + p.out.relative_to(SITE).as_posix()
+
+
+def label(p) -> str:
+    return html.escape(p.meta.get("nav", p.title))
+
+
+def topbar(cur, menu: bool) -> str:
+    sec = None if cur.meta.get("layout") == "home" else cur.meta.get("section")
+    here = ' aria-current="true"'
+    tabs = "".join(f'<a href="{cur.rel_root}{url}"{here if sec in secs else ""}>{name}</a>' for name, secs, url in TABS)
+    btn = ('<button type="button" class="menu-btn" aria-controls="sidebar" aria-expanded="false" '
+           f'aria-label="Show the list of pages">{ICON_MENU}</button>') if menu else ""
+    return TOPBAR.format(menu=btn, root=cur.rel_root, tabs=tabs, repo=REPO, github=ICON_GITHUB)
+
+
+def tree(pages, cur) -> str:
+    out, seq, here = [], ordered(pages), ' aria-current="page"'
+    for sec in SECTIONS:
+        group = [p for p in seq if p.meta["section"] == sec]
+        if not group:
+            continue
+        items = "".join(f'<li><a href="{link(cur, p)}"{here if p is cur else ""}>{label(p)}</a></li>' for p in group)
+        is_open = " open" if cur.meta.get("section") == sec else ""
+        out.append(f"<details{is_open}><summary>{sec}</summary><ul>{items}</ul></details>")
+    return "\n".join(out)
+
+
+def crumbs(pages, cur) -> str:
+    sec = cur.meta.get("section")
+    first = next((p for p in ordered(pages) if p.meta.get("section") == sec), None)
+    if first is None:
+        return ""
+    sec_html = html.escape(sec) if first is cur else f'<a href="{link(cur, first)}">{html.escape(sec)}</a>'
+    return (f'<nav class="crumbs" aria-label="Breadcrumb"><ol><li><a href="{cur.rel_root}index.html">Fenice</a></li>'
+            f'<li>{sec_html}</li><li aria-current="page">{label(cur)}</li></ol></nav>')
+
+
+def pager(pages, cur) -> str:
+    seq = ordered(pages)
+    if cur not in seq:
+        return ""
+    i = seq.index(cur)
+    prev = seq[i - 1] if i > 0 else None
+    nxt = seq[i + 1] if i + 1 < len(seq) else None
+    parts = [f'<a class="prev" href="{link(cur, prev)}" rel="prev"><span class="pager-dir">Previous</span>{label(prev)}</a>'
+             if prev else "<span></span>"]
+    if nxt:
+        parts.append(f'<a class="next" href="{link(cur, nxt)}" rel="next"><span class="pager-dir">Next</span>{label(nxt)}</a>')
+    return f'<nav class="pager" aria-label="Previous and next page">{"".join(parts)}</nav>'
+
+
+def footer(cur) -> str:
+    src = cur.src.relative_to(ROOT).as_posix()
+    header = cur.meta.get("header")
+    hdr = f' &middot; <a href="{REPO}/blob/main/cpp/include/fv/{header}">fv/{header}</a>' if header else ""
+    return (f'<footer class="site-foot"><p><a href="{REPO}/blob/main/{src}">Source of this page</a>{hdr}</p>'
+            f'<p>Fenice &middot; MIT licence &middot; <a href="{REPO}">Repository</a></p></footer>')
 
 
 def nav_api(nav) -> str:
@@ -437,23 +565,79 @@ def nav_api(nav) -> str:
     for aid, name, kind, sub in nav:
         inner = "".join(f'<li><a class="{k}" href="#{mid}">{html.escape(n)}</a></li>' for mid, n, k in sub)
         items.append(f'<li><a class="{kind}" href="#{aid}">{html.escape(name)}</a>'
-                     + (f'<ul class="memberlist">{inner}</ul>' if inner else "") + "</li>")
-    return '<h2>API Documentation</h2><ul class="memberlist">' + "".join(items) + "</ul>"
+                     + (f"<ul>{inner}</ul>" if inner else "") + "</li>")
+    return '<h2 class="api-title">API</h2><ul class="api-nav">' + "".join(items) + "</ul>"
 
 
-def page_list(pages, current) -> str:
-    out = ['<div class="fv-pagelist"><h2>Pages</h2>']
-    for sec in SECTIONS:
-        group = sorted((p for p in pages if p.meta.get("section") == sec), key=lambda p: int(p.meta.get("order", 99)))
-        if not group:
-            continue
-        out.append(f"<h3>{sec}</h3><ul>")
-        for p in group:
-            href = current.rel_root + p.out.relative_to(SITE).as_posix()
-            label = html.escape(p.meta.get("nav", p.title))
-            out.append(f'<li><a href="{href}">{"<strong>" + label + "</strong>" if p is current else label}</a></li>')
-        out.append("</ul>")
-    return "".join(out) + "</div>"
+def thumbnail(spec: str):
+    """``img/x.gif cover`` -> (path under the site, width, height, fit). A small WebP still (a late frame of an
+    animation) when Pillow is installed, else the original image."""
+    parts = spec.split()
+    src, fit = parts[0], ("cover" if "cover" in parts[1:] else "contain")
+    path = DOCS / src
+    if not path.exists():
+        sys.exit(f"thumbnail not found: {src}")
+    try:
+        from PIL import Image
+    except ImportError:
+        return src, None, None, fit
+    rel = f"img/thumbs/{path.stem}.{fit}.webp"
+    dst = SITE / rel
+    if not dst.exists() or dst.stat().st_mtime < path.stat().st_mtime:
+        im = Image.open(path)
+        frames = getattr(im, "n_frames", 1)
+        if frames > 1:
+            im.seek(frames * 2 // 3)   # a late frame: the developed flow
+        im = im.convert("RGB")
+        w, h = THUMB
+        if fit == "cover":   # centre crop to the tile's aspect ratio
+            scale = max(w / im.width, h / im.height)
+            cw, ch = round(w / scale), round(h / scale)
+            x0, y0 = (im.width - cw) // 2, (im.height - ch) // 2
+            im = im.crop((x0, y0, x0 + cw, y0 + ch)).resize((w, h), Image.LANCZOS)
+        else:
+            im.thumbnail((w, h), Image.LANCZOS)
+        dst.parent.mkdir(parents=True, exist_ok=True)
+        im.save(dst, "WEBP", quality=82, method=6)
+    with Image.open(dst) as im:
+        return rel, im.width, im.height, fit
+
+
+def tile(cur, p) -> str:
+    src, w, h, fit = thumbnail(p.meta["thumb"])
+    size = f' width="{w}" height="{h}"' if w else ""
+    return (f'<a class="tile fit-{fit}" href="{link(cur, p)}"><span class="tile-img"><img src="{cur.rel_root}{src}" '
+            f'alt="" loading="lazy" decoding="async"{size}></span><span class="tile-name">{label(p)}</span>'
+            f'<span class="tile-sum">{html.escape(p.meta.get("summary", ""))}</span></a>')
+
+
+def gallery_md(pages, cur) -> str:
+    """{{gallery}}: every page with a ``thumb:``, one heading per group (Markdown headings, so they enter the contents)."""
+    cases = [p for p in ordered(pages) if p.meta.get("thumb")]
+    stray = [p.src.name for p in cases if p.meta.get("group") not in GROUPS]
+    if stray:
+        sys.exit("gallery: unknown or missing group in " + ", ".join(stray))
+    out = []
+    for g in GROUPS:
+        group = [p for p in cases if p.meta["group"] == g]
+        if group:
+            out.append(f'## {g}\n\n<div class="tiles">{"".join(tile(cur, p) for p in group)}</div>\n')
+    return "\n".join(out)
+
+
+def showcase_md(pages, cur) -> str:
+    """{{showcase}}: the SHOWCASE case pages as a mosaic."""
+    by_name = {p.src.stem: p for p in pages if p.meta.get("thumb")}
+    return f'\n<div class="showcase">{"".join(tile(cur, by_name[s]) for s in SHOWCASE)}</div>\n'
+
+
+def finish_html(text: str) -> str:
+    """Heading permalinks, scrollable tables and lazy images on a rendered body (before the widgets go in)."""
+    text = re.sub(r'<(h[234]) id="([^"]+)">(.*?)</\1>',
+                  lambda m: (f'<{m[1]} id="{m[2]}">{m[3]}<a class="headerlink" href="#{m[2]}" '
+                             f'aria-label="Link to this section"></a></{m[1]}>'), text, flags=re.S)
+    text = text.replace("<table>", '<div class="table-wrap"><table>').replace("</table>", "</table></div>")
+    return re.sub(r"<img (?![^>]*\bloading=)", '<img loading="lazy" decoding="async" ', text)
 
 
 def case_defaults_md(case: str) -> str:
@@ -502,8 +686,6 @@ def check_parameters_documented() -> None:
 
 def build(open_browser: bool = False) -> None:
     check_parameters_documented()
-    base_css = (TEMPLATES / "pdoc_base.css").read_text(encoding="utf-8")
-    custom_css = (TEMPLATES / "custom.css").read_text(encoding="utf-8")
     pages = load_pages()
     search = []
 
@@ -513,6 +695,10 @@ def build(open_browser: bool = False) -> None:
             body = body.replace(f"{{{{defaults:{case}}}}}", case_defaults_md(case.strip()))
         if "{{switches}}" in body:
             body = body.replace("{{switches}}", switches_md())
+        if "{{gallery}}" in body:
+            body = body.replace("{{gallery}}", gallery_md(pages, p))
+        if "{{showcase}}" in body:
+            body = body.replace("{{showcase}}", showcase_md(pages, p))
         widgets = re.findall(r"\{\{widget:(\w+)\}\}", body)
         for k, w in enumerate(widgets):   # injected after Markdown (raw HTML/JS must not be touched)
             body = body.replace(f"{{{{widget:{w}}}}}", f"\n\n\x00WIDGET{k}\x00\n\n", 1)
@@ -524,31 +710,43 @@ def build(open_browser: bool = False) -> None:
         if split:
             html_body = re.sub(r"(<p>)?\x00API\x00(</p>)?", lambda _: "</div></section>" + api + '<section><div class="docstring">', html_body)
             api = ""
-        for k, w in enumerate(widgets):
-            widget = (DOCS / "widgets" / f"{w}.html").read_text(encoding="utf-8")
-            html_body = re.sub(rf"(<p>)?\x00WIDGET{k}\x00(</p>)?", lambda _: f'<div class="fv-widget">\n{widget}\n</div>', html_body)
-        p.html, p.toc, p.api = html_body, toc, nav
-        back = "" if p.out == SITE / "index.html" else (
-            f'<a class="pdoc-button module-list-button" href="{p.rel_root}index.html">&#8592;&nbsp;Fenice</a>')
-        contents = f"<h2>Contents</h2>{toc}" if toc else ""
-        p.out.parent.mkdir(parents=True, exist_ok=True)
-        p.out.write_text(PAGE.format(title=html.escape(p.title), heading=html.escape(p.title), base_css=base_css,
-                                     custom_css=custom_css, root=p.rel_root, back=back, contents=contents,
-                                     api_nav=nav_api(nav), pagelist=page_list(pages, p), body=html_body, api=api),
-                         encoding="utf-8")
 
         url = p.out.relative_to(SITE).as_posix()
         plain = re.sub(r"(?s)<(script|style)\b.*?</\1>", " ", html_body)   # widget code is not content
-        plain = re.sub(r"<[^>]+>", " ", plain)
-        search.append({"title": p.title, "url": url, "heading": "", "text": re.sub(r"\s+", " ", plain)[:400]})
+        plain = re.sub(r"\s+", " ", html.unescape(re.sub(r"<[^>]+>", " ", plain))).strip()
+        search.append({"title": p.title, "url": url, "heading": "", "text": plain[:400]})
         for hid, htext in re.findall(r'<h[23] id="([^"]+)">(.*?)</h[23]>', html_body):
-            search.append({"title": p.title, "url": f"{url}#{hid}", "heading": re.sub(r"<[^>]+>", "", htext), "text": ""})
+            search.append({"title": p.title, "url": f"{url}#{hid}", "heading": html.unescape(re.sub(r"<[^>]+>", "", htext)), "text": ""})
         for aid, name, _, sub in nav:
             search.append({"title": p.title, "url": f"{url}#{aid}", "heading": name, "text": ""})
             search += [{"title": p.title, "url": f"{url}#{mid}", "heading": f"{name}.{n}", "text": ""} for mid, n, _ in sub]
 
+        html_body = finish_html(html_body)
+        for k, w in enumerate(widgets):
+            widget = (DOCS / "widgets" / f"{w}.html").read_text(encoding="utf-8")
+            html_body = re.sub(rf"(<p>)?\x00WIDGET{k}\x00(</p>)?", lambda _: f'<div class="fv-widget">\n{widget}\n</div>', html_body)
+        p.html, p.toc, p.api = html_body, toc, nav
+
+        description = p.meta.get("summary") or p.meta.get("tagline") or plain[:155].rsplit(" ", 1)[0]
+        home = p.meta.get("layout") == "home"
+        title = "Fenice: a finite-volume solver for compressible flow" if home else f"{p.title} · Fenice"
+        head = HEAD.format(title=html.escape(title), description=html.escape(description), root=p.rel_root)
+        if home:
+            page = HOME.format(root=p.rel_root, topbar=topbar(p, menu=False), tagline=html.escape(p.meta.get("tagline", "")),
+                               repo=REPO, body=html_body, footer=footer(p))
+        else:
+            toc_side = (f"<h2>On this page</h2>{toc}" if toc else "") + nav_api(nav)
+            toc_inline = f'<details class="toc-inline"><summary>On this page</summary>{toc}</details>' if toc else ""
+            page = DOC.format(root=p.rel_root, topbar=topbar(p, menu=True), tree=tree(pages, p), crumbs=crumbs(pages, p),
+                              heading=html.escape(p.title), toc_inline=toc_inline, body=html_body, api=api,
+                              pager=pager(pages, p), footer=footer(p), toc=toc_side)
+        p.out.parent.mkdir(parents=True, exist_ok=True)
+        p.out.write_text(head + page, encoding="utf-8")
+
     (SITE / "search_index.js").write_text("window.FV_SEARCH = " + json.dumps(search) + ";\n", encoding="utf-8")
     shutil.copytree(DOCS / "img", SITE / "img", dirs_exist_ok=True)
+    for name in ("site.css", "site.js"):
+        shutil.copyfile(TEMPLATES / name, SITE / name)
     (SITE / ".nojekyll").write_text("", encoding="utf-8")   # GitHub Pages: serve the files as they are
     print(f"Built {len(pages)} pages into {SITE}")
     if open_browser:

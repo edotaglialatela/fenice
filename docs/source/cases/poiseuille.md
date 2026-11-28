@@ -3,6 +3,9 @@ title: Hagen-Poiseuille channel flow
 nav: Poiseuille flow
 section: Test cases
 order: 20
+group: Viscous flows with walls
+thumb: img/poiseuille_convergence.png
+summary: Pressure-driven channel flow against the parabolic profile; second-order convergence.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "Poiseuille Flow"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).

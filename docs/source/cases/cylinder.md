@@ -3,6 +3,9 @@ title: Subsonic flow over a cylinder
 nav: Cylinder, subsonic (IBM, AMR)
 section: Test cases
 order: 40
+group: Bodies in the flow
+thumb: img/cylinder_vortices.gif cover
+summary: Vortex shedding at Re = 100 behind an immersed cylinder: loads, Strouhal number, confinement.
 ---
 
 > **Run it** (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)):

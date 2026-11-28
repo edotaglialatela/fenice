@@ -3,6 +3,9 @@ title: Noh implosion and Sedov-Taylor blast
 nav: Noh and Sedov
 section: Test cases
 order: 54
+group: Shocks and Riemann problems
+thumb: img/implosions.png
+summary: Noh implosion and Sedov-Taylor blast against their exact solutions.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "Noh Implosion"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).

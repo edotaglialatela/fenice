@@ -3,6 +3,9 @@ title: Shu-Osher shock / entropy-wave interaction
 nav: Shu-Osher
 section: Test cases
 order: 50
+group: Shocks and Riemann problems
+thumb: img/shu_osher_schemes.png
+summary: A Mach 3 shock running into an entropy wave: how well MUSCL and WENO resolve the waves behind it.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "Shu-Osher Test"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).

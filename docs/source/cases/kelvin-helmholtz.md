@@ -3,6 +3,9 @@ title: Kelvin-Helmholtz instability
 nav: Kelvin-Helmholtz
 section: Test cases
 order: 56
+group: Vortices, instabilities and turbulence
+thumb: img/kelvin_helmholtz.png
+summary: Growth of the most unstable mode of a shear layer against linear theory.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "Kelvin-Helmholtz"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).

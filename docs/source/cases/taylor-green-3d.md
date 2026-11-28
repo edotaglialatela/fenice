@@ -3,6 +3,9 @@ title: Taylor-Green vortex 3-D - transition to turbulence
 nav: Taylor-Green vortex 3-D
 section: Test cases
 order: 90
+group: Vortices, instabilities and turbulence
+thumb: img/taylor_green_3d_q.gif cover
+summary: Transition to turbulence at Re = 1600: kinetic energy and dissipation against reference data.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "Taylor-Green Vortex 3D"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).

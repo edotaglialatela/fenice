@@ -3,6 +3,9 @@ title: Sod shock tube
 nav: Sod shock tube
 section: Test cases
 order: 10
+group: Shocks and Riemann problems
+thumb: img/sod_exact.png
+summary: Shock, contact and rarefaction against the exact Riemann solution; orders, limiters and AMR.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "Sod Shock Tube"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).

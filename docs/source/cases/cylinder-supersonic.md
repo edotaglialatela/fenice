@@ -3,6 +3,9 @@ title: Supersonic flow over a cylinder
 nav: Cylinder, supersonic (IBM, Mach 2)
 section: Test cases
 order: 41
+group: Bodies in the flow
+thumb: img/supersonic_cylinder_schlieren.gif cover
+summary: Mach 2 bow shock: stand-off distance, and a cylinder heaving through its own shock.
 ---
 
 > **Run it** (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)):

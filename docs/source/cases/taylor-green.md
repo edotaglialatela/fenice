@@ -3,6 +3,9 @@ title: Taylor-Green vortex - viscous decay on a periodic domain
 nav: Taylor-Green vortex
 section: Test cases
 order: 70
+group: Vortices, instabilities and turbulence
+thumb: img/taylor_green_animation.gif
+summary: Viscous decay of a periodic vortex array against the exact solution, with grid convergence.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "Taylor-Green Vortex"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).

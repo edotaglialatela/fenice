@@ -3,6 +3,9 @@ title: Sphere in a channel - 3-D immersed boundary
 nav: Sphere (3-D IBM)
 section: Test cases
 order: 95
+group: Bodies in the flow
+thumb: img/ibm_sphere_octree_vorticity.gif cover
+summary: Steady flow past a sphere at Re = 20 on an octree: the 3-D immersed wall.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "IBM Sphere"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).

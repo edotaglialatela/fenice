@@ -3,6 +3,9 @@ title: Lid-driven cavity
 nav: Lid-driven cavity
 section: Test cases
 order: 30
+group: Viscous flows with walls
+thumb: img/cavity_streamlines.png cover
+summary: Lid-driven cavity: centreline velocities against tabulated data, with grid convergence.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "Lid Driven Cavity"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).

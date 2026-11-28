@@ -10,7 +10,7 @@ Run once on a fresh machine:
 Optional flags
 --------------
 --no-gui      Skip PyQt6 (headless / server environments).
---no-docs     Skip markdown2 (only needed to rebuild the documentation).
+--no-docs     Skip markdown2 and Pillow (only needed to rebuild the documentation).
 --no-analysis Skip SciPy (only the Sobol sequence of fenice.uq and the cylinder figures need it).
 --viz3d       Also install PyVista (3-D Q-criterion animation of the Taylor-Green case).
 
@@ -44,6 +44,7 @@ GUI = [
 
 DOCS = [
     ("markdown2",  "markdown2",  "Markdown renderer for docs/build.py",                               True),
+    ("pillow",     "PIL",        "Gallery thumbnails for docs/build.py",                              True),
 ]
 
 ANALYSIS = [
@@ -118,7 +119,7 @@ def main() -> None:
         formatter_class=argparse.RawDescriptionHelpFormatter,
     )
     parser.add_argument("--no-gui",   action="store_true", help="Skip PyQt6")
-    parser.add_argument("--no-docs",  action="store_true", help="Skip markdown2")
+    parser.add_argument("--no-docs",  action="store_true", help="Skip markdown2 and Pillow")
     parser.add_argument("--no-analysis", action="store_true", help="Skip SciPy (fenice.uq, fenice.modal and fenice.spectra run on NumPy alone)")
     parser.add_argument("--viz3d",    action="store_true", help="Also install PyVista (3-D Q-criterion animation)")
     args = parser.parse_args()

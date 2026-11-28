@@ -3,6 +3,9 @@ title: Isentropic vortex - advection accuracy
 nav: Isentropic vortex
 section: Test cases
 order: 80
+group: Vortices, instabilities and turbulence
+thumb: img/isentropic_vortex_validation.png
+summary: A vortex advected over one period of a periodic box: order of accuracy against the exact solution.
 ---
 
 > **Run it:** `build\release\fenice.exe --case "Isentropic Vortex"` (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)).

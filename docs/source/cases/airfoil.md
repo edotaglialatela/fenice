@@ -3,6 +3,9 @@ title: Airfoil - IBM section from a coordinate file or the NACA formulas
 nav: Airfoil (IBM, Re = 1000)
 section: Test cases
 order: 45
+group: Bodies in the flow
+thumb: img/airfoil_loads.png
+summary: A NACA 0012 at Re = 1000 traced by the immersed wall, on a uniform or adaptive mesh.
 ---
 
 > **Run it** (output in `results/`; [how to open it]({{root}}guide/getting-started.html#your-first-run)):
