@@ -39,6 +39,9 @@ declaration. Each page starts with a link to the Methods page that explains what
 
 ## Repository layout
 
+<details markdown="1">
+<summary>The folders and what each holds</summary>
+
 | Path | Content |
 |---|---|
 | `cpp/include/fv/`, `cpp/src/` | Solver library (one header per module page) |
@@ -52,6 +55,8 @@ declaration. Each page starts with a link to the Methods page that explains what
 | `docs/` | This documentation: `docs/source/` and `docs/img/`, built into `docs/site/` by `python docs/build.py` |
 | `build/` | Builds: `build/release/`, `build/debug/` |
 | `results/` | Simulation output (not in git) |
+
+</details>
 
 The rules that keep the numerics reproducible (bit-identical results, vector kernels equal to their scalar twins, MPI equal to serial)
 are described on the [Testing]({{root}}guide/testing.html) page.

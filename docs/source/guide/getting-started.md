@@ -64,6 +64,9 @@ Prefer a window? `python gui\run.py` opens a setup dialog and `python gui\workbe
 build\release\fenice.exe --config run.cfg --threads 8
 ```
 
+<details markdown="1">
+<summary>All command-line options</summary>
+
 | Option | Meaning |
 |---|---|
 | `--case NAME` | Test case: a name from `--list-cases`, or a path to a case folder ([Writing a test case]({{root}}guide/writing-cases.html)) |
@@ -80,6 +83,8 @@ build\release\fenice.exe --config run.cfg --threads 8
 | `--no-logo` | Do not print the banner (coloured on a terminal; set `NO_COLOR=1` for plain text) |
 | `--new-case NAME --from CASE` | Copy a case to `cases/<name>/case.toml` and exit |
 | `--save-case TARGET` | Save the resolved run as a new case and exit (`--case-name` sets its name) |
+
+</details>
 
 Parameters resolve in this order, later sources winning: baseline defaults,
 then the test case's file (`cases/<case>/case.toml`), then the `--config` file, then `--set` overrides.

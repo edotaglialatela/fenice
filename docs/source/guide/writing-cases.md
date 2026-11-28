@@ -174,6 +174,9 @@ case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 **Parameter sections** hold the run parameters, with exactly the names on the
 [Parameters]({{root}}guide/parameters.html) page. Each parameter has one home section:
 
+<details markdown="1">
+<summary>The section of every parameter</summary>
+
 | Section | Parameters |
 |---|---|
 | `[mesh]` | `Lx`, `Ly`, `Lz`, `nx`, `ny`, `nz` |
@@ -187,6 +190,8 @@ case file: `fenice --case "Shock Hot Spot" --set nx=600 --set ny=300`.
 | `[ibm]` | `use_ibm`, `ibm_shape`, `ibm_radius`, `ibm_cx`, `ibm_cy`, `ibm_cz` |
 | `[hot_start]` | `use_hot_start`, `hot_start_file`, `hot_start_src_nx`, `hot_start_src_ny` |
 | `[amr]` | `use_amr`, `amr_*` |
+
+</details>
 
 Values use TOML types: numbers (`nx = 200`, `mu = 2.5e-3`), booleans (`use_viscous = true`)
 and strings (`riemann_solver = "HLLC"`). The boundary conditions come from the case file

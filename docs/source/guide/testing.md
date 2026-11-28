@@ -48,6 +48,9 @@ mapping, I/O), `test_periodic.cpp` (periodic and 3-D flows), `test_casefile.cpp`
 argument `fenice_tests` runs all 208 tests; `fenice_tests --list` prints their names and `fenice_tests NAME ..` runs those whose name
 contains one of the arguments (a filter that matches nothing exits with code 2). They cover:
 
+<details markdown="1">
+<summary>What the unit tests check, area by area</summary>
+
 | Area | What is checked |
 |---|---|
 | EOS | Round trips, floors, and the stiffened gas reducing to the ideal gas |
@@ -60,6 +63,8 @@ contains one of the arguments (a filter that matches nothing exits with code 2).
 | Time schemes | Order of accuracy, stage counts, CFL clamping |
 | IBM | Body shapes, ghost cells and image points, the wall condition, deep-solid reset |
 | I/O | Solution mapping, `.npz` round trips, checkpoint and hot-start edge cases, VTK / VTM / PVD layout and sanitisation |
+
+</details>
 
 The areas with more to say:
 

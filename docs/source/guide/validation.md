@@ -35,6 +35,9 @@ python cases\validation\verification\sod.py --force          # one study, re-run
 **`verification/`: is the code right?** An exact solution exists, so the error and the order of
 accuracy are measured, not estimated.
 
+<details markdown="1">
+<summary>The verification scripts and what each compares</summary>
+
 | Script | Compares |
 |---|---|
 | `sod.py` | Sod vs the exact Riemann solution; 1st vs 2nd order; the four limiters |
@@ -60,9 +63,14 @@ accuracy are measured, not estimated.
 | `ibm_wedge.py` | Mach 2 flow along a 10 degree wedge against the exact oblique shock (order 3.6), and the curvature variant on a flat wall ([page]({{root}}modules/Physics.html)) |
 | `ibm_vortex.py` | supersonic vortex around a cylinder against its exact solution: the first-order curved-wall error of the ghost wall and the curvature correction, plus the cold-start Mach 2 cylinder bow shock ([page]({{root}}modules/Physics.html)) |
 
+</details>
+
 **`benchmarks/`: is the answer right?** The reference is a literature table, a much finer
 solution or a physical quantity without a closed form, so the comparison carries the
 uncertainty of the reference too.
+
+<details markdown="1">
+<summary>The benchmark scripts and what each compares</summary>
 
 | Script | Compares |
 |---|---|
@@ -75,6 +83,8 @@ uncertainty of the reference too.
 | `gci.py` | observed order, Grid Convergence Index and Richardson extrapolation of the cavity, airfoil and 3-D Taylor-Green results |
 | `ibm_loads.py cylinder` / `airfoil` | IBM loads from the monitor, Strouhal number |
 | `ibm_sphere.py` | 3-D sphere in a channel (Re = 20, Mach 0.3) at 10 and 20 cells per diameter: the change of the drag between the meshes (self-convergence, no exact 3-D reference) |
+
+</details>
 
 **`amr/`: does the adaptive mesh keep the answer and save the cost?**
 
@@ -111,6 +121,9 @@ first run.
 <figcaption>Error against the exact Sod solution; the dotted lines are slopes 1 and 1/2 (0 for $L_\infty$).</figcaption>
 </figure>
 
+<details markdown="1">
+<summary>Errors and orders of every scheme and norm</summary>
+
 | scheme | quantity | 100 | 200 | 400 | 800 | 1600 | order (finest pair) | band | |
 |---|---|---:|---:|---:|---:|---:|---:|---|---|
 | Godunov | rho L1 | 1.79e-02 | 1.13e-02 | 7.15e-03 | 4.51e-03 | 2.83e-03 | 0.67 (fit 0.67) | [0.50, 1.10] | OK |
@@ -123,6 +136,8 @@ first run.
 | MUSCL | p L1 | 4.21e-03 | 2.11e-03 | 1.07e-03 | 5.52e-04 | 2.55e-04 | 1.12 (fit 1.00) | [0.60, 1.20] | OK |
 | MUSCL | rho L2 | 1.34e-02 | 9.34e-03 | 7.21e-03 | 5.77e-03 | 4.01e-03 | 0.52 (fit 0.42) | [0.25, 0.75] | OK |
 | MUSCL | rho Linf | 8.15e-02 | 6.66e-02 | 7.44e-02 | 8.22e-02 | 7.40e-02 | 0.15 (fit -0.00) | <= 0.30 | OK |
+
+</details>
 
 * **$L_1$:** density converges at 0.66 (Godunov) and 0.8 to 0.9 (MUSCL), pressure and velocity, which have no
   contact error, at about 0.75 to 1. MUSCL's error is below Godunov's on every grid and for every variable.
@@ -165,6 +180,9 @@ The star is the AMR airfoil run at its effective grid size (indicative only: cha
 systematic refinement).</figcaption>
 </figure>
 
+<details markdown="1">
+<summary>Grid convergence of every study and quantity</summary>
+
 | study | quantity | grids (coarse to fine) | $p_{obs}$ | $F_s$ | fine-grid GCI | extrapolated | asymptotic ratio | reference |
 |---|---|---|---:|---:|---:|---:|---:|---|
 | cavity, MUSCL | $\psi_{\min}$ | -0.1072, -0.1125, -0.1137 | 2.12 | 1.25 | 0.442 % | -0.1141 | 1.09 | Ghia (1982) -0.1139; fine - ref = +2.41e-04, inside the GCI band |
@@ -181,6 +199,8 @@ systematic refinement).</figcaption>
 | IBM airfoil, Re = 1000 (coarser triplet) | $\overline{C_l}$, $2 \leq t \leq 6$ | 0.1685, 0.5253, 0.3765 | - | 3 | - | - | - | not monotone: no observed order, no GCI (more or finer grids are needed) |
 | 3-D Taylor-Green, Re = 1600 | $E_k(20)/E_k(0)$ | 0.2312, 0.2064, 0.1883 | -0.41 | 3 | - | - | - | apparent order -0.41 <= 0: the solutions do not converge on these grids, no GCI |
 | 3-D Taylor-Green, Re = 1600 | peak $\varepsilon$ | 0.01102, 0.01132, 0.01248 | -3.70 | 3 | - | - | - | DNS 512$^3$ 0.0127; fine - ref = -2.18e-04, no GCI band |
+
+</details>
 
 What the table says:
 
@@ -263,6 +283,9 @@ in a disposable checkout. A full run takes about 20 minutes.
 
 </details>
 
+<details markdown="1">
+<summary>Which check catches which defect</summary>
+
 | defect | size | regression (serial / 4 ranks) | MMS bands | unit tests | adaptive 1-7 ranks | ghost wall 1-7 ranks |
 |---|---|---|---|---|---|---|
 | F01 HLLC star flux rearranged | 1e-16 | caught | passes | caught | caught | caught |
@@ -277,6 +300,8 @@ in a disposable checkout. A full run takes about 20 minutes.
 | F10 flux-register weight 2e-7 too large | 2e-7 | caught | passes | caught | passes | passes |
 | F11 no-slip ghost velocity sign | O(1) | caught | **passes** | caught | passes | passes |
 | F12 halo list: neighbours of the face cells not marked | viscous reads at rank interfaces | 4 ranks only | passes | caught | caught | caught |
+
+</details>
 
 * **Every defect is caught by at least one check, except one that cannot matter.** The tolerance checks (regression, MMS
   bands) alone miss F06; the unit tests and the adaptive comparison catch it. F04 and F12 are seen by the 4-rank

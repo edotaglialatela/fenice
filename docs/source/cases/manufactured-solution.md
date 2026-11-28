@@ -123,6 +123,9 @@ observed orders of the finest pair of grids are in the table below.</figcaption>
 
 Observed orders (finest pair), from `results/validation/mms/mms_table.md`:
 
+<details markdown="1">
+<summary>Observed orders of every case, scheme and norm</summary>
+
 | case | scheme | norm | rho | u | v | w | p | expected | |
 |---|---|---|---:|---:|---:|---:|---:|---|---|
 | Manufactured Solution | MUSCL | L1 | 2.01 | 2.11 | 2.07 | - | 2.10 | 1.5 to 2.5 | ok |
@@ -155,6 +158,8 @@ Observed orders (finest pair), from `results/validation/mms/mms_table.md`:
 | Manufactured Solution Outflow | 1st order | L1 | 0.98 | 0.96 | 0.93 | - | 0.97 | 0.9 to 1.1 | ok |
 | Manufactured Solution Outflow | 1st order | L2 | 0.98 | 0.96 | 0.94 | - | 0.98 | 0.9 to 1.1 | ok |
 | Manufactured Solution Outflow | 1st order | Linf | 0.96 | 0.96 | 0.95 | - | 0.97 | 0.9 to 1.1 | ok |
+
+</details>
 
 * **Navier-Stokes, second order.** MUSCL gives 1.96 to 2.13 in $L_1$ and $L_2$ in 2-D and 1.96 to 2.22 in 3-D;
   $L_\infty$ is lower, as expected (1.6 to 2.35), and the first-order scheme gives 0.90 to 1.00. The viscous terms,
@@ -238,6 +243,9 @@ Navier-Stokes, which separates the convective closure from the viscous one) with
 are `mms_boundary_order1.md` and `mms_boundary_order2.md` in the same folder. Observed order of each pair of grids, of the worst
 variable (in brackets), and the density error on the 128² grid; $t = 0.5$:
 
+<details markdown="1">
+<summary>Orders and finest errors with <code>boundary_order = 1</code> and <code>2</code>, every solution and scheme</summary>
+
 | Solution | Scheme | Norm | `boundary_order = 1`: orders (16→32→64→128), finest error | `boundary_order = 2`: orders, finest error |
 |---|---|---|---|---|
 | Walls, Euler | MUSCL VL, SSP-RK2 | L2 | 1.01, 1.12, 1.24 (u), 4.81e-04 | 2.47, 2.06, 2.08 (p), 8.40e-05 |
@@ -276,6 +284,8 @@ variable (in brackets), and the density error on the 128² grid; $t = 0.5$:
 | Box, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.86, 0.94, 0.97 (rho), 1.35e-02 | 1.80, 2.92, 1.86 (rho), 4.80e-04 |
 | Box, Navier-Stokes | WENO5-Z, SSP-RK3 | L2 | 1.74, 1.53, 1.36 (v), 1.18e-03 | 2.02, 1.99, 2.00 (rho), 1.11e-05 |
 | Box, Navier-Stokes | WENO5-Z, SSP-RK3 | Linf | 0.84, 0.94, 0.97 (rho), 1.35e-02 | 2.02, 2.00, 2.00 (p), 3.23e-05 |
+
+</details>
 
 What it shows:
 
@@ -321,6 +331,9 @@ for the seam); the first-order columns are the baseline and have no band.
 
 </details>
 
+<details markdown="1">
+<summary>Orders and finest errors on the adaptive mesh, every solution and scheme</summary>
+
 | Solution | Scheme | Norm | `boundary_order = 1`: orders (16→32→64), finest error | `boundary_order = 2`: orders, finest error | leaves | band |
 |---|---|---|---|---|---|---|
 | Walls, Euler | MUSCL VL, SSP-RK2 | L2 | 1.06, 1.18 (u), 7.67e-04 | 2.17, 1.86 (rho), 3.37e-04 | 10240 | ok (1.5) |
@@ -347,6 +360,8 @@ for the seam); the first-order columns are the baseline and have no band.
 | Box, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.83, 0.96 (rho), 2.58e-02 | 1.34, 0.93 (rho), 4.63e-03 | 7168 | **below** (1.0) |
 | Box, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.44, 1.45 (rho), 2.51e-03 | 2.50, 1.95 (v), 2.90e-04 | 7168 | ok (1.5) |
 | Box, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.83, 0.95 (rho), 2.60e-02 | 1.93, 0.90 (rho), 5.10e-03 | 7168 | **below** (1.0) |
+
+</details>
 
 * On the Euler solutions the second-order boundary faces raise the orders of the finest pair from 1.2 to 1.4 to 1.5 to 2.0 ($L_2$) and from
   0.5 to 0.6 to 1.2 to 1.5 ($L_\infty$), with MUSCL and WENO3-Z alike, and lower the density error on the finest grid by a factor of 1.2
