@@ -1,43 +1,56 @@
 # Manufactured solutions with non-periodic sides, boundary_order = 2 (ghost layers, faces on the boundary reconstructed)
 
-Measured 2026-11-02 with `mms_boundary.py --boundary-order 2` (MUSCL, WENO3-Z, WENO5-Z). Same setup as
+Measured 2026-11-02 with `mms_boundary.py --boundary-order 2` (MUSCL, WENO3-Z, WENO5-Z); the MUSCL-Hancock rows were
+measured 2026-11-28 (commit `6c8d689`, `--schemes hancock`). Same setup as
 `mms_boundary_order1.md`; compare row by row. The Euler solutions isolate the convective closure; the Navier-Stokes ones also include the
 viscous closure of the walls (moving-wall ghost energy and the cross derivatives on the boundary faces, both under the same key).
 
 | solution | scheme | norm | worst variable | orders per grid pair | finest rho error | band |
 |---|---|---|---|---|---|---|
 | Manufactured Solution Walls Euler | MUSCL VL, SSP-RK2 | L2 | p | 2.47, 2.06, 2.08 | 8.40e-05 | ok (1.7) |
+| Manufactured Solution Walls Euler | MUSCL VL, MUSCL-Hancock | L2 | p | 2.08, 1.95, 2.01 | 8.08e-05 | ok (1.7) |
 | Manufactured Solution Walls Euler | MUSCL VL, SSP-RK2 | Linf | v | 2.01, 1.63, 1.47 | 5.06e-04 | ok (1.3) |
+| Manufactured Solution Walls Euler | MUSCL VL, MUSCL-Hancock | Linf | v | 1.83, 1.85, 1.27 | 4.96e-04 | below (1.3) |
 | Manufactured Solution Walls Euler | WENO3-Z, SSP-RK3 | L2 | v | 2.14, 2.14, 2.45 | 5.11e-05 | ok (1.7) |
 | Manufactured Solution Walls Euler | WENO3-Z, SSP-RK3 | Linf | v | 1.62, 1.79, 1.78 | 3.22e-04 | ok (1.3) |
 | Manufactured Solution Walls Euler | WENO5-Z, SSP-RK3 | L2 | p | 2.17, 1.95, 1.99 | 4.36e-05 | ok (1.7) |
 | Manufactured Solution Walls Euler | WENO5-Z, SSP-RK3 | Linf | u | 1.55, 2.04, 1.95 | 2.36e-04 | ok (1.3) |
 | Manufactured Solution Walls | MUSCL VL, SSP-RK2 | L2 | v | 2.40, 2.04, 1.95 | 6.62e-05 | ok (1.7) |
+| Manufactured Solution Walls | MUSCL VL, MUSCL-Hancock | L2 | v | 2.27, 1.90, 1.89 | 8.28e-05 | ok (1.7) |
 | Manufactured Solution Walls | MUSCL VL, SSP-RK2 | Linf | v | 2.64, 1.80, 1.90 | 3.73e-04 | ok (1.3) |
+| Manufactured Solution Walls | MUSCL VL, MUSCL-Hancock | Linf | v | 2.34, 1.78, 1.89 | 3.95e-04 | ok (1.3) |
 | Manufactured Solution Walls | WENO3-Z, SSP-RK3 | L2 | v | 2.54, 2.24, 2.03 | 4.74e-05 | ok (1.7) |
 | Manufactured Solution Walls | WENO3-Z, SSP-RK3 | Linf | p | 1.96, 1.83, 1.86 | 4.54e-04 | ok (1.3) |
 | Manufactured Solution Walls | WENO5-Z, SSP-RK3 | L2 | p | 1.87, 1.97, 2.00 | 2.86e-05 | ok (1.7) |
 | Manufactured Solution Walls | WENO5-Z, SSP-RK3 | Linf | p | 1.93, 1.96, 1.99 | 6.95e-05 | ok (1.3) |
 | Manufactured Solution Outflow Euler | MUSCL VL, SSP-RK2 | L2 | v | 1.94, 1.50, 1.15 | 2.59e-04 | below (1.7) |
+| Manufactured Solution Outflow Euler | MUSCL VL, MUSCL-Hancock | L2 | rho | 1.80, 1.55, 1.22 | 2.38e-04 | below (1.7) |
 | Manufactured Solution Outflow Euler | MUSCL VL, SSP-RK2 | Linf | u | 1.84, 1.49, 0.90 | 1.41e-03 | below (1.3) |
+| Manufactured Solution Outflow Euler | MUSCL VL, MUSCL-Hancock | Linf | v | 1.49, 1.24, 1.09 | 1.27e-03 | below (1.3) |
 | Manufactured Solution Outflow Euler | WENO3-Z, SSP-RK3 | L2 | u | 1.99, 2.15, 2.32 | 5.85e-05 | ok (1.7) |
 | Manufactured Solution Outflow Euler | WENO3-Z, SSP-RK3 | Linf | u | 1.60, 1.98, 1.83 | 4.85e-04 | ok (1.3) |
 | Manufactured Solution Outflow Euler | WENO5-Z, SSP-RK3 | L2 | u | 2.02, 1.98, 1.99 | 3.42e-05 | ok (1.7) |
 | Manufactured Solution Outflow Euler | WENO5-Z, SSP-RK3 | Linf | u | 1.87, 1.83, 1.96 | 1.26e-04 | ok (1.3) |
 | Manufactured Solution Outflow | MUSCL VL, SSP-RK2 | L2 | u | 2.00, 1.47, 0.99 | 9.57e-05 | below (1.7) |
+| Manufactured Solution Outflow | MUSCL VL, MUSCL-Hancock | L2 | u | 1.42, 1.05, 0.93 | 1.92e-04 | below (1.7) |
 | Manufactured Solution Outflow | MUSCL VL, SSP-RK2 | Linf | u | 1.58, 1.19, 0.76 | 7.13e-04 | below (1.3) |
+| Manufactured Solution Outflow | MUSCL VL, MUSCL-Hancock | Linf | u | 0.70, 0.83, 0.89 | 6.37e-04 | below (1.3) |
 | Manufactured Solution Outflow | WENO3-Z, SSP-RK3 | L2 | u | 2.04, 1.71, 2.48 | 4.84e-05 | ok (1.7) |
 | Manufactured Solution Outflow | WENO3-Z, SSP-RK3 | Linf | p | 1.17, 2.04, 2.09 | 5.84e-04 | ok (1.3) |
 | Manufactured Solution Outflow | WENO5-Z, SSP-RK3 | L2 | rho | 2.08, 2.02, 1.99 | 1.94e-05 | ok (1.7) |
 | Manufactured Solution Outflow | WENO5-Z, SSP-RK3 | Linf | v | 2.33, 1.78, 1.88 | 5.78e-05 | ok (1.3) |
 | Manufactured Solution Box Euler | MUSCL VL, SSP-RK2 | L2 | p | 1.99, 2.09, 2.11 | 9.60e-05 | ok (1.7) |
+| Manufactured Solution Box Euler | MUSCL VL, MUSCL-Hancock | L2 | p | 2.01, 2.06, 2.07 | 9.15e-05 | ok (1.7) |
 | Manufactured Solution Box Euler | MUSCL VL, SSP-RK2 | Linf | u | 1.61, 1.87, 1.72 | 6.39e-04 | ok (1.3) |
+| Manufactured Solution Box Euler | MUSCL VL, MUSCL-Hancock | Linf | u | 1.69, 1.88, 1.66 | 5.24e-04 | ok (1.3) |
 | Manufactured Solution Box Euler | WENO3-Z, SSP-RK3 | L2 | v | 2.20, 2.12, 2.18 | 4.80e-05 | ok (1.7) |
 | Manufactured Solution Box Euler | WENO3-Z, SSP-RK3 | Linf | u | 1.67, 1.99, 1.58 | 5.41e-04 | ok (1.3) |
 | Manufactured Solution Box Euler | WENO5-Z, SSP-RK3 | L2 | v | 1.90, 1.95, 1.99 | 3.37e-05 | ok (1.7) |
 | Manufactured Solution Box Euler | WENO5-Z, SSP-RK3 | Linf | rho | 1.42, 1.69, 1.93 | 4.03e-04 | ok (1.3) |
 | Manufactured Solution Box | MUSCL VL, SSP-RK2 | L2 | u | 2.40, 2.28, 2.15 | 5.20e-05 | ok (1.7) |
+| Manufactured Solution Box | MUSCL VL, MUSCL-Hancock | L2 | u | 2.30, 2.13, 2.02 | 5.92e-05 | ok (1.7) |
 | Manufactured Solution Box | MUSCL VL, SSP-RK2 | Linf | rho | 1.85, 1.76, 1.82 | 4.40e-04 | ok (1.3) |
+| Manufactured Solution Box | MUSCL VL, MUSCL-Hancock | Linf | rho | 1.49, 1.73, 1.79 | 4.57e-04 | ok (1.3) |
 | Manufactured Solution Box | WENO3-Z, SSP-RK3 | L2 | u | 2.72, 2.75, 2.49 | 3.85e-05 | ok (1.7) |
 | Manufactured Solution Box | WENO3-Z, SSP-RK3 | Linf | rho | 1.80, 2.92, 1.86 | 4.80e-04 | ok (1.3) |
 | Manufactured Solution Box | WENO5-Z, SSP-RK3 | L2 | rho | 2.02, 1.99, 2.00 | 1.11e-05 | ok (1.7) |

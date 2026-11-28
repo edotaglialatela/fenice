@@ -239,7 +239,7 @@ interface or non-reflecting is unchanged, and the key is not available with `rec
 </details>
 
 `cases/validation/verification/mms_boundary.py` repeats the study for the non-periodic solutions (walls, outflow and box, each as Euler and as
-Navier-Stokes, which separates the convective closure from the viscous one) with MUSCL, WENO3-Z and WENO5-Z; the tables
+Navier-Stokes, which separates the convective closure from the viscous one) with MUSCL (SSP-RK2 and MUSCL-Hancock), WENO3-Z and WENO5-Z; the tables
 are `mms_boundary_order1.md` and `mms_boundary_order2.md` in the same folder. Observed order of each pair of grids, of the worst
 variable (in brackets), and the density error on the 128² grid; $t = 0.5$:
 
@@ -249,37 +249,49 @@ variable (in brackets), and the density error on the 128² grid; $t = 0.5$:
 | Solution | Scheme | Norm | `boundary_order = 1`: orders (16→32→64→128), finest error | `boundary_order = 2`: orders, finest error |
 |---|---|---|---|---|
 | Walls, Euler | MUSCL VL, SSP-RK2 | L2 | 1.01, 1.12, 1.24 (u), 4.81e-04 | 2.47, 2.06, 2.08 (p), 8.40e-05 |
+| Walls, Euler | MUSCL VL, MUSCL-Hancock | L2 | 0.95, 1.10, 1.24 (u), 4.47e-04 | 2.08, 1.95, 2.01 (p), 8.08e-05 |
 | Walls, Euler | MUSCL VL, SSP-RK2 | Linf | -0.07, 0.31, 0.52 (u), 1.85e-02 | 2.01, 1.63, 1.47 (v), 5.06e-04 |
+| Walls, Euler | MUSCL VL, MUSCL-Hancock | Linf | -0.08, 0.31, 0.52 (u), 1.81e-02 | 1.83, 1.85, 1.27 (v), 4.96e-04 |
 | Walls, Euler | WENO3-Z, SSP-RK3 | L2 | 0.97, 1.10, 1.20 (u), 4.98e-04 | 2.14, 2.14, 2.45 (v), 5.11e-05 |
 | Walls, Euler | WENO3-Z, SSP-RK3 | Linf | -0.00, 0.34, 0.51 (u), 1.88e-02 | 1.62, 1.79, 1.78 (v), 3.22e-04 |
 | Walls, Euler | WENO5-Z, SSP-RK3 | L2 | 1.00, 1.12, 1.20 (u), 5.14e-04 | 2.17, 1.95, 1.99 (p), 4.36e-05 |
 | Walls, Euler | WENO5-Z, SSP-RK3 | Linf | 0.21, 0.38, 0.52 (u), 1.90e-02 | 1.55, 2.04, 1.95 (u), 2.36e-04 |
 | Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.61, 1.35, 1.09 (rho), 4.93e-04 | 2.40, 2.04, 1.95 (v), 6.62e-05 |
+| Walls, Navier-Stokes | MUSCL VL, MUSCL-Hancock | L2 | 1.43, 1.30, 1.08 (rho), 4.91e-04 | 2.27, 1.90, 1.89 (v), 8.28e-05 |
 | Walls, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.79, 0.83, 0.83 (rho), 5.16e-03 | 2.64, 1.80, 1.90 (v), 3.73e-04 |
+| Walls, Navier-Stokes | MUSCL VL, MUSCL-Hancock | Linf | 0.66, 0.76, 0.79 (rho), 5.07e-03 | 2.34, 1.78, 1.89 (v), 3.95e-04 |
 | Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.80, 1.38, 1.04 (rho), 5.11e-04 | 2.54, 2.24, 2.03 (v), 4.74e-05 |
 | Walls, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 1.11, 0.78, 0.74 (rho), 5.50e-03 | 1.96, 1.83, 1.86 (p), 4.54e-04 |
 | Walls, Navier-Stokes | WENO5-Z, SSP-RK3 | L2 | 1.21, 1.27, 1.02 (rho), 5.18e-04 | 1.87, 1.97, 2.00 (p), 2.86e-05 |
 | Walls, Navier-Stokes | WENO5-Z, SSP-RK3 | Linf | 0.61, 0.81, 0.73 (rho), 5.58e-03 | 1.93, 1.96, 1.99 (p), 6.95e-05 |
 | Outflow, Euler | MUSCL VL, SSP-RK2 | L2 | 1.88, 1.63, 1.23 (p), 2.78e-04 | 1.94, 1.50, 1.15 (v), 2.59e-04 |
+| Outflow, Euler | MUSCL VL, MUSCL-Hancock | L2 | 1.76, 1.51, 1.23 (rho), 2.51e-04 | 1.80, 1.55, 1.22 (rho), 2.38e-04 |
 | Outflow, Euler | MUSCL VL, SSP-RK2 | Linf | 1.37, 1.00, 0.72 (p), 2.45e-03 | 1.84, 1.49, 0.90 (u), 1.41e-03 |
+| Outflow, Euler | MUSCL VL, MUSCL-Hancock | Linf | 1.34, 1.64, 0.62 (p), 2.02e-03 | 1.49, 1.24, 1.09 (v), 1.27e-03 |
 | Outflow, Euler | WENO3-Z, SSP-RK3 | L2 | 1.38, 1.30, 1.35 (v), 1.64e-04 | 1.99, 2.15, 2.32 (u), 5.85e-05 |
 | Outflow, Euler | WENO3-Z, SSP-RK3 | Linf | 0.87, 1.13, 0.69 (p), 2.70e-03 | 1.60, 1.98, 1.83 (u), 4.85e-04 |
 | Outflow, Euler | WENO5-Z, SSP-RK3 | L2 | 1.10, 1.19, 1.16 (p), 1.87e-04 | 2.02, 1.98, 1.99 (u), 3.42e-05 |
 | Outflow, Euler | WENO5-Z, SSP-RK3 | Linf | 0.34, 0.56, 0.69 (p), 2.77e-03 | 1.87, 1.83, 1.96 (u), 1.26e-04 |
 | Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 2.10, 1.55, 1.01 (u), 1.66e-04 | 2.00, 1.47, 0.99 (u), 9.57e-05 |
+| Outflow, Navier-Stokes | MUSCL VL, MUSCL-Hancock | L2 | 1.53, 1.08, 0.93 (u), 2.34e-04 | 1.42, 1.05, 0.93 (u), 1.92e-04 |
 | Outflow, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 1.62, 1.18, 0.73 (u), 2.93e-03 | 1.58, 1.19, 0.76 (u), 7.13e-04 |
+| Outflow, Navier-Stokes | MUSCL VL, MUSCL-Hancock | Linf | 0.70, 0.85, 0.90 (u), 2.86e-03 | 0.70, 0.83, 0.89 (u), 6.37e-04 |
 | Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 2.17, 1.42, 1.20 (u), 1.85e-04 | 2.04, 1.71, 2.48 (u), 4.84e-05 |
 | Outflow, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.96, 0.79, 0.81 (rho), 3.37e-03 | 1.17, 2.04, 2.09 (p), 5.84e-04 |
 | Outflow, Navier-Stokes | WENO5-Z, SSP-RK3 | L2 | 1.39, 1.21, 1.06 (u), 1.88e-04 | 2.08, 2.02, 1.99 (rho), 1.94e-05 |
 | Outflow, Navier-Stokes | WENO5-Z, SSP-RK3 | Linf | 0.58, 0.79, 0.79 (rho), 3.44e-03 | 2.33, 1.78, 1.88 (v), 5.78e-05 |
 | Box, Euler | MUSCL VL, SSP-RK2 | L2 | 1.50, 1.38, 1.40 (u), 9.00e-04 | 1.99, 2.09, 2.11 (p), 9.60e-05 |
+| Box, Euler | MUSCL VL, MUSCL-Hancock | L2 | 1.48, 1.37, 1.40 (u), 6.82e-04 | 2.01, 2.06, 2.07 (p), 9.15e-05 |
 | Box, Euler | MUSCL VL, SSP-RK2 | Linf | 0.80, 0.46, 0.57 (v), 9.20e-03 | 1.61, 1.87, 1.72 (u), 6.39e-04 |
+| Box, Euler | MUSCL VL, MUSCL-Hancock | Linf | 0.71, 0.50, 0.58 (v), 7.00e-03 | 1.69, 1.88, 1.66 (u), 5.24e-04 |
 | Box, Euler | WENO3-Z, SSP-RK3 | L2 | 1.51, 1.38, 1.38 (u), 9.26e-04 | 2.20, 2.12, 2.18 (v), 4.80e-05 |
 | Box, Euler | WENO3-Z, SSP-RK3 | Linf | 0.97, 0.48, 0.57 (v), 9.37e-03 | 1.67, 1.99, 1.58 (u), 5.41e-04 |
 | Box, Euler | WENO5-Z, SSP-RK3 | L2 | 1.35, 1.34, 1.36 (u), 9.65e-04 | 1.90, 1.95, 1.99 (v), 3.37e-05 |
 | Box, Euler | WENO5-Z, SSP-RK3 | Linf | 0.39, 0.50, 0.58 (v), 9.45e-03 | 1.42, 1.69, 1.93 (rho), 4.03e-04 |
 | Box, Navier-Stokes | MUSCL VL, SSP-RK2 | L2 | 1.92, 1.68, 1.43 (v), 1.14e-03 | 2.40, 2.28, 2.15 (u), 5.20e-05 |
+| Box, Navier-Stokes | MUSCL VL, MUSCL-Hancock | L2 | 1.94, 1.69, 1.43 (v), 1.11e-03 | 2.30, 2.13, 2.02 (u), 5.92e-05 |
 | Box, Navier-Stokes | MUSCL VL, SSP-RK2 | Linf | 0.85, 0.95, 0.98 (rho), 1.34e-02 | 1.85, 1.76, 1.82 (rho), 4.40e-04 |
+| Box, Navier-Stokes | MUSCL VL, MUSCL-Hancock | Linf | 0.78, 0.90, 0.96 (rho), 1.31e-02 | 1.49, 1.73, 1.79 (rho), 4.57e-04 |
 | Box, Navier-Stokes | WENO3-Z, SSP-RK3 | L2 | 1.93, 1.65, 1.41 (v), 1.17e-03 | 2.72, 2.75, 2.49 (u), 3.85e-05 |
 | Box, Navier-Stokes | WENO3-Z, SSP-RK3 | Linf | 0.86, 0.94, 0.97 (rho), 1.35e-02 | 1.80, 2.92, 1.86 (rho), 4.80e-04 |
 | Box, Navier-Stokes | WENO5-Z, SSP-RK3 | L2 | 1.74, 1.53, 1.36 (v), 1.18e-03 | 2.02, 1.99, 2.00 (rho), 1.11e-05 |
@@ -538,7 +550,8 @@ studies run it too, by name also on the viscous solutions.
   solution) the step becomes convection-limited, the order falls (2.45, 1.88, 1.53) and the coefficient settles (0.72, 0.30,
   0.21, 0.20); at 128² the difference is $1.5\cdot10^{-4}$, against $9\cdot10^{-7}$ for SSP-RK2.
 * **Walls and outflow** (`mms_boundary.py`, `boundary_order = 2`, grids 16² to 128²): on the Euler solutions the $L_2$ errors are
-  close to those of SSP-RK2; on the Navier-Stokes outflow solution (no-slip wall) MUSCL-Hancock has $L_2$ orders 1.42, 1.05,
+  close to those of SSP-RK2 (the $L_\infty$ order of the finest pair on the Euler walls solution is 1.27, against 1.47, just below
+  the 1.3 band); on the Navier-Stokes outflow solution (no-slip wall) MUSCL-Hancock has $L_2$ orders 1.42, 1.05,
   0.93 and twice the finest error of SSP-RK2 (2.00, 1.47, 0.99).
 
 ### With WENO-Z
