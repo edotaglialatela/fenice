@@ -413,11 +413,12 @@ of the uniform base mesh.
 
 * **The $L_2$ orders meet the band** (1.5 to 2.1 on the finest pair), and in the quick mode (finest pair 32→64) so do the $L_\infty$
   orders. With the grid 128 the $L_\infty$ order of the finest pair is **below** its band in four of six rows (0.60, 0.61, 0.66, 0.94).
-* **The maximum error of the Navier-Stokes solution sits at a corner of the refined square** from $n = 64$ on, in the first fine
-  leaf next to both seam lines, with WENO3-Z, MUSCL and MUSCL-Hancock, where a coarse and a fine cell meet diagonally. On the Euler
-  solution the maximum pressure error (the worst $L_\infty$ variable) sits on a seam about 4 base cells from the corner, and the
-  maxima of density and velocity lie inside the refined square at a fixed distance from a seam (4 to 5 base cells at $n = 128$, half
-  that at $n = 64$). This is a property of the adaptive mesh, not of the reconstruction; nothing was changed in the solver.
+* **The maximum error of the Navier-Stokes solution sits within 2 base cells of a corner of the refined square** from $n = 64$ on,
+  where a coarse and a fine cell meet diagonally: at the corner with WENO3-Z, on a seam 1.75 base cells from it with WENO5-Z, MUSCL
+  and MUSCL-Hancock (density, the worst $L_\infty$ variable in every row). On the Euler solution the rows below their band have it away
+  from the corner (WENO3-Z: pressure, on a seam 4.25 base cells from it; WENO5-Z: velocity, inside the refined square 4.75 base cells
+  from a seam), the rows inside it at the corner (MUSCL and MUSCL-Hancock, pressure). This is a property of the adaptive mesh, not of
+  the reconstruction; nothing was changed in the solver.
 * **Refining the square does not improve the global error.** The $L_2$ error is above that of the uniform base mesh from $n = 32$
   on (last column; the second band, not met). By region (Navier-Stokes), far from the seam the adaptive error is close to the
   uniform base mesh up to $n = 64$, but inside the refined square it is several times that of the uniform $2n$ mesh:
@@ -436,9 +437,8 @@ of the uniform base mesh.
 * **WENO5-Z** (six cells where they are leaves of the face's level, the WENO3-Z stencil at the seam; grids 16→32→64→128). $L_2$ orders
   1.84, 1.71, **1.26** (Navier-Stokes) and 1.86, 2.11, 1.56 (Euler); $L_\infty$ 1.25, 1.17, **0.72** (Navier-Stokes, density) and 0.68, 1.19,
   **0.59** (Euler, velocity). The $L_2$ order of the finest pair of the Navier-Stokes solution is below its band, and the $L_\infty$ orders are below
-  theirs on the finest pair: the smooth error is smaller, so the seam shows in the maximum earlier than for the other two schemes. The maxima
-  of the Navier-Stokes solution sit on a seam in the first fine leaf, 1.25 to 1.75 base cells from a corner (the velocity at the corner itself),
-  those of the Euler solution where they sit with WENO3-Z. The finest $L_2$
+  theirs on the finest pair: the smooth error is smaller, so the seam shows in the maximum earlier than for the other two schemes. Where the
+  maxima sit: see the second bullet above. The finest $L_2$
   density error is $2.6\cdot10^{-4}$ against $2.8\cdot10^{-4}$ for WENO3-Z and for MUSCL on the same mesh, so the fifth-order stencil buys nothing there, and
   3 to 5 times that of the uniform WENO5-Z run on $n$ cells. The $L_\infty$ row of the Navier-Stokes solution, below its band on the quick grids already
   (0.68), is kept with a floor of 0.5 (decided after the result; the band is not moved); the rows below their bands only with the grid 128 fail `--full`
@@ -541,7 +541,8 @@ studies run it too, by name also on the viscous solutions.
 
 * **Space and time together** (`mms.py`, periodic solutions, quick grids up to 64² and 48³): finest-pair orders 1.85 to 2.43 in
   $L_1$ and $L_2$ and 1.46 to 2.45 in $L_\infty$ (Navier-Stokes 2-D and 3-D, Euler 2-D), inside the MUSCL bands.
-* **Adaptive mesh** (`mms_amr_weno.py`): $L_2$ orders 1.86 and 1.90, $L_\infty$ 1.21 and 1.30, inside the bands.
+* **Adaptive mesh** (`mms_amr_weno.py`, quick grids up to 64): $L_2$ orders 1.86 and 1.90, $L_\infty$ 1.21 and 1.30, inside the bands;
+  with the grid 128 the $L_\infty$ order of the Navier-Stokes solution is 0.66, below its band like that of MUSCL (0.61).
 * **Time order.** On a fixed mesh the scheme does not tend to the semi-discrete solution at second order, because its predictor
   uses the cell's own flux difference: the orders against the small-step reference are 0.95 to 1.00 (reported, not banded). With
   CFL 0.4 and the mesh refined, the difference to the SSP-RK3 solution of the same grid is:
