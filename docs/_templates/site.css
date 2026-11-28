@@ -1,8 +1,8 @@
 /* =========================================================
    Fenice documentation: one stylesheet for the frame (top bar, page tree, "On this page"),
    the prose, the API blocks, the gallery and the landing page.
-   Oxblood brand from the emblem painting, cool-slate neutrals, IBM Plex.
-   Follows the system light / dark setting. Accent for links, current place and state only.
+   The Fenice identity: deep teal, cream neutrals, a terracotta accent (the cylinder of the mark), IBM Plex.
+   Follows the system light / dark setting. Teal for links, current place and state; terracotta only for the primary action.
    ========================================================= */
 
 /* ---------- Tokens ---------- */
@@ -12,35 +12,35 @@
     --sans: 'IBM Plex Sans', system-ui, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
     --mono: 'IBM Plex Mono', ui-monospace, 'Cascadia Mono', Consolas, monospace;
 
-    --bg:            #f3f6f9;   /* side columns, quiet panels */
+    --bg:            #f6f6ef;   /* side columns, quiet panels (the cream of the identity) */
     --surface:       #ffffff;   /* reading surface */
-    --surface-2:     #e9eef3;   /* inline code, signatures, hover */
-    --border:        #d5dde6;
-    --border-strong: #aebbc9;
+    --surface-2:     #ecede5;   /* inline code, signatures, hover */
+    --border:        #dcddd3;
+    --border-strong: #b3b8ad;
 
-    --ink:      #1b2430;        /* every text role >= 4.5:1 on its ground */
-    --ink-soft: #3c4a5a;
-    --muted:    #51606f;
+    --ink:      #16333d;        /* every text role >= 4.5:1 on its ground */
+    --ink-soft: #33505a;
+    --muted:    #4f656c;
 
-    --brand:       #9a2d3a;
-    --brand-hover: #7e2630;
-    --brand-tint:  #f4e3e5;
-    --teal:        #0c6170;
-    --gold:        #8a5708;
+    --brand:       #1b5361;
+    --brand-hover: #123c47;
+    --brand-tint:  #e1edef;
+    --accent:       #b64e40;    /* terracotta: the primary action only */
+    --accent-hover: #9f4236;
 
-    --code-bg:   #1b2430;
-    --code-fg:   #d7dee6;
-    --code-line: #2a3543;
-    --syn-comment: #8d9cad;
-    --syn-keyword: #e68a95;
-    --syn-string:  #d8a657;
-    --syn-number:  #e0a96d;
-    --syn-builtin: #5ec8c0;
-    --syn-func:    #bfc9d4;
-    --syn-class:   #7fd4cc;
-    --syn-punct:   #93a0ae;
+    --code-bg:   #16333d;
+    --code-fg:   #dfe7e4;
+    --code-line: #24485a;
+    --syn-comment: #8faab0;
+    --syn-keyword: #f0a08f;
+    --syn-string:  #d8b26a;
+    --syn-number:  #e8b27c;
+    --syn-builtin: #7cc9cf;
+    --syn-func:    #c9d6d4;
+    --syn-class:   #94d6d2;
+    --syn-punct:   #9bb0b3;
 
-    --shadow: 0 10px 30px rgb(27 36 48 / 0.12);
+    --shadow: 0 10px 30px rgb(22 51 61 / 0.12);
     --top-h: 3.5rem;
     --ease: cubic-bezier(0.22, 1, 0.36, 1);
 
@@ -52,21 +52,21 @@
 
 @media (prefers-color-scheme: dark) {
     :root {
-        --bg:            #0f141a;
-        --surface:       #141a21;
-        --surface-2:     #1c242e;
-        --border:        #2a3440;
-        --border-strong: #3d4958;
-        --ink:      #e4e9ee;
-        --ink-soft: #c3ccd5;
-        --muted:    #9aa7b4;
-        --brand:       #ec8f9b;
-        --brand-hover: #f6b2ba;
-        --brand-tint:  #3b1d23;
-        --teal:        #6fd0c8;
-        --gold:        #e0b062;
-        --code-bg:   #0b1015;
-        --code-line: #26313d;
+        --bg:            #0c1a1f;
+        --surface:       #10242c;
+        --surface-2:     #173039;
+        --border:        #23414c;
+        --border-strong: #375a67;
+        --ink:      #ecefe8;
+        --ink-soft: #c8d3cf;
+        --muted:    #98aeb2;
+        --brand:       #8ccbd5;
+        --brand-hover: #b4e1e7;
+        --brand-tint:  #173a44;
+        --accent:       #b64e40;
+        --accent-hover: #9f4236;
+        --code-bg:   #0a171c;
+        --code-line: #1d3843;
         --shadow: 0 10px 30px rgb(0 0 0 / 0.45);
     }
 }
@@ -110,7 +110,7 @@ a:hover { color: var(--brand-hover); }
     font-weight: 600; font-size: 1.08rem; letter-spacing: -0.01em;
 }
 .brand:hover { color: var(--ink); }
-.brand img { width: 28px; height: 28px; border-radius: 50%; object-fit: cover; }
+.brand img { display: block; width: auto; height: 28px; }
 .tabs { display: flex; gap: 0.15rem; min-width: 0; overflow-x: auto; scrollbar-width: none; }
 .tabs::-webkit-scrollbar { display: none; }
 .tabs a {
@@ -365,8 +365,8 @@ pre:where(:not(.fv-widget *)) code { padding: 0; background: none; border: 0; co
 .copy-button {
     display: grid; place-items: center;
     min-width: 2rem; min-height: 2rem;
-    border: 1px solid #3a4655; border-radius: 0.4rem;
-    background: rgb(27 36 48 / 0.94); color: #c3ccd5;
+    border: 1px solid #2f5566; border-radius: 0.4rem;
+    background: rgb(22 51 61 / 0.94); color: #c8d3cf;
     cursor: pointer; opacity: 0; transition: opacity 0.15s, color 0.15s;
 }
 .copy-button svg { width: 1rem; height: 1rem; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; stroke-linejoin: round; }
@@ -381,7 +381,7 @@ pre:where(:not(.fv-widget *)) code { padding: 0; background: none; border: 0; co
 .copy-tip {
     position: absolute; right: calc(100% + 0.4rem); top: 50%; translate: 0 -50%;
     padding: 0.12rem 0.45rem; border-radius: 0.3rem;
-    background: #2a3543; color: #e4e9ee; font: 500 0.75rem/1.5 var(--sans);
+    background: #24485a; color: #ecefe8; font: 500 0.75rem/1.5 var(--sans);
     white-space: nowrap; pointer-events: none;
     opacity: 0; transition: opacity 0.15s;
 }
@@ -439,28 +439,27 @@ pre:where(:not(.fv-widget *)) code { padding: 0; background: none; border: 0; co
 .showcase .tile:first-child .tile-name { padding-bottom: 0; font-size: 1.05rem; }
 
 /* ---------- Landing page ---------- */
+/* The banner of the identity: deep teal, the streamlines of a flow past a cylinder (img/site_streamlines.svg), cream type.
+   The gradient keeps the text column on solid teal at every width. */
 .hero {
     color-scheme: dark;
     background:
-        radial-gradient(ellipse 55% 85% at 82% 45%, rgb(122 31 44 / 0.55), transparent 70%),
-        #17100f;
-    color: #e6dad3;
+        linear-gradient(90deg, #173f50 0 30%, rgb(23 63 80 / 0) 62%),
+        url("img/site_streamlines.svg") right center / cover no-repeat,
+        #173f50;
+    color: #f6f6ef;
 }
 .hero-inner {
     max-width: 72rem; margin: 0 auto;
-    padding: clamp(2.75rem, 7vw, 5rem) 1.5rem;
-    display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center;
-    gap: clamp(2rem, 6vw, 5rem);
+    padding: clamp(3rem, 8vw, 5.5rem) 1.5rem;
 }
-.hero-title {
-    margin: 0 0 1.1rem;
-    font-size: clamp(2.75rem, 7vw, 4.5rem); line-height: 1; font-weight: 700; letter-spacing: -0.035em;
-    color: #fbf5f0;
-}
+.hero-text { max-width: 38rem; }
+.hero-title { margin: 0 0 1.4rem; line-height: 0; }
+.hero-title img { width: auto; height: clamp(3.4rem, 8vw, 5.25rem); }
 .hero-tagline {
     max-width: 36rem; margin: 0 0 1.9rem;
     font-size: clamp(1.1rem, 2.1vw, 1.32rem); line-height: 1.55;
-    color: #e6dad3; text-wrap: pretty;
+    color: #f6f6ef; text-wrap: pretty;
 }
 .hero-actions { display: flex; flex-wrap: wrap; gap: 0.75rem; margin: 0 0 1.75rem; }
 .btn {
@@ -468,17 +467,12 @@ pre:where(:not(.fv-widget *)) code { padding: 0; background: none; border: 0; co
     border-radius: 0.5rem; font-weight: 600; text-decoration: none;
     transition: background 0.15s, border-color 0.15s, color 0.15s;
 }
-.btn-primary { background: #b3404d; border: 1px solid #c95a67; color: #ffffff; }
-.btn-primary:hover { background: #c24c5a; color: #ffffff; }
-.btn-quiet { border: 1px solid rgb(241 232 226 / 0.35); color: #f1e8e2; }
-.btn-quiet:hover { border-color: #f1e8e2; background: rgb(255 255 255 / 0.06); color: #ffffff; }
-.hero :focus-visible { outline-color: #f1e8e2; }
-.hero-meta { margin: 0; font-size: 0.88rem; color: #bcaca3; }
-.hero-art {
-    width: clamp(11rem, 21vw, 15.5rem);
-    border-radius: 0.35rem;
-    box-shadow: 0 0 0 1px rgb(201 160 90 / 0.35), 0 26px 60px rgb(0 0 0 / 0.55);
-}
+.btn-primary { background: var(--accent); border: 1px solid #c8604f; color: #ffffff; }
+.btn-primary:hover { background: var(--accent-hover); color: #ffffff; }
+.btn-quiet { border: 1px solid rgb(246 246 239 / 0.4); color: #f6f6ef; }
+.btn-quiet:hover { border-color: #f6f6ef; background: rgb(246 246 239 / 0.08); color: #ffffff; }
+.hero :focus-visible { outline-color: #f6f6ef; }
+.hero-meta { margin: 0; font: 0.84rem/1.6 var(--mono); color: #a9c4c9; }
 .home-main { max-width: 58rem; margin: 0 auto; padding: 2.75rem 1.5rem 2.5rem; }
 .home-main .docstring > p:first-child { font-size: 1.08rem; color: var(--ink); }
 
@@ -502,8 +496,7 @@ pre:where(:not(.fv-widget *)) code { padding: 0; background: none; border: 0; co
     .search input { width: 10rem; }
 }
 @media (max-width: 44rem) {
-    .hero-inner { grid-template-columns: minmax(0, 1fr); }
-    .hero-art { order: -1; width: 7rem; }
+    .hero { background-position: 0 0, 72% center, 0 0; }
     .showcase { grid-template-columns: repeat(2, minmax(0, 1fr)); }
     .showcase .tile:first-child { grid-row: auto; }
     .showcase .tile:first-child .tile-img { aspect-ratio: 16 / 10; min-height: 0; }

@@ -409,7 +409,11 @@ HEAD = """<!doctype html>
 <meta name="color-scheme" content="light dark">
 <title>{title}</title>
 <meta name="description" content="{description}">
-<link rel="icon" type="image/png" href="{root}img/site_mark.png">
+<meta name="theme-color" media="(prefers-color-scheme: light)" content="#ffffff">
+<meta name="theme-color" media="(prefers-color-scheme: dark)" content="#10242c">
+<link rel="icon" href="{root}img/brand/fenice.ico" sizes="any">
+<link rel="icon" href="{root}img/brand/fenice-icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="{root}img/brand/fenice-icon-256.png">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;0,700;1,400&display=swap">
@@ -424,7 +428,7 @@ HEAD = """<!doctype html>
 TOPBAR = """<a class="skip" href="#content">Skip to content</a>
 <header class="topbar">
   {menu}
-  <a class="brand" href="{root}index.html"><img src="{root}img/site_mark.png" alt="" width="28" height="28"><span>Fenice</span></a>
+  <a class="brand" href="{root}index.html"><picture><source media="(prefers-color-scheme: dark)" srcset="{root}img/brand/fenice-logo-on-dark.svg"><img src="{root}img/brand/fenice-logo.svg" alt="Fenice" width="96" height="28"></picture></a>
   <nav class="tabs" aria-label="Sections">{tabs}</nav>
   <div class="search" role="search">
     <input type="search" id="fv-search" placeholder="Search" aria-label="Search the documentation" autocomplete="off" aria-controls="fv-results" aria-expanded="false">
@@ -469,15 +473,13 @@ HOME = """<body class="home" data-root="{root}">
 <section class="hero" aria-label="Fenice">
 <div class="hero-inner">
 <div class="hero-text">
-<h1 class="hero-title">Fenice</h1>
+<h1 class="hero-title"><img src="{root}img/brand/fenice-logo-on-dark.svg" alt="Fenice" width="328" height="96" fetchpriority="high"></h1>
 <p class="hero-tagline">{tagline}</p>
 <p class="hero-actions"><a class="btn btn-primary" href="{root}guide/getting-started.html">Get started</a>
 <a class="btn btn-quiet" href="{root}cases/index.html">Browse the gallery</a>
 <a class="btn btn-quiet" href="{repo}">Source on GitHub</a></p>
 <p class="hero-meta">C++17 &middot; OpenMP and MPI &middot; 2-D and 3-D &middot; Windows, Linux and macOS &middot; MIT licence</p>
 </div>
-<img class="hero-art" src="{root}img/site_painting.jpg" width="560" height="871" fetchpriority="high"
-     alt="The Fenice emblem: a painted figure with three faces holding an orb">
 </div>
 </section>
 <main id="content" class="home-main">
