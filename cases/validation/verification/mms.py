@@ -63,7 +63,8 @@ VARS = ("rho", "u", "v", "w", "p")
 FLOOR = 0.7
 KNOWN = {("Manufactured Solution Euler", "1st order"): None,   # pre-asymptotic, see the diagnostic below
          ("Manufactured Solution Walls", "MUSCL"): FLOOR, ("Manufactured Solution Walls", "1st order"): FLOOR,
-         ("Manufactured Solution Outflow", "MUSCL"): FLOOR}
+         ("Manufactured Solution Outflow", "MUSCL"): FLOOR}   # the TVD limiter zeroes the slope at the zero-gradient outflow
+                                                              # (results/validation/muscl_outflow_limiter; docs: manufactured-solution)
 
 
 def schemes_of(sol):

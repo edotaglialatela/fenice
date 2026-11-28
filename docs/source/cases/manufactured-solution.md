@@ -314,8 +314,14 @@ What it shows:
 * **MUSCL on the outflow solution** stays at $L_2$ about 1.0 to 1.2 and its error hardly falls (Euler: $2.8\cdot10^{-4}$ to
   $2.6\cdot10^{-4}$; Navier-Stokes: $1.7\cdot10^{-4}$ to $9.5\cdot10^{-5}$). It does not depend on the limiter (Minmod, Van Leer, MC
   and Koren behave alike), it is a layer that grows toward the outflow and builds up in time (the order near the boundary is about 2
-  at $t = 0.02$ and about 1 at $t = 0.5$), and WENO3-Z and WENO5-Z do not show it. The same extremum is present at the walls of the
-  other cases without this loss, so the clipped slope alone does not explain it; the cause was not traced further.
+  at $t = 0.02$ and about 1 at $t = 0.5$), and WENO3-Z and WENO5-Z do not show it. **The cause is the limiter at the outflow:** the
+  solution has a zero normal gradient there, so the boundary cell holds an extremum, every TVD limiter sets its slope to zero, and the
+  value at the outflow face is first order; the flow carries it through that face at every step, so the error builds up into the layer.
+  The walls have the same extremum but no flow through the face, so they keep the order. With the central slope in place of the
+  limiter (a diagnostic build, not an option of the solver) the outflow solutions reach $L_2$ 2.00 (Euler) and 1.85 (Navier-Stokes)
+  on the finest pair. Nothing was changed: a real transmissive outlet, whose flow has a normal gradient, is first order anyway (see
+  the limits below), so only an outflow with an exactly zero normal gradient loses an order to the limiter. WENO3-Z and WENO5-Z keep
+  second order there; MUSCL is kept with a floor.
 * **Limits of the test.** Both the initial state and the source terms are evaluated at the cell centres (second order in
   the cell averages), so no order above 2 can show here for any scheme: WENO5-Z is at the limit of the data, not of the scheme. The
   solutions are built so that the mirror is the exact extension, which is also what makes the ghost layers exact; a transmissive or
@@ -382,7 +388,7 @@ for the seam); the first-order columns are the baseline and have no band.
 * Six entries are **below** their band, all on the finest pair: the outflow solution with MUSCL ($L_2$ 1.50 on the Euler solution, which
   prints as the band but is under it; $L_2$ 0.98 and $L_\infty$ 0.82 on Navier-Stokes) and with WENO3-Z ($L_2$ 1.42, Navier-Stokes), and the
   Navier-Stokes box solution in $L_\infty$ (0.97 and 0.90). The uniform study shows the same slow layer on the outflow solution with MUSCL
-  (above); on the box solution the order of the second pair is lower than that of the first (1.8 and 2.3 on the first). They are reported,
+  (above: the limiter at the outflow extremum); on the box solution the order of the second pair is lower than that of the first (1.8 and 2.3 on the first). They are reported,
   not moved.
 * Level jumps themselves: the second-order faces use the coarse-fine closure unchanged (interpolated fine side, second-order coarse side),
   so a seam in smooth flow costs the order of its interpolated and averaged values, and the orders above are those of the whole mesh.
