@@ -1,4 +1,4 @@
-"""Explanatory schematics of the immersed-boundary pages (docs/img/ibm_*.png).
+"""Explanatory schematics of the documentation (docs/img/ibm_*.png, amr_*, mpi_*) and the landing-page background.
 
     python docs/schematics.py            # every figure
     python docs/schematics.py fresh      # only the figures whose name contains "fresh"
@@ -18,6 +18,7 @@ Figures:
   amr_coarse_fine.png      a coarse-fine face: one face per fine leaf, the virtual cell, the flux register
   amr_subcycling.png       the order in which three levels advance in one coarse step
   mpi_strips.png           y-strips with their two-row halo, and x-strips for a flat mesh
+  site_streamlines.svg     the landing-page background: potential flow past a cylinder, symmetric about it
 """
 import os
 import sys
@@ -537,9 +538,46 @@ def mpi_strips():
     save(fig, "mpi_strips.png")
 
 
+def site_streamlines():
+    """The background of the landing page: streamlines of potential flow past a cylinder (the motif of the identity), as an SVG.
+    Uniform flow along y, stream function psi = x (1 - R^2 / r^2) about the centre; the lines are psi = k * STEP for whole k,
+    so they are symmetric about the cylinder (the axis line runs behind it)."""
+    W, H, CX, CY, R, STEP, X_FROM = 1280, 640, 1010.0, 320.0, 70.0, 22.0, 300.0
+    ys = np.linspace(-10, H + 10, 81)
+
+    def line_x(x0):   # outside the cylinder: f(x) = x (1 - R^2 / r^2) - |x0| increases with x, so bisect on the side of x0
+        if x0 == 0:
+            return np.zeros_like(ys)
+        out = []
+        for dy in ys - CY:
+            lo, hi = np.sqrt(max(R * R - dy * dy, 0.0)) + 1e-9, abs(x0) + R
+            for _ in range(80):
+                mid = 0.5 * (lo + hi)
+                lo, hi = (mid, hi) if mid * (1 - R * R / (mid * mid + dy * dy)) < abs(x0) else (lo, mid)
+            out.append(np.copysign(0.5 * (lo + hi), x0))
+        return np.array(out)
+
+    paths = []
+    for k in range(int(np.ceil((X_FROM - CX) / STEP)), int(np.floor((W - CX) / STEP)) + 2):
+        x0 = k * STEP
+        xs = line_x(x0) + CX
+        bent = np.abs(xs - (x0 + CX)) > 0.4   # keep the bent part and one straight point on each side of it
+        keep = bent | np.roll(bent, 1) | np.roll(bent, -1)
+        keep[0] = keep[-1] = True
+        paths.append('<path d="M' + " L".join(f"{x:.1f} {y:.0f}" for x, y in zip(xs[keep], ys[keep])) + '"/>')
+    svg = (f'<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 {W} {H}" preserveAspectRatio="xMaxYMid slice" aria-hidden="true">'
+           '<g fill="none" stroke="#F6F6EF" stroke-opacity="0.13" stroke-width="1.2">' + "".join(paths) + "</g>"
+           f'<circle cx="{CX:.0f}" cy="{CY:.0f}" r="{R:.0f}" fill="#B64E40"/></svg>\n')
+    path = os.path.join(IMG, "site_streamlines.svg")
+    with open(path, "w", encoding="utf-8", newline="\n") as f:
+        f.write(svg)
+    print("wrote", os.path.relpath(path))
+
+
 FIGURES = {"ibm_ghost_geometry": ghost_geometry, "ibm_loads": loads, "ibm_kinematics": kinematics,
            "ibm_coupling": coupling, "ibm_step": step, "ibm_fresh_cells": fresh_cells,
-           "amr_coarse_fine": amr_coarse_fine, "amr_subcycling": amr_subcycling, "mpi_strips": mpi_strips}
+           "amr_coarse_fine": amr_coarse_fine, "amr_subcycling": amr_subcycling, "mpi_strips": mpi_strips,
+           "site_streamlines": site_streamlines}
 
 if __name__ == "__main__":
     pick = sys.argv[1:]
