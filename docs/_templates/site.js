@@ -1,5 +1,5 @@
 // Fenice documentation: search, the page list on small screens, copy buttons on code blocks, the highlight of the
-// current section in "On this page", and the animations of the gallery tiles on hover. Pages work without it.
+// current section in "On this page", and the animations of the landing mosaic on hover. Pages work without it.
 (function () {
   "use strict";
   const root = document.body.dataset.root || "";
@@ -140,10 +140,10 @@
     update();
   }
 
-  // ---- Gallery tiles: the animation behind a still plays while the pointer is on the tile (or it has the focus).
+  // ---- Landing mosaic: the animation behind a still plays while the pointer is on the tile (or it has the focus).
   // The GIF is fetched on the first hover only; nothing moves on touch screens or when reduced motion is asked for.
   const hover = matchMedia("(hover: hover)"), calm = matchMedia("(prefers-reduced-motion: reduce)");
-  for (const img of document.querySelectorAll(".tile img[data-anim]")) {
+  for (const img of document.querySelectorAll(".showcase .tile img[data-anim]")) {
     const tile = img.closest(".tile"), still = img.currentSrc || img.src;
     let on = false;
     const play = (e) => {

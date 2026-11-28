@@ -605,12 +605,12 @@ def thumbnail(spec: str):
         return rel, im.width, im.height, fit
 
 
-def tile(cur, p) -> str:
+def tile(cur, p, animate=False) -> str:
     src, w, h, fit = thumbnail(p.meta["thumb"])
     size = f' width="{w}" height="{h}"' if w else ""
     gif = p.meta["thumb"].split()[0]
-    # an animation behind the still: site.js plays it on hover (only when the still is a separate thumbnail)
-    anim = f' data-anim="{cur.rel_root}{gif}"' if gif.lower().endswith(".gif") and src != gif else ""
+    # the landing mosaic only: site.js plays the animation behind the still on hover (when the still is a separate thumbnail)
+    anim = f' data-anim="{cur.rel_root}{gif}"' if animate and gif.lower().endswith(".gif") and src != gif else ""
     return (f'<a class="tile fit-{fit}" href="{link(cur, p)}"><span class="tile-img"><img src="{cur.rel_root}{src}" '
             f'alt="" loading="lazy" decoding="async"{size}{anim}></span><span class="tile-name">{label(p)}</span>'
             f'<span class="tile-sum">{html.escape(p.meta.get("summary", ""))}</span></a>')
@@ -633,7 +633,7 @@ def gallery_md(pages, cur) -> str:
 def showcase_md(pages, cur) -> str:
     """{{showcase}}: the SHOWCASE case pages as a mosaic."""
     by_name = {p.src.stem: p for p in pages if p.meta.get("thumb")}
-    return f'\n<div class="showcase">{"".join(tile(cur, by_name[s]) for s in SHOWCASE)}</div>\n'
+    return f'\n<div class="showcase">{"".join(tile(cur, by_name[s], animate=True) for s in SHOWCASE)}</div>\n'
 
 
 def finish_html(text: str) -> str:
